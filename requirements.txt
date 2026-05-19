@@ -1,0 +1,11 @@
+# Mimir RF Scanner — Python Dependencies
+#
+# System packages (install via package manager, NOT pip):
+#   Fedora:        sudo dnf install hackrf SoapySDR python3-SoapySDR
+#   Ubuntu/Debian: sudo apt-get install hackrf soapysdr-module-hackrf python3-soapysdr
+#
+# Python packages (install via pip):
+
+numpy>=1.26.0
+pytest>=8.0.0
+PyYAML>=6.0

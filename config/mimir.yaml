@@ -1,0 +1,62 @@
+# config/mimir.yaml
+# Mimir RF Scanner — Runtime Configuration
+#
+# This file is auto-generated on first run.
+# Edit carefully — all frequency values are in Hz.
+#
+# LEGAL: All frequencies listed here are legal to receive passively
+# in Australia under the Radiocommunications Act 1992 (Cth).
+# Jurisdiction: South Australia. Authority: ACMA.
+
+# ── Hardware ──────────────────────────────────────────────────────────
+hardware:
+  driver: hackrf
+  serial: null          # null = use first detected device
+  sample_rate_hz: 2000000
+  lna_gain_db: 16
+  vga_gain_db: 20
+  amp_enable: false
+
+# ── Default frequency ──────────────────────────────────────────────────
+default:
+  center_freq_hz: 98000000   # 98 MHz — FM broadcast (safe default)
+
+# ── Australian frequency presets ──────────────────────────────────────
+# NOTE: All frequencies below are legal to receive passively in AU.
+presets:
+  fm_broadcast:
+    center_freq_hz: 98000000     # 98 MHz — FM broadcast band centre
+    sample_rate_hz: 2000000
+    notes: "FM broadcast 87.5–108 MHz"
+
+  aviation_vhf:
+    center_freq_hz: 127000000    # 127 MHz — aviation VHF centre
+    sample_rate_hz: 2000000
+    notes: "Aviation VHF 118–136 MHz"
+
+  aprs:
+    center_freq_hz: 145175000    # 145.175 MHz — APRS Australia
+    sample_rate_hz: 250000
+    notes: "APRS Australia — NOT 144.390 (that is the US frequency)"
+
+  ism_lora:
+    center_freq_hz: 915000000    # 915 MHz — ISM/LoRa Australia
+    sample_rate_hz: 2000000
+    notes: "ISM/LoRa AU/NZ — NOT 868 MHz (that is the EU frequency)"
+
+  adsb:
+    center_freq_hz: 1090000000   # 1090 MHz — ADS-B aircraft transponders
+    sample_rate_hz: 2000000
+    notes: "ADS-B — aircraft GPS position broadcasts, unencrypted"
+
+# ── Local LLM ─────────────────────────────────────────────────────────
+llm:
+  base_url: "http://localhost:11434/v1"
+  model: null            # set to your local model name
+  temperature: 0.2
+  max_tokens: 2048
+
+# ── Logging ────────────────────────────────────────────────────────────
+logging:
+  level: INFO
+  file: null             # null = stdout only

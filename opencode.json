@@ -1,0 +1,32 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "theme": "opencode",
+  "model": "local/mimir-default",
+  "provider": {
+    "local": {
+      "name": "Local LLM Server",
+      "type": "openai",
+      "baseURL": "http://localhost:11434/v1",
+      "models": {
+        "mimir-default": {
+          "name": "mimir-default",
+          "attachment": false,
+          "reasoning": false,
+          "temperature": 0.2,
+          "maxTokens": 4096
+        }
+      }
+    }
+  },
+  "autoshare": false,
+  "autosave": true,
+  "instructions": [
+    "Always read AGENTS.md before making any change to this project.",
+    "This project operates under Australian law (Radiocommunications Act 1992 Cth).",
+    "Never produce transmit code, TX config, or TX-enabling instructions.",
+    "Never use FCC or ETSI rules — AU/ACMA jurisdiction only.",
+    "The hardware is HackRF One — receive-only. No TX ever.",
+    "Explain all RF concepts from first principles — user is a complete beginner.",
+    "Use OpenCode format only: AGENTS.md and opencode.json. Never Claude Code or Cursor format."
+  ]
+}
