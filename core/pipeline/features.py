@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 def fingerprint_spectrum(
     psd_result: dict,
-) -> dict:
+) -> dict[str, float | int]:
     """
     Extract spectral fingerprint features from a PSD result dictionary.
 
