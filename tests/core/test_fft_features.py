@@ -22,6 +22,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from core.pipeline.fft import compute_psd
+from core.pipeline.features import fingerprint_spectrum
 
 
 class TestComputePsd:
@@ -109,3 +110,105 @@ class TestComputePsd:
         result = compute_psd(tone, sample_rate, center_freq, nfft)
         peak_index = np.argmax(result["psd_db"])
         assert peak_index == nfft // 2
+
+
+class TestFingerprintSpectrum:
+    """Tests for the fingerprint_spectrum() function."""
+
+    @pytest.fixture
+    def fm_psd(self):
+        """Synthetic FM-like capture: tone at DC with noise floor."""
+        nfft = 2048
+        num_chunks = 4
+        t = np.arange(nfft * num_chunks)
+        tone = np.exp(1j * 2 * np.pi * 0 * t / nfft).astype(np.complex64)
+        noise = (np.random.randn(len(t)) * 0.01).astype(np.float32) + \
+                1j * (np.random.randn(len(t)) * 0.01).astype(np.float32)
+        samples = tone + noise
+        return compute_psd(
+            samples,
+            sample_rate_hz=2_000_000,
+            center_freq_hz=98_000_000,
+            nfft=nfft,
+        )
+
+    def test_output_keys_present(self, fm_psd):
+        """Result dict contains all 7 required keys."""
+        result = fingerprint_spectrum(fm_psd)
+        expected_keys = {
+            "center_freq_hz", "peak_freq_hz", "peak_power_db", "noise_floor_db",
+            "snr_db", "bandwidth_hz", "occupied_bins",
+        }
+        assert set(result.keys()) == expected_keys
+
+    def test_peak_freq_within_band(self, fm_psd):
+        """peak_freq_hz must be between 97_000_000 and 99_000_000."""
+        result = fingerprint_spectrum(fm_psd)
+        assert 97_000_000 <= result["peak_freq_hz"] <= 99_000_000
+
+    def test_snr_is_positive(self, fm_psd):
+        """SNR must be >= 0.0 for any valid signal input."""
+        result = fingerprint_spectrum(fm_psd)
+        assert result["snr_db"] >= 0.0
+
+    def test_snr_equals_peak_minus_noise(self, fm_psd):
+        """snr_db == peak_power_db - noise_floor_db exactly."""
+        result = fingerprint_spectrum(fm_psd)
+        assert result["snr_db"] == result["peak_power_db"] - result["noise_floor_db"]
+
+    def test_occupied_bins_is_non_negative(self, fm_psd):
+        """occupied_bins >= 0 always."""
+        result = fingerprint_spectrum(fm_psd)
+        assert result["occupied_bins"] >= 0
+
+    def test_bandwidth_equals_bins_times_hz_per_bin(self, fm_psd):
+        """bandwidth_hz == occupied_bins * (sample_rate_hz / nfft)."""
+        result = fingerprint_spectrum(fm_psd)
+        hz_per_bin = fm_psd["sample_rate_hz"] / fm_psd["nfft"]
+        assert result["bandwidth_hz"] == result["occupied_bins"] * hz_per_bin
+
+    def test_empty_psd_returns_zeroed_dict(self):
+        """When compute_psd returns empty arrays, fingerprint_spectrum returns zeroed dict."""
+        empty_psd = {
+            "frequencies_hz": np.array([]),
+            "psd_db": np.array([]),
+            "center_freq_hz": 98_000_000,
+            "sample_rate_hz": 2_000_000,
+            "nfft": 2048,
+        }
+        result = fingerprint_spectrum(empty_psd)
+        assert result["center_freq_hz"] == 98_000_000
+        assert result["peak_freq_hz"] == 0.0
+        assert result["peak_power_db"] == 0.0
+        assert result["noise_floor_db"] == 0.0
+        assert result["snr_db"] == 0.0
+        assert result["bandwidth_hz"] == 0.0
+        assert result["occupied_bins"] == 0
+
+    def test_center_freq_passthrough(self, fm_psd):
+        """center_freq_hz in result matches what was passed to compute_psd."""
+        result = fingerprint_spectrum(fm_psd)
+        assert result["center_freq_hz"] == fm_psd["center_freq_hz"]
+
+    def test_known_tone_has_positive_snr(self):
+        """Inject a synthetic tone at DC offset — fingerprint_spectrum must return snr_db > 10.0."""
+        nfft = 2048
+        num_chunks = 4
+        t = np.arange(nfft * num_chunks)
+        tone = np.exp(1j * 2 * np.pi * 0 * t / nfft).astype(np.complex64)
+        noise = (np.random.randn(len(t)) * 0.01).astype(np.float32) + \
+                1j * (np.random.randn(len(t)) * 0.01).astype(np.float32)
+        samples = tone + noise
+        psd = compute_psd(
+            samples,
+            sample_rate_hz=2_000_000,
+            center_freq_hz=98_000_000,
+            nfft=nfft,
+        )
+        result = fingerprint_spectrum(psd)
+        assert result["snr_db"] > 10.0
+
+    def test_occupied_bins_type_is_int(self, fm_psd):
+        """occupied_bins must be Python int, not numpy int."""
+        result = fingerprint_spectrum(fm_psd)
+        assert type(result["occupied_bins"]) is int
