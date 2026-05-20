@@ -306,18 +306,24 @@ class HackRFReceiver(DeviceBase):
         if not self._is_open:
             raise RuntimeError("Device is not open. Call open() first.")
 
-        buffer = np.zeros(num_samples, dtype=np.complex64)
-        sr = self._device.readStream(
-            self._stream, [buffer], num_samples, timeoutUs=int(1e7)
-        )
-
-        if sr.ret < 0:
-            raise RuntimeError(
-                f"HackRF read failed (SoapySDR error code {sr.ret}). "
-                f"Try reducing sample rate or checking USB connection."
+        output = np.zeros(num_samples, dtype=np.complex64)
+        total = 0
+        while total < num_samples:
+            remaining = num_samples - total
+            chunk = output[total:total + remaining]
+            sr = self._device.readStream(
+                self._stream, [chunk], remaining, timeoutUs=int(1e7)
             )
+            if sr.ret < 0:
+                raise RuntimeError(
+                    f"HackRF read failed (SoapySDR error code {sr.ret}). "
+                    f"Try reducing sample rate or checking USB connection."
+                )
+            total += sr.ret
+            if sr.ret == 0:
+                break
 
-        return buffer[:sr.ret]
+        return output[:total]
 
     # ── Transmit — all permanently blocked ────────────────────────────
     # These override DeviceBase and add explicit HackRF-specific naming.
