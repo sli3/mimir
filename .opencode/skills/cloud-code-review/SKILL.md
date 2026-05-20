@@ -1,6 +1,6 @@
 ---
 name: cloud-code-review
-description: Read-only code review against project context and recent session changes. Triggers on "review", "code review", "review this function", "review [filename]", or "run code review". Reports bugs, logic errors, and environment mismatches. Never edits. Switch to the cloud-code-review model manually before triggering — this skill cannot detect or change the active model.
+description: Read-only cloud-model code review. Trigger explicitly with "run cloud-code-review" or "cloud review". Never triggers on "review" or "code review" alone — those route to @local-reviewer.
 ---
 
 ## Cloud Code Review
