@@ -9,3 +9,4 @@ data/
 *.npy
 *.bin
 opencode.json
+.session-memos/

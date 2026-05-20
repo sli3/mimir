@@ -1,7 +1,7 @@
 ---
 description: Second-pass logic reviewer using local LLM. Read-only. Invoke after build agent finishes a Code session edit.
 mode: subagent
-model: local/mimir-default
+model: local-llama/Qwen3
 temperature: 0.3
 tools:
   write: false

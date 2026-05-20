@@ -1,7 +1,7 @@
 ---
 description: Deep bug analysis for Mimir — invoked by deep-bug-analysis skill only. Never invoke directly.
 mode: subagent
-model: local/mimir-default
+model: local-llama/Qwen3.6-35b
 temperature: 0.1
 tools:
   write: false
