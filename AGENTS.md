@@ -94,7 +94,7 @@ dashboard/                      Live waterfall + AI annotation overlay
 |---|---|---|
 | 0 | Hardware Safety Gate | 🔨 In Progress |
 | 1 | IQ Capture Pipeline | Not started |
-| 2 | FFT + Feature Extraction | Not started |
+| 2 | FFT + Feature Extraction | 🔨 In Progress |
 | 3 | Embedding + Vector Store | Not started |
 | 4 | LLM Classification | Not started |
 | 5 | Live Dashboard | Not started |
@@ -127,3 +127,14 @@ All tests pass. TX is provably impossible in software.
 | `tests/core/test_rx_only_lock.py` | Phase 0 acceptance tests |
 | `config/mimir.yaml` | Runtime configuration |
 | `docs/au-legal-reference.md` | ACMA legal reference |
+| `core/pipeline/fft.py`      | FFT + PSD computation |
+| `core/pipeline/features.py` | Spectrum fingerprinting |
+
+---
+
+## Known Tech Debt
+
+| Item | Detail | Fix in |
+|---|---|---|
+| `psd_db` uncalibrated | FFT missing nfft normalisation — absolute dBFS wrong, SNR unaffected | Phase 5 |
+| `config/mimir.yaml` not loaded | Runtime config loading not yet implemented | Phase 2+ |
