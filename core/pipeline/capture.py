@@ -13,9 +13,6 @@ import numpy as np
 
 from core.device.hackrf_rx import HackRFReceiver
 
-# Default FFT size for spectral analysis
-DEFAULT_NFFT: int = 2048
-
 logger = logging.getLogger(__name__)
 
 

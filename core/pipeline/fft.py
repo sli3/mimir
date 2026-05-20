@@ -9,7 +9,8 @@ import logging
 
 import numpy as np
 
-from core.pipeline.capture import DEFAULT_NFFT
+# Default FFT size for spectral analysis
+DEFAULT_NFFT: int = 2048
 
 logger = logging.getLogger(__name__)
 
