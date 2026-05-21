@@ -33,28 +33,31 @@ See `docs/au-legal-reference.md` for full details.
 ---
 
 ## Architecture
+
+```
 HackRF One (RX only — NEVER TX)
-│
-▼ raw IQ samples (complex64)
+    │
+    ▼ raw IQ samples (complex64)
 core/device/hackrf_rx.py        ← SoapySDR Python bindings
-│
-▼ numpy arrays
+    │
+    ▼ numpy arrays
 core/pipeline/capture.py        ← IQ capture + save to disk
-│
-▼ .npy files
+    │
+    ▼ .npy files
 core/pipeline/fft.py            ← FFT + power spectral density
-│
-▼ psd_result dict
+    │
+    ▼ psd_result dict
 core/pipeline/features.py       ← fingerprint_spectrum()
-│
-▼ feature dict
+    │
+    ▼ feature dict
 embeddings/                     ← ChromaDB vector store (Phase 3)
-│
-▼ similarity search
+    │
+    ▼ similarity search
 llm/                            ← Local LLM classification (Phase 4)
-│
-▼ classification + anomaly detection
+    │
+    ▼ classification + anomaly detection
 dashboard/                      ← Live waterfall + AI annotations (Phase 5)
+```
 
 ---
 
@@ -94,6 +97,8 @@ python -m pytest tests/ -v
 ---
 
 ## Project Structure
+
+```
 mimir/
 ├── AGENTS.md                       ← OpenCode memory — read first every session
 ├── opencode.json                   ← OpenCode config + local LLM settings
@@ -121,5 +126,6 @@ mimir/
 │       ├── test_capture_pipeline.py ← Phase 1: IQ capture tests
 │       └── test_fft_features.py    ← Phase 2: FFT + fingerprint tests
 └── docs/
-├── au-legal-reference.md       ← ACMA legal reference
-└── MIMIR_ROADMAP.md            ← Full phase roadmap
+    ├── au-legal-reference.md       ← ACMA legal reference
+    └── MIMIR_ROADMAP.md            ← Full phase roadmap
+```
