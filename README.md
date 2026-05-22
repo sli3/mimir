@@ -88,11 +88,11 @@ python -m pytest tests/ -v
 | **0** | **Hardware Safety Gate** | ✅ Complete | 25/25 |
 | **1** | **IQ Capture Pipeline** | ✅ Complete | 5/5 |
 | **2** | **FFT + Feature Extraction** | ✅ Complete | 20/20 |
-| 3 | Embedding + Vector Store | ⬜ Next | — |
-| 4 | LLM Classification | ⬜ Not started | — |
+| **3** | **Embedding + Vector Store** | ✅ Complete | 24/24 |
+| 4 | LLM Classification | 🔨 Next | — |
 | 5 | Live Dashboard | ⬜ Not started | — |
 
-**Total: 50/50 tests passing**
+**Total: 74/74 tests passing**
 
 ---
 
@@ -116,15 +116,20 @@ mimir/
 │       ├── fft.py                  ← FFT + PSD computation
 │       └── features.py             ← fingerprint_spectrum() feature extraction
 ├── embeddings/                     ← Phase 3+
+│   ├── __init__.py
+│   ├── embedder.py                 ← SpectrumEmbedder
+│   └── store.py                    ← SignalStore (ChromaDB)
 ├── llm/                            ← Phase 4+
 ├── dashboard/                      ← Phase 5+
 ├── config/
 │   └── mimir.yaml                  ← Runtime configuration (manually maintained)
 ├── tests/
-│   └── core/
-│       ├── test_rx_only_lock.py    ← Phase 0: TX hard block tests
-│       ├── test_capture_pipeline.py ← Phase 1: IQ capture tests
-│       └── test_fft_features.py    ← Phase 2: FFT + fingerprint tests
+│   ├── core/
+│   │   ├── test_rx_only_lock.py    ← Phase 0: TX hard block tests
+│   │   ├── test_capture_pipeline.py ← Phase 1: IQ capture tests
+│   │   └── test_fft_features.py    ← Phase 2: FFT + fingerprint tests
+│   └── embeddings/
+│       └── test_phase3_embedding.py ← Phase 3: embedding + vector store tests
 └── docs/
     ├── au-legal-reference.md       ← ACMA legal reference
     └── MIMIR_ROADMAP.md            ← Full phase roadmap

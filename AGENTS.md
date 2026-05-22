@@ -92,11 +92,11 @@ dashboard/                      Live waterfall + AI annotation overlay
 
 | Phase | Name | Status |
 |---|---|---|
-| 0 | Hardware Safety Gate | 🔨 In Progress |
-| 1 | IQ Capture Pipeline | Not started |
-| 2 | FFT + Feature Extraction | 🔨 In Progress |
-| 3 | Embedding + Vector Store | Not started |
-| 4 | LLM Classification | Not started |
+| 0 | Hardware Safety Gate | ✅ Complete |
+| 1 | IQ Capture Pipeline | ✅ Complete |
+| 2 | FFT + Feature Extraction | ✅ Complete |
+| 3 | Embedding + Vector Store | ✅ Complete |
+| 4 | LLM Classification | 🔨 Next |
 | 5 | Live Dashboard | Not started |
 
 ### Phase 0 complete when
@@ -129,6 +129,9 @@ All tests pass. TX is provably impossible in software.
 | `docs/au-legal-reference.md` | ACMA legal reference |
 | `core/pipeline/fft.py`      | FFT + PSD computation |
 | `core/pipeline/features.py` | Spectrum fingerprinting |
+| `embeddings/embedder.py`    | SpectrumEmbedder — fingerprint to vector |
+| `embeddings/store.py`       | SignalStore — ChromaDB wrapper |
+| `tests/embeddings/test_phase3_embedding.py` | Phase 3 acceptance tests |
 
 ---
 
