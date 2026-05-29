@@ -104,12 +104,12 @@ class TestComputePsd:
         assert result["nfft"] == nfft
 
     def test_known_tone_appears_at_correct_bin(self, sample_rate, center_freq, nfft):
-        """A tone at DC (zero offset from centre) peaks at the centre bin (nfft // 2)."""
+        """A tone at offset bin 10 peaks at centre bin + 10 after DC removal."""
         t = np.arange(nfft * 4)
-        tone = np.exp(1j * 2 * np.pi * 0 * t / nfft).astype(np.complex64)
+        tone = np.exp(1j * 2 * np.pi * 10 * t / nfft).astype(np.complex64)
         result = compute_psd(tone, sample_rate, center_freq, nfft)
         peak_index = np.argmax(result["psd_db"])
-        assert peak_index == nfft // 2
+        assert peak_index == nfft // 2 + 10
 
 
 class TestFingerprintSpectrum:
@@ -191,11 +191,11 @@ class TestFingerprintSpectrum:
         assert result["center_freq_hz"] == fm_psd["center_freq_hz"]
 
     def test_known_tone_has_positive_snr(self):
-        """Inject a synthetic tone at DC offset — fingerprint_spectrum must return snr_db > 10.0."""
+        """Inject a synthetic tone at bin 10 offset (non-DC, survives DC removal) — fingerprint_spectrum must return snr_db > 10.0."""
         nfft = 2048
         num_chunks = 4
         t = np.arange(nfft * num_chunks)
-        tone = np.exp(1j * 2 * np.pi * 0 * t / nfft).astype(np.complex64)
+        tone = np.exp(1j * 2 * np.pi * 10 * t / nfft).astype(np.complex64)
         noise = (np.random.randn(len(t)) * 0.01).astype(np.float32) + \
                 1j * (np.random.randn(len(t)) * 0.01).astype(np.float32)
         samples = tone + noise

@@ -75,6 +75,9 @@ def compute_psd(
             "num_chunks": 0,
         }
 
+    # Remove DC offset (HackRF One produces false spike at centre frequency)
+    samples = samples - np.mean(samples)
+
     # Split samples into non-overlapping chunks of size nfft
     num_chunks = len(samples) // nfft
     if num_chunks == 0:

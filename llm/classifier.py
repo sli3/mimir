@@ -112,11 +112,19 @@ Australian frequency bands (legal to receive passively — no licence required):
 
 _DISTANCE_SCALE_REFERENCE = """
 ChromaDB distance scale (lower = more similar):
-  0.0        : Identical match (self-match)
-  0.0 – 0.5  : Strong match — likely the same signal type
-  0.5 – 1.0  : Moderate match — possibly related
-  1.0 – 1.5  : Weak match — likely a different signal type
-  1.5+       : Probably a novel signal — not closely matched to anything stored
+Calibrated from real HackRF One captures — Adelaide, AU — May 2026.
+
+  0.000 – 0.002 : Strong match   — almost certainly the same signal type
+  0.002 – 0.035 : Possible match — likely same type, moderate confidence
+  0.035 – 0.080 : Different type — known signal but different category
+  0.080+        : Novel signal   — does not closely match anything stored
+
+Reference distances from calibration:
+  FM broadcast same-type:   0.0007  (very stable)
+  Aviation VHF same-type:   0.0003  (very stable)
+  ADS-B same-type:          0.0000  (consistent when traffic overhead)
+  VHF vs ADS-B cross-type:  0.062   (closest cross-type pair)
+  FM vs noise:              0.237   (FM is highly distinctive)
 """.strip()
 
 # ── Required JSON output schema ────────────────────────────────────────────────
