@@ -1,0 +1,64 @@
+/* Reset: remove default browser margins, paddings, and use border-box sizing */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+/* Full viewport height, no scrolling, dark background */
+html,
+body {
+    height: 100%;
+    overflow: hidden;
+    background-color: #111111;
+}
+
+/* Main dashboard container - stacks annotation bar and waterfall vertically */
+#dashboard {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+/* Top annotation bar - shows AI classification results */
+#annotation-bar {
+    height: 60px;
+    min-height: 60px;
+    background-color: #1a1a1a;
+    border-bottom: 1px solid #333333;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    font-family: monospace;
+    font-size: 14px;
+    color: #ffffff;
+}
+
+/* Signal label text - bright green for visibility */
+#annotation-bar .label {
+    color: #00ff88;
+}
+
+/* Metadata text (SNR, confidence) - grey */
+#annotation-bar .meta {
+    color: #888888;
+}
+
+/* Waterfall container - fills remaining height */
+#waterfall-container {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+    min-height: 0;
+}
+
+/* Canvas for the waterfall display */
+#waterfall {
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
