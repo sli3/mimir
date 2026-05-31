@@ -13,6 +13,14 @@
             <div id="annotation">Scanning...</div>
         </div>
 
+        <!-- Band selector buttons -->
+        <div id="band-selector">
+          <button onclick="setBand('fm_broadcast')" id="btn-fm-broadcast">FM</button>
+          <button onclick="setBand('aviation')"     id="btn-aviation">Aviation</button>
+          <button onclick="setBand('adsb')"         id="btn-adsb">ADS-B</button>
+          <button onclick="setBand('noise_floor')"  id="btn-noise-floor">Noise</button>
+        </div>
+
         <!-- Bottom waterfall canvas - displays spectrum over time -->
         <div id="waterfall-container">
             <canvas id="waterfall"></canvas>

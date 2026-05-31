@@ -83,3 +83,46 @@ latest_annotation = {
 # Why an event?: It's a simple, standard way to coordinate shutdown across
 #                multiple threads without complex locking or shared flags.
 shutdown_event = threading.Event()
+
+# =============================================================================
+# WEBSOCKET CLIENT MANAGEMENT
+# =============================================================================
+
+# Set of active browser WebSocket connections.
+# The capture loop broadcasts to every ws in this set.
+# Protected by spectrum_clients_lock.
+spectrum_clients: set = set()
+spectrum_clients_lock = threading.Lock()
+
+# Band switching — event set by /ws/command when user clicks a band button.
+# The capture loop checks this every frame and restarts on the new band.
+band_change_event = threading.Event()
+
+# The four AU-legal band profiles. All receive-only.
+BAND_PROFILES: dict = {
+    "fm_broadcast": {
+        "center_freq_hz": 98_000_000,
+        "lna_gain_db":    32,
+        "vga_gain_db":    40,
+    },
+    "aviation": {
+        "center_freq_hz": 127_000_000,
+        "lna_gain_db":    32,
+        "vga_gain_db":    40,
+    },
+    "adsb": {
+        "center_freq_hz": 1_090_000_000,
+        "lna_gain_db":    32,
+        "vga_gain_db":    38,
+    },
+    "noise_floor": {
+        "center_freq_hz": 98_000_000,
+        "lna_gain_db":    16,
+        "vga_gain_db":    20,
+    },
+}
+
+# Currently active band. Initialise to FM broadcast.
+# Protected by current_band_lock.
+current_band: dict = dict(BAND_PROFILES["fm_broadcast"])
+current_band_lock = threading.Lock()

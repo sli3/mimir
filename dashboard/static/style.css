@@ -45,6 +45,38 @@ body {
     color: #888888;
 }
 
+/* Band selector buttons row */
+#band-selector {
+    display: flex;
+    gap: 8px;
+    padding: 8px 12px;
+    background: #0a0a0f;
+}
+
+#band-selector button {
+    background: #1a1a2e;
+    color: #7ecfff;
+    border: 1px solid #2a3a5c;
+    border-radius: 4px;
+    padding: 4px 14px;
+    font-family: monospace;
+    font-size: 12px;
+    cursor: pointer;
+    letter-spacing: 0.05em;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+#band-selector button:hover {
+    background: #22304a;
+    border-color: #7ecfff;
+}
+
+#band-selector button.active {
+    background: #0d3a6e;
+    border-color: #7ecfff;
+    color: #ffffff;
+}
+
 /* Waterfall container - fills remaining height */
 #waterfall-container {
     flex: 1;

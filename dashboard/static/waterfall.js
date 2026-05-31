@@ -26,14 +26,21 @@
  */
 
 // Connection settings
-const WS_URL = "ws://" + window.location.hostname + ":8899/ws/spectrum";
+const WS_URL = `ws://${location.host}/ws/spectrum`;
 
 // Number of frequency bins (must match FFT size used in capture_loop.py)
 const NUM_BINS = 2048;
 
-// Colour scale anchors - maps dB values to colours
-const MIN_DB = -50;   // noise floor anchor — below this = black
-const MAX_DB = -20;   // strong signal anchor — above this = white
+// Per-band colour scale anchors - maps dB values to colours
+const BAND_SCALE = {
+  "fm_broadcast": { min: -60, max:  0 },
+  "aviation":     { min: -60, max:  0 },
+  "adsb":         { min: -60, max:  0 },
+  "noise_floor":  { min: -60, max:  0 },
+};
+
+// Active scale — updated on band switch, starts on FM
+let activeScale = { ...BAND_SCALE["fm_broadcast"] };
 
 /**
  * Get the canvas element by its ID.
@@ -60,11 +67,11 @@ function resizeCanvas() {
  * @returns {Object} RGB colour object like {r: 0, g: 255, b: 255}
  */
 function powerToColour(db) {
-    // Clamp to valid range
-    const clamped = Math.min(MAX_DB, Math.max(MIN_DB, db));
+    // Clamp to valid range using active scale
+    const clamped = Math.min(activeScale.max, Math.max(activeScale.min, db));
 
     // Normalize to 0.0 - 1.0
-    const normalized = (clamped - MIN_DB) / (MAX_DB - MIN_DB);
+    const normalized = (clamped - activeScale.min) / (activeScale.max - activeScale.min);
 
     // Predefined colours for the four segments
     const colours = [
@@ -145,8 +152,55 @@ function drawRow(psdDb) {
  * Main loop that processes incoming spectrum data.
  */
 function processSpectrum(data) {
-    if (data.type === "spectrum" && Array.isArray(data.psd_db)) {
-        drawRow(data.psd_db);
+    if (Array.isArray(data.psd_db)) {
+        const psd = [...data.psd_db];
+
+        // Suppress DC spike — hardware artefact at centre bin
+        const center = Math.floor(psd.length / 2);
+        psd[center] = (psd[center - 1] + psd[center + 1]) / 2;
+
+        // Percentile normalization — guarantees contrast on all bands.
+        // Sort a copy to find the 5th and 95th percentile values.
+        // Map those to activeScale.min and activeScale.max respectively.
+        // This works whether the band is busy (FM) or quiet (Aviation).
+        const sorted = [...psd].sort((a, b) => a - b);
+        const p5  = sorted[Math.floor(sorted.length * 0.05)];
+        const p95 = sorted[Math.floor(sorted.length * 0.95)];
+        const dataRange = (p95 - p5) || 1;   // guard against flat frame
+        const scaleRange = activeScale.max - activeScale.min;
+
+        const renorm = psd.map(v => {
+            const t = (v - p5) / dataRange;       // 0.0 = p5, 1.0 = p95
+            return t * scaleRange + activeScale.min;
+        });
+
+        drawRow(renorm);
+    }
+}
+
+// Band selector -- command WebSocket
+const cmdWs = new WebSocket(`ws://${location.host}/ws/command`);
+
+function setBand(bandName) {
+    if (cmdWs.readyState === WebSocket.OPEN) {
+        cmdWs.send(JSON.stringify({ band: bandName }));
+
+        // Update the colour scale for this band
+        if (BAND_SCALE[bandName]) {
+            activeScale = { ...BAND_SCALE[bandName] };
+        }
+
+        // Clear the canvas so old band data does not persist
+        const canvas = document.getElementById('waterfall');
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Update active button highlight
+        document.querySelectorAll('#band-selector button').forEach(btn => {
+            btn.classList.remove('active');
+        });
+        const active = document.getElementById('btn-' + bandName.replace('_', '-'));
+        if (active) active.classList.add('active');
     }
 }
 

@@ -23,16 +23,26 @@ open so we can push live data (PSD values, AI annotations) to the dashboard
 without asking for it repeatedly.
 """
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket
+from fastapi.websockets import WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 # Mount static files so /static/... URLs work (needed later for JS and CSS)
 import dashboard.shared_state as shared_state
-from dashboard.capture_loop import run_capture_loop
+from dashboard.capture_loop import run_shared_capture_loop
+from dashboard.shared_state import (
+    BAND_PROFILES,
+    band_change_event,
+    current_band,
+    current_band_lock,
+    spectrum_clients,
+    spectrum_clients_lock,
+)
 
 # Configure logging - beginner note: logging is like printing to the terminal
 # but with timestamps and levels (INFO, WARNING, ERROR). We use it so you
@@ -55,12 +65,21 @@ async def lifespan(app: FastAPI):
     On shutdown:
     - Tell all threads to stop by setting the shutdown_event flag
     """
-    # Startup event - called when server is starting
     logger.info("Mimir dashboard starting on port 8899")
-    yield  # FastAPI resumes here while the server runs
-    # Shutdown event - called when server is stopping
-    logger.info("Shutting down Mimir dashboard...")
+    capture_task = asyncio.create_task(run_shared_capture_loop())
+    yield
     shared_state.shutdown_event.set()
+    try:
+        await asyncio.wait_for(capture_task, timeout=5.0)
+    except asyncio.TimeoutError:
+        logger.warning("Capture task did not exit after 5s -- force cancelling")
+        capture_task.cancel()
+        try:
+            await capture_task
+        except asyncio.CancelledError:
+            pass
+    except asyncio.CancelledError:
+        pass
 
 
 # Create the FastAPI application
@@ -77,18 +96,50 @@ async def root():
     return FileResponse("dashboard/static/index.html")
 
 
-# WebSocket endpoint for streaming PSD (power spectral density) data.
 @app.websocket("/ws/spectrum")
-async def spectrum_websocket(websocket: WebSocket):
-    """
-    WebSocket endpoint for live spectrum data.
-
-    Accepts a browser connection then hands off to run_capture_loop()
-    which streams psd_db rows continuously until disconnect or shutdown.
-    """
+async def spectrum_ws(websocket: WebSocket) -> None:
     await websocket.accept()
-    logger.info("Browser connected to /ws/spectrum")
-    await run_capture_loop(websocket)
+    with spectrum_clients_lock:
+        spectrum_clients.add(websocket)
+    logger.info("Browser connected -- %d client(s) active", len(spectrum_clients))
+    try:
+        while not shared_state.shutdown_event.is_set():
+            await asyncio.sleep(0.5)
+    except (WebSocketDisconnect, asyncio.CancelledError):
+        pass
+    finally:
+        with spectrum_clients_lock:
+            spectrum_clients.discard(websocket)
+        logger.info("Browser disconnected -- %d client(s) remaining", len(spectrum_clients))
+
+
+@app.websocket("/ws/command")
+async def command_ws(websocket: WebSocket) -> None:
+    """Receives band-switch commands from the browser band selector buttons."""
+    await websocket.accept()
+    try:
+        async for message in websocket.iter_text():
+            import json as _json
+            try:
+                cmd = _json.loads(message)
+                band_name = cmd.get("band")
+                if band_name in BAND_PROFILES:
+                    with current_band_lock:
+                        current_band.clear()
+                        current_band.update(BAND_PROFILES[band_name])
+                    band_change_event.set()
+                    logger.info("Band switched to %s", band_name)
+                    await websocket.send_text(
+                        _json.dumps({"status": "ok", "band": band_name})
+                    )
+                else:
+                    await websocket.send_text(
+                        _json.dumps({"status": "error", "message": f"Unknown band: {band_name}"})
+                    )
+            except Exception as exc:
+                logger.error("Command error: %s", exc)
+    except WebSocketDisconnect:
+        pass
 
 
 # WebSocket endpoint for streaming AI classification annotations.
@@ -123,4 +174,4 @@ if __name__ == "__main__":
     # host=0.0.0.0 means accept connections from any network interface
     # port=8899 is our chosen port (not conflicting with common services)
     # reload=True enables auto-reload on code changes (convenient for dev)
-    uvicorn.run(app, host="0.0.0.0", port=8899)
+    uvicorn.run(app, host="0.0.0.0", port=8899, loop="asyncio")
