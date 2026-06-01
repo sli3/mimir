@@ -35,6 +35,23 @@ def start_server(host: str, port: int):
         }
         socketio.emit("scan_result", data)
 
+    def broadcast_spectrum(
+        psd_db: list,
+        center_freq_hz: float,
+        freq_min_hz: float,
+        freq_max_hz: float,
+    ) -> None:
+        data = {
+            "psd_db": psd_db,
+            "center_freq_hz": center_freq_hz,
+            "freq_min_hz": freq_min_hz,
+            "freq_max_hz": freq_max_hz,
+        }
+        socketio.emit("spectrum_update", data)
+
+    start_server._broadcast_fn = broadcast
+    start_server._broadcast_spectrum_fn = broadcast_spectrum
+
     return broadcast
 
 

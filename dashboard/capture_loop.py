@@ -17,6 +17,7 @@ import logging
 from core.pipeline.fft import compute_psd
 from core.pipeline.features import fingerprint_spectrum
 from core.device.hackrf_rx import HackRFReceiver
+from dashboard.server import start_server
 from dashboard.shared_state import (
     fingerprint_queue,
     shutdown_event,
@@ -94,6 +95,15 @@ async def run_shared_capture_loop() -> None:
                 dead: set = set()
                 with spectrum_clients_lock:
                     snapshot = set(spectrum_clients)
+
+                broadcast_spectrum = getattr(start_server, "_broadcast_spectrum_fn", None)
+                if broadcast_spectrum is not None:
+                    broadcast_spectrum(
+                        psd_db=psd_result["psd_db"].tolist(),
+                        center_freq_hz=band["center_freq_hz"],
+                        freq_min_hz=float(psd_result["frequencies_hz"][0]),
+                        freq_max_hz=float(psd_result["frequencies_hz"][-1]),
+                    )
 
                 for ws in snapshot:
                     try:
