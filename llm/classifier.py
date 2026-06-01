@@ -112,19 +112,19 @@ Australian frequency bands (legal to receive passively — no licence required):
 
 _DISTANCE_SCALE_REFERENCE = """
 ChromaDB distance scale (lower = more similar):
-Calibrated from real HackRF One captures — Adelaide, AU — May 2026.
+Calibrated from real HackRF One captures — Adelaide, AU — June 2026.
 
-  0.000 – 0.002 : Strong match   — almost certainly the same signal type
-  0.002 – 0.035 : Possible match — likely same type, moderate confidence
-  0.035 – 0.080 : Different type — known signal but different category
-  0.080+        : Novel signal   — does not closely match anything stored
+  0.000 – 0.010 : Strong match   — almost certainly the same signal type
+  0.010 – 0.022 : Possible match — likely same type, moderate confidence
+  0.022 – 0.031 : Different type — known signal but different category
+  0.031+        : Novel signal   — does not closely match anything stored
 
 Reference distances from calibration:
-  FM broadcast same-type:   0.0007  (very stable)
-  Aviation VHF same-type:   0.0003  (very stable)
-  ADS-B same-type:          0.0000  (consistent when traffic overhead)
-  VHF vs ADS-B cross-type:  0.062   (closest cross-type pair)
-  FM vs noise:              0.237   (FM is highly distinctive)
+  FM broadcast same-type:   0.0008  (very stable)
+  Aviation VHF same-type:   0.0001  (very stable)
+  ADS-B same-type:          0.0052  (elevated — no aircraft overhead at capture time)
+  VHF vs ADS-B cross-type:  0.034   (closest cross-type pair)
+  FM vs noise:              0.143   (FM is highly distinctive)
 """.strip()
 
 # ── Required JSON output schema ────────────────────────────────────────────────
@@ -304,7 +304,7 @@ No code blocks. Raw JSON exactly matching this schema:
 {_JSON_SCHEMA}
 
 If you cannot confidently classify the signal, use signal_type "unknown" \
-and set confidence to "low". If all neighbours have distances above 1.5, \
+and set confidence to "low". If all neighbours have distances above 0.031, \
 set novel to true. Never invent data — only classify based on what you are given."""
 
     def _build_user_prompt(self, fingerprint: dict, neighbours: list) -> str:
@@ -361,14 +361,14 @@ set novel to true. Never invent data — only classify based on what you are giv
                 label = n.get("label", "unknown")
                 distance = n.get("distance", 0.0)
 
-                if distance <= 0.5:
+                if distance <= 0.010:
                     match_label = "strong match"
-                elif distance <= 1.0:
-                    match_label = "moderate match"
-                elif distance <= 1.5:
-                    match_label = "weak match"
+                elif distance <= 0.022:
+                    match_label = "possible match"
+                elif distance <= 0.031:
+                    match_label = "different signal type"
                 else:
-                    match_label = "very weak match — likely different signal type"
+                    match_label = "novel signal — not closely matched to anything stored"
 
                 neighbour_lines.append(
                     f"  {i}. Label: {label:<20} Distance: {distance:.3f}  ({match_label})"
