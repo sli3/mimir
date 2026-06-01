@@ -13,7 +13,10 @@ import numpy as np
 NOISE_FLOOR_PERCENTILE: float = 10.0
 
 # Minimum SNR above the noise floor for a bin to be considered a signal
-SIGNAL_THRESHOLD_DB: float = 3.0
+# Calibrated against live FM Adelaide capture (98.9 MHz).
+# Value of 27 dB produces ~185 kHz bandwidth — closest to the
+# expected ~200 kHz for Australian FM broadcast.
+SIGNAL_THRESHOLD_DB: float = 27.0
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +35,7 @@ def fingerprint_spectrum(
     The noise floor is estimated using the 10th percentile of all PSD
     values, which ignores strong signals and gives a stable estimate
     of the background noise level. Signal bins are identified as those
-    exceeding the noise floor by at least 3 dB.
+    exceeding the noise floor by at least SIGNAL_THRESHOLD_DB.
 
     Args:
         psd_result: Dictionary returned by ``compute_psd`` containing
@@ -46,8 +49,8 @@ def fingerprint_spectrum(
           - peak_power_db: Power at the peak bin (dBFS)
           - noise_floor_db: Estimated noise floor (10th percentile of psd_db)
           - snr_db: Signal-to-noise ratio (peak_power_db - noise_floor_db)
-          - bandwidth_hz: Occupied bandwidth above noise floor + 3 dB
-          - occupied_bins: Number of bins above noise floor + 3 dB
+          - bandwidth_hz: Occupied bandwidth above noise floor + SIGNAL_THRESHOLD_DB
+          - occupied_bins: Number of bins above noise floor + SIGNAL_THRESHOLD_DB
     """
     psd_db = psd_result["psd_db"]
 

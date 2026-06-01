@@ -117,17 +117,29 @@ class TestFingerprintSpectrum:
 
     @pytest.fixture
     def fm_psd(self):
-        """Synthetic FM-like capture: tone at DC with noise floor."""
+        """Synthetic FM-like capture: wideband signal spanning ~200 bins."""
         nfft = 2048
         num_chunks = 4
-        t = np.arange(nfft * num_chunks)
-        tone = np.exp(1j * 2 * np.pi * 0 * t / nfft).astype(np.complex64)
-        noise = (np.random.randn(len(t)) * 0.01).astype(np.float32) + \
-                1j * (np.random.randn(len(t)) * 0.01).astype(np.float32)
-        samples = tone + noise
+        sample_rate_hz = 2_000_000
+        num_samples = nfft * num_chunks
+        t = np.arange(num_samples)
+
+        carrier_bin = 50
+        deviation_hz = 80_000
+        mod_freq_hz = 1_000
+        mod_index = deviation_hz / mod_freq_hz
+
+        phi_c = 2 * np.pi * carrier_bin * t / nfft
+        phi_m = mod_index * np.sin(2 * np.pi * mod_freq_hz * t / sample_rate_hz)
+        signal = np.exp(1j * (phi_c + phi_m)).astype(np.complex64)
+
+        noise = (np.random.randn(num_samples) * 1e-4).astype(np.float32) + \
+                1j * (np.random.randn(num_samples) * 1e-4).astype(np.float32)
+        samples = signal + noise
+
         return compute_psd(
             samples,
-            sample_rate_hz=2_000_000,
+            sample_rate_hz=sample_rate_hz,
             center_freq_hz=98_000_000,
             nfft=nfft,
         )
@@ -212,3 +224,8 @@ class TestFingerprintSpectrum:
         """occupied_bins must be Python int, not numpy int."""
         result = fingerprint_spectrum(fm_psd)
         assert type(result["occupied_bins"]) is int
+
+    def test_bandwidth_realistic_fm_signal(self, fm_psd):
+        """bandwidth_hz must be between 100_000 and 300_000 Hz for wideband FM-like signal."""
+        result = fingerprint_spectrum(fm_psd)
+        assert 100_000 <= result["bandwidth_hz"] <= 300_000
