@@ -30,6 +30,18 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+# ANSI colour helpers for terminal output
+ANSI_GREEN = "\033[92m"
+ANSI_YELLOW = "\033[93m"
+ANSI_RED = "\033[91m"
+ANSI_RESET = "\033[0m"
+
+
+def _colour(text: str, code: str) -> str:
+    """Wrap text in an ANSI colour code."""
+    return f"{code}{text}{ANSI_RESET}"
+
+
 # =============================================================================
 # SECTION 1 — CALIBRATION_TARGETS config block
 # =============================================================================
@@ -240,6 +252,30 @@ def main() -> None:
             logger.warning("Could not find pair (%s, %s) in store", a_id, b_id)
             continue
 
+    # Compute thresholds for colouring distance cells (same formulas as Step E)
+    entry_labels = {e["id"]: e["label"] for e in entries}
+    _same_type_dists = []
+    _cross_type_dists = []
+    _noise_dists = []
+
+    for a_id, b_id, dist in distance_pairs:
+        a_lbl = entry_labels[a_id]
+        b_lbl = entry_labels[b_id]
+        if a_lbl == b_lbl:
+            _same_type_dists.append(dist)
+        elif "noise_floor" in (a_lbl, b_lbl):
+            _noise_dists.append(dist)
+        else:
+            _cross_type_dists.append(dist)
+
+    _col_same_type_max = max(_same_type_dists) if _same_type_dists else 0.0
+    _col_cross_type_min = min(_cross_type_dists) if _cross_type_dists else 1.0
+
+    STRONG_MATCH = round(_col_same_type_max * 2, 3)
+    POSSIBLE_MATCH = round((_col_same_type_max * 2 + _col_cross_type_min) / 2, 3)
+    DIFFERENT_TYPE = round(_col_cross_type_min * 0.9, 3)
+    NOVEL_SIGNAL = DIFFERENT_TYPE
+
     # ─────────────────────────────────────────────────────────────────────────
     # Print formatted distance matrix
     # ─────────────────────────────────────────────────────────────────────────
@@ -264,7 +300,7 @@ def main() -> None:
         row_parts = [f"{a['id']:>{col_width}}"]
         for b in sorted_entries:
             if a["id"] == b["id"]:
-                cell = "*"
+                cell = f"{'*':>{col_width}}"
             else:
                 dist = None
                 for pa, pb, d in distance_pairs:
@@ -274,10 +310,37 @@ def main() -> None:
                         break
                 if dist is not None:
                     marker = "*" if a["label"] == b["label"] else " "
-                    cell = f"{dist:.4f}{marker}"
+                    cell_visible = f"{dist:.4f}{marker}"
+
+                    is_same_type = a["label"] == b["label"]
+                    is_noise = a["label"] == "noise_floor" or b["label"] == "noise_floor"
+
+                    if is_same_type:
+                        if dist <= STRONG_MATCH:
+                            c_code = ANSI_GREEN
+                        elif dist <= POSSIBLE_MATCH:
+                            c_code = ANSI_YELLOW
+                        else:
+                            c_code = ANSI_RED
+                    elif is_noise:
+                        if dist <= STRONG_MATCH:
+                            c_code = ANSI_RED
+                        elif dist >= DIFFERENT_TYPE:
+                            c_code = ANSI_GREEN
+                        else:
+                            c_code = ANSI_YELLOW
+                    else:
+                        if dist >= DIFFERENT_TYPE:
+                            c_code = ANSI_GREEN
+                        elif dist >= POSSIBLE_MATCH:
+                            c_code = ANSI_YELLOW
+                        else:
+                            c_code = ANSI_RED
+
+                    cell = _colour(f"{cell_visible:>{col_width}}", c_code)
                 else:
-                    cell = "N/A  "
-            row_parts.append(f"{cell:>{col_width}}")
+                    cell = f"{'N/A  ':>{col_width}}"
+            row_parts.append(cell)
         print("  " + "".join(row_parts))
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -331,22 +394,44 @@ def main() -> None:
     print(f"  cross_type_pairs:      {len(cross_type_pairs)} pairs")
     print(f"  noise_floor_pairs:     {len(noise_pairs)} pairs")
     print()
-    print("Same-type max distance:   {:.4f}".format(same_type_max))
-    print("Cross-type min distance:  {:.4f}".format(cross_type_min))
-    print("Noise floor min distance: {:.4f}".format(noise_min))
+    if same_type_max <= 0.010:
+        _st_colour = ANSI_GREEN
+    elif same_type_max <= 0.022:
+        _st_colour = ANSI_YELLOW
+    else:
+        _st_colour = ANSI_RED
+    print("Same-type max distance:   {}".format(_colour("{:.4f}".format(same_type_max), _st_colour)))
+    if cross_type_min >= 0.031:
+        _ct_colour = ANSI_GREEN
+    elif cross_type_min >= 0.022:
+        _ct_colour = ANSI_YELLOW
+    else:
+        _ct_colour = ANSI_RED
+    print("Cross-type min distance:  {}".format(_colour("{:.4f}".format(cross_type_min), _ct_colour)))
+    if noise_min >= 0.031:
+        _nf_colour = ANSI_GREEN
+    elif noise_min >= 0.022:
+        _nf_colour = ANSI_YELLOW
+    else:
+        _nf_colour = ANSI_RED
+    print("Noise floor min distance: {}".format(_colour("{:.4f}".format(noise_min), _nf_colour)))
     print()
     print("-" * 70)
     print("SUGGESTED THRESHOLDS (for llm/classifier.py → _build_system_prompt()):")
     print("-" * 70)
     print()
-    print(f"STRONG_MATCH     = {STRONG_MATCH:.3f}")
+
+    _diff_type_gap = cross_type_min - same_type_max
+    _diff_type_colour = ANSI_GREEN if _diff_type_gap > 0.010 else ANSI_RED
+
+    print(f"STRONG_MATCH     = {_colour(f'{STRONG_MATCH:.3f}', ANSI_GREEN)}")
     print(f"                 → Same-type signals within this distance are strong matches")
     print()
-    print(f"POSSIBLE_MATCH   = {POSSIBLE_MATCH:.3f}")
+    print(f"POSSIBLE_MATCH   = {_colour(f'{POSSIBLE_MATCH:.3f}', ANSI_YELLOW)}")
     print(f"                 → Borderline cases between same-type and different-type")
     print()
-    print(f"DIFFERENT_TYPE   = {DIFFERENT_TYPE:.3f}")
-    print(f"NOVEL_SIGNAL     = {NOVEL_SIGNAL:.3f}")
+    print(f"DIFFERENT_TYPE   = {_colour(f'{DIFFERENT_TYPE:.3f}', _diff_type_colour)}")
+    print(f"NOVEL_SIGNAL     = {_colour(f'{NOVEL_SIGNAL:.3f}', _diff_type_colour)}")
     print(f"                 → Signals above this threshold are considered novel/unseen")
     print()
 
