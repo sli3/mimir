@@ -29,7 +29,7 @@ BUG-01 — neither reviewer would have caught it alone.
 
 | Agent | Model | Strengths |
 |---|---|---|
-| `@local-reviewer` | local-llama/Qwen3 | Logic, TX safety, AU legal, structure |
+| `@local-reviewer` | local-llama/Qwen3.5-9B(Q4) | Logic, TX safety, AU legal, structure |
 | `@cloud-reviewer` | opencode/mimo-v2.5-free | Style, edge cases, subtle bugs |
 
 Both agents are read-only (`edit: deny`, `bash: deny`). Neither modifies files.
