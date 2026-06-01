@@ -56,6 +56,25 @@ llm:
   temperature: 0.2
   max_tokens: 2048
 
+# ── Scanner ───────────────────────────────────────────────────────────
+scanner:
+  frequencies_hz:
+    - 98000000
+    - 145175000
+    - 915000000
+    - 1090000000
+  dwell_time_sec: 2.0
+  num_samples: 2000000
+  lna_gain_db: 16
+  vga_gain_db: 20
+  amp_enable: false
+  queue_maxsize: 20
+
+# ── Dashboard ─────────────────────────────────────────────────────────
+dashboard:
+  host: "127.0.0.1"
+  port: 5000
+
 # ── Logging ────────────────────────────────────────────────────────────
 logging:
   level: INFO

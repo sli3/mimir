@@ -96,8 +96,9 @@ dashboard/                      Live waterfall + AI annotation overlay
 | 1 | IQ Capture Pipeline | ✅ Complete |
 | 2 | FFT + Feature Extraction | ✅ Complete |
 | 3 | Embedding + Vector Store | ✅ Complete |
-| 4 | LLM Classification | 🔨 Next |
-| 5 | Live Dashboard | Not started |
+| 4 | LLM Classification | ✅ Complete |
+| 5 | Live Dashboard | ✅ Complete |
+| 6 | Live Scan + Dashboard Integration | 🔨 In Progress |
 
 ### Phase 0 complete when
 ```
