@@ -45,5 +45,5 @@ export function useWaterfall({ canvasRef, psdDb, sampleRateHz }) {
     }
 
     ctx.putImageData(imageData, 0, 0)
-  }, [canvasRef, psdDb, sampleRateHz])
+  }, [psdDb])
 }

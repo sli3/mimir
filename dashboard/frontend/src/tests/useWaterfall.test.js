@@ -1,32 +1,42 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render } from '@testing-library/react'
+import React, { useRef } from 'react'
 
 const NUM_PSD_BINS = 2048
 
-function createMockCanvas(width, height) {
+function createMockCanvasContext(width, height) {
   const imageData = {
     width,
     height,
     data: new Uint8ClampedArray(width * height * 4),
   }
 
-  const ctx = {
-    getImageData: vi.fn(() => {
-      const clone = new Uint8ClampedArray(width * height * 4)
-      clone.set(imageData.data)
-      return { width, height, data: clone }
+  return {
+    getImageData: vi.fn(() => ({
+      width,
+      height,
+      data: new Uint8ClampedArray(imageData.data),
+    })),
+    putImageData: vi.fn((data) => {
+      imageData.data.set(data.data)
     }),
-    putImageData: vi.fn((imgData) => {
-      imageData.data.set(imgData.data)
-    }),
+    clearRect: vi.fn(),
+    beginPath: vi.fn(),
+    moveTo: vi.fn(),
+    lineTo: vi.fn(),
+    stroke: vi.fn(),
   }
+}
 
+function createMockCanvas(width, height) {
+  const ctx = createMockCanvasContext(width, height)
   const canvas = {
     width,
     height,
     getContext: vi.fn(() => ctx),
   }
-
-  return { canvas, ctx, imageData }
+  canvas.getContext = vi.fn(() => ctx)
+  return { canvas, ctx }
 }
 
 describe('useWaterfall logic', () => {
@@ -113,5 +123,53 @@ describe('useWaterfall logic', () => {
       if (!ctx) return
     }
     expect(fn()).toBeUndefined()
+  })
+})
+
+import { useWaterfall } from '../hooks/useWaterfall.js'
+
+describe('useWaterfall hook integration', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+  })
+
+  it('does not crash when psdDb is null', () => {
+    const { canvas } = createMockCanvas(100, 100)
+    expect(() => {
+      function TestComponent() {
+        const canvasRef = useRef(canvas)
+        useWaterfall({ canvasRef, psdDb: null, sampleRateHz: 2000000 })
+        return null
+      }
+      render(React.createElement(TestComponent))
+    }).not.toThrow()
+  })
+
+  it('does not call putImageData when psdDb is null', () => {
+    const { canvas, ctx } = createMockCanvas(100, 100)
+    function TestComponent() {
+      const canvasRef = useRef(canvas)
+      useWaterfall({ canvasRef, psdDb: null, sampleRateHz: 2000000 })
+      return null
+    }
+    render(React.createElement(TestComponent))
+    expect(ctx.putImageData).not.toHaveBeenCalled()
+  })
+
+  it('calls getImageData and putImageData when psdDb is provided', () => {
+    const width = 10
+    const height = 100
+    const { canvas, ctx } = createMockCanvas(width, height)
+    const psdDb = new Array(NUM_PSD_BINS).fill(-40)
+
+    function TestComponent() {
+      const canvasRef = useRef(canvas)
+      useWaterfall({ canvasRef, psdDb, sampleRateHz: 2000000 })
+      return null
+    }
+    render(React.createElement(TestComponent))
+
+    expect(ctx.getImageData).toHaveBeenCalledWith(0, 0, width, height)
+    expect(ctx.putImageData).toHaveBeenCalled()
   })
 })

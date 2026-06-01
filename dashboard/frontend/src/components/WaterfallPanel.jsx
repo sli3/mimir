@@ -6,17 +6,16 @@ import { useWaterfall } from '../hooks/useWaterfall.js'
 const SAMPLE_RATE_HZ = 2_000_000
 
 const STRIP_CONFIGS = [
-  { freq_hz: 98000000,   label: '98.0 MHz',   name: 'FM BROADCAST', colour: 'var(--neon-cyan)'    },
-  { freq_hz: 145175000,  label: '145.175 MHz', name: 'APRS',         colour: 'var(--neon-green)'  },
-  { freq_hz: 915000000,  label: '915.0 MHz',   name: 'ISM / LoRa',   colour: 'var(--neon-amber)'  },
-  { freq_hz: 1090000000, label: '1090.0 MHz',  name: 'ADS-B',        colour: 'var(--neon-magenta)'},
+  { freq_hz: 98000000,   label: '98.0 MHz',    name: 'FM BROADCAST', colourVar: '--neon-cyan'    },
+  { freq_hz: 145175000,  label: '145.175 MHz',  name: 'APRS',         colourVar: '--neon-green'  },
+  { freq_hz: 915000000,  label: '915.0 MHz',    name: 'ISM / LoRa',   colourVar: '--neon-amber'  },
+  { freq_hz: 1090000000, label: '1090.0 MHz',   name: 'ADS-B',        colourVar: '--neon-magenta'},
 ]
 
 function WaterfallStrip({ config, latestPsd, focusedFreq, focusFrequency }) {
   const canvasRef = useRef(null)
   const crosshairRef = useRef(null)
   const canvasSize = useCanvasSize(canvasRef)
-  useCanvasSize(crosshairRef)
   const [crosshairX, setCrosshairX] = useState(null)
 
   useWaterfall({
@@ -31,7 +30,8 @@ function WaterfallStrip({ config, latestPsd, focusedFreq, focusFrequency }) {
     const rect = canvas.getBoundingClientRect()
     const x = e.clientX - rect.left
     const width = canvas.width
-    const freq = config.freq_hz + ((x / width) - 0.5) * SAMPLE_RATE_HZ
+    const relativeX = x / width
+    const freq = config.freq_hz + (relativeX - 0.5) * SAMPLE_RATE_HZ
     setCrosshairX(x)
     focusFrequency(Math.round(freq))
   }, [config.freq_hz, focusFrequency])
@@ -39,6 +39,9 @@ function WaterfallStrip({ config, latestPsd, focusedFreq, focusFrequency }) {
   useEffect(() => {
     const canvas = crosshairRef.current
     if (!canvas) return
+    if (canvasSize.width === 0 || canvasSize.height === 0) return
+    canvas.width = canvasSize.width
+    canvas.height = canvasSize.height
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
@@ -59,35 +62,36 @@ function WaterfallStrip({ config, latestPsd, focusedFreq, focusFrequency }) {
   return (
     <div style={{
       display: 'flex',
-      height: '25%',
-      borderBottom: '1px solid rgba(255,255,255,0.05)',
+      flexDirection: 'row',
+      flex: 1,
+      borderBottom: '1px solid var(--border)',
+      borderLeft: isActive ? '3px solid var(--border-active)' : '3px solid transparent',
+      background: isActive ? 'rgba(0,255,255,0.03)' : 'transparent',
     }}>
       <div
         onClick={() => focusFrequency(config.freq_hz)}
         style={{
-          width: 100,
+          width: 90,
           flexShrink: 0,
+          padding: 4,
           display: 'flex',
           flexDirection: 'column',
           justifyContent: 'center',
-          padding: '0 8px',
           cursor: 'pointer',
-          borderLeft: isActive ? '3px solid rgba(0,255,255,0.7)' : '3px solid transparent',
-          background: isActive ? 'rgba(0,255,255,0.04)' : 'transparent',
         }}
       >
         <div style={{
-          fontFamily: '"Press Start 2P", monospace',
+          fontFamily: 'var(--font-display)',
           fontSize: 6,
-          color: config.colour,
-          marginBottom: 2,
+          color: `var(${config.colourVar})`,
         }}>
           {config.label}
         </div>
         <div style={{
-          fontFamily: '"Share Tech Mono", monospace',
+          fontFamily: 'var(--font-data)',
           fontSize: 8,
           color: 'var(--text-dim)',
+          marginTop: 4,
         }}>
           {config.name}
         </div>
@@ -122,8 +126,8 @@ function WaterfallStrip({ config, latestPsd, focusedFreq, focusFrequency }) {
   )
 }
 
-export default function WaterfallPanel() {
-  const { focusedFreq, focusFrequency, getPsdDb } = useSocket()
+export default function WaterfallPanel({ focusedFreq, focusFrequency }) {
+  const { spectrumUpdates } = useSocket()
 
   return (
     <div style={{
@@ -131,17 +135,21 @@ export default function WaterfallPanel() {
       flexDirection: 'column',
       height: '100%',
       width: '100%',
-      background: 'var(--panel)',
     }}>
-      {STRIP_CONFIGS.map((config) => (
-        <WaterfallStrip
-          key={config.freq_hz}
-          config={config}
-          latestPsd={getPsdDb(config.freq_hz)}
-          focusedFreq={focusedFreq}
-          focusFrequency={focusFrequency}
-        />
-      ))}
+      {STRIP_CONFIGS.map((config) => {
+        const latestUpdate = [...spectrumUpdates].reverse().find(
+          (u) => u.frequency_hz === config.freq_hz
+        )
+        return (
+          <WaterfallStrip
+            key={config.freq_hz}
+            config={config}
+            latestPsd={latestUpdate ? latestUpdate.psd_db : null}
+            focusedFreq={focusedFreq}
+            focusFrequency={focusFrequency}
+          />
+        )
+      })}
     </div>
   )
 }

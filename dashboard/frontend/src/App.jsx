@@ -5,6 +5,7 @@ import SignalHistoryLog from './components/SignalHistoryLog.jsx'
 import SystemStatsPanel from './components/SystemStatsPanel.jsx'
 import AIReasoningPanel from './components/AIReasoningPanel.jsx'
 import CharacterPanel from './components/CharacterPanel.jsx'
+import WaterfallPanel from './components/WaterfallPanel.jsx'
 const panelStyle = {
   background: 'var(--panel)',
   border: '1px solid var(--border)',
@@ -60,17 +61,13 @@ export default function App() {
         gridArea: 'waterfall',
         border: '2px solid var(--neon-cyan)',
         boxShadow: '0 0 8px rgba(0,255,255,0.3), inset 0 0 8px rgba(0,255,255,0.05)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
+        overflow: 'visible',
+        padding: 0,
       }}>
-        <span style={{
-          fontFamily: 'var(--font-display)',
-          fontSize: 8,
-          color: 'var(--text-dim)',
-        }}>
-          AWAITING SIGNAL DATA
-        </span>
+        <WaterfallPanel
+          focusedFreq={socket.focusedFreq}
+          focusFrequency={socket.focusFrequency}
+        />
       </div>
 
       <div style={{

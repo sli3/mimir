@@ -9,7 +9,6 @@ vi.mock('../hooks/useSocket.js', () => ({
     systemStats: null,
     focusedFreq: null,
     focusFrequency: vi.fn(),
-    getPsdDb: vi.fn(() => null),
     isConnected: false,
   }),
 }))
@@ -30,9 +29,12 @@ describe('App', () => {
     expect(screen.getByText('MIMIR')).toBeInTheDocument()
   })
 
-  it('renders AWAITING SIGNAL DATA', () => {
+  it('renders waterfall slot', () => {
     render(<App />)
-    expect(screen.getByText('AWAITING SIGNAL DATA')).toBeInTheDocument()
+    const slot = document.getElementById('waterfall-slot')
+    expect(slot).toBeInTheDocument()
+    const canvases = slot.querySelectorAll('canvas')
+    expect(canvases.length).toBe(8)
   })
 
   it('renders SELECT A FREQUENCY', () => {
