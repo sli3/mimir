@@ -42,7 +42,7 @@ export default function FrequencyList({ scanResults, focusedFreq, focusFrequency
             <div>
               <div style={{
                 fontFamily: 'var(--font-display)',
-                fontSize: 7,
+                fontSize: 9,
                 color: colour,
                 marginBottom: 2,
               }}>
@@ -50,7 +50,7 @@ export default function FrequencyList({ scanResults, focusedFreq, focusFrequency
               </div>
               <div style={{
                 fontFamily: 'var(--font-data)',
-                fontSize: 9,
+                fontSize: 12,
                 color: 'var(--text-dim)',
               }}>
                 {cfg.name}
@@ -59,12 +59,12 @@ export default function FrequencyList({ scanResults, focusedFreq, focusFrequency
             {latest && (
               <div style={{
                 fontFamily: 'var(--font-data)',
-                fontSize: 9,
+                fontSize: 12,
                 color: colour,
                 textAlign: 'right',
               }}>
                 <div>{latest.signal_type}</div>
-                <div>{Math.round(latest.confidence * 100)}%</div>
+                <div>{Math.round(latest.confidence_score * 100)}%</div>
               </div>
             )}
           </div>

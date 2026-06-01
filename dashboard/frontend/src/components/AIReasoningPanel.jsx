@@ -9,7 +9,7 @@ export default function AIReasoningPanel() {
       justifyContent: 'center',
       height: '100%',
       fontFamily: 'var(--font-display)',
-      fontSize: 8,
+      fontSize: 10,
       color: 'var(--text-dim)',
       textAlign: 'center',
       padding: 8,

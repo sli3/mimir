@@ -46,9 +46,11 @@ def main() -> None:
     classifier = SignalClassifier(base_url=llm_url)
 
     broadcast = start_server(config.dashboard_host, config.dashboard_port)
+    broadcast_spectrum = start_server._broadcast_spectrum_fn
 
     scanner = ScanRunner(device, embedder, store, classifier, config)
     scanner._broadcast_fn = broadcast
+    scanner._broadcast_spectrum_fn = broadcast_spectrum
 
     print(f"Mimir — live scan started. Press Ctrl+C to stop.")
     print(f"Dashboard: http://{config.dashboard_host}:{config.dashboard_port}")

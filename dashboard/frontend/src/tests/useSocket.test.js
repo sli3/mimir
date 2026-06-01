@@ -53,7 +53,7 @@ describe('useSocket', () => {
 
     act(() => {
       for (let i = 0; i < 250; i++) {
-        handler({ timestamp: i, center_freq_hz: 98000000, label: 'FM', confidence: 0.9 })
+        handler({ timestamp: i, center_freq_hz: 98000000, label: 'FM', confidence_score: 0.9 })
       }
     })
     expect(result.current.scanResults.length).toBe(200)
@@ -65,10 +65,10 @@ describe('useSocket', () => {
     const handler = eventHandlers['spectrum_update'][0]
 
     act(() => {
-      handler({ frequency_hz: 98000000, psd_db: [0.1, 0.2, 0.3] })
+      handler({ center_freq_hz: 98000000, psd_db: [0.1, 0.2, 0.3] })
     })
     expect(result.current.spectrumUpdates.length).toBe(1)
-    expect(result.current.spectrumUpdates[0].frequency_hz).toBe(98000000)
+    expect(result.current.spectrumUpdates[0].center_freq_hz).toBe(98000000)
     expect(result.current.spectrumUpdates[0].psd_db).toEqual([0.1, 0.2, 0.3])
     expect(result.current.spectrumUpdates[0].ts).toBeDefined()
   })

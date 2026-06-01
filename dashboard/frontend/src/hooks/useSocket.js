@@ -28,11 +28,11 @@ export function useSocket() {
 
     socket.on('spectrum_update', (data) => {
       const entry = {
-        frequency_hz: data.frequency_hz,
+        center_freq_hz: data.center_freq_hz,
         psd_db: data.psd_db,
         ts: Date.now(),
       }
-      psdMapRef.current[data.frequency_hz] = data.psd_db
+      psdMapRef.current[data.center_freq_hz] = data.psd_db
       setSpectrumUpdates((prev) => {
         const next = [entry, ...prev]
         return next.slice(0, 50)

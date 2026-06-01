@@ -42,7 +42,7 @@ def start_server(host: str, port: int):
         freq_max_hz: float,
     ) -> None:
         data = {
-            "psd_db": psd_db,
+            "psd_db": psd_db.tolist() if hasattr(psd_db, 'tolist') else psd_db,
             "center_freq_hz": center_freq_hz,
             "freq_min_hz": freq_min_hz,
             "freq_max_hz": freq_max_hz,

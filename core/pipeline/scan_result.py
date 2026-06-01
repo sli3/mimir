@@ -9,3 +9,4 @@ class ScanResult:
     center_freq_hz: float
     fingerprint: dict
     classification: ClassificationResult
+    psd_db: list | None = None

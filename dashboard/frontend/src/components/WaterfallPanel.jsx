@@ -82,14 +82,14 @@ function WaterfallStrip({ config, latestPsd, focusedFreq, focusFrequency }) {
       >
         <div style={{
           fontFamily: 'var(--font-display)',
-          fontSize: 6,
+          fontSize: 9,
           color: `var(${config.colourVar})`,
         }}>
           {config.label}
         </div>
         <div style={{
           fontFamily: 'var(--font-data)',
-          fontSize: 8,
+          fontSize: 12,
           color: 'var(--text-dim)',
           marginTop: 4,
         }}>
@@ -138,7 +138,7 @@ export default function WaterfallPanel({ focusedFreq, focusFrequency }) {
     }}>
       {STRIP_CONFIGS.map((config) => {
         const latestUpdate = [...spectrumUpdates].reverse().find(
-          (u) => u.frequency_hz === config.freq_hz
+          (u) => u.center_freq_hz === config.freq_hz
         )
         return (
           <WaterfallStrip

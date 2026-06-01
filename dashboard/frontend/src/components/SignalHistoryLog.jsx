@@ -9,7 +9,7 @@ const FREQ_COLOUR_MAP = {
 
 function formatTime(ts) {
   if (!ts) return '--:--:--'
-  const d = new Date(ts * 1000)
+  const d = new Date(ts)
   return d.toLocaleTimeString('en-AU', { hour12: false })
 }
 
@@ -28,7 +28,7 @@ export default function SignalHistoryLog({ scanResults }) {
       height: '100%',
       padding: '4px 8px',
       fontFamily: 'var(--font-data)',
-      fontSize: 9,
+      fontSize: 12,
     }}>
       {(!scanResults || scanResults.length === 0) ? (
         <div style={{ color: 'var(--text-dim)', padding: 8 }}>
@@ -57,7 +57,7 @@ export default function SignalHistoryLog({ scanResults }) {
                 {entry.signal_type || entry.label}
               </span>{' '}
               <span style={{ color: colour }}>
-                ({Math.round((entry.confidence || 0) * 100)}%)
+                ({entry.confidence_score != null ? Math.round(entry.confidence_score * 100) : '?'}%)
               </span>
             </div>
           )

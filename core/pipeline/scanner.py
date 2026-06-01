@@ -26,6 +26,7 @@ class ScanRunner:
         self._scan_thread: threading.Thread | None = None
         self._ai_thread: threading.Thread | None = None
         self._broadcast_fn = None
+        self._broadcast_spectrum_fn = None
 
     def run(self) -> None:
         self._running = True
@@ -60,6 +61,7 @@ class ScanRunner:
                             "freq_hz": freq_hz,
                             "fingerprint": fingerprint,
                             "vector": vector,
+                            "psd_db": psd["psd_db"],
                         })
                     except queue.Full:
                         logger.warning(
@@ -92,6 +94,7 @@ class ScanRunner:
                     center_freq_hz=item["freq_hz"],
                     fingerprint=item["fingerprint"],
                     classification=result,
+                    psd_db=item.get("psd_db"),
                 )
                 self._emit_result(scan_result)
             except Exception:
@@ -122,3 +125,11 @@ class ScanRunner:
 
         if self._broadcast_fn is not None:
             self._broadcast_fn(scan_result)
+
+        if self._broadcast_spectrum_fn is not None:
+            self._broadcast_spectrum_fn(
+                scan_result.psd_db,
+                scan_result.center_freq_hz,
+                scan_result.center_freq_hz - 1_000_000,
+                scan_result.center_freq_hz + 1_000_000,
+            )

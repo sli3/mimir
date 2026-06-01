@@ -9,13 +9,13 @@ const rowStyle = {
 
 const labelStyle = {
   fontFamily: 'var(--font-display)',
-  fontSize: 6,
+  fontSize: 9,
   color: 'var(--text-dim)',
 }
 
 const valueStyle = {
   fontFamily: 'var(--font-data)',
-  fontSize: 11,
+  fontSize: 13,
 }
 
 export default function SystemStatsPanel({ systemStats }) {

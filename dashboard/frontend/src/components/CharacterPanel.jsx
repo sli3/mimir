@@ -17,7 +17,7 @@ export default function CharacterPanel() {
       }} />
       <div style={{
         fontFamily: 'var(--font-display)',
-        fontSize: 6,
+        fontSize: 9,
         color: 'var(--text-dim)',
         marginTop: 4,
       }}>
