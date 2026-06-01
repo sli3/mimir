@@ -8,6 +8,7 @@ Usage: python scan.py
 import logging
 import os
 import sys
+import time
 
 from core.config.loader import load_config
 from core.device.hackrf_rx import HackRFReceiver
@@ -57,9 +58,14 @@ def main() -> None:
     try:
         scanner.run()
     except KeyboardInterrupt:
+        print("\nScan stopped by user.")
+    except Exception as e:
+        logger.error("Fatal error in scan loop: %s", e)
+    finally:
         scanner.stop()
         device.close()
-        print("\nScan stopped. HackRF closed cleanly.")
+        time.sleep(1.0)   # give SoapySDR time to release USB before exit
+        print("HackRF closed cleanly.")
         sys.exit(0)
 
 

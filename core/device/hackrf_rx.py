@@ -43,6 +43,7 @@ the same.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Optional
 
 import numpy as np
@@ -231,7 +232,12 @@ class HackRFReceiver(DeviceBase):
         """
         self._center_freq_hz = freq_hz
         if self._is_open:
+            if self._stream is not None:
+                self._device.deactivateStream(self._stream)
             self._device.setFrequency(self._SOAPY_RX_DIRECTION, 0, freq_hz)
+            if self._stream is not None:
+                self._device.activateStream(self._stream)
+                time.sleep(0.25)
             logger.debug(f"Centre frequency set to {freq_hz/1e6:.3f} MHz")
 
     def set_sample_rate(self, rate_hz: float) -> None:
@@ -308,6 +314,7 @@ class HackRFReceiver(DeviceBase):
 
         output = np.zeros(num_samples, dtype=np.complex64)
         total = 0
+        retry_count = 0
         while total < num_samples:
             remaining = num_samples - total
             chunk = output[total:total + remaining]
@@ -315,6 +322,15 @@ class HackRFReceiver(DeviceBase):
                 self._stream, [chunk], remaining, timeoutUs=int(1e7)
             )
             if sr.ret < 0:
+                if sr.ret == -4 and retry_count < 1:
+                    logger.debug(
+                        "Stream timeout on read — retrying after post-retune flush"
+                    )
+                    time.sleep(0.1)
+                    retry_count += 1
+                    total = 0
+                    output = np.zeros(num_samples, dtype=np.complex64)
+                    continue
                 raise RuntimeError(
                     f"HackRF read failed (SoapySDR error code {sr.ret}). "
                     f"Try reducing sample rate or checking USB connection."

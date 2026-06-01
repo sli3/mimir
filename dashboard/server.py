@@ -1,4 +1,5 @@
 import logging
+import os
 import threading
 
 from flask import Flask
@@ -8,7 +9,7 @@ from core.pipeline.scan_result import ScanResult
 
 logger = logging.getLogger(__name__)
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder="static", static_url_path="/static")
 socketio = SocketIO(app, async_mode="threading", cors_allowed_origins="*")
 
 
@@ -40,4 +41,7 @@ def start_server(host: str, port: int):
 @app.route("/")
 def index():
     from flask import send_from_directory
-    return send_from_directory("dashboard/static", "index.html")
+    return send_from_directory(
+        os.path.join(os.path.dirname(__file__), "static"),
+        "index.html"
+    )

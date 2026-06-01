@@ -96,7 +96,7 @@ class TestScanRunner:
 
         t = threading.Thread(target=scanner.run, daemon=True)
         t.start()
-        time.sleep(0.1)
+        time.sleep(0.6)
         scanner.stop()
         t.join(timeout=3)
 
@@ -111,7 +111,7 @@ class TestScanRunner:
         with caplog.at_level(logging.WARNING, logger="core.pipeline.scanner"):
             t = threading.Thread(target=scanner._scan_loop, daemon=True)
             t.start()
-            time.sleep(0.15)
+            time.sleep(0.5)
             scanner.stop()
             t.join(timeout=3)
 
@@ -128,7 +128,7 @@ class TestScanRunner:
     def test_frequency_hopping_order(self, scanner, mock_device):
         t = threading.Thread(target=scanner.run, daemon=True)
         t.start()
-        time.sleep(0.15)
+        time.sleep(0.6)
         scanner.stop()
         t.join(timeout=3)
 
