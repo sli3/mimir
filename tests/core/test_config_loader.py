@@ -28,6 +28,7 @@ def _valid_config() -> dict:
             "vga_gain_db": 20,
             "amp_enable": False,
             "queue_maxsize": 20,
+            "llm_url": "http://192.168.0.66:8080/v1",
         },
         "dashboard": {
             "host": "127.0.0.1",

@@ -16,7 +16,7 @@ ruff check [file.py] || python -m py_compile [file.py]
 
 2. **TX SAFETY — mandatory, non-negotiable:**
 ```bash
-grep -n "writeStream\|SOAPY_SDR_TX\|hackrf_start_tx\|set_tx_gain\|set_tx_frequency\|setupTxStream\|activateTxStream\|setupTxStream" [file.py]
+grep -n "writeStream\|SOAPY_SDR_TX\|hackrf_start_tx\|set_tx_gain\|set_tx_frequency\|setupTxStream\|activateTxStream" [file.py]
 ```
    Any match = ❌ TX VIOLATION — stop, report, do not proceed to git-workflow.
    Also verify: any SoapySDR direction argument must be `1` (RX), never `0` (TX).

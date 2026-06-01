@@ -41,7 +41,7 @@ def main() -> None:
     store = SignalStore(path="data/vectorstore")
     llm_url = os.environ.get(
         "MIMIR_LLM_URL",
-        "http://192.168.0.66:8080/v1",
+        config.llm_url,
     )
     classifier = SignalClassifier(base_url=llm_url)
 

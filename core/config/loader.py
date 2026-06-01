@@ -18,6 +18,7 @@ class MimirConfig:
     vga_gain_db: float = 20.0
     amp_enable: bool = False
     queue_maxsize: int = 20
+    llm_url: str = "http://192.168.0.66:8080/v1"
     dashboard_host: str = "127.0.0.1"
     dashboard_port: int = 5000
 
@@ -61,6 +62,7 @@ def load_config(path: str = "config/mimir.yaml") -> MimirConfig:
         "vga_gain_db": (int, float),
         "amp_enable": bool,
         "queue_maxsize": int,
+        "llm_url": str,
     }
 
     for key, expected_type in scanner_required.items():
@@ -100,6 +102,7 @@ def load_config(path: str = "config/mimir.yaml") -> MimirConfig:
         vga_gain_db=float(scanner["vga_gain_db"]),
         amp_enable=bool(scanner["amp_enable"]),
         queue_maxsize=int(scanner["queue_maxsize"]),
+        llm_url=str(scanner["llm_url"]),
         dashboard_host=str(dashboard["host"]),
         dashboard_port=int(dashboard["port"]),
     )

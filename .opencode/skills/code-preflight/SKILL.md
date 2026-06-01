@@ -23,7 +23,7 @@ Summarise in one sentence what this Code session is supposed to do.
 3. **TX SAFETY GATE — mandatory, run before anything else:**
    Grep the files in scope for forbidden patterns:
 ```bash
-grep -rn "writeStream\|SOAPY_SDR_TX\|hackrf_start_tx\|set_tx_gain\|set_tx_frequency\|setupTxStream" [files-in-scope]
+grep -rn "writeStream\|SOAPY_SDR_TX\|hackrf_start_tx\|set_tx_gain\|set_tx_frequency\|setupTxStream\|activateTxStream" [files-in-scope]
 ```
    If any match is found:
    ❌ BLOCKED — TX pattern detected. Stop immediately. Report to user. Do not proceed.
