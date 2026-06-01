@@ -1,0 +1,42 @@
+:root {
+  --bg:            #030310;
+  --panel:         #0a0a1f;
+  --border:        #00ffff44;
+  --border-active: #00ffff;
+  --neon-cyan:     #00ffff;
+  --neon-magenta:  #ff00ff;
+  --neon-white:    #ffffff;
+  --neon-green:    #00ff88;
+  --neon-amber:    #ffaa00;
+  --text-dim:      #4488aa;
+  --text-bright:   #aaddff;
+  --font-display:  'Press Start 2P', monospace;
+  --font-data:     'Share Tech Mono', monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text-bright);
+  font-family: var(--font-data);
+  overflow: hidden;
+  height: 100vh;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px, transparent 2px,
+    rgba(0,0,0,0.08) 2px, rgba(0,0,0,0.08) 4px
+  );
+}

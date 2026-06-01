@@ -131,7 +131,7 @@ export default function WaterfallPanel() {
       flexDirection: 'column',
       height: '100%',
       width: '100%',
-      background: 'var(--bg-panel)',
+      background: 'var(--panel)',
     }}>
       {STRIP_CONFIGS.map((config) => (
         <WaterfallStrip
