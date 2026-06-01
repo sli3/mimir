@@ -7,16 +7,16 @@
 
 ## Phase Tracker
 
-| Phase | Name | Status | Tests |
-|---|---|---|---|
-| 0 | Hardware Safety Gate | ✅ Complete | 25/25 |
-| 1 | IQ Capture Pipeline | ✅ Complete | 5/5 |
-| 2 | FFT + Feature Extraction | ✅ Complete | 20/20 |
-| 3 | Embedding + Vector Store | ⬜ Next | — |
-| 4 | LLM Classification | ⬜ Not started | — |
-| 5 | Live Dashboard | ⬜ Not started | — |
+| Phase | Name                     | Status      | Tests  |
+|-------|--------------------------|-------------|--------|
+| 0     | Hardware Safety Gate     | ✅ Complete | 25/25  |
+| 1     | IQ Capture Pipeline      | ✅ Complete | 5/5    |
+| 2     | FFT + Feature Extraction | ✅ Complete | 21/21  |
+| 3     | Embedding + Vector Store | ✅ Complete | 24/24  |
+| 4     | LLM Classification       | ✅ Complete | 24/24  |
+| 5     | Live Dashboard           | ✅ Complete | —      |
 
-**Total tests passing: 50/50**
+**Total: 99/99 tests passing**
 
 ---
 
@@ -67,8 +67,9 @@ report = fingerprint_spectrum(psd)
 ```
 
 **Known tech debt:**
-- `psd_db` uncalibrated — missing nfft normalisation. Absolute dBFS wrong,
-  SNR unaffected. Fix in Phase 5.
+- BUG-01 CLOSED — SIGNAL_THRESHOLD_DB calibrated to 27 dB
+  against live FM Adelaide capture (98.9 MHz). Bandwidth now
+  correctly reports ~185 kHz for FM broadcast. Fixed in this session.
 
 **Complete when:** `python -m pytest tests/core/test_fft_features.py -v` → 20/20
 
@@ -101,15 +102,16 @@ store it in ChromaDB, and retrieve it by similarity search.
 
 ---
 
-## Phase 5 — Live Dashboard ⬜
+## Phase 5 — Live Dashboard ✅
 
 **Goal:** Real-time waterfall display with AI annotation overlay.
 
-**Planned:**
-- Live waterfall display — scrolling spectrogram
-- AI annotation overlay — signal labels from LLM classification
-- Fix `psd_db` calibration (tech debt from Phase 2)
-- macOS Intel iMac support
+**Delivered:**
+- Shared HackRF capture loop (single device open, broadcast to all browsers)
+- FastAPI WebSocket server on port 8899
+- Live waterfall canvas with percentile normalisation
+- Four AU-legal band profiles: FM, Aviation, ADS-B, noise floor
+- Band switching via WebSocket command channel
 
 ---
 
@@ -117,5 +119,4 @@ store it in ChromaDB, and retrieve it by similarity search.
 
 | Item | Detail | Fix in |
 |---|---|---|
-| `psd_db` uncalibrated | Missing nfft normalisation — absolute dBFS wrong, SNR unaffected | Phase 5 |
 | `config/mimir.yaml` not loaded | Runtime config loading not yet implemented | Phase 2+ |

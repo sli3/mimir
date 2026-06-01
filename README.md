@@ -83,16 +83,16 @@ python -m pytest tests/ -v
 
 ## Phase Tracker
 
-| Phase | Name | Status | Tests |
-|---|---|---|---|
-| **0** | **Hardware Safety Gate** | ✅ Complete | 25/25 |
-| **1** | **IQ Capture Pipeline** | ✅ Complete | 5/5 |
-| **2** | **FFT + Feature Extraction** | ✅ Complete | 20/20 |
-| **3** | **Embedding + Vector Store** | ✅ Complete | 24/24 |
-| 4 | LLM Classification | 🔨 Next | — |
-| 5 | Live Dashboard | ⬜ Not started | — |
+| Phase | Name                     | Status      | Tests  |
+|-------|--------------------------|-------------|--------|
+| 0     | Hardware Safety Gate     | ✅ Complete | 25/25  |
+| 1     | IQ Capture Pipeline      | ✅ Complete | 5/5    |
+| 2     | FFT + Feature Extraction | ✅ Complete | 21/21  |
+| 3     | Embedding + Vector Store | ✅ Complete | 24/24  |
+| 4     | LLM Classification       | ✅ Complete | 24/24  |
+| 5     | Live Dashboard           | ✅ Complete | —      |
 
-**Total: 74/74 tests passing**
+**Total: 99/99 tests passing**
 
 ---
 
