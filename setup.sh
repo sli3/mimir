@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 # setup.sh — Mimir RF Scanner
-# Environment setup for Linux (Fedora 44 and Ubuntu/Debian)
+# Environment setup for Linux (Fedora, Ubuntu/Debian, Arch) and macOS
 #
 # LEGAL NOTICE
 # This script installs receive-only SDR software.
@@ -43,27 +43,38 @@ echo "  Jurisdiction: Australia (SA) | Authority: ACMA"
 echo "  Radiocommunications Act 1992 (Cth)"
 echo ""
 
-# ── Detect Linux distribution ─────────────────────────────────────────────────
-detect_distro() {
-    if command -v dnf &>/dev/null && [ -f /etc/fedora-release ]; then
-        echo "fedora"
-    elif command -v dnf &>/dev/null && [ -f /etc/redhat-release ]; then
-        echo "rhel"
-    elif command -v apt-get &>/dev/null && [ -f /etc/debian_version ]; then
-        echo "debian"
-    elif command -v apt-get &>/dev/null; then
-        echo "ubuntu"
-    else
-        echo "unknown"
-    fi
+# ── Detect OS and distribution ────────────────────────────────────────────────
+detect_os() {
+    case "$(uname -s)" in
+        Darwin) echo "macos" ;;
+        Linux)
+            if command -v dnf &>/dev/null && [ -f /etc/fedora-release ]; then
+                echo "fedora"
+            elif command -v dnf &>/dev/null && [ -f /etc/redhat-release ]; then
+                echo "rhel"
+            elif command -v apt-get &>/dev/null && [ -f /etc/debian_version ]; then
+                echo "debian"
+            elif command -v apt-get &>/dev/null; then
+                echo "ubuntu"
+            elif command -v pacman &>/dev/null; then
+                echo "arch"
+            elif command -v zypper &>/dev/null; then
+                echo "opensuse"
+            else
+                echo "unknown"
+            fi
+            ;;
+        *) echo "unsupported" ;;
+    esac
 }
 
-DISTRO=$(detect_distro)
-info "Detected distribution: ${DISTRO}"
+OS=$(detect_os)
+info "Detected OS: ${OS}"
 
 # ── Install system packages ────────────────────────────────────────────────────
 install_system_packages() {
-    case "${DISTRO}" in
+    case "${OS}" in
+
         fedora|rhel)
             info "Installing system packages via dnf..."
             sudo dnf install -y \
@@ -74,7 +85,11 @@ install_system_packages() {
                 python3-pip \
                 python3-devel
             success "System packages installed (Fedora/RHEL)"
+            warn "IMPORTANT — Fedora/RHEL: SoapySDR-module-hackrf does NOT exist in dnf repos."
+            warn "You must build the HackRF SoapySDR plugin from source before Mimir can use the HackRF:"
+            warn "  https://github.com/pothosware/SoapyHackRF"
             ;;
+
         debian|ubuntu)
             info "Installing system packages via apt..."
             sudo apt-get update
@@ -90,38 +105,85 @@ install_system_packages() {
                 python3-dev
             success "System packages installed (Debian/Ubuntu)"
             ;;
+
+        arch)
+            info "Installing system packages via pacman..."
+            sudo pacman -Syu --noconfirm \
+                hackrf \
+                soapysdr \
+                soapyhackrf \
+                python \
+                python-pip
+            success "System packages installed (Arch Linux)"
+            warn "python3-SoapySDR bindings on Arch may need to be built from source."
+            warn "If 'import SoapySDR' fails, see: https://github.com/pothosware/SoapySDR/wiki/PythonSupport"
+            ;;
+
+        opensuse)
+            info "Installing system packages via zypper..."
+            sudo zypper install -y \
+                hackrf \
+                SoapySDR \
+                python3-SoapySDR \
+                python3-pip
+            success "System packages installed (openSUSE)"
+            warn "If soapysdr-module-hackrf is not available in your repos, build from source:"
+            warn "  https://github.com/pothosware/SoapyHackRF"
+            ;;
+
+        macos)
+            info "Detected macOS — using Homebrew..."
+            if ! command -v brew &>/dev/null; then
+                error "Homebrew not found. Install it first:"
+                error "  /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+                exit 1
+            fi
+            brew install hackrf soapysdr soapyhackrf
+            success "System packages installed via Homebrew"
+            warn "macOS: Python SoapySDR bindings are not installed by Homebrew."
+            warn "You must build them from source:"
+            warn "  https://github.com/pothosware/SoapySDR/wiki/PythonSupport"
+            warn "udev rules are not needed on macOS (USB access handled by the OS)."
+            ;;
+
         unknown)
-            error "Unsupported Linux distribution."
-            error "This script supports Fedora (dnf) and Ubuntu/Debian (apt) only."
-            error ""
-            error "For Fedora, install manually:"
-            error "  sudo dnf install hackrf SoapySDR python3-SoapySDR gr-osmosdr"
-            error ""
-            error "For Ubuntu/Debian, install manually:"
-            error "  sudo apt-get install hackrf libhackrf-dev soapysdr-tools"
-            error "  sudo apt-get install soapysdr-module-hackrf python3-soapysdr"
+            warn "Could not detect your Linux distribution."
+            warn "Please install the following manually before continuing:"
+            warn "  - hackrf (libhackrf + tools)"
+            warn "  - SoapySDR + Python bindings"
+            warn "  - SoapyHackRF plugin: https://github.com/pothosware/SoapyHackRF"
+            warn "Then re-run this script or install Python deps manually:"
+            warn "  pip install -r requirements.txt"
+            ;;
+
+        unsupported)
+            error "Unsupported operating system: $(uname -s)"
+            error "Mimir supports Linux (Fedora, Ubuntu/Debian, Arch, openSUSE) and macOS."
+            error "Windows is not supported."
             exit 1
             ;;
     esac
 }
 
-# ── Configure udev rules ───────────────────────────────────────────────────────
+# ── Configure udev rules (Linux only) ─────────────────────────────────────────
 # udev rules allow your user account to access USB devices without sudo.
-# Without this, every hackrf_info or Python call would require root.
+# Not needed on macOS — USB access is handled by the OS automatically.
 configure_udev() {
-    info "Checking udev rules for HackRF..."
+    if [[ "${OS}" == "macos" ]]; then
+        return
+    fi
 
+    info "Checking udev rules for HackRF..."
     RULES_FILE="/etc/udev/rules.d/53-hackrf.rules"
 
     if [ -f "${RULES_FILE}" ]; then
         success "udev rules already present: ${RULES_FILE}"
     else
         warn "udev rules not found. Installing..."
-        # The official rules file from Great Scott Gadgets
         sudo bash -c "cat > ${RULES_FILE}" << 'EOF'
 # HackRF One
 ATTR{idVendor}=="1d50", ATTR{idProduct}=="6089", SYMLINK+="hackrf-one-%k", TAG+="uaccess"
-# HackRF One (bootloader / DFU mode)  
+# HackRF One (bootloader / DFU mode)
 ATTR{idVendor}=="1d50", ATTR{idProduct}=="6003", SYMLINK+="rad1o-%k", TAG+="uaccess"
 EOF
         sudo udevadm control --reload-rules
@@ -147,11 +209,36 @@ install_python_deps() {
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
     if [ -f "${SCRIPT_DIR}/requirements.txt" ]; then
-        pip install --user -r "${SCRIPT_DIR}/requirements.txt"
-        success "Python dependencies installed."
+        if [[ "${OS}" == "macos" ]]; then
+            # macOS with Homebrew Python requires --break-system-packages or a venv
+            # Try pip3 first; fall back with flag if PEP 668 blocks it
+            if pip3 install --user -r "${SCRIPT_DIR}/requirements.txt" 2>/dev/null; then
+                success "Python dependencies installed."
+            else
+                warn "pip3 --user install failed (PEP 668). Trying with --break-system-packages..."
+                pip3 install --break-system-packages -r "${SCRIPT_DIR}/requirements.txt"
+                success "Python dependencies installed."
+            fi
+        else
+            pip install --user -r "${SCRIPT_DIR}/requirements.txt"
+            success "Python dependencies installed."
+        fi
     else
         warn "requirements.txt not found — skipping Python deps."
-        warn "Run 'pip install numpy pytest' manually."
+        warn "Run 'pip install -r requirements.txt' manually."
+    fi
+}
+
+# ── Build React dashboard ─────────────────────────────────────────────────────
+build_dashboard() {
+    info "Building React dashboard..."
+    if command -v npm &>/dev/null; then
+        SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+        cd "${SCRIPT_DIR}/dashboard" && npm install && npm run build && cd "${SCRIPT_DIR}"
+        success "Dashboard built successfully."
+    else
+        warn "npm not found. React dashboard not built."
+        warn "Install Node.js and run: cd dashboard && npm install && npm run build"
     fi
 }
 
@@ -170,19 +257,6 @@ verify_hardware() {
     fi
 }
 
-# ── Build React dashboard ─────────────────────────────────────────────────────
-build_dashboard() {
-    info "Building React dashboard..."
-    if command -v npm &>/dev/null; then
-        SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-        cd "${SCRIPT_DIR}/dashboard" && npm install && npm run build && cd "${SCRIPT_DIR}"
-        success "Dashboard built successfully."
-    else
-        warn "npm not found. React dashboard not built."
-        warn "Install Node.js and run: cd dashboard && npm install && npm run build"
-    fi
-}
-
 # ── Main ──────────────────────────────────────────────────────────────────────
 main() {
     install_system_packages
@@ -198,8 +272,9 @@ main() {
     echo "  1. Plug in the HackRF One with antenna attached"
     echo "  2. Run: hackrf_info"
     echo "  3. Run: python -m pytest tests/core/test_rx_only_lock.py -v"
+    echo "  4. Run: python scan.py"
     echo ""
-    info "Project location: ~/Repository/mimir"
+    info "Dashboard: http://localhost:5000"
     echo ""
 }
 

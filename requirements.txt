@@ -2,6 +2,8 @@
 #
 # System packages (install via package manager, NOT pip):
 #   Fedora:        sudo dnf install hackrf SoapySDR python3-SoapySDR
+#                  NOTE: SoapySDR-module-hackrf does NOT exist in dnf repos.
+#                  Build from source: https://github.com/pothosware/SoapyHackRF
 #   Ubuntu/Debian: sudo apt-get install hackrf soapysdr-module-hackrf python3-soapysdr
 #
 # Python packages (install via pip):
@@ -9,6 +11,7 @@
 numpy>=1.26.0
 pytest>=8.0.0
 PyYAML>=6.0
+requests>=2.31.0
 chromadb>=0.5.0
 flask>=3.0.0
 flask-socketio>=5.3.0
