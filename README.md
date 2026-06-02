@@ -117,6 +117,117 @@ event rate, gap detection, and a PASS/FAIL summary. Use `--duration 60` minimum
 
 ---
 
+## Diagnostic Tools
+
+Mimir ships with three standalone tools in `tools/`. These are run manually from the project root — they require the HackRF to be plugged in with an antenna attached, and the Python environment to be active.
+
+All tools are receive-only. No transmission occurs. Jurisdiction: AU/SA — Radiocommunications Act 1992 (Cth).
+
+---
+
+### `tools/diagnose_fingerprints.py`
+
+**What it does:** Captures live IQ samples from the HackRF across four frequency bands and prints the raw feature fingerprint for each — peak power, SNR, spectral flatness, bandwidth estimate, and occupied bins. This is the fastest way to confirm the capture and feature extraction pipeline is working end-to-end and to see what Mimir is actually measuring.
+
+**When to use it:** First thing after a fresh setup, after any changes to `core/pipeline/`, or whenever you want to see what the raw numbers look like for a given frequency.
+
+```bash
+PYTHONPATH=. python tools/diagnose_fingerprints.py
+```
+
+Output: a table of feature values printed to stdout for each band — FM broadcast (98.9 MHz), ADS-B (1090 MHz), Aviation VHF (127 MHz), and a noise floor reference (433 MHz).
+
+---
+
+### `tools/diagnose_threshold.py`
+
+**What it does:** Captures a live FM broadcast signal at 98.9 MHz (Adelaide) and sweeps through a range of `SIGNAL_THRESHOLD_DB` values (the dB level above the noise floor that counts as "a signal is present"). For each threshold value it prints the resulting occupied bandwidth and bin count. At the end it recommends the threshold value that produces a bandwidth closest to 200 kHz — the expected width of an FM broadcast signal.
+
+**When to use it:** When bandwidth and occupied_bins readings look wrong, or after any changes to `core/pipeline/features.py`. This tool was built specifically to diagnose BUG-01 (the `psd_db` calibration issue) and to find the correct threshold for your specific hardware and gain settings.
+
+```bash
+PYTHONPATH=. python tools/diagnose_threshold.py
+```
+
+Output: a table of threshold → bandwidth → bins, followed by a recommended `SIGNAL_THRESHOLD_DB` value. Take the recommended value and update `SIGNAL_THRESHOLD_DB` in `core/pipeline/features.py`.
+
+---
+
+### `tools/calibrate_thresholds.py`
+
+**What it does:** The full calibration workflow. Captures IQ samples from four bands (FM broadcast, ADS-B, Aviation VHF, and a noise floor reference), runs them through the complete pipeline (FFT → features → embedding), stores the resulting vectors in a separate calibration ChromaDB collection at `data/calibration_vectorstore/`, then computes a pairwise distance matrix between all stored vectors. From that matrix it derives and prints recommended similarity threshold values for `llm/classifier.py`.
+
+**This tool does NOT touch `data/vectorstore/` (your production signal store).**
+
+**When to use it:** Before finalising the LLM classifier thresholds, after significant hardware changes (gain settings, antenna swap), or any time the similarity distances returned by ChromaDB seem off. Run it, then update the `STRONG_MATCH`, `POSSIBLE_MATCH`, `DIFFERENT_TYPE`, and `NOVEL_SIGNAL` values in `llm/classifier.py` with the printed recommendations.
+
+```bash
+PYTHONPATH=. python tools/calibrate_thresholds.py
+```
+
+Output: coloured pairwise distance matrix (green = strong match, yellow = possible match, red = different type) followed by a threshold analysis block with recommended values.
+
+> **Note:** ADS-B at 1090 MHz may produce weaker captures depending on local aircraft traffic. The tool will warn you and ask for confirmation before proceeding.
+
+---
+
+### Recommended tool workflow
+
+If you are setting up Mimir for the first time, or tuning it after a hardware change, run the tools in this order:
+
+1. `diagnose_fingerprints.py` — confirm the pipeline is alive and producing numbers
+2. `diagnose_threshold.py` — find the right `SIGNAL_THRESHOLD_DB` for your setup
+3. `calibrate_thresholds.py` — derive LLM classifier distance thresholds from real captures
+
+---
+
+## Using Mimir
+
+### Starting the live dashboard
+
+```bash
+# From the project root, with your Python environment active:
+python scan.py
+```
+
+Then open your browser at `http://localhost:5000`. The cyberpunk dashboard will show:
+
+- **Waterfall** — live spectrum activity across the four AU frequency bands
+- **AI Reasoning** — LLM classification output for the most recent signal
+- **Signal History** — a scrolling log of all detected signals this session
+- **Frequency List** — the bands Mimir is currently monitoring
+- **System Stats** — scanner status, connection state, and hardware info
+- **Character Panel** — visual indicator of current activity level (idle / low / high / anomaly)
+
+The scanner starts automatically when the server starts. It cycles through the configured frequency bands continuously.
+
+---
+
+### How Mimir improves with use
+
+Mimir's signal intelligence comes from its vector store — a database of signal fingerprints it has seen before. The more captures it accumulates, the better its similarity matching becomes.
+
+Each time a signal is detected:
+
+1. The pipeline captures IQ samples and computes a feature fingerprint
+2. The fingerprint is converted to a vector and stored in ChromaDB (`data/vectorstore/`)
+3. ChromaDB finds the most similar previously-seen signals
+4. The local LLM receives the fingerprint plus those nearest neighbours and produces a classification
+
+Over time, ChromaDB builds up a library of known signal types for your specific location and hardware. Signals that were initially flagged as "possibly novel" become confidently classified as the store grows.
+
+**To accelerate this:** run Mimir during periods of known activity — FM broadcasts are always present, but ADS-B is richer during busy flight times, and ISM/LoRa traffic varies by neighbourhood. More captures = richer vector store = better AI context.
+
+---
+
+### Re-calibrating after hardware changes
+
+If you swap antennas, change gain settings in `config/mimir.yaml`, or move the hardware to a new location, the existing calibration thresholds may no longer be optimal. Run the diagnostic tool sequence (see above) to re-derive them.
+
+The production vector store (`data/vectorstore/`) does not need to be cleared — it accumulates captures across calibration cycles. Only the calibration store (`data/calibration_vectorstore/`) is overwritten each time `calibrate_thresholds.py` runs.
+
+---
+
 ## Project Structure
 
 ```
