@@ -27,7 +27,7 @@ See `docs/au-legal-reference.md` for full details.
 
 - **SDR**: HackRF One (receive only — NEVER transmit)
 - **Primary OS**: Linux Fedora 44
-- **Secondary OS**: macOS Intel iMac (Phase 5+)
+- **Secondary OS**: macOS Intel iMac
 - **Intelligence**: Local LLM server (OpenAI-compatible API)
 
 ---
@@ -56,7 +56,7 @@ embeddings/                     ← ChromaDB vector store (Phase 3)
 llm/                            ← Local LLM classification (Phase 4)
     │
     ▼ classification + anomaly detection
-dashboard/                      ← Live waterfall + AI annotations (Phase 5)
+dashboard/                      ← Cyberpunk React/Vite dashboard (Phase 7A+)
 ```
 
 ---
@@ -68,7 +68,7 @@ dashboard/                      ← Live waterfall + AI annotations (Phase 5)
 cd ~/Repository
 git clone <repo> mimir
 
-# 2. Run setup (auto-detects Fedora or Ubuntu/Debian)
+# 2. Run setup (auto-detects Fedora or Ubuntu/Debian, builds React dashboard)
 chmod +x setup.sh
 ./setup.sh
 
@@ -77,22 +77,43 @@ python -m pytest tests/core/test_rx_only_lock.py -v
 
 # 4. Run full test suite
 python -m pytest tests/ -v
+
+# 5. Start the scanner
+python scan.py
 ```
+
+---
+
+## Diagnostic Tool
+
+To verify the live pipeline is emitting events correctly (requires `scan.py` running):
+
+```bash
+python tools/diagnose_live.py --duration 60 --url http://localhost:5000
+```
+
+Output shows live `[spectrum_update]` and `[scan_result]` events per band,
+event rate, gap detection, and a PASS/FAIL summary. Use `--duration 60` minimum
+— the scanner cycles all four AU bands sequentially and the cycle time is long.
 
 ---
 
 ## Phase Tracker
 
-| Phase | Name                     | Status      | Tests  |
-|-------|--------------------------|-------------|--------|
-| 0     | Hardware Safety Gate     | ✅ Complete | 25/25  |
-| 1     | IQ Capture Pipeline      | ✅ Complete | 5/5    |
-| 2     | FFT + Feature Extraction | ✅ Complete | 21/21  |
-| 3     | Embedding + Vector Store | ✅ Complete | 24/24  |
-| 4     | LLM Classification       | ✅ Complete | 24/24  |
-| 5     | Live Dashboard           | ✅ Complete | —      |
+| Phase | Name                        | Status       | Tests   |
+|-------|-----------------------------|--------------|---------|
+| 0     | Hardware Safety Gate        | ✅ Complete  | 25/25   |
+| 1     | IQ Capture Pipeline         | ✅ Complete  | 5/5     |
+| 2     | FFT + Feature Extraction    | ✅ Complete  | 21/21   |
+| 3     | Embedding + Vector Store    | ✅ Complete  | 24/24   |
+| 4     | LLM Classification          | ✅ Complete  | 24/24   |
+| 5     | Live Scanner + Dashboard    | ✅ Complete  | 9/9     |
+| 6     | Socket.IO + Scan Pipeline   | ✅ Complete  | 14/14   |
+| 7A    | Cyberpunk React Dashboard   | ✅ Complete  | 158/158 |
+| 7B-pre| Frontend Consolidation      | ✅ Complete  | 192/192 |
+| 7B    | Data Layer                  | 🔜 Next      | —       |
 
-**Total: 99/99 tests passing**
+**Total: 192/192 tests passing (142 pytest + 50 Vitest)**
 
 ---
 
@@ -100,37 +121,47 @@ python -m pytest tests/ -v
 
 ```
 mimir/
-├── AGENTS.md                       ← OpenCode memory — read first every session
-├── opencode.json                   ← OpenCode config + local LLM settings
+├── AGENTS.md                          ← OpenCode memory — read first every session
+├── opencode.json                      ← OpenCode config + local LLM settings
 ├── README.md
-├── setup.sh                        ← Auto-detecting install script
+├── scan.py                            ← Entry point — starts scanner + dashboard
+├── setup.sh                           ← Auto-detecting install + React build
 ├── requirements.txt
 ├── core/
 │   ├── device/
-│   │   ├── hackrf_rx.py            ← RX-only HackRF wrapper (TX hard blocked)
-│   │   └── device_base.py          ← Abstract device interface
+│   │   ├── hackrf_rx.py               ← RX-only HackRF wrapper (TX hard blocked)
+│   │   └── device_base.py             ← Abstract device interface
 │   ├── legal/
-│   │   └── compliance_guard.py     ← HardwareTransmitError TX block
+│   │   └── compliance_guard.py        ← HardwareTransmitError TX block
 │   └── pipeline/
-│       ├── capture.py              ← IQ capture + save to disk
-│       ├── fft.py                  ← FFT + PSD computation
-│       └── features.py             ← fingerprint_spectrum() feature extraction
-├── embeddings/                     ← Phase 3+
-│   ├── __init__.py
-│   ├── embedder.py                 ← SpectrumEmbedder
-│   └── store.py                    ← SignalStore (ChromaDB)
-├── llm/                            ← Phase 4+
-├── dashboard/                      ← Phase 5+
+│       ├── capture.py                 ← IQ capture + save to disk
+│       ├── fft.py                     ← FFT + PSD computation
+│       ├── features.py                ← fingerprint_spectrum()
+│       └── scan_result.py             ← ScanResult dataclass
+├── embeddings/
+│   ├── embedder.py                    ← SpectrumEmbedder
+│   └── store.py                       ← SignalStore (ChromaDB)
+├── llm/
+│   └── classifier.py                  ← LLM signal classification
+├── dashboard/
+│   ├── server.py                      ← Flask + Socket.IO server
+│   ├── scanner.py                     ← Scan loop + event emission
+│   └── static/                        ← Vite build output (generated)
+├── tools/
+│   ├── calibrate_thresholds.py        ← ChromaDB threshold calibration
+│   ├── diagnose_fingerprints.py       ← Fingerprint diagnostics
+│   ├── diagnose_threshold.py          ← Threshold diagnostics
+│   └── diagnose_live.py               ← Live pipeline diagnostic (CLI)
 ├── config/
-│   └── mimir.yaml                  ← Runtime configuration (manually maintained)
+│   └── mimir.yaml                     ← Runtime configuration
 ├── tests/
 │   ├── core/
-│   │   ├── test_rx_only_lock.py    ← Phase 0: TX hard block tests
-│   │   ├── test_capture_pipeline.py ← Phase 1: IQ capture tests
-│   │   └── test_fft_features.py    ← Phase 2: FFT + fingerprint tests
-│   └── embeddings/
-│       └── test_phase3_embedding.py ← Phase 3: embedding + vector store tests
+│   ├── embeddings/
+│   ├── llm/
+│   ├── dashboard/
+│   └── tools/
+│       └── test_diagnose_live.py      ← 34 tests
 └── docs/
-    ├── au-legal-reference.md       ← ACMA legal reference
-    └── MIMIR_ROADMAP.md            ← Full phase roadmap
+    ├── au-legal-reference.md
+    └── MIMIR_ROADMAP.md
 ```
