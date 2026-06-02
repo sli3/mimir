@@ -11,3 +11,4 @@ data/
 opencode.json
 .session-memos/
 dashboard/static/
+!data/frequency_reference.json
