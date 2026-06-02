@@ -9,7 +9,7 @@ from core.pipeline.scan_result import ScanResult
 
 logger = logging.getLogger(__name__)
 
-app = Flask(__name__, static_folder="static", static_url_path="/static")
+app = Flask(__name__, static_folder="static", static_url_path="")
 socketio = SocketIO(app, async_mode="threading", cors_allowed_origins="*")
 
 

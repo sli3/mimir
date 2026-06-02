@@ -52,30 +52,32 @@ every code change, without exception.
 | **Primary OS** | Linux Fedora 44 |
 | **Secondary OS** | macOS Intel iMac (not yet configured) |
 | **Intelligence** | Local LLM server (OpenAI-compatible API) |
-| **Project path** | (set locally) |
+| **LLM URL** | http://192.168.0.66:8080/v1 (llama.cpp, OpenAI-compatible) |
+| **Project path** | ~/Repository/mimir |
 
 ---
 
 ## Architecture
-
-```
 HackRF One (RX only — NEVER TX)
-    │
-    ▼ raw IQ samples (complex64)
+│
+▼ raw IQ samples (complex64)
 core/device/hackrf_rx.py        SoapySDR Python bindings
-    │
-    ▼ numpy arrays
+│
+▼ numpy arrays
 core/pipeline/                  FFT → feature extraction
-    │
-    ▼ signal fingerprints
+│
+▼ signal fingerprints
 embeddings/                     ChromaDB vector store
-    │
-    ▼ similarity search
+│
+▼ similarity search
 llm/                            Local LLM (OpenAI-compatible API)
-    │
-    ▼ classification + anomaly detection
-dashboard/                      Live waterfall + AI annotation overlay
-```
+│
+▼ classification + anomaly detection
+dashboard/                      Cyberpunk React dashboard + Flask-SocketIO
+│
+├── dashboard/server.py     Flask + SocketIO backend (async_mode='threading')
+└── dashboard/frontend/     Vite + React frontend
+└── npm run build →     dashboard/static/ (Flask serves)
 
 ---
 
@@ -90,21 +92,63 @@ dashboard/                      Live waterfall + AI annotation overlay
 
 ## Phase Tracker
 
-| Phase | Name | Status |
-|---|---|---|
-| 0 | Hardware Safety Gate | ✅ Complete |
-| 1 | IQ Capture Pipeline | ✅ Complete |
-| 2 | FFT + Feature Extraction | ✅ Complete |
-| 3 | Embedding + Vector Store | ✅ Complete |
-| 4 | LLM Classification | ✅ Complete |
-| 5 | Live Dashboard | ✅ Complete |
-| 6 | Live Scan + Dashboard Integration | 🔨 In Progress |
+| Phase | Name                              | Status         | Tests    |
+|-------|-----------------------------------|----------------|----------|
+| 0     | Hardware Safety Gate              | ✅ Complete    | 25/25    |
+| 1     | IQ Capture Pipeline               | ✅ Complete    | 5/5      |
+| 2     | FFT + Feature Extraction          | ✅ Complete    | 21/21    |
+| 3     | Embedding + Vector Store          | ✅ Complete    | 24/24    |
+| 4     | LLM Classification                | ✅ Complete    | 24/24    |
+| 5     | Calibration & Thresholds          | ✅ Complete    | —        |
+| 6     | Live AI Classification + Dashboard| ✅ Complete    | 108/108  |
+| 7A    | Cyberpunk Dashboard — Scaffold    | ✅ Complete    | 108 pytest + 50 Vitest = 158   |
+| 7B    | Cyberpunk Dashboard — AI + Polish | 🔜 Next        | —        |
 
-### Phase 0 complete when
-```
-python -m pytest tests/core/test_rx_only_lock.py -v
-```
-All tests pass. TX is provably impossible in software.
+**Total passing: 175/175**
+
+### Phase 7B remaining work
+1. Fix `hackrf_status` in `get_stats()` — always shows DISCONNECTED
+2. `AIReasoningPanel` — full LLM reasoning for focused frequency
+3. `focus_frequency` server-side filter in `scanner.py` Thread B
+4. `CharacterPanel` — 4-state PNG swap (idle/signal_low/signal_high/anomaly)
+5. Signal type colour-coding audit across all panels
+6. Neon glow polish — box-shadow pulse on active panels
+7. `npm run build` → `dashboard/static/` verified, Flask serves prod bundle
+
+---
+
+## Dashboard Architecture (Phase 7A complete)
+
+### SocketIO events — do not rename or merge
+
+| Event | Direction | Payload |
+|---|---|---|
+| `scan_result` | server → browser | timestamp, center_freq_hz, signal_type, confidence, confidence_score, novel, au_legal_status, reasoning |
+| `spectrum_update` | server → browser | center_freq_hz, psd_db (2048 floats dBFS) |
+| `system_stats` | server → browser | hackrf_status, active_frequency_hz, scan_count, queue_depth, llm_last_inference_ms |
+| `focus_frequency` | browser → server | frequency_hz |
+
+### Critical field name facts
+- `timestamp` — ISO string e.g. `"2026-06-01T22:21:57.549402"` — use `new Date(ts)` not `new Date(ts * 1000)`
+- `confidence_score` — float 0.0–1.0 — use for percentage display
+- `confidence` — string "high"/"medium"/"low" — do not multiply by 100
+- `center_freq_hz` — used in both `scan_result` and `spectrum_update`
+- `useSocket.js` maps `spectrum_update.center_freq_hz` → internal `frequency_hz`
+
+### Frontend stack
+- Vite + React, plain JS/JSX — no TypeScript, no Tailwind
+- Dev server: port 5173 (Vite default)
+- Build output: `dashboard/static/` (`build.outDir = '../static'`)
+- Socket proxy: `/socket.io` → `http://localhost:5000`
+- Fonts: Press Start 2P (headings), Share Tech Mono (data readouts)
+- Theme tokens in `src/theme/cyberpunk.css`
+- No `<form>` tags anywhere — use onClick handlers
+
+### Backend constraints
+- `async_mode='threading'` in `server.py` — never change to eventlet/gevent
+- `broadcast_spectrum` is defined inside `start_server()` — not importable directly
+- Retrieve via `start_server._broadcast_spectrum_fn` after calling `start_server()`
+- `_emit_result` in `scanner.py` calls both `_broadcast_fn` and `_broadcast_spectrum_fn`
 
 ---
 
@@ -125,14 +169,23 @@ All tests pass. TX is provably impossible in software.
 | `core/legal/compliance_guard.py` | `HardwareTransmitError` — TX hard block |
 | `core/device/hackrf_rx.py` | RX-only HackRF wrapper |
 | `core/device/device_base.py` | Abstract device interface |
-| `tests/core/test_rx_only_lock.py` | Phase 0 acceptance tests |
+| `core/pipeline/fft.py` | FFT + PSD computation |
+| `core/pipeline/features.py` | Spectrum fingerprinting |
+| `core/pipeline/scan_result.py` | `ScanResult` dataclass (includes psd_db) |
+| `core/pipeline/scanner.py` | `ScanRunner` — two-thread scan + AI loop |
+| `core/config/loader.py` | `MimirConfig`, `load_config()` |
+| `embeddings/embedder.py` | SpectrumEmbedder — fingerprint to vector |
+| `embeddings/store.py` | SignalStore — ChromaDB wrapper |
+| `llm/classifier.py` | `SignalClassifier` — LLM classification |
+| `dashboard/server.py` | Flask + Flask-SocketIO backend |
+| `dashboard/frontend/` | Vite + React cyberpunk frontend |
+| `dashboard/frontend/src/hooks/useSocket.js` | SocketIO state management |
+| `dashboard/frontend/src/hooks/useWaterfall.js` | Canvas ImageData rendering |
+| `dashboard/frontend/src/utils/colourmap.js` | PSD dBFS → RGB colourmap |
+| `dashboard/static/` | Vite build output — served by Flask |
+| `scan.py` | CLI entry point |
 | `config/mimir.yaml` | Runtime configuration |
 | `docs/au-legal-reference.md` | ACMA legal reference |
-| `core/pipeline/fft.py`      | FFT + PSD computation |
-| `core/pipeline/features.py` | Spectrum fingerprinting |
-| `embeddings/embedder.py`    | SpectrumEmbedder — fingerprint to vector |
-| `embeddings/store.py`       | SignalStore — ChromaDB wrapper |
-| `tests/embeddings/test_phase3_embedding.py` | Phase 3 acceptance tests |
 
 ---
 
@@ -140,5 +193,10 @@ All tests pass. TX is provably impossible in software.
 
 | Item | Detail | Fix in |
 |---|---|---|
-| `psd_db` uncalibrated | FFT missing nfft normalisation — absolute dBFS wrong, SNR unaffected | Phase 5 |
-| `config/mimir.yaml` not loaded | Runtime config loading not yet implemented | Phase 2+ |
+| `hackrf_status` broken | `get_stats()` always returns DISCONNECTED even when scanning | Phase 7B |
+| Waterfall scroll rate slow | One row per dwell cycle (~8–10s). High-rate streaming requires separate FFT loop decoupled from classification | Post 7B |
+| `FrequencyList.jsx:67` | `confidence_score` lacks null guard | Phase 7B polish |
+| CORS wildcard | `cors_allowed_origins="*"` in server.py — fine for dev | Pre-prod |
+| Queue max hard-coded | `020` in SystemStatsPanel — should read from systemStats | Phase 7B |
+| `sampleRateHz` dead param | Accepted by `useWaterfall.js` but unused | Post 7B |
+| `psd_db` uncalibrated | FFT missing nfft normalisation — absolute dBFS wrong, SNR unaffected | Post 7B |
