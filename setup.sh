@@ -234,11 +234,11 @@ build_dashboard() {
     info "Building React dashboard..."
     if command -v npm &>/dev/null; then
         SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-        cd "${SCRIPT_DIR}/dashboard" && npm install && npm run build && cd "${SCRIPT_DIR}"
+        cd "${SCRIPT_DIR}/dashboard/frontend" && npm install && npm run build && cd "${SCRIPT_DIR}"
         success "Dashboard built successfully."
     else
         warn "npm not found. React dashboard not built."
-        warn "Install Node.js and run: cd dashboard && npm install && npm run build"
+        warn "Install Node.js and run: cd dashboard/frontend && npm install && npm run build"
     fi
 }
 
