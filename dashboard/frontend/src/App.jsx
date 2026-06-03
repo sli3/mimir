@@ -77,7 +77,9 @@ export default function App() {
         alignItems: 'center',
         justifyContent: 'center',
       }}>
-        <AIReasoningPanel />
+        <AIReasoningPanel
+          aiReasoning={socket.aiReasoning}
+        />
       </div>
 
       <div style={{

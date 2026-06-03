@@ -36,6 +36,15 @@ describe('useSocket', () => {
     expect(result.current.systemStats).toBeNull()
     expect(result.current.focusedFreq).toBeNull()
     expect(result.current.isConnected).toBe(false)
+    expect(result.current.aiReasoning).toEqual({
+      freq_hz: null,
+      signal_type: null,
+      confidence: null,
+      confidence_score: null,
+      au_legal_status: null,
+      reasoning: null,
+      timestamp: null,
+    })
   })
 
   it('focusFrequency calls socket.emit with correct payload', () => {
@@ -81,6 +90,80 @@ describe('useSocket', () => {
       handler({ hackrf_status: 'CONNECTED', active_frequency_hz: 98000000, scan_count: 42 })
     })
     expect(result.current.systemStats).toEqual({ hackrf_status: 'CONNECTED', active_frequency_hz: 98000000, scan_count: 42 })
+  })
+
+  it('focusFrequency resets aiReasoning to initial state', () => {
+    const { result } = renderHook(() => useSocket())
+    act(() => {
+      result.current.focusFrequency(98000000)
+    })
+    expect(result.current.aiReasoning).toEqual({
+      freq_hz: null,
+      signal_type: null,
+      confidence: null,
+      confidence_score: null,
+      au_legal_status: null,
+      reasoning: null,
+      timestamp: null,
+    })
+  })
+
+  it('scan_result matching focusedFreq updates aiReasoning', () => {
+    const { result } = renderHook(() => useSocket())
+    const handler = eventHandlers['scan_result'][0]
+
+    act(() => {
+      result.current.focusFrequency(98000000)
+    })
+
+    const payload = {
+      center_freq_hz: 98000000,
+      signal_type: 'fm_broadcast',
+      confidence: 'high',
+      confidence_score: 0.95,
+      au_legal_status: 'LEGAL RX',
+      reasoning: 'Signal matches FM broadcast characteristics',
+      timestamp: '2026-06-03T12:00:00.000Z',
+    }
+
+    act(() => {
+      handler(payload)
+    })
+
+    expect(result.current.aiReasoning).toEqual({
+      freq_hz: 98000000,
+      signal_type: 'fm_broadcast',
+      confidence: 'high',
+      confidence_score: 0.95,
+      au_legal_status: 'LEGAL RX',
+      reasoning: 'Signal matches FM broadcast characteristics',
+      timestamp: '2026-06-03T12:00:00.000Z',
+    })
+  })
+
+  it('scan_result NOT matching focusedFreq does NOT update aiReasoning', () => {
+    const { result } = renderHook(() => useSocket())
+    const handler = eventHandlers['scan_result'][0]
+
+    act(() => {
+      result.current.focusFrequency(98000000)
+    })
+
+    const payload = {
+      center_freq_hz: 1090000000,
+      signal_type: 'adsb',
+      confidence: 'high',
+      confidence_score: 0.98,
+      au_legal_status: 'LEGAL RX',
+      reasoning: 'ADS-B signal detected',
+      timestamp: '2026-06-03T12:00:00.000Z',
+    }
+
+    act(() => {
+      handler(payload)
+    })
+
+    expect(result.current.aiReasoning.signal_type).toBeNull()
   })
 
   it('disconnects socket on unmount', () => {

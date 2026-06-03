@@ -3,14 +3,26 @@ import { io } from 'socket.io-client'
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000'
 
+const INITIAL_AI_REASONING = {
+  freq_hz: null,
+  signal_type: null,
+  confidence: null,
+  confidence_score: null,
+  au_legal_status: null,
+  reasoning: null,
+  timestamp: null,
+}
+
 export function useSocket() {
   const [scanResults, setScanResults] = useState([])
   const [spectrumUpdates, setSpectrumUpdates] = useState([])
   const [systemStats, setSystemStats] = useState(null)
   const [focusedFreq, setFocusedFreq] = useState(null)
   const [isConnected, setIsConnected] = useState(false)
+  const [aiReasoning, setAiReasoning] = useState(INITIAL_AI_REASONING)
   const socketRef = useRef(null)
   const psdMapRef = useRef({})
+  const focusedFreqRef = useRef(null)
 
   useEffect(() => {
     const socket = io(SOCKET_URL)
@@ -24,6 +36,17 @@ export function useSocket() {
         const next = [{ ...data }, ...prev]
         return next.slice(0, 200)
       })
+      if (data.center_freq_hz === focusedFreqRef.current) {
+        setAiReasoning({
+          freq_hz: data.center_freq_hz,
+          signal_type: data.signal_type || null,
+          confidence: data.confidence || null,
+          confidence_score: data.confidence_score || null,
+          au_legal_status: data.au_legal_status || null,
+          reasoning: data.reasoning || null,
+          timestamp: data.timestamp || null,
+        })
+      }
     })
 
     socket.on('spectrum_update', (data) => {
@@ -55,8 +78,11 @@ export function useSocket() {
 
   const focusFrequency = useCallback((freqHz) => {
     setFocusedFreq(freqHz)
+    focusedFreqRef.current = freqHz
+    setAiReasoning(INITIAL_AI_REASONING)
     const socket = socketRef.current
     if (socket) {
+      // TODO: server-side handler for focus_frequency in Phase 7B-3
       socket.emit('focus_frequency', { frequency_hz: freqHz })
     }
   }, [])
@@ -73,5 +99,6 @@ export function useSocket() {
     focusFrequency,
     getPsdDb,
     isConnected,
+    aiReasoning,
   }
 }

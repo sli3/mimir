@@ -10,6 +10,15 @@ vi.mock('../hooks/useSocket.js', () => ({
     focusedFreq: null,
     focusFrequency: vi.fn(),
     isConnected: false,
+    aiReasoning: {
+      freq_hz: null,
+      signal_type: null,
+      confidence: null,
+      confidence_score: null,
+      au_legal_status: null,
+      reasoning: null,
+      timestamp: null,
+    },
   }),
 }))
 
@@ -37,14 +46,9 @@ describe('App', () => {
     expect(canvases.length).toBe(8)
   })
 
-  it('renders SELECT A FREQUENCY', () => {
+  it('renders AWAITING SIGNAL...', () => {
     render(<App />)
-    expect(screen.getByText('SELECT A FREQUENCY')).toBeInTheDocument()
-  })
-
-  it('renders TO ANALYSE', () => {
-    render(<App />)
-    expect(screen.getByText('TO ANALYSE')).toBeInTheDocument()
+    expect(screen.getByText('AWAITING SIGNAL...')).toBeInTheDocument()
   })
 
   it('renders OPERATOR', () => {
