@@ -1,6 +1,7 @@
 import logging
 import os
 import threading
+import time
 
 from flask import Flask
 from flask_socketio import SocketIO
@@ -12,14 +13,48 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__, static_folder="static", static_url_path="")
 socketio = SocketIO(app, async_mode="threading", cors_allowed_origins="*")
 
+_device_ref = None
+_last_hw_error_time = 0.0
 
-def start_server(host: str, port: int):
+
+def record_hw_error() -> None:
+    global _last_hw_error_time
+    _last_hw_error_time = time.time()
+
+
+def _compute_hackrf_status() -> str:
+    if _device_ref is None or not _device_ref.is_open:
+        return "DISCONNECTED"
+    if time.time() - _last_hw_error_time < 30.0:
+        return "NOT_RESPONDING"
+    return "CONNECTED"
+
+
+def start_server(host: str, port: int, device=None):
+    global _device_ref
+    _device_ref = device
+
     def run_flask():
         socketio.run(app, host=host, port=port, debug=False, use_reloader=False)
 
     t = threading.Thread(target=run_flask, daemon=True)
     t.start()
     logger.info("Dashboard server started on http://%s:%d", host, port)
+
+    def emit_stats():
+        while True:
+            time.sleep(2.0)
+            data = {
+                "hackrf_status": _compute_hackrf_status(),
+                "active_frequency_hz": None,
+                "scan_count": 0,
+                "queue_depth": 0,
+                "llm_last_inference_ms": None,
+            }
+            socketio.emit("system_stats", data)
+
+    _stats_thread = threading.Thread(target=emit_stats, daemon=True)
+    _stats_thread.start()
 
     def broadcast(scan_result: ScanResult) -> None:
         cls = scan_result.classification

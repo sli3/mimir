@@ -21,10 +21,12 @@ const valueStyle = {
 export default function SystemStatsPanel({ systemStats }) {
   const sdrStatus = systemStats?.hackrf_status
   const sdrColour = sdrStatus === 'CONNECTED'
-    ? 'var(--neon-green)'
-    : sdrStatus === 'ERROR'
-      ? '#ff4444'
-      : 'var(--neon-magenta)'
+    ? '#00ffff'
+    : sdrStatus === 'NOT_RESPONDING'
+      ? '#ffff00'
+      : sdrStatus === 'DISCONNECTED'
+        ? '#ff4444'
+        : '#ff4444'
 
   const activeFreq = systemStats?.active_frequency_hz
     ? `${(systemStats.active_frequency_hz / 1e6).toFixed(3)} MHz`
@@ -47,7 +49,7 @@ export default function SystemStatsPanel({ systemStats }) {
       <div style={rowStyle}>
         <span style={labelStyle}>SDR STATUS</span>
         <span style={{ ...valueStyle, color: sdrColour }}>
-          {sdrStatus || 'DISCONNECTED'}
+          {sdrStatus ? sdrStatus.replace(/_/g, ' ') : 'DISCONNECTED'}
         </span>
       </div>
       <div style={rowStyle}>

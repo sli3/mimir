@@ -137,6 +137,21 @@ class TestScanRunner:
         first_call_freq = calls[0][0][0]
         assert first_call_freq == 98_000_000.0
 
+    def test_read_error_calls_record_hw_error(
+        self, config, mock_device, mock_embedder, mock_store, mock_classifier
+    ):
+        mock_device.read_samples.side_effect = RuntimeError("USB timeout")
+        scanner = ScanRunner(mock_device, mock_embedder, mock_store, mock_classifier, config)
+
+        with patch("core.pipeline.scanner.record_hw_error") as mock_record:
+            t = threading.Thread(target=scanner.run, daemon=True)
+            t.start()
+            time.sleep(0.3)
+            scanner.stop()
+            t.join(timeout=3)
+
+            mock_record.assert_called()
+
     def test_ai_thread_classifies_queued_item(
         self, scanner, mock_store, mock_classifier
     ):

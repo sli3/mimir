@@ -8,6 +8,7 @@ from core.config.loader import MimirConfig
 from core.pipeline.features import fingerprint_spectrum
 from core.pipeline.fft import compute_psd
 from core.pipeline.scan_result import ScanResult
+from dashboard.server import record_hw_error
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,11 @@ class ScanRunner:
                     return
                 try:
                     device.set_center_frequency(freq_hz)
-                    samples = device.read_samples(config.num_samples)
+                    try:
+                        samples = device.read_samples(config.num_samples)
+                    except Exception:
+                        record_hw_error()
+                        raise
                     psd = compute_psd(samples, _SAMPLE_RATE_HZ, freq_hz)
                     fingerprint = fingerprint_spectrum(psd)
                     vector = embedder.embed(fingerprint)
