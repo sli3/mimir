@@ -1,0 +1,250 @@
+"""
+seed_chromadb.py — Seed ChromaDB with RTL-ML reference signal dataset
+
+Downloads RTL-ML dataset from HuggingFace, processes each sample through
+Mimir's pipeline (FFT -> fingerprint -> embed), and stores vectors in
+ChromaDB as labelled reference signals.
+
+This is a one-off seeding script. Do not import or use in production code.
+
+Legal: Receive-only. Radiocommunications Act 1992 (Cth).
+       No transmission. Jurisdiction: AU/SA. Authority: ACMA.
+"""
+
+import logging
+import sys
+from pathlib import Path
+
+import numpy as np
+from huggingface_hub import snapshot_download
+
+from core.pipeline.fft import compute_psd
+from core.pipeline.features import fingerprint_spectrum
+from embeddings.embedder import SpectrumEmbedder
+from embeddings.store import SignalStore
+
+logger = logging.getLogger(__name__)
+
+RTL_ML_SAMPLE_RATE = 1_024_000
+
+CLASS_META: dict[str, dict] = {
+    "ADS_B": {"center_freq_hz": 1_090_000_000, "label": "ADS_B"},
+    "APRS": {"center_freq_hz": 144_390_000, "label": "APRS"},
+    "FM_broadcast": {"center_freq_hz": 98_000_000, "label": "FM_broadcast"},
+    "FRS_GMRS": {"center_freq_hz": 462_562_500, "label": "FRS_GMRS"},
+    "ISM_sensors": {"center_freq_hz": 433_920_000, "label": "ISM_sensors_433"},
+    "NOAA_APT": {"center_freq_hz": 137_500_000, "label": "NOAA_APT"},
+    "NOAA_weather": {"center_freq_hz": 162_400_000, "label": "NOAA_weather"},
+    "noise": {"center_freq_hz": 100_000_000, "label": "noise"},
+    "pager": {"center_freq_hz": 931_937_500, "label": "pager"},
+}
+
+CAPTURE_ORIGIN = "Temecula, CA, USA"
+
+
+def extract_iq_data(filepath: Path) -> np.ndarray | None:
+    """Load IQ data from a .npy file, handling both dict and raw array formats."""
+    try:
+        data = np.load(filepath, allow_pickle=True)
+    except Exception as exc:
+        logger.error("Failed to load %s: %s", filepath, exc)
+        return None
+
+    if isinstance(data, np.ndarray) and data.dtype == np.complex64:
+        # Raw complex64 array (v1 format)
+        return data
+
+    if isinstance(data, np.ndarray) and data.dtype == np.object_:
+        data = data.item()
+
+    if isinstance(data, dict):
+        samples = data.get("samples")
+        if samples is not None and isinstance(samples, np.ndarray) and np.iscomplexobj(samples):
+            return samples.astype(np.complex64)
+        logger.error("%s: dict found but no complex64 'samples' key", filepath)
+        return None
+
+    dtype_str = str(data.dtype) if hasattr(data, "dtype") else "N/A"
+    logger.error("%s: unexpected format (dtype=%s, type=%s)", filepath, dtype_str, type(data))
+    return None
+
+
+def build_metadata(
+    class_name: str,
+    sample_index: int,
+    iq_data: np.ndarray,
+    meta: dict,
+) -> dict:
+    """Build metadata dict for a processed sample."""
+    return {
+        "label": meta["label"],
+        "source": "rtl-ml-dataset",
+        "class": class_name,
+        "sample_index": sample_index,
+        "center_freq_hz": meta["center_freq_hz"],
+        "sample_rate_hz": RTL_ML_SAMPLE_RATE,
+        "capture_origin": CAPTURE_ORIGIN,
+        "n_samples": len(iq_data),
+    }
+
+
+def process_sample(
+    filepath: Path,
+    class_name: str,
+    meta: dict,
+    sample_index: int,
+    embedder: SpectrumEmbedder,
+) -> dict | None:
+    """Load one .npy file, run pipeline, return ChromaDB record or None on error."""
+    iq_data = extract_iq_data(filepath)
+    if iq_data is None:
+        return None
+
+    try:
+        psd = compute_psd(
+            samples=iq_data,
+            sample_rate_hz=RTL_ML_SAMPLE_RATE,
+            center_freq_hz=meta["center_freq_hz"],
+        )
+        fingerprint = fingerprint_spectrum(psd)
+        metadata = build_metadata(class_name, sample_index, iq_data, meta)
+        record = embedder.embed_fingerprint(fingerprint, metadata=metadata)
+        return record
+    except Exception as exc:
+        logger.error("Failed to process %s: %s", filepath, exc)
+        return None
+
+
+def discover_dataset_files(dataset_path: Path) -> dict[str, list[tuple[Path, int]]]:
+    """Walk dataset directory and group .npy files by class name.
+
+    Supports both flat (v1) and subdirectory (v2) structures.
+
+    Returns:
+        Dict mapping class_name -> list of (filepath, sample_index) tuples.
+    """
+    validated_dir = dataset_path / "datasets_validated"
+    if not validated_dir.is_dir():
+        logger.error("datasets_validated/ not found in %s", dataset_path)
+        return {}
+
+    classes: dict[str, list[tuple[Path, int]]] = {}
+
+    subdirs = sorted([
+        p for p in validated_dir.iterdir()
+        if p.is_dir()
+    ])
+
+    if subdirs:
+        # v2 structure: subdirectories per class
+        for subdir in subdirs:
+            class_name = subdir.name
+            npy_files = sorted(subdir.glob("*.npy"))
+            if not npy_files:
+                continue
+            classes[class_name] = []
+            for fpath in npy_files:
+                # Extract sample index from filename (e.g. "FM_broadcast_5.npy" -> 5)
+                stem = fpath.stem
+                parts = stem.split("_")
+                try:
+                    idx = int(parts[-1])
+                except (ValueError, IndexError):
+                    idx = 0
+                classes[class_name].append((fpath, idx))
+    else:
+        # v1 structure: flat files in datasets_validated/
+        for fpath in sorted(validated_dir.glob("*.npy")):
+            stem = fpath.stem
+            # Match class name prefix
+            matched = False
+            for class_name in CLASS_META:
+                if stem.startswith(class_name + "_") or stem == class_name:
+                    parts = stem.split("_")
+                    try:
+                        idx = int(parts[-1])
+                    except (ValueError, IndexError):
+                        idx = 0
+                    classes.setdefault(class_name, []).append((fpath, idx))
+                    matched = True
+                    break
+            if not matched:
+                logger.warning("Unrecognised file (skipping): %s", fpath.name)
+
+    return classes
+
+
+def check_duplicates(store: SignalStore) -> None:
+    """Check for existing records and prompt user to proceed or abort.
+
+    Exits with code 0 if user declines.
+    """
+    existing = store.count()
+    if existing > 0:
+        print(f"WARNING: ChromaDB already has {existing} records.")
+        print("Re-seeding will create duplicates. Proceed? [y/N]: ", end="")
+        response = input().strip().lower()
+        if response != "y":
+            print("Aborted.")
+            sys.exit(0)
+
+
+def main() -> None:
+    """Run the seeding process: download, process, insert."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s:%(name)s:%(message)s",
+    )
+
+    store = SignalStore(path="data/vectorstore")
+    check_duplicates(store)
+
+    embedder = SpectrumEmbedder()
+
+    print("Downloading RTL-ML dataset from HuggingFace...")
+    sys.stdout.flush()
+    dataset_path = Path(
+        snapshot_download(
+            repo_id="TrevTron/rtl-ml-dataset",
+            repo_type="dataset",
+        )
+    )
+    print(f"Dataset cached at: {dataset_path}")
+
+    classes = discover_dataset_files(dataset_path)
+    if not classes:
+        logger.error("No dataset files found. Check dataset structure.")
+        sys.exit(1)
+
+    total_processed = 0
+    class_counts: dict[str, int] = {}
+
+    for class_name in sorted(classes):
+        file_list = classes[class_name]
+        meta = CLASS_META.get(class_name, {
+            "center_freq_hz": 100_000_000,
+            "label": class_name,
+        })
+
+        class_records: list[dict] = []
+        for fpath, sample_index in file_list:
+            record = process_sample(fpath, class_name, meta, sample_index, embedder)
+            if record is not None:
+                class_records.append(record)
+                total_processed += 1
+
+        if class_records:
+            store.add_batch(class_records)
+            class_counts[class_name] = len(class_records)
+
+        print(f"  {class_name}: {len(class_records)}/{len(file_list)} samples inserted")
+
+    print(f"\nSeeding complete.")
+    print(f"  Total records inserted: {total_processed}")
+    for class_name, count in sorted(class_counts.items()):
+        print(f"    {class_name}: {count}")
+    print(f"  Store count after seeding: {store.count()}")
+
+
+if __name__ == "__main__":
+    main()
