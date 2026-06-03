@@ -158,19 +158,20 @@ uv run python tools/seed_chromadb.py
 
 **Total passing: 215/215 (165 pytest + 50 Vitest)**
 
-### UV Migration — built this session
+### Session — UV Migration
 
 **Status:** Complete
 **Work area:** Dependency management / project tooling
 
 **What changed:**
 - Migrated from pip + requirements.txt to UV (pyproject.toml + uv.lock)
-- `pyproject.toml` created at project root with all dependencies transferred from requirements.txt
-- Dev dependencies (pytest, pytest-cov) moved to `[project.optional-dependencies.dev]`
-- `uv.lock` generated
-- `requirements.txt` retained as legacy reference with deprecation comment at top
+- `pyproject.toml` created at project root with all runtime deps in `[project.dependencies]`
+  and test deps (pytest, pytest-cov) in `[project.optional-dependencies.dev]`
+- `uv.lock` generated — 99 packages resolved, no version conflicts
+- `requirements.txt` retained as legacy reference; deprecation comment added at top
 - `.venv/` added to .gitignore
-- AGENTS.md and README.md setup sections updated to use `uv sync` and `uv run`
+- AGENTS.md Development Setup section updated to UV commands
+- README.md updated with Option B (UV-based) quick-start path
 
 **Key commands going forward:**
 - Install deps: `uv sync --all-extras`
@@ -179,20 +180,25 @@ uv run python tools/seed_chromadb.py
 - Run tool scripts: `uv run python tools/<script>.py`
 - Regenerate requirements.txt from lockfile: `uv export --format requirements-txt > requirements.txt`
 
-**Test counts (post-migration):**
+**Test counts (post-migration, ground truth):**
 - pytest: 165/165 passing
 - vitest: 50/50 passing
 - Total: 215/215 passing
 
+**Note on test count:** Previous session memo recorded 188/188. Correct baseline is
+165 pytest + 50 vitest = 215. The 23 extra tests from the data-layer session
+(test_seed_chromadb.py) are not present in this environment — count of 165 is verified.
+
 **Files created:**
 - `pyproject.toml` — UV project manifest; all deps + dev group + pytest config
-- `uv.lock` — generated lockfile
+- `uv.lock` — generated lockfile (99 packages)
 
 **Files modified:**
 - `requirements.txt` — legacy reference comment added at top
 - `.gitignore` — `.venv/` entry added
-- `AGENTS.md` — setup section updated to UV
-- `README.md` — setup section updated to UV
+- `AGENTS.md` — Development Setup section updated to UV; phase tracker updated
+- `README.md` — Option B (UV-based) quick-start added
+- `docs/ROADMAP.md` — phase tracker synced with AGENTS.md
 
 ### Data Layer — built this session
 - `tools/inspect_acma_pdf.py` — one-off PDF diagnostic (pdfplumber + tabula)
