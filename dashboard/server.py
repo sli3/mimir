@@ -15,6 +15,16 @@ socketio = SocketIO(app, async_mode="threading", cors_allowed_origins="*")
 
 _device_ref = None
 _last_hw_error_time = 0.0
+_focused_freq_hz: float | None = None
+_focused_freq_lock = threading.Lock()
+
+
+@socketio.on("set_focus_frequency")
+def handle_set_focus(data):
+    """Set or clear the focused frequency filter for scan_result emissions."""
+    global _focused_freq_hz
+    with _focused_freq_lock:
+        _focused_freq_hz = data.get("freq_hz")
 
 
 def record_hw_error() -> None:
@@ -57,6 +67,10 @@ def start_server(host: str, port: int, device=None):
     _stats_thread.start()
 
     def broadcast(scan_result: ScanResult) -> None:
+        with _focused_freq_lock:
+            focused = _focused_freq_hz
+        if focused is not None and scan_result.center_freq_hz != focused:
+            return
         cls = scan_result.classification
         data = {
             "timestamp": scan_result.timestamp,

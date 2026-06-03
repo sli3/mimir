@@ -52,8 +52,20 @@ describe('useSocket', () => {
     act(() => {
       result.current.focusFrequency(98000000)
     })
-    expect(mockSocket.emit).toHaveBeenCalledWith('focus_frequency', { frequency_hz: 98000000 })
+    expect(mockSocket.emit).toHaveBeenCalledWith('set_focus_frequency', { freq_hz: 98000000 })
     expect(result.current.focusedFreq).toBe(98000000)
+  })
+
+  it('connect re-syncs set_focus_frequency when a frequency is focused', () => {
+    const { result } = renderHook(() => useSocket())
+    act(() => {
+      result.current.focusFrequency(98000000)
+    })
+    mockSocket.emit.mockClear()
+    act(() => {
+      eventHandlers['connect'][0]()
+    })
+    expect(mockSocket.emit).toHaveBeenCalledWith('set_focus_frequency', { freq_hz: 98000000 })
   })
 
   it('scan_result event prepends to scanResults and caps at 200', () => {

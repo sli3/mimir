@@ -7,7 +7,14 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from dashboard.server import _compute_hackrf_status
+import dashboard.server as server
+from dashboard.server import (
+    _compute_hackrf_status,
+    handle_set_focus,
+    start_server,
+)
+from core.pipeline.scan_result import ScanResult
+from llm.classifier import ClassificationResult
 
 
 class TestComputeHackrfStatus:
@@ -57,3 +64,96 @@ class TestComputeHackrfStatus:
             patch("dashboard.server.time.time", return_value=error_time + 31.0),
         ):
             assert _compute_hackrf_status() == "CONNECTED"
+
+
+class TestFocusFrequencyFilter:
+    def _make_scan_result(self, freq_hz: float) -> ScanResult:
+        return ScanResult(
+            center_freq_hz=freq_hz,
+            timestamp="2026-06-03T12:00:00",
+            fingerprint={},
+            classification=ClassificationResult(
+                signal_type="test",
+                confidence="high",
+                confidence_score=0.9,
+                novel=False,
+                au_legal_status="LEGAL RX",
+                reasoning="test",
+                frequency_band="test",
+                raw_response="test",
+            ),
+        )
+
+    def test_handle_set_focus_sets_global(self):
+        saved = server._focused_freq_hz
+        try:
+            handle_set_focus({"freq_hz": 100e6})
+            assert server._focused_freq_hz == 100e6
+        finally:
+            server._focused_freq_hz = saved
+
+    def test_handle_set_focus_clears_with_none(self):
+        saved = server._focused_freq_hz
+        try:
+            server._focused_freq_hz = 100e6
+            handle_set_focus({"freq_hz": None})
+            assert server._focused_freq_hz is None
+        finally:
+            server._focused_freq_hz = saved
+
+    def _start_server_with_mocks(self):
+        mock_device = MagicMock()
+        with (
+            patch("dashboard.server.socketio.run"),
+            patch("threading.Thread.start"),
+        ):
+            broadcast = start_server("localhost", 5000, mock_device)
+        return broadcast
+
+    def test_filter_blocks_non_matching(self):
+        broadcast = self._start_server_with_mocks()
+        with (
+            patch("dashboard.server._focused_freq_hz", 100e6),
+            patch("dashboard.server.socketio.emit") as mock_emit,
+        ):
+            broadcast(self._make_scan_result(200e6))
+        mock_emit.assert_not_called()
+
+    def test_filter_passes_matching(self):
+        broadcast = self._start_server_with_mocks()
+        with (
+            patch("dashboard.server._focused_freq_hz", 100e6),
+            patch("dashboard.server.socketio.emit") as mock_emit,
+        ):
+            broadcast(self._make_scan_result(100e6))
+        mock_emit.assert_called_once_with("scan_result", {
+            "timestamp": "2026-06-03T12:00:00",
+            "center_freq_hz": 100e6,
+            "signal_type": "test",
+            "confidence": "high",
+            "confidence_score": 0.9,
+            "novel": False,
+            "au_legal_status": "LEGAL RX",
+            "reasoning": "test",
+        })
+
+    def test_passes_all_when_focus_is_none(self):
+        broadcast = self._start_server_with_mocks()
+        with (
+            patch("dashboard.server._focused_freq_hz", None),
+            patch("dashboard.server.socketio.emit") as mock_emit,
+        ):
+            broadcast(self._make_scan_result(200e6))
+        mock_emit.assert_called_once()
+
+    def test_thread_safety_no_deadlock(self):
+        broadcast = self._start_server_with_mocks()
+        import concurrent.futures
+        with patch("dashboard.server.socketio.emit"):
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
+                futs = []
+                for i in range(10):
+                    futs.append(ex.submit(handle_set_focus, {"freq_hz": float(i * 10e6)}))
+                    futs.append(ex.submit(broadcast, self._make_scan_result(float(i * 10e6))))
+                for f in concurrent.futures.as_completed(futs):
+                    f.result(timeout=5.0)

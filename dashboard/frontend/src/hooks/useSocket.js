@@ -28,7 +28,12 @@ export function useSocket() {
     const socket = io(SOCKET_URL)
     socketRef.current = socket
 
-    socket.on('connect', () => setIsConnected(true))
+    socket.on('connect', () => {
+      setIsConnected(true)
+      if (focusedFreqRef.current !== null) {
+        socket.emit('set_focus_frequency', { freq_hz: focusedFreqRef.current })
+      }
+    })
     socket.on('disconnect', () => setIsConnected(false))
 
     socket.on('scan_result', (data) => {
@@ -82,8 +87,7 @@ export function useSocket() {
     setAiReasoning(INITIAL_AI_REASONING)
     const socket = socketRef.current
     if (socket) {
-      // TODO: server-side handler for focus_frequency in Phase 7B-3
-      socket.emit('focus_frequency', { frequency_hz: freqHz })
+      socket.emit('set_focus_frequency', { freq_hz: freqHz })
     }
   }, [])
 
