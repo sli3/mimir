@@ -9,6 +9,7 @@ from core.pipeline.features import fingerprint_spectrum
 from core.pipeline.fft import compute_psd
 from core.pipeline.scan_result import ScanResult
 from dashboard.server import record_hw_error
+from llm.acma_reference import AcmaReference
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ class ScanRunner:
         self._ai_thread: threading.Thread | None = None
         self._broadcast_fn = None
         self._broadcast_spectrum_fn = None
+        self._acma_reference = AcmaReference()
 
     def run(self) -> None:
         self._running = True
@@ -93,7 +95,14 @@ class ScanRunner:
                     for m, d in zip(neighbours["metadatas"][0],
                                     neighbours["distances"][0])
                 ]
-                result = self._classifier.classify(item["fingerprint"], neighbours_list)
+                acma_allocations = self._acma_reference.lookup(
+                    item["fingerprint"].get("center_freq_hz", 0)
+                )
+                result = self._classifier.classify(
+                    item["fingerprint"],
+                    neighbours_list,
+                    acma_allocations=acma_allocations,
+                )
                 scan_result = ScanResult(
                     timestamp=datetime.now().isoformat(),
                     center_freq_hz=item["freq_hz"],

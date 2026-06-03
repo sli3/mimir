@@ -166,7 +166,7 @@ class SignalClassifier:
     """
 
     _FALLBACK_SIGNAL_TYPE = "unavailable"
-    _REQUEST_TIMEOUT_SEC = 30
+    _REQUEST_TIMEOUT_SEC = 90
 
     def __init__(
         self,
@@ -194,6 +194,7 @@ class SignalClassifier:
         self,
         fingerprint: dict,
         neighbours: list,
+        acma_allocations: list[dict] | None = None,
     ) -> ClassificationResult:
         """
         Classify a signal using the local LLM.
@@ -214,7 +215,9 @@ class SignalClassifier:
             result with signal_type="unavailable" and confidence="low".
         """
         system_prompt = self._build_system_prompt()
-        user_prompt = self._build_user_prompt(fingerprint, neighbours)
+        user_prompt = self._build_user_prompt(
+            fingerprint, neighbours, acma_allocations=acma_allocations
+        )
 
         try:
             logger.info(
@@ -307,7 +310,12 @@ If you cannot confidently classify the signal, use signal_type "unknown" \
 and set confidence to "low". If all neighbours have distances above 0.031, \
 set novel to true. Never invent data — only classify based on what you are given."""
 
-    def _build_user_prompt(self, fingerprint: dict, neighbours: list) -> str:
+    def _build_user_prompt(
+        self,
+        fingerprint: dict,
+        neighbours: list,
+        acma_allocations: list[dict] | None = None,
+    ) -> str:
         """
         Build the user prompt — constructed fresh for every classification call.
 
@@ -315,8 +323,10 @@ set novel to true. Never invent data — only classify based on what you are giv
         reason about them without needing to know RF conventions itself.
 
         Args:
-            fingerprint : Phase 2 fingerprint dict.
-            neighbours  : Phase 3 ChromaDB query results.
+            fingerprint     : Phase 2 fingerprint dict.
+            neighbours      : Phase 3 ChromaDB query results.
+            acma_allocations: ACMA spectrum plan entries covering this
+                              frequency, or None/empty to omit.
 
         Returns:
             Formatted prompt string ready to send to the LLM.
@@ -377,6 +387,31 @@ set novel to true. Never invent data — only classify based on what you are giv
         else:
             neighbours_section = "  No neighbours found — signal store may be empty."
 
+        # Build ACMA allocations section if available
+        if acma_allocations:
+            acma_header = (
+                f"ACMA SPECTRUM PLAN -- ALLOCATIONS FOR {freq_mhz:.3f} MHz\n"
+                f"The following Australian spectrum allocations cover this frequency:\n"
+            )
+            acma_lines = [acma_header]
+            for idx, alloc in enumerate(acma_allocations, start=1):
+                services = ", ".join(alloc.get("services", []))
+                band_tag = alloc.get("mimir_band") or "untagged"
+                acma_lines.append(
+                    f"  {idx}. {alloc['freq_start_mhz']}-{alloc['freq_end_mhz']} MHz "
+                    f"| Services: {services}\n"
+                    f"     Band tag: {band_tag}"
+                )
+            acma_section = "\n".join(acma_lines) + "\n"
+            acma_footer = (
+                "Use this regulatory context to inform your classification. "
+                "If the signal frequency matches a known allocation, "
+                "say so explicitly in your reasoning.\n"
+            )
+        else:
+            acma_section = ""
+            acma_footer = ""
+
         return (
             f"New signal fingerprint:\n"
             f"  Centre frequency : {freq_hz:,.0f} Hz ({freq_mhz:.3f} MHz)\n"
@@ -388,6 +423,8 @@ set novel to true. Never invent data — only classify based on what you are giv
             f"ChromaDB nearest neighbours (top {len(neighbours)}):\n"
             f"{neighbours_section}\n"
             f"\n"
+            f"{acma_section}"
+            f"{acma_footer}"
             f"Classify this signal. Respond with JSON only."
         )
 

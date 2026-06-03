@@ -540,3 +540,98 @@ class TestSafetyChecks:
             "System prompt must not contain 144.390 MHz — that is the US APRS "
             "frequency. Australian APRS is 145.175 MHz."
         )
+
+
+# ══════════════════════════════════════════════════════════════════════
+# GROUP 7 — ACMA allocations in prompt
+# ══════════════════════════════════════════════════════════════════════
+
+class TestAcmaAllocationsInPrompt:
+    """Tests for ACMA spectrum plan context in the user prompt."""
+
+    _ACMA_FM_ALLOCATION = [
+        {
+            "freq_start_mhz": 87.5,
+            "freq_end_mhz": 108.0,
+            "services": ["BROADCASTING", "Fixed", "Mobile"],
+            "mimir_band": "fm_broadcast",
+        },
+    ]
+
+    def test_acma_section_appears_when_provided(
+        self, classifier, fm_fingerprint, fm_neighbours
+    ):
+        """ACMA section appears when acma_allocations list is non-empty."""
+        prompt = classifier._build_user_prompt(
+            fm_fingerprint, fm_neighbours,
+            acma_allocations=self._ACMA_FM_ALLOCATION,
+        )
+        assert "ACMA" in prompt, (
+            "User prompt must include an ACMA section when allocations "
+            "are provided."
+        )
+
+    def test_acma_contains_frequency_range(
+        self, classifier, fm_fingerprint, fm_neighbours
+    ):
+        """ACMA section includes the allocation frequency range."""
+        prompt = classifier._build_user_prompt(
+            fm_fingerprint, fm_neighbours,
+            acma_allocations=self._ACMA_FM_ALLOCATION,
+        )
+        assert "87.5" in prompt and "108.0" in prompt, (
+            "ACMA section must include the frequency range from the "
+            "allocation entry."
+        )
+
+    def test_acma_contains_service_name(
+        self, classifier, fm_fingerprint, fm_neighbours
+    ):
+        """ACMA section includes the service name (e.g. BROADCASTING)."""
+        prompt = classifier._build_user_prompt(
+            fm_fingerprint, fm_neighbours,
+            acma_allocations=self._ACMA_FM_ALLOCATION,
+        )
+        assert "BROADCASTING" in prompt, (
+            "ACMA section must include the primary service name from "
+            "the allocation entry."
+        )
+
+    def test_empty_allocations_no_acma_section(
+        self, classifier, fm_fingerprint, fm_neighbours
+    ):
+        """Empty allocations list produces no ACMA section."""
+        prompt = classifier._build_user_prompt(
+            fm_fingerprint, fm_neighbours,
+            acma_allocations=[],
+        )
+        assert "ACMA" not in prompt, (
+            "User prompt must not include an ACMA section when the "
+            "allocations list is empty."
+        )
+
+    def test_none_allocations_no_acma_section(
+        self, classifier, fm_fingerprint, fm_neighbours
+    ):
+        """None allocations produces no ACMA section (backwards compat)."""
+        prompt = classifier._build_user_prompt(
+            fm_fingerprint, fm_neighbours,
+            acma_allocations=None,
+        )
+        assert "ACMA" not in prompt, (
+            "User prompt must not include an ACMA section when "
+            "acma_allocations is None."
+        )
+
+    @patch("llm.classifier.requests.post")
+    def test_classify_passes_allocations_through(
+        self, mock_post, classifier, fm_fingerprint, fm_neighbours
+    ):
+        """classify() with acma_allocations does not crash and calls the API."""
+        mock_post.return_value = _make_llm_response(_valid_fm_payload())
+        result = classifier.classify(
+            fm_fingerprint, fm_neighbours,
+            acma_allocations=self._ACMA_FM_ALLOCATION,
+        )
+        assert isinstance(result, ClassificationResult)
+        assert result.signal_type == "fm_broadcast"

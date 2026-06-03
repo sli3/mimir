@@ -20,8 +20,10 @@
 | Data Layer | ACMA frequency reference + RTL-ML ChromaDB seeding | ✅ Complete | 188/188 (165 pytest + 23 new, 50 Vitest) |
 | — | UV migration (pip to pyproject.toml + uv.lock) | ✅ Complete | uv sync --all-extras; uv run pytest |
 | 7B    | Cyberpunk Dashboard — AI + Polish | ✅ Complete | 233/233 |
+| 8A | Wire ACMA frequency_reference.json into LLM classifier user prompt | ✅ Complete | 251/251 |
+| 8B | Wire real ScanRunner values into system_stats; fix AGENTS.md event table | 🟡 Next | — |
 
-**Total: 233/233 tests passing (177 pytest + 56 Vitest)**
+**Total: 251/251 tests passing (195 pytest + 56 Vitest)**
 
 ---
 
@@ -117,6 +119,33 @@ store it in ChromaDB, and retrieve it by similarity search.
 - Live waterfall canvas with percentile normalisation
 - Four AU-legal band profiles: FM, Aviation, ADS-B, noise floor
 - Band switching via WebSocket command channel
+
+---
+
+## Phase 8A — ACMA Reference Wiring ✅
+
+**Goal:** Wire `data/frequency_reference.json` (432 ACMA spectrum allocation
+entries) into the LLM classifier user prompt so the LLM receives real
+regulatory context alongside the signal fingerprint.
+
+**Delivered:**
+- `llm/acma_reference.py` — `AcmaReference` class with range-based lookup
+- `llm/classifier.py` — `classify()` and `_build_user_prompt()` accept
+  `acma_allocations` parameter; appends ACMA SPECTRUM PLAN section when provided
+- `core/pipeline/scanner.py` — `AcmaReference` instantiated once per
+  `ScanRunner`; lookup called before each classify() pass
+- `tests/llm/test_acma_reference.py` — 12 tests
+- `tests/llm/test_phase4_classifier.py` — 6 new ACMA section tests
+
+**Complete when:** `uv run pytest` → 195/195 + `vitest` → 56/56 = 251 total
+
+---
+
+## Phase 8B — Live system_stats + Event Table Fix ⬜
+
+**Goal:** Wire real ScanRunner values into system_stats (active_frequency_hz,
+scan_count, queue_depth, llm_last_inference_ms are currently hardcoded zeros).
+Fix AGENTS.md event table: rename focus_frequency to set_focus_frequency.
 
 ---
 

@@ -155,158 +155,84 @@ uv run python tools/seed_chromadb.py
 | Data Layer | ACMA frequency reference + RTL-ML ChromaDB seeding | ✅ Complete | 188/188 (165 pytest + 23 new, 50 Vitest) |
 | 7B    | Cyberpunk Dashboard — AI + Polish | ✅ Complete | 233/233 |
 | — | UV migration (pip to pyproject.toml + uv.lock) | ✅ Complete | uv sync --all-extras; uv run pytest |
+| 8A | Wire ACMA frequency_reference.json into LLM classifier user prompt | ✅ Complete | 251/251 |
+| 8B | Wire real ScanRunner values into system_stats; fix AGENTS.md event table | 🟡 Next | — |
 
-**Total passing: 233/233 (177 pytest + 56 Vitest)**
+**Total passing: 251/251 (195 pytest + 56 Vitest)**
 
-### Session — UV Migration
+### Session memo — Phase 8A: ACMA Reference Wiring (Complete)
 
-**Status:** Complete
-**Work area:** Dependency management / project tooling
+Phase: 8A -- Wire data/frequency_reference.json into LLM classifier
+Status: Complete
+Tests: 195 pytest + 56 vitest = 251 total (all passing)
 
-**What changed:**
-- Migrated from pip + requirements.txt to UV (pyproject.toml + uv.lock)
-- `pyproject.toml` created at project root with all runtime deps in `[project.dependencies]`
-  and test deps (pytest, pytest-cov) in `[project.optional-dependencies.dev]`
-- `uv.lock` generated — 99 packages resolved, no version conflicts
-- `requirements.txt` retained as legacy reference; deprecation comment added at top
-- `.venv/` added to .gitignore
-- AGENTS.md Development Setup section updated to UV commands
-- README.md updated with Option B (UV-based) quick-start path
+Files created:
 
-**Key commands going forward:**
-- Install deps: `uv sync --all-extras`
-- Run scanner: `uv run python scan.py`
-- Run tests: `uv run pytest`
-- Run tool scripts: `uv run python tools/<script>.py`
-- Regenerate requirements.txt from lockfile: `uv export --format requirements-txt > requirements.txt`
+  llm/acma_reference.py
+    New AcmaReference class. Loads data/frequency_reference.json at __init__
+    time into an internal list. Exposes lookup(freq_hz: float) -> list[dict]
+    which converts Hz to MHz and returns all entries where
+    freq_start_mhz <= freq_mhz <= freq_end_mhz. Logs a warning and sets an
+    empty list if the file is missing or fails to parse -- never raises.
+    No SDR imports, no TX patterns.
 
-**Test counts (post-migration, ground truth):**
-- pytest: 165/165 passing
-- vitest: 50/50 passing
-- Total: 215/215 passing
+  tests/llm/test_acma_reference.py
+    12 tests covering: range match for all four AU bands (FM/APRS/ISM/ADS-B),
+    out-of-range empty return, missing file graceful handling, corrupted file
+    graceful handling, expected field presence, inclusive boundary checks (lower
+    and upper), TX pattern safety check, no-SDR-import check. All passing.
 
-**Note on test count:** Previous session memo recorded 188/188. Correct baseline is
-165 pytest + 50 vitest = 215. The 23 extra tests from the data-layer session
-(test_seed_chromadb.py) are not present in this environment — count of 165 is verified.
+Files modified:
 
-**Files created:**
-- `pyproject.toml` — UV project manifest; all deps + dev group + pytest config
-- `uv.lock` — generated lockfile (99 packages)
+  llm/classifier.py
+    classify() and _build_user_prompt() now accept optional
+    acma_allocations: list[dict] | None = None parameter.
+    When non-empty, appends an "ACMA SPECTRUM PLAN" section to the user prompt
+    showing allocation ranges, services list, and mimir_band tag per entry.
+    When None or empty, prompt is unchanged -- fully backwards compatible.
 
-**Files modified:**
-- `requirements.txt` — legacy reference comment added at top
-- `.gitignore` — `.venv/` entry added
-- `AGENTS.md` — Development Setup section updated to UV; phase tracker updated
-- `README.md` — Option B (UV-based) quick-start added
-- `docs/ROADMAP.md` — phase tracker synced with AGENTS.md
+  core/pipeline/scanner.py
+    ScanRunner.__init__() now instantiates AcmaReference (imported from
+    llm.acma_reference) once as self._acma_reference. The AI loop calls
+    self._acma_reference.lookup(fingerprint["center_freq_hz"]) before each
+    classify() call and passes the result as acma_allocations.
 
-### Data Layer — built this session
-- `tools/inspect_acma_pdf.py` — one-off PDF diagnostic (pdfplumber + tabula)
-- `tools/build_frequency_reference.py` — extracts and cleans ACMA spectrum plan PDF into structured JSON
-- `data/frequency_reference.json` — 432 entries, HackRF range 1–6000 MHz, extracted from ACMA Radiofrequency Spectrum Plan (2025 Update) 2021. 5 Mimir bands tagged: fm_broadcast, aviation_vhf, aprs, ism_lora, adsb
-- `tools/seed_chromadb.py` — downloads TrevTron/rtl-ml-dataset from HuggingFace, processes through Mimir pipeline, seeds ChromaDB
-- `tests/tools/test_seed_chromadb.py` — 23 tests, all synthetic
-- ChromaDB now seeded: 800 records, 7 classes: APRS, FM_broadcast, FRS_GMRS, ISM_sensors_433, NOAA_weather, noise, pager
-- ADS_B and NOAA_APT absent from RTL-ML v2 dataset
-- Known limitation: pager BW=0 on most samples due to SIGNAL_THRESHOLD_DB=27dB — deferred to Phase 5
+  tests/llm/test_phase4_classifier.py
+    6 new tests added in TestAcmaAllocationsInPrompt: ACMA section present when
+    allocations provided, section contains frequency range, section contains
+    service name, empty list produces no ACMA section, None produces no ACMA
+    section, classify() passes allocations through without crash. All passing.
 
-### Notes
-- **data/vectorstore/ is gitignored** (inside data/). ChromaDB must be re-seeded on fresh clone by running: `uv run python tools/seed_chromadb.py`
+Key architectural fact:
+data/frequency_reference.json uses range-based allocations (freq_start_mhz /
+freq_end_mhz), not point frequencies. This matches how ACMA documents the AU
+spectrum plan. Multiple entries may match one frequency (overlapping allocations
+are normal). The LLM now receives real regulatory data per scan cycle -- this
+directly addresses the 98 MHz FM misclassification as "noise" by giving the LLM
+the "BROADCASTING 87.5-108.0 MHz, mimir_band: fm_broadcast" entry in its prompt.
 
-### Deferred items
+---
 
-- **BUG-01 — psd_db calibration (deferred to Phase 5):** Three compounding errors in `fft.py` compute_psd: no nfft scaling, no Hann window power correction, peak normalisation forcing relative rather than absolute dBFS. When addressed in Phase 5, explain the bug in plain English before writing any code.
+## Deferred Items
 
-- **ADS_B reference vectors missing:** RTL-ML v2 dataset does not include ADS_B captures. ADS_B vectors must come from live HackRF captures in a future phase. Consider a calibration-style capture script to seed them into ChromaDB.
+- **BUG-01 (open, deferred post-8B):** bandwidth_hz=0 and occupied_bins=0 in all
+  live embeddings because live SNR (6-10 dB) is below SIGNAL_THRESHOLD_DB (27 dB).
+  Only 4/6 embedding features are active. FM misclassification is now partially
+  mitigated by ACMA context wiring (Phase 8A) but the threshold issue remains.
+  Address after Phase 8B. When fixing: always explain the bug in plain English
+  before writing any code.
 
-- **Pager bandwidth threshold:** SIGNAL_THRESHOLD_DB=27dB is too high for narrow pager bursts. Most pager vectors in ChromaDB have BW=0 Hz, bins=0. Deferred to Phase 5 threshold calibration.
+- **system_stats placeholders (deferred to Phase 8B):** active_frequency_hz,
+  scan_count, queue_depth, llm_last_inference_ms are hardcoded zeros in the
+  stats emit. Not wired to real ScanRunner values yet.
 
-### Phase 7B — completed
-- [x] 1. Fix `hackrf_status` in `get_stats()` — always shows DISCONNECTED
-- [x] 2. `AIReasoningPanel` — full LLM reasoning for focused frequency
-- [x] 3. `focus_frequency` server-side filter in `server.py` + `useSocket.js`
-- [ ] 4. `CharacterPanel` — 4-state PNG swap (deferred to post-7B)
-- [ ] 5. Signal type colour-coding audit across all panels (deferred to post-7B)
-- [ ] 6. Neon glow polish — box-shadow pulse on active panels (deferred to post-7B)
-- [ ] 7. `npm run build` → `dashboard/static/` verified (deferred to post-7B)
+- **AGENTS.md event table (deferred to Phase 8B):** still lists old event name
+  focus_frequency -- should be set_focus_frequency.
 
-### Session memo — Phase 7B-1 (2026-06-03)
-
-#### Completed
-- Live pipeline verified end-to-end: ChromaDB 800 RTL-ML vectors confirmed,
-  all four AU bands classifying correctly (FM→noise, APRS→aprs,
-  915→ism_lora high 0.95, 1090→adsb)
-- LLM timeout raised to 90s in llm/classifier.py (_REQUEST_TIMEOUT_SEC = 90)
-- 7B-1 built: hackrf_status three-state fix (CONNECTED/NOT_RESPONDING/DISCONNECTED)
-- 171 pytest + 50 vitest = 221 total passing
-
-#### Bug status
-- BUG-01 (bandwidth/occupied_bins = 0): SIGNAL_THRESHOLD_DB correctly set to
-  27 dB. BW=0 in live scans is because real signal SNR (6-10 dB) is below
-  threshold — signals are genuinely weak, not a code bug. Deferred post-7B.
-  Note: all ChromaDB vectors have bandwidth_hz=0 and occupied_bins=0, so
-  similarity matching runs on 4/6 features only. Not a blocker.
-
-#### Known tech debt (stats panel)
-- active_frequency_hz, scan_count, queue_depth, llm_last_inference_ms are
-  hardcoded placeholders in system_stats emit — real values deferred to a
-  future phase
-
-#### Next
-- 7B-2: AIReasoningPanel — wire live LLM reasoning with fade-in
-- 7B-3: focus_frequency server-side filter
-
-### Session memo — Phase 7B-2 (2026-06-03)
-
-#### Completed
-- 7B-2 built: AIReasoningPanel wired to live scan_result reasoning
-- useSocket.js: focusedFreqRef pattern used to fix stale closure bug
-- Fade-in/fade-out: 200ms out, 300ms in, hardcoded (acceptable for now)
-- LLM timeout display: "LLM TIMEOUT — ChromaDB match only" in amber
-  when signal_type === "unavailable"
-- Cloud-reviewer fix applied: removed unused focusedFreq dead prop
-- 171 pytest + 55 vitest = 226 total passing
-
-#### Tech debt noted
-- Fade timing constants hardcoded — extract if reused elsewhere
-- focus_frequency socket emit in useSocket.js has TODO comment —
-  server-side handler lands in 7B-3
-
-#### Next
-- 7B-3: focus_frequency server-side filter in server.py + scanner.py
-
-### Session memo — Phase 7B-3 + Phase 7B close (2026-06-03)
-
-#### Completed this task
-- 7B-3 built: focus_frequency server-side filter for scan_result emissions
-- server.py: _focused_freq_hz + threading.Lock, set_focus_frequency handler,
-  broadcast() filter — null clears filter, set value filters to matching freq
-- useSocket.js: connect re-sync on reconnect, event renamed set_focus_frequency
-- spectrum_update events deliberately NOT filtered — waterfall always shows all
-- 177 pytest + 56 vitest = 233 total passing
-
-#### Phase 7B complete — summary of all three tasks
-- 7B-1: hackrf_status three-state fix (CONNECTED / NOT_RESPONDING / DISCONNECTED)
-- 7B-2: AIReasoningPanel wired to live LLM reasoning with fade-in/fade-out
-- 7B-3: focus_frequency server-side filter — scan_result filtered by focused band
-
-#### Known tech debt carried forward
-- BUG-01: BW=0/bins=0 in live scans — signals genuinely weak (SNR 6-10 dB below
-  27 dB threshold). ChromaDB vectors have 4/6 active features. Deferred post-7B.
-  Always explain before fixing.
-- handle_set_focus: no input type validation on freq_hz — harmless with
-  frontend-only client, address in polish pass
-- AGENTS.md event name table: lists old focus_frequency — rename to
-  set_focus_frequency in a doc pass
-- system_stats placeholder values: active_frequency_hz, scan_count,
-  queue_depth, llm_last_inference_ms are hardcoded — wire real values
-  from ScanRunner in a future phase
-- LLM timeout (90s) raised this session in llm/classifier.py — committed
-  but not noted in previous memo
-
-#### Next phase
-- To be decided — candidates: live scan polish, BUG-01 bandwidth fix,
-  NOAA satellite module, or plugin architecture
+- **NOAA/Meteor-M2 satellite module (post-Phase 8):** HackRF covers 137-138 MHz.
+  NOAA 15 (137.620 MHz), NOAA 18 (137.9125 MHz), NOAA 19 (137.100 MHz),
+  Meteor-M2 (137.9 MHz). Requires V-dipole or QFH antenna. Address after all
+  8x phases are closed.
 
 ---
 
@@ -369,6 +295,7 @@ uv run python tools/seed_chromadb.py
 | `core/config/loader.py` | `MimirConfig`, `load_config()` |
 | `embeddings/embedder.py` | SpectrumEmbedder — fingerprint to vector |
 | `embeddings/store.py` | SignalStore — ChromaDB wrapper |
+| `llm/acma_reference.py` | `AcmaReference` — ACMA spectrum plan lookup |
 | `llm/classifier.py` | `SignalClassifier` — LLM classification |
 | `dashboard/server.py` | Flask + Flask-SocketIO backend |
 | `dashboard/frontend/` | Vite + React cyberpunk frontend |
