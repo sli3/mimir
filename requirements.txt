@@ -1,3 +1,6 @@
+# Legacy reference only. Use UV: uv sync --all-extras
+# To regenerate from lockfile: uv export --format requirements-txt > requirements.txt
+#
 # Mimir RF Scanner — Python Dependencies
 #
 # System packages (install via package manager, NOT pip):

@@ -7,16 +7,21 @@
 
 ## Phase Tracker
 
-| Phase | Name                     | Status      | Tests  |
-|-------|--------------------------|-------------|--------|
-| 0     | Hardware Safety Gate     | ✅ Complete | 25/25  |
-| 1     | IQ Capture Pipeline      | ✅ Complete | 5/5    |
-| 2     | FFT + Feature Extraction | ✅ Complete | 21/21  |
-| 3     | Embedding + Vector Store | ✅ Complete | 24/24  |
-| 4     | LLM Classification       | ✅ Complete | 24/24  |
-| 5     | Live Dashboard           | ✅ Complete | —      |
+| Phase | Name                              | Status         | Tests    |
+|-------|-----------------------------------|----------------|----------|
+| 0     | Hardware Safety Gate              | ✅ Complete    | 25/25    |
+| 1     | IQ Capture Pipeline               | ✅ Complete    | 5/5      |
+| 2     | FFT + Feature Extraction          | ✅ Complete    | 21/21    |
+| 3     | Embedding + Vector Store          | ✅ Complete    | 24/24    |
+| 4     | LLM Classification                | ✅ Complete    | 24/24    |
+| 5     | Live Dashboard                    | ✅ Complete    | —        |
+| 6     | Live AI Classification + Dashboard| ✅ Complete    | 108/108  |
+| 7A    | Cyberpunk Dashboard — Scaffold    | ✅ Complete    | 108 pytest + 50 Vitest = 158   |
+| Data Layer | ACMA frequency reference + RTL-ML ChromaDB seeding | ✅ Complete | 188/188 (165 pytest + 23 new, 50 Vitest) |
+| — | UV migration (pip to pyproject.toml + uv.lock) | ✅ Complete | uv sync --all-extras; uv run pytest |
+| 7B    | Cyberpunk Dashboard — AI + Polish | 🔜 Next        | —        |
 
-**Total: 99/99 tests passing**
+**Total: 215/215 tests passing (165 pytest + 50 Vitest)**
 
 ---
 

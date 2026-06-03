@@ -90,6 +90,56 @@ dashboard/                      Cyberpunk React dashboard + Flask-SocketIO
 
 ---
 
+## Development Setup
+
+### Prerequisites
+
+System-level dependencies (UV cannot manage these):
+
+```bash
+# Fedora
+sudo dnf install hackrf SoapySDR python3-SoapySDR
+# NOTE: SoapySDR-module-hackrf does NOT exist in dnf repos.
+# Build from source: https://github.com/pothosware/SoapyHackRF
+
+# Ubuntu/Debian
+sudo apt-get install hackrf soapysdr-module-hackrf python3-soapysdr
+```
+
+### Install UV (if not present)
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+### Install all Python dependencies
+
+```bash
+uv sync --all-extras
+```
+
+This creates a `.venv` virtual environment and installs everything.
+
+### Run the scanner
+
+```bash
+uv run python scan.py
+```
+
+### Run tests
+
+```bash
+uv run pytest
+```
+
+### Run a tool script
+
+```bash
+uv run python tools/seed_chromadb.py
+```
+
+---
+
 ## Phase Tracker
 
 | Phase | Name                              | Status         | Tests    |
@@ -102,9 +152,68 @@ dashboard/                      Cyberpunk React dashboard + Flask-SocketIO
 | 5     | Calibration & Thresholds          | ✅ Complete    | —        |
 | 6     | Live AI Classification + Dashboard| ✅ Complete    | 108/108  |
 | 7A    | Cyberpunk Dashboard — Scaffold    | ✅ Complete    | 108 pytest + 50 Vitest = 158   |
+| Data Layer | ACMA frequency reference + RTL-ML ChromaDB seeding | ✅ Complete | 188/188 (165 pytest + 23 new, 50 Vitest) |
 | 7B    | Cyberpunk Dashboard — AI + Polish | 🔜 Next        | —        |
+| — | UV migration (pip to pyproject.toml + uv.lock) | ✅ Complete | uv sync --all-extras; uv run pytest |
 
-**Total passing: 175/175**
+**Total passing: 215/215 (165 pytest + 50 Vitest)**
+
+### UV Migration — built this session
+
+**Status:** Complete
+**Work area:** Dependency management / project tooling
+
+**What changed:**
+- Migrated from pip + requirements.txt to UV (pyproject.toml + uv.lock)
+- `pyproject.toml` created at project root with all dependencies transferred from requirements.txt
+- Dev dependencies (pytest, pytest-cov) moved to `[project.optional-dependencies.dev]`
+- `uv.lock` generated
+- `requirements.txt` retained as legacy reference with deprecation comment at top
+- `.venv/` added to .gitignore
+- AGENTS.md and README.md setup sections updated to use `uv sync` and `uv run`
+
+**Key commands going forward:**
+- Install deps: `uv sync --all-extras`
+- Run scanner: `uv run python scan.py`
+- Run tests: `uv run pytest`
+- Run tool scripts: `uv run python tools/<script>.py`
+- Regenerate requirements.txt from lockfile: `uv export --format requirements-txt > requirements.txt`
+
+**Test counts (post-migration):**
+- pytest: 165/165 passing
+- vitest: 50/50 passing
+- Total: 215/215 passing
+
+**Files created:**
+- `pyproject.toml` — UV project manifest; all deps + dev group + pytest config
+- `uv.lock` — generated lockfile
+
+**Files modified:**
+- `requirements.txt` — legacy reference comment added at top
+- `.gitignore` — `.venv/` entry added
+- `AGENTS.md` — setup section updated to UV
+- `README.md` — setup section updated to UV
+
+### Data Layer — built this session
+- `tools/inspect_acma_pdf.py` — one-off PDF diagnostic (pdfplumber + tabula)
+- `tools/build_frequency_reference.py` — extracts and cleans ACMA spectrum plan PDF into structured JSON
+- `data/frequency_reference.json` — 432 entries, HackRF range 1–6000 MHz, extracted from ACMA Radiofrequency Spectrum Plan (2025 Update) 2021. 5 Mimir bands tagged: fm_broadcast, aviation_vhf, aprs, ism_lora, adsb
+- `tools/seed_chromadb.py` — downloads TrevTron/rtl-ml-dataset from HuggingFace, processes through Mimir pipeline, seeds ChromaDB
+- `tests/tools/test_seed_chromadb.py` — 23 tests, all synthetic
+- ChromaDB now seeded: 800 records, 7 classes: APRS, FM_broadcast, FRS_GMRS, ISM_sensors_433, NOAA_weather, noise, pager
+- ADS_B and NOAA_APT absent from RTL-ML v2 dataset
+- Known limitation: pager BW=0 on most samples due to SIGNAL_THRESHOLD_DB=27dB — deferred to Phase 5
+
+### Notes
+- **data/vectorstore/ is gitignored** (inside data/). ChromaDB must be re-seeded on fresh clone by running: `uv run python tools/seed_chromadb.py`
+
+### Deferred items
+
+- **BUG-01 — psd_db calibration (deferred to Phase 5):** Three compounding errors in `fft.py` compute_psd: no nfft scaling, no Hann window power correction, peak normalisation forcing relative rather than absolute dBFS. When addressed in Phase 5, explain the bug in plain English before writing any code.
+
+- **ADS_B reference vectors missing:** RTL-ML v2 dataset does not include ADS_B captures. ADS_B vectors must come from live HackRF captures in a future phase. Consider a calibration-style capture script to seed them into ChromaDB.
+
+- **Pager bandwidth threshold:** SIGNAL_THRESHOLD_DB=27dB is too high for narrow pager bursts. Most pager vectors in ChromaDB have BW=0 Hz, bins=0. Deferred to Phase 5 threshold calibration.
 
 ### Phase 7B remaining work
 1. Fix `hackrf_status` in `get_stats()` — always shows DISCONNECTED

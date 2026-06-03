@@ -63,6 +63,8 @@ dashboard/                      ← Cyberpunk React/Vite dashboard (Phase 7A+)
 
 ## Quick Start
 
+### Option A — setup.sh (auto-detects OS, builds dashboard)
+
 ```bash
 # 1. Clone / place project
 cd ~/Repository
@@ -80,6 +82,31 @@ python -m pytest tests/ -v
 
 # 5. Start the scanner
 python scan.py
+```
+
+### Option B — UV-based (recommended for development)
+
+```bash
+# 1. Install system dependencies (UV cannot manage these)
+# Fedora:
+sudo dnf install hackrf SoapySDR python3-SoapySDR
+# Ubuntu/Debian:
+sudo apt-get install hackrf soapysdr-module-hackrf python3-soapysdr
+
+# 2. Install UV (if not present)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 3. Install all Python dependencies (creates .venv automatically)
+uv sync --all-extras
+
+# 4. Verify Phase 0 — TX is provably impossible
+uv run pytest tests/core/test_rx_only_lock.py -v
+
+# 5. Run full test suite
+uv run pytest
+
+# 6. Start the scanner
+uv run python scan.py
 ```
 
 ---
