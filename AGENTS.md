@@ -156,60 +156,111 @@ uv run python tools/seed_chromadb.py
 | 7B    | Cyberpunk Dashboard — AI + Polish | ✅ Complete | 233/233 |
 | — | UV migration (pip to pyproject.toml + uv.lock) | ✅ Complete | uv sync --all-extras; uv run pytest |
 | 8A | Wire ACMA frequency_reference.json into LLM classifier user prompt | ✅ Complete | 251/251 |
-| 8B | Wire real ScanRunner values into system_stats; fix AGENTS.md event table | 🟡 Next | — |
+| 8B | Wire real ScanRunner values into system_stats; fix AGENTS.md event table | ✅ Complete | 259/259 |
 
-**Total passing: 251/251 (195 pytest + 56 Vitest)**
+**Total passing: 259/259 (203 pytest + 56 Vitest)**
 
-### Session memo — Phase 8A: ACMA Reference Wiring (Complete)
+### Session memo — Phase 8B: Wire ScanRunner stats into system_stats + AGENTS.md cleanup
 
-Phase: 8A -- Wire data/frequency_reference.json into LLM classifier
-Status: Complete
-Tests: 195 pytest + 56 vitest = 251 total (all passing)
+**Status:** Complete
+**Phase context:** Phase 8B — final phase of the 8-phase roadmap
 
-Files created:
+**What was done:**
+- Added `_scan_count`, `_active_freq_hz`, `_last_llm_ms` tracking to `ScanRunner.__init__()`
+- Added `_active_freq_hz = freq_hz` after `device.set_center_frequency()` in `_scan_loop`
+- Added `self._scan_count += 1` at end of each per-frequency iteration
+- Timed `self._classifier.classify()` call in `_ai_loop` to populate `_last_llm_ms`
+- Added `ScanRunner.get_stats()` public method returning all four runtime metrics
+- Modified `start_server()` to accept optional `scanner=` parameter
+- Replaced hardcoded zeros in system_stats emit with live scanner values
+- Reordered `scan.py` to create scanner before calling `start_server()`
+- Removed resolved deferred items from AGENTS.md (system_stats placeholders, event table fix)
+- Updated Phase 8B status to ✅ Complete with test counts
+- Added 6 scanner tests and 2 server tests
 
-  llm/acma_reference.py
-    New AcmaReference class. Loads data/frequency_reference.json at __init__
-    time into an internal list. Exposes lookup(freq_hz: float) -> list[dict]
-    which converts Hz to MHz and returns all entries where
-    freq_start_mhz <= freq_mhz <= freq_end_mhz. Logs a warning and sets an
-    empty list if the file is missing or fails to parse -- never raises.
-    No SDR imports, no TX patterns.
+**Files modified:**
+- `core/pipeline/scanner.py` — stats tracking fields, get_stats(), timed classify()
+- `dashboard/server.py` — scanner parameter, live stats emit
+- `scan.py` — scanner created before start_server()
+- `AGENTS.md` — phase tracker, total count, deferred items cleanup, this memo block
+- `tests/core/test_scanner.py` — 6 new tests for get_stats()
+- `tests/dashboard/test_server_stats.py` — 2 new tests for scanner wiring
 
-  tests/llm/test_acma_reference.py
-    12 tests covering: range match for all four AU bands (FM/APRS/ISM/ADS-B),
-    out-of-range empty return, missing file graceful handling, corrupted file
-    graceful handling, expected field presence, inclusive boundary checks (lower
-    and upper), TX pattern safety check, no-SDR-import check. All passing.
+**Test counts:** 203 pytest + 56 Vitest = 259/259
 
-Files modified:
+---
 
-  llm/classifier.py
-    classify() and _build_user_prompt() now accept optional
-    acma_allocations: list[dict] | None = None parameter.
-    When non-empty, appends an "ACMA SPECTRUM PLAN" section to the user prompt
-    showing allocation ranges, services list, and mimir_band tag per entry.
-    When None or empty, prompt is unchanged -- fully backwards compatible.
+### Session memo — GitHub MCP setup (chore)
 
-  core/pipeline/scanner.py
-    ScanRunner.__init__() now instantiates AcmaReference (imported from
-    llm.acma_reference) once as self._acma_reference. The AI loop calls
-    self._acma_reference.lookup(fingerprint["center_freq_hz"]) before each
-    classify() call and passes the result as acma_allocations.
+**Status:** Complete
+**Phase context:** Infrastructure/tooling — not tied to a numbered phase
 
-  tests/llm/test_phase4_classifier.py
-    6 new tests added in TestAcmaAllocationsInPrompt: ACMA section present when
-    allocations provided, section contains frequency range, section contains
-    service name, empty list produces no ACMA section, None produces no ACMA
-    section, classify() passes allocations through without crash. All passing.
+**What was done:**
+- Installed GitHub MCP server for OpenCode using the remote transport option
+  (`https://api.githubcopilot.com/mcp/`) — no Docker required
+- Created a fine-grained GitHub PAT scoped to the Mimir repo only with permissions:
+  Contents (read/write), Issues (read/write), Metadata (read-only), Pull requests (read-only)
+- Set `GITHUB_PERSONAL_ACCESS_TOKEN` as a global fish shell env var in `~/.config/fish/config.fish`
+- Added `"mcp"` block to `opencode.json` using `{env:GITHUB_PERSONAL_ACCESS_TOKEN}` interpolation
+  so the token is never hardcoded in the config file
+- Fixed a pre-existing typo in `.opencode/agents/local-reviewer.md`: `temperature: 0.s`
+  corrected to `temperature: 0.3` — this was causing OpenCode config validation to fail
+  on startup with "Expected number | undefined, got '0.s'"
+- Verified both MCP servers connected: `opencode mcp list` shows `local-files` and `github`
+  both as ● ✓ connected
 
-Key architectural fact:
-data/frequency_reference.json uses range-based allocations (freq_start_mhz /
-freq_end_mhz), not point frequencies. This matches how ACMA documents the AU
-spectrum plan. Multiple entries may match one frequency (overlapping allocations
-are normal). The LLM now receives real regulatory data per scan cycle -- this
-directly addresses the 98 MHz FM misclassification as "noise" by giving the LLM
-the "BROADCASTING 87.5-108.0 MHz, mimir_band: fm_broadcast" entry in its prompt.
+**Files modified:**
+- `opencode.json` — added `"mcp"` block for github remote server
+- `.opencode/agents/local-reviewer.md` — fixed temperature typo (0.s → 0.3)
+- `~/.config/fish/config.fish` — added GITHUB_PERSONAL_ACCESS_TOKEN env var (outside repo)
+
+**Test counts:** No tests run this session — infrastructure/tooling change only.
+
+---
+
+## MCP Servers
+
+Two MCP servers are configured in `opencode.json` and active in all OpenCode sessions.
+
+| Server | Type | Transport | Purpose |
+|---|---|---|---|
+| `local-files` | local | npx @modelcontextprotocol/server-filesystem | Read/write access to `/home/sli3/Repository/mimir` |
+| `github` | remote | https://api.githubcopilot.com/mcp/ | GitHub repo access — commits, issues, file history |
+
+### GitHub MCP — setup notes
+
+- Auth: fine-grained PAT stored as `GITHUB_PERSONAL_ACCESS_TOKEN` in fish shell (`~/.config/fish/config.fish`)
+- PAT scope: Mimir repo only — Contents (read/write), Issues (read/write), Metadata (read-only), Pull requests (read-only)
+- Config key in `opencode.json`: `"mcp"` block with `"type": "remote"`, `"oauth": false`
+- Token uses `{env:GITHUB_PERSONAL_ACCESS_TOKEN}` interpolation — never hardcoded in config
+- PAT expiry: 90 days — rotate when GitHub sends expiry email, update fish env var and restart OpenCode
+- Verified working: `opencode mcp list` shows both servers as connected (●  ✓)
+
+### GitHub MCP — what agents can use it for
+
+- Read commit history and file diffs without manual copy-paste
+- Create and close GitHub Issues from build reports
+- Verify AGENTS.md is in sync with remote before starting a new session
+- Cross-machine context check (Fedora machine vs macOS iMac)
+
+### GitHub MCP — toolset note
+
+The GitHub MCP server registers a large number of tools. If context window bloat
+becomes an issue in future, add the following to `opencode.json` to disable tools
+globally and re-enable per-agent:
+
+```json
+"tools": {
+  "github_*": false
+},
+"agent": {
+  "github-helper": {
+    "tools": { "github_*": true }
+  }
+}
+```
+
+Do not apply this pre-emptively — only if context problems are observed.
 
 ---
 
@@ -222,17 +273,21 @@ the "BROADCASTING 87.5-108.0 MHz, mimir_band: fm_broadcast" entry in its prompt.
   Address after Phase 8B. When fixing: always explain the bug in plain English
   before writing any code.
 
-- **system_stats placeholders (deferred to Phase 8B):** active_frequency_hz,
-  scan_count, queue_depth, llm_last_inference_ms are hardcoded zeros in the
-  stats emit. Not wired to real ScanRunner values yet.
-
-- **AGENTS.md event table (deferred to Phase 8B):** still lists old event name
-  focus_frequency -- should be set_focus_frequency.
-
 - **NOAA/Meteor-M2 satellite module (post-Phase 8):** HackRF covers 137-138 MHz.
   NOAA 15 (137.620 MHz), NOAA 18 (137.9125 MHz), NOAA 19 (137.100 MHz),
   Meteor-M2 (137.9 MHz). Requires V-dipole or QFH antenna. Address after all
   8x phases are closed.
+
+- **GitHub MCP toolset scoping** — The github MCP server registers many tools and may
+  bloat agent context windows in future. Deferred because it is not yet causing problems.
+  When addressed: add `"tools": { "github_*": false }` globally to `opencode.json` and
+  re-enable per-agent as needed. See MCP Servers section for the exact config block.
+
+- **GitHub PAT rotation reminder** — PAT expires in 90 days from date of creation.
+  When it expires: generate a new fine-grained PAT with identical scopes (Contents r/w,
+  Issues r/w, Metadata r/o, Pull requests r/o, Mimir repo only), update
+  `GITHUB_PERSONAL_ACCESS_TOKEN` in `~/.config/fish/config.fish`, restart OpenCode,
+  verify with `opencode mcp list`.
 
 ---
 

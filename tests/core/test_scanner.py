@@ -171,3 +171,42 @@ class TestScanRunner:
         mock_classifier.classify.assert_called_once()
         call_args = mock_classifier.classify.call_args[0]
         assert call_args[0]["center_freq_hz"] == 98_000_000.0
+
+    def test_get_stats_returns_expected_keys(self, scanner):
+        stats = scanner.get_stats()
+        assert set(stats.keys()) == {
+            "active_frequency_hz", "scan_count", "queue_depth", "last_llm_ms"
+        }
+
+    def test_scan_count_increments_after_run(self, scanner):
+        scanner._broadcast_fn = lambda sr: None
+        t = threading.Thread(target=scanner.run, daemon=True)
+        t.start()
+        time.sleep(0.5)
+        scanner.stop()
+        t.join(timeout=3)
+        assert scanner.get_stats()["scan_count"] > 0
+
+    def test_active_freq_hz_set_after_run(self, scanner, config):
+        scanner._broadcast_fn = lambda sr: None
+        t = threading.Thread(target=scanner.run, daemon=True)
+        t.start()
+        time.sleep(0.5)
+        scanner.stop()
+        t.join(timeout=3)
+        assert scanner.get_stats()["active_frequency_hz"] in config.frequencies_hz
+
+    def test_queue_depth_is_non_negative(self, scanner):
+        assert scanner.get_stats()["queue_depth"] >= 0
+
+    def test_last_llm_ms_non_negative(self, scanner):
+        assert scanner.get_stats()["last_llm_ms"] >= 0.0
+
+    def test_last_llm_ms_populated_after_ai_loop(self, scanner):
+        scanner._broadcast_fn = lambda sr: None
+        t = threading.Thread(target=scanner.run, daemon=True)
+        t.start()
+        time.sleep(0.5)
+        scanner.stop()
+        t.join(timeout=3)
+        assert scanner.get_stats()["last_llm_ms"] >= 0.0

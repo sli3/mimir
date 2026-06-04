@@ -2,7 +2,7 @@
 description: Second-pass logic reviewer using local LLM. Read-only. Invoke after build agent finishes a Code session edit.
 mode: subagent
 model: local-llama/Qwen3.5-9B(Q4)
-temperature: 0.s
+temperature: 0.3
 tools:
   write: false
   edit: false

@@ -30,6 +30,9 @@ class ScanRunner:
         self._broadcast_fn = None
         self._broadcast_spectrum_fn = None
         self._acma_reference = AcmaReference()
+        self._scan_count: int = 0
+        self._active_freq_hz: float = 0.0
+        self._last_llm_ms: float = 0.0
 
     def run(self) -> None:
         self._running = True
@@ -43,6 +46,15 @@ class ScanRunner:
     def stop(self) -> None:
         self._running = False
 
+    def get_stats(self) -> dict:
+        """Return current scanner runtime statistics."""
+        return {
+            "active_frequency_hz": self._active_freq_hz,
+            "scan_count": self._scan_count,
+            "queue_depth": self._queue.qsize(),
+            "last_llm_ms": self._last_llm_ms,
+        }
+
     def _scan_loop(self) -> None:
         config = self._config
         device = self._device
@@ -55,6 +67,7 @@ class ScanRunner:
                     return
                 try:
                     device.set_center_frequency(freq_hz)
+                    self._active_freq_hz = freq_hz
                     try:
                         samples = device.read_samples(config.num_samples)
                     except Exception:
@@ -77,6 +90,7 @@ class ScanRunner:
                             freq_hz / 1e6,
                         )
                     time.sleep(config.dwell_time_sec)
+                    self._scan_count += 1
                 except Exception:
                     logger.exception("Scan loop error at %.3f MHz", freq_hz / 1e6)
 
@@ -98,11 +112,13 @@ class ScanRunner:
                 acma_allocations = self._acma_reference.lookup(
                     item["fingerprint"].get("center_freq_hz", 0)
                 )
+                t0 = time.time()
                 result = self._classifier.classify(
                     item["fingerprint"],
                     neighbours_list,
                     acma_allocations=acma_allocations,
                 )
+                self._last_llm_ms = (time.time() - t0) * 1000.0
                 scan_result = ScanResult(
                     timestamp=datetime.now().isoformat(),
                     center_freq_hz=item["freq_hz"],

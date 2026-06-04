@@ -45,10 +45,13 @@ def main() -> None:
     )
     classifier = SignalClassifier(base_url=llm_url)
 
-    broadcast = start_server(config.dashboard_host, config.dashboard_port, device=device)
-    broadcast_spectrum = start_server._broadcast_spectrum_fn
-
     scanner = ScanRunner(device, embedder, store, classifier, config)
+
+    broadcast = start_server(
+        config.dashboard_host, config.dashboard_port,
+        device=device, scanner=scanner,
+    )
+    broadcast_spectrum = start_server._broadcast_spectrum_fn
     scanner._broadcast_fn = broadcast
     scanner._broadcast_spectrum_fn = broadcast_spectrum
 

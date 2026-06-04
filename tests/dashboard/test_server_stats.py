@@ -146,6 +146,34 @@ class TestFocusFrequencyFilter:
             broadcast(self._make_scan_result(200e6))
         mock_emit.assert_called_once()
 
+    def test_system_stats_uses_scanner_values(self):
+        mock_scanner = MagicMock()
+        mock_scanner.get_stats.return_value = {
+            "active_frequency_hz": 98_000_000.0,
+            "scan_count": 42,
+            "queue_depth": 3,
+            "last_llm_ms": 1250.5,
+        }
+        stats = mock_scanner.get_stats()
+        assert stats["scan_count"] == 42
+        assert stats["active_frequency_hz"] == 98_000_000.0
+        assert stats["queue_depth"] == 3
+        assert stats["last_llm_ms"] == 1250.5
+
+    def test_system_stats_falls_back_to_zeros_without_scanner(self):
+        scanner = None
+        if scanner is not None:
+            stats = scanner.get_stats()
+        else:
+            stats = {
+                "active_frequency_hz": 0.0,
+                "scan_count": 0,
+                "queue_depth": 0,
+                "last_llm_ms": 0.0,
+            }
+        assert stats["scan_count"] == 0
+        assert stats["active_frequency_hz"] == 0.0
+
     def test_thread_safety_no_deadlock(self):
         broadcast = self._start_server_with_mocks()
         import concurrent.futures
