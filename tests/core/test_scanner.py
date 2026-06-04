@@ -125,17 +125,25 @@ class TestScanRunner:
         t.join(timeout=3)
         assert not t.is_alive()
 
-    def test_frequency_hopping_order(self, scanner, mock_device):
+    def test_scan_loop_stays_on_focus_frequency(self, scanner, mock_device):
         t = threading.Thread(target=scanner.run, daemon=True)
         t.start()
-        time.sleep(0.6)
+        time.sleep(0.5)
         scanner.stop()
         t.join(timeout=3)
 
         calls = mock_device.set_center_frequency.call_args_list
-        assert len(calls) >= 2
-        first_call_freq = calls[0][0][0]
-        assert first_call_freq == 98_000_000.0
+        assert len(calls) >= 1
+        for call in calls:
+            assert call[0][0] == 98_000_000.0
+
+    def test_set_focus_frequency_flushes_queue(self, scanner):
+        for i in range(3):
+            scanner._queue.put_nowait({"freq_hz": i, "fingerprint": {}, "vector": [0] * 6})
+        assert scanner._queue.qsize() == 3
+        scanner.set_focus_frequency(1_090_000_000.0)
+        assert scanner._queue.qsize() == 0
+        assert scanner._focus_freq_hz == 1_090_000_000.0
 
     def test_read_error_calls_record_hw_error(
         self, config, mock_device, mock_embedder, mock_store, mock_classifier

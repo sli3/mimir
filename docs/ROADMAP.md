@@ -21,9 +21,10 @@
 | — | UV migration (pip to pyproject.toml + uv.lock) | ✅ Complete | uv sync --all-extras; uv run pytest |
 | 7B    | Cyberpunk Dashboard — AI + Polish | ✅ Complete | 233/233 |
 | 8A | Wire ACMA frequency_reference.json into LLM classifier user prompt | ✅ Complete | 251/251 |
-| 8B | Wire real ScanRunner values into system_stats; fix AGENTS.md event table | 🟡 Next | — |
+| 8B | Wire real ScanRunner values into system_stats; fix AGENTS.md event table | ✅ Complete | 259/259 |
+| 8C | Single-frequency focus mode + LLM tuning | ✅ Complete | 260/260 |
 
-**Total: 251/251 tests passing (195 pytest + 56 Vitest)**
+**Total: 260/260 tests passing (204 pytest + 56 Vitest)**
 
 ---
 
@@ -141,11 +142,49 @@ regulatory context alongside the signal fingerprint.
 
 ---
 
-## Phase 8B — Live system_stats + Event Table Fix ⬜
+## Phase 8B — Live system_stats + Event Table Fix ✅
 
 **Goal:** Wire real ScanRunner values into system_stats (active_frequency_hz,
 scan_count, queue_depth, llm_last_inference_ms are currently hardcoded zeros).
 Fix AGENTS.md event table: rename focus_frequency to set_focus_frequency.
+
+**Delivered:**
+- `ScanRunner` tracks `_scan_count`, `_active_freq_hz`, `_last_llm_ms`
+- `get_stats()` returns live runtime metrics
+- `dashboard/server.py` emits real scanner values via `system_stats`
+- `scan.py` reordered so scanner exists before `start_server()`
+
+**Complete when:** `python -m pytest tests/` → 259/259
+
+---
+
+## Phase 8C — Single-Frequency Focus Mode + LLM Tuning ✅
+
+**Goal:** Eliminate LLM queue saturation by locking the scan loop onto one
+frequency at a time, and tune the LLM for faster inference.
+
+**Delivered:**
+- `core/pipeline/scanner.py` — `_scan_loop` rewritten as single-frequency focus mode
+- `set_focus_frequency()` flushes queue on frequency switch to prevent stale fingerprints
+- `dashboard/server.py` — `handle_set_focus` calls `scanner.set_focus_frequency()`
+- `llm/classifier.py` — model swap to Qwen3-4B-Q4_K_M, `max_tokens=300`, `/no_think` suffix
+- LLM inference speed: 18–23s → ~2.5s (15x speedup)
+- Queue depth: permanently 20/20 → ~0/20 at steady state
+- `fm_broadcast` classifying at 95–98% confidence
+
+**Complete when:** `python -m pytest tests/` → 260/260
+
+---
+
+## Phase 9 — Scan Loop Polish + NOAA/Meteor-M2 Module Planning 🟡
+
+**Goal:** Clean up remaining Phase 8C tech debt and plan satellite reception module.
+
+**Planned:**
+- Fix `scan.py` startup message ("Scanning N frequencies" → reflect single-freq mode)
+- Address BUG-01 (bandwidth_hz=0 / occupied_bins=0 from low SNR threshold)
+- NOAA/Meteor-M2 satellite planning: 137.620, 137.9125, 137.100, 137.9 MHz
+- Antenna requirements: V-dipole or QFH for 137 MHz satellite band
 
 ---
 
@@ -154,3 +193,4 @@ Fix AGENTS.md event table: rename focus_frequency to set_focus_frequency.
 | Item | Detail | Fix in |
 |---|---|---|
 | `config/mimir.yaml` not loaded | Runtime config loading not yet implemented | Phase 2+ |
+| `scan.py` startup message | Misleading "Scanning N frequencies" in single-freq mode | Post 8C |

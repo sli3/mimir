@@ -14,6 +14,7 @@ app = Flask(__name__, static_folder="static", static_url_path="")
 socketio = SocketIO(app, async_mode="threading", cors_allowed_origins="*")
 
 _device_ref = None
+_scanner_ref = None
 _last_hw_error_time = 0.0
 _focused_freq_hz: float | None = None
 _focused_freq_lock = threading.Lock()
@@ -25,6 +26,8 @@ def handle_set_focus(data):
     global _focused_freq_hz
     with _focused_freq_lock:
         _focused_freq_hz = data.get("freq_hz")
+    if _scanner_ref is not None:
+        _scanner_ref.set_focus_frequency(data.get("freq_hz"))
 
 
 def record_hw_error() -> None:
@@ -41,8 +44,9 @@ def _compute_hackrf_status() -> str:
 
 
 def start_server(host: str, port: int, device=None, scanner=None):
-    global _device_ref
+    global _device_ref, _scanner_ref
     _device_ref = device
+    _scanner_ref = scanner
 
     def run_flask():
         socketio.run(app, host=host, port=port, debug=False, use_reloader=False)

@@ -154,7 +154,7 @@ class SignalClassifier:
     Usage:
         classifier = SignalClassifier(
             base_url="http://192.168.0.66:8080/v1",
-            model="Qwen3",
+            model="Qwen3-4B-Mimir",
         )
         result = classifier.classify(fingerprint, neighbours)
         print(result.signal_type)    # e.g. "fm_broadcast"
@@ -171,7 +171,7 @@ class SignalClassifier:
     def __init__(
         self,
         base_url: str = "http://192.168.0.66:8080/v1",
-        model: str = "Qwen3",
+        model: str = "Qwen3-4B-Mimir",
         temperature: float = 0.1,
     ) -> None:
         """
@@ -179,7 +179,7 @@ class SignalClassifier:
 
         Args:
             base_url    : Base URL of the local LLM server (OpenAI-compatible).
-                          Default: Qwen3 via llama.cpp on yubaba.
+                          Default: Qwen3-4B-Mimir via llama.cpp on yubaba.
             model       : Model name to pass to the API.
             temperature : LLM temperature. Keep low (0.1) for classification —
                           you want consistent, deterministic results, not creativity.
@@ -230,6 +230,7 @@ class SignalClassifier:
                 json={
                     "model": self._model,
                     "temperature": self._temperature,
+                    "max_tokens": 300,
                     "messages": [
                         {"role": "system", "content": system_prompt},
                         {"role": "user",   "content": user_prompt},
@@ -308,7 +309,7 @@ No code blocks. Raw JSON exactly matching this schema:
 
 If you cannot confidently classify the signal, use signal_type "unknown" \
 and set confidence to "low". If all neighbours have distances above 0.031, \
-set novel to true. Never invent data — only classify based on what you are given."""
+set novel to true. Never invent data — only classify based on what you are given. /no_think"""
 
     def _build_user_prompt(
         self,

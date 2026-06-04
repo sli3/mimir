@@ -33,6 +33,8 @@ class ScanRunner:
         self._scan_count: int = 0
         self._active_freq_hz: float = 0.0
         self._last_llm_ms: float = 0.0
+        self._focus_freq_hz: float = config.frequencies_hz[0]
+        self._focus_lock: threading.Lock = threading.Lock()
 
     def run(self) -> None:
         self._running = True
@@ -55,6 +57,18 @@ class ScanRunner:
             "last_llm_ms": self._last_llm_ms,
         }
 
+    def set_focus_frequency(self, freq_hz: float) -> None:
+        """Change the focus frequency and flush stale queue items."""
+        with self._focus_lock:
+            self._focus_freq_hz = freq_hz
+            q = self._queue
+            while True:
+                try:
+                    q.get_nowait()
+                except queue.Empty:
+                    break
+        logger.info("Focus changed to %.3f MHz — queue flushed", freq_hz / 1e6)
+
     def _scan_loop(self) -> None:
         config = self._config
         device = self._device
@@ -62,37 +76,38 @@ class ScanRunner:
         q = self._queue
 
         while self._running:
-            for freq_hz in config.frequencies_hz:
-                if not self._running:
-                    return
+            if not self._running:
+                return
+            try:
+                with self._focus_lock:
+                    freq_hz = self._focus_freq_hz
+                device.set_center_frequency(freq_hz)
+                self._active_freq_hz = freq_hz
                 try:
-                    device.set_center_frequency(freq_hz)
-                    self._active_freq_hz = freq_hz
-                    try:
-                        samples = device.read_samples(config.num_samples)
-                    except Exception:
-                        record_hw_error()
-                        raise
-                    psd = compute_psd(samples, _SAMPLE_RATE_HZ, freq_hz)
-                    fingerprint = fingerprint_spectrum(psd)
-                    vector = embedder.embed(fingerprint)
-                    try:
-                        q.put_nowait({
-                            "freq_hz": freq_hz,
-                            "fingerprint": fingerprint,
-                            "vector": vector,
-                            "psd_db": psd["psd_db"],
-                        })
-                    except queue.Full:
-                        logger.warning(
-                            "Queue full — fingerprint dropped (AI loop busy) "
-                            "at %.3f MHz",
-                            freq_hz / 1e6,
-                        )
-                    time.sleep(config.dwell_time_sec)
-                    self._scan_count += 1
+                    samples = device.read_samples(config.num_samples)
                 except Exception:
-                    logger.exception("Scan loop error at %.3f MHz", freq_hz / 1e6)
+                    record_hw_error()
+                    raise
+                psd = compute_psd(samples, _SAMPLE_RATE_HZ, freq_hz)
+                fingerprint = fingerprint_spectrum(psd)
+                vector = embedder.embed(fingerprint)
+                try:
+                    q.put_nowait({
+                        "freq_hz": freq_hz,
+                        "fingerprint": fingerprint,
+                        "vector": vector,
+                        "psd_db": psd["psd_db"],
+                    })
+                except queue.Full:
+                    logger.warning(
+                        "Queue full — fingerprint dropped (AI loop busy) "
+                        "at %.3f MHz",
+                        freq_hz / 1e6,
+                    )
+                time.sleep(config.dwell_time_sec)
+                self._scan_count += 1
+            except Exception:
+                logger.exception("Scan loop error at %.3f MHz", freq_hz / 1e6)
 
     def _ai_loop(self) -> None:
         q = self._queue

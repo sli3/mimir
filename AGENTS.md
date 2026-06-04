@@ -51,8 +51,10 @@ every code change, without exception.
 | **Note** | Older than r6 board — self-test FAIL is cosmetic, device works |
 | **Primary OS** | Linux Fedora 44 |
 | **Secondary OS** | macOS Intel iMac (not yet configured) |
-| **Intelligence** | Local LLM server (OpenAI-compatible API) |
-| **LLM URL** | http://192.168.0.66:8080/v1 (llama.cpp, OpenAI-compatible) |
+| **Intelligence** | Local LLM (llama.cpp, OpenAI-compatible API) |
+| **Model** | Qwen3-4B-Q4_K_M via llama.cpp on yubaba |
+| **LLM URL** | http://192.168.0.66:8080/v1 |
+| **LLM config** | max_tokens=300, ctx-size=8192, `/no_think` token appended to system prompt |
 | **Project path** | ~/Repository/mimir |
 
 ---
@@ -123,8 +125,10 @@ This creates a `.venv` virtual environment and installs everything.
 ### Run the scanner
 
 ```bash
-uv run python scan.py
+python scan.py
 ```
+
+Note: `uv run python scan.py` does not work in this environment — use system Python directly.
 
 ### Run tests
 
@@ -157,8 +161,9 @@ uv run python tools/seed_chromadb.py
 | — | UV migration (pip to pyproject.toml + uv.lock) | ✅ Complete | uv sync --all-extras; uv run pytest |
 | 8A | Wire ACMA frequency_reference.json into LLM classifier user prompt | ✅ Complete | 251/251 |
 | 8B | Wire real ScanRunner values into system_stats; fix AGENTS.md event table | ✅ Complete | 259/259 |
+| 8C | Single-frequency focus mode + LLM tuning | ✅ Complete | 260/260 |
 
-**Total passing: 259/259 (203 pytest + 56 Vitest)**
+**Total passing: 260/260 (204 pytest + 56 Vitest)**
 
 ### Session memo — Phase 8B: Wire ScanRunner stats into system_stats + AGENTS.md cleanup
 
@@ -187,6 +192,38 @@ uv run python tools/seed_chromadb.py
 - `tests/dashboard/test_server_stats.py` — 2 new tests for scanner wiring
 
 **Test counts:** 203 pytest + 56 Vitest = 259/259
+
+---
+
+### Session memo — Phase 8C: Single-frequency focus mode + LLM tuning
+
+**Status:** Complete
+**Phase context:** Phase 8C — single-frequency focus mode to resolve LLM queue saturation
+
+**What was done:**
+- Replaced `for freq_hz in config.frequencies_hz` rotation in `_scan_loop` with single-frequency focus mode
+- Added `_focus_freq_hz` (defaults to `config.frequencies_hz[0]` = 98 MHz) and `_focus_lock` to `ScanRunner.__init__()`
+- Added `set_focus_frequency(freq_hz)` public method: acquires lock, updates focus freq, flushes queue with `get_nowait()` until `queue.Empty`
+- `_scan_loop` now reads focus frequency under lock at start of each iteration, stays on that frequency
+- `dashboard/server.py`: `handle_set_focus` now calls `scanner.set_focus_frequency()` via `_scanner_ref` module-level global
+- Replaced `test_frequency_hopping_order` with `test_scan_loop_stays_on_focus_frequency`
+- Added `test_set_focus_frequency_flushes_queue`
+- LLM model swap: Qwen3 → Qwen3-4B-Q4_K_M (llama.cpp on yubaba)
+- LLM tuning: `max_tokens=300` added to API request; `/no_think` appended to system prompt end
+  (reasoning-budget parameter caused empty responses, so it was removed)
+- LLM inference speed: 18–23s → ~2.5s (15x speedup)
+- `fm_broadcast` classifying at 95–98% confidence with new model
+- Queue depth: permanently pegged at 20/20 → ~0/20 at steady state
+
+**Files modified:**
+- `core/pipeline/scanner.py` — `_scan_loop` rewrite, `set_focus_frequency()`, `_focus_freq_hz`, `_focus_lock`
+- `dashboard/server.py` — `_scanner_ref`, `handle_set_focus` calls `scanner.set_focus_frequency()`
+- `tests/core/test_scanner.py` — focus frequency tests, queue flush test
+- `llm/classifier.py` — model default, `max_tokens=300`, `/no_think` system prompt suffix
+- `AGENTS.md` — phase tracker, total count, this memo block, LLM hardware info, run command note
+- `docs/ROADMAP.md` — phase tracker, Phase 8C section, Phase 9 placeholder
+
+**Test counts:** 204 pytest + 56 Vitest = 260/260
 
 ---
 
@@ -375,3 +412,4 @@ Do not apply this pre-emptively — only if context problems are observed.
 | Queue max hard-coded | `020` in SystemStatsPanel — should read from systemStats | Phase 7B |
 | `sampleRateHz` dead param | Accepted by `useWaterfall.js` but unused | Post 7B |
 | `psd_db` uncalibrated | FFT missing nfft normalisation — absolute dBFS wrong, SNR unaffected | Post 7B |
+| scan.py startup message | "Scanning N frequencies" is misleading now that single-freq focus mode is active | Post 8C cosmetic |
