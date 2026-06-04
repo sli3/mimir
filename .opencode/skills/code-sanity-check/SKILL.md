@@ -46,12 +46,12 @@ grep -n "868000000\|868e6\|144390000\|144\.390" [file.py]
    - File I/O handles missing files gracefully
 
 7. **Second-pass review:**
-   Invoke `@local-reviewer` on the changed function:
-   > "@local-reviewer review the change to [file.py]"
-   Wait for reviewer output before continuing.
+   Invoke `@analyst` on the changed function:
+   > "@analyst review the change to [file.py]"
+   Wait for analyst output before continuing.
 
 8. **Approval gate:**
-   > "Sanity check and local review complete — OK to proceed to git-workflow? (Yes / No)"
+   > "Sanity check and analyst review complete — OK to proceed to git-workflow? (Yes / No)"
    Do not trigger git-workflow until user says Yes.
 
 ---
@@ -66,9 +66,9 @@ AU Legal:       [Passed / ❌ VIOLATION — description]
 TX Guard:       [Present / ❌ Missing on [function]]
 Logic:          [Passed / Warnings — list]
 Error Handling: [Passed / Concerns — list]
-Local Reviewer Output:
+Analyst Output:
 ──────────────────────────────────
-[bullet points from @local-reviewer]
+[bullet points from @analyst]
 Result: ✅ Ready for git-workflow / ⚠️ Issues found / ❌ Blocked
 ```
 

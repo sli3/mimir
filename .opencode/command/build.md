@@ -21,7 +21,7 @@ is met.
 Stop immediately and report to the user if any of the following occur:
 
 - @plan-reviewer flags a TX violation or AU legal issue
-- @cloud-reviewer or @local-reviewer flags a TX violation
+- @analyst or @deep-analyst flags a TX violation
 - Tests still failing after 3 bug-hunt iterations
 - Any agent produces a result that contradicts AGENTS.md
 
@@ -60,7 +60,7 @@ If tests fail:
 If still failing after 3 iterations → hard stop, report to user.
 
 ### STEP 5 — DUAL REVIEW
-Spawn @cloud-reviewer AND @local-reviewer simultaneously on all
+Spawn @analyst AND @deep-analyst simultaneously on all
 changed files. Do not run them sequentially — launch both at once.
 Wait for both to complete before proceeding.
 If either reviewer flags a hard stop condition → stop and report.
@@ -69,7 +69,7 @@ If either reviewer flags a hard stop condition → stop and report.
 Produce a structured summary containing:
 - What was built (files changed, functions added/modified)
 - Test results (pass count, any skipped)
-- Reviewer findings (cloud-reviewer and local-reviewer separately)
+- Reviewer findings (analyst and deep-analyst separately)
 - Any tech debt or follow-up items identified during the build
 
 Do NOT commit. Do NOT push. Do NOT modify AGENTS.md phase tracker.

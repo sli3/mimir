@@ -2,7 +2,7 @@
 description: >
   Run two or more agents in parallel on the same task and synthesise
   their results. Mention agents by @name in your message.
-  Example: /multi @researcher @cloud-reviewer analyse the FFT pipeline
+  Example: /multi @researcher @analyst analyse the FFT pipeline
 subtask: false
 ---
 

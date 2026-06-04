@@ -60,7 +60,7 @@ grep -rn "868000000\|868e6\|144390000\|144\.390\|144390" [files-in-scope]
    `WAITING FOR OK — do not proceed until user explicitly types "OK"`
 
 9. **Remind user of post-edit sequence:**
-   > "After the edit is done: run `@local-reviewer` on the changed function,
+   > "After the edit is done: run `@analyst` on the changed function,
    > then `code-sanity-check`, then `git-workflow`."
 
 ---
@@ -74,7 +74,7 @@ Pre-Flight Check:
 ✅ AU legal check — [passed / BLOCKED]
 ✅ Scope confirmed: [file1.py, file2.py]
 ✅ Plan shown — waiting for your OK
-✅ Post-edit sequence noted — @local-reviewer → sanity-check → git-workflow
+✅ Post-edit sequence noted — @analyst → sanity-check → git-workflow
 ```
 
 ---
@@ -85,5 +85,5 @@ Pre-Flight Check:
 - Never edit before user says OK
 - Never skip the TX safety check or AU legal check — ever
 - If TX or legal check fails, stop completely and report back
-- Never invoke @local-reviewer yourself — remind the user to do it manually
+- Never invoke @analyst yourself — remind the user to do it manually
 - Never touch files outside the stated scope
