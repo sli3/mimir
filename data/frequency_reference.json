@@ -28,7 +28,7 @@
     "freq_start_mhz": 9.2,
     "freq_end_mhz": 9.3,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (active)",
+      "EARTH EXPLORATION\u2013 SATELLITE (active)",
       "RADIOLOCATION",
       "MARITIME",
       "RADIONAVIGATION"
@@ -51,7 +51,7 @@
     "freq_end_mhz": 9.5,
     "services": [
       "RADIONAVIGATION",
-      "EARTH EXPLORATION– SATELLITE (active)",
+      "EARTH EXPLORATION\u2013 SATELLITE (active)",
       "SPACE RESEARCH (active)",
       "RADIOLOCATION"
     ],
@@ -71,7 +71,7 @@
     "freq_start_mhz": 9.5,
     "freq_end_mhz": 9.8,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (active)",
+      "EARTH EXPLORATION\u2013 SATELLITE (active)",
       "RADIOLOCATION",
       "RADIONAVIGATION",
       "SPACE RESEARCH (active)",
@@ -91,7 +91,7 @@
     "freq_end_mhz": 9.9,
     "services": [
       "RADIOLOCATION",
-      "Earth exploration–satellite",
+      "Earth exploration\u2013satellite",
       "(active)",
       "Space research (active)",
       "Fixed",
@@ -110,7 +110,7 @@
     "freq_start_mhz": 9.9,
     "freq_end_mhz": 10.0,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (active)",
+      "EARTH EXPLORATION\u2013 SATELLITE (active)",
       "RADIOLOCATION",
       "Fixed",
       "Mobile"
@@ -131,7 +131,7 @@
     "freq_start_mhz": 10.0,
     "freq_end_mhz": 10.4,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (active)",
+      "EARTH EXPLORATION\u2013 SATELLITE (active)",
       "FIXED",
       "MOBILE",
       "RADIOLOCATION",
@@ -169,7 +169,7 @@
     "services": [
       "RADIOLOCATION",
       "Amateur",
-      "Amateur–satellite"
+      "Amateur\u2013satellite"
     ],
     "footnotes": [
       "AUS101A"
@@ -206,7 +206,7 @@
     "freq_start_mhz": 10.6,
     "freq_end_mhz": 10.68,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "FIXED",
       "MOBILE except aeronautical",
       "mobile",
@@ -227,7 +227,7 @@
     "freq_start_mhz": 10.68,
     "freq_end_mhz": 10.7,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "RADIO ASTRONOMY",
       "SPACE RESEARCH",
       "(passive)"
@@ -243,7 +243,7 @@
     "freq_end_mhz": 10.95,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (space-to-Earth)",
+      "FIXED\u2013SATELLITE (space-to-Earth)",
       "MOBILE except aeronautical",
       "mobile"
     ],
@@ -258,7 +258,7 @@
     "freq_end_mhz": 11.2,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (space-to-Earth)",
+      "FIXED\u2013SATELLITE (space-to-Earth)",
       "MOBILE except aeronautical",
       "mobile"
     ],
@@ -274,7 +274,7 @@
     "freq_end_mhz": 11.45,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (space-to-Earth)",
+      "FIXED\u2013SATELLITE (space-to-Earth)",
       "MOBILE except aeronautical",
       "mobile"
     ],
@@ -299,7 +299,7 @@
     "freq_end_mhz": 11.7,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (space-to-Earth)",
+      "FIXED\u2013SATELLITE (space-to-Earth)",
       "MOBILE except aeronautical",
       "mobile"
     ],
@@ -314,7 +314,7 @@
     "freq_start_mhz": 11.7,
     "freq_end_mhz": 12.2,
     "services": [
-      "BROADCASTING– SATELLITE",
+      "BROADCASTING\u2013 SATELLITE",
       "Broadcasting",
       "Fixed",
       "Mobile except aeronautical",
@@ -325,14 +325,14 @@
       "487A",
       "492"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "satellite_tv",
+    "notes": "Broadcasting-satellite service (BSS) \u2014 Ku band satellite TV downlinks. Foxtel/Optus satellite broadcasts received by household dish antennas."
   },
   {
     "freq_start_mhz": 12.2,
     "freq_end_mhz": 12.5,
     "services": [
-      "FIXED–SATELLITE (space-to-Earth)",
+      "FIXED\u2013SATELLITE (space-to-Earth)",
       "Broadcasting",
       "Fixed",
       "Mobile except aeronautical",
@@ -344,15 +344,15 @@
       "487",
       "AUS88"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "satellite_tv",
+    "notes": "Ku band satellite TV \u2014 mixed BSS/FSS. AUS88: FSS transponders may also carry BSS transmissions in this range."
   },
   {
     "freq_start_mhz": 12.5,
     "freq_end_mhz": 12.75,
     "services": [
-      "FIXED–SATELLITE (space-to-Earth)",
-      "BROADCASTING– SATELLITE",
+      "FIXED\u2013SATELLITE (space-to-Earth)",
+      "BROADCASTING\u2013 SATELLITE",
       "Fixed",
       "Mobile except aeronautical",
       "mobile"
@@ -362,15 +362,15 @@
       "484B",
       "493"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "satellite_tv",
+    "notes": "Ku band. Fixed-satellite + broadcasting-satellite. Satellite TV downlinks."
   },
   {
     "freq_start_mhz": 12.75,
     "freq_end_mhz": 13.25,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (Earth-to-space)",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
       "MOBILE",
       "Space research (deep space) (space-to-Earth)"
     ],
@@ -387,7 +387,7 @@
     "services": [
       "AERONAUTICAL",
       "RADIONAVIGATION",
-      "EARTH EXPLORATION– SATELLITE (active)",
+      "EARTH EXPLORATION\u2013 SATELLITE (active)",
       "SPACE RESEARCH (active)"
     ],
     "footnotes": [
@@ -401,11 +401,11 @@
     "freq_start_mhz": 13.4,
     "freq_end_mhz": 13.65,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (active)",
+      "EARTH EXPLORATION\u2013 SATELLITE (active)",
       "RADIOLOCATION",
       "SPACE RESEARCH",
       "Standard frequency and time",
-      "signal–satellite (Earth-to-space)"
+      "signal\u2013satellite (Earth-to-space)"
     ],
     "footnotes": [
       "499C",
@@ -420,11 +420,11 @@
     "freq_start_mhz": 13.65,
     "freq_end_mhz": 13.75,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (active)",
+      "EARTH EXPLORATION\u2013 SATELLITE (active)",
       "RADIOLOCATION",
       "SPACE RESEARCH",
       "Standard frequency and time",
-      "signal–satellite (Earth-to-space)"
+      "signal\u2013satellite (Earth-to-space)"
     ],
     "footnotes": [
       "501A",
@@ -439,10 +439,10 @@
     "freq_end_mhz": 14.0,
     "services": [
       "RADIOLOCATION",
-      "FIXED–SATELLITE (Earth-to-space)",
-      "Earth exploration–satellite",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
+      "Earth exploration\u2013satellite",
       "Standard frequency and time",
-      "signal–satellite (Earth-to-space)",
+      "signal\u2013satellite (Earth-to-space)",
       "Space research"
     ],
     "footnotes": [
@@ -473,9 +473,9 @@
     "freq_start_mhz": 14.0,
     "freq_end_mhz": 14.3,
     "services": [
-      "FIXED–SATELLITE (Earth-to-space)",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
       "RADIONAVIGATION",
-      "Mobile–satellite (Earth-to-space)",
+      "Mobile\u2013satellite (Earth-to-space)",
       "Space research"
     ],
     "footnotes": [
@@ -494,12 +494,12 @@
     "freq_start_mhz": 14.3,
     "freq_end_mhz": 14.4,
     "services": [
-      "FIXED–SATELLITE (Earth-to-space)",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
       "Fixed",
       "Mobile except aeronautical",
       "mobile",
-      "Mobile–satellite (Earth-to-space)",
-      "Radionavigation–satellite"
+      "Mobile\u2013satellite (Earth-to-space)",
+      "Radionavigation\u2013satellite"
     ],
     "footnotes": [
       "457A",
@@ -516,11 +516,11 @@
     "freq_start_mhz": 14.4,
     "freq_end_mhz": 14.47,
     "services": [
-      "FIXED–SATELLITE (Earth-to-space)",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
       "Fixed",
       "Mobile except aeronautical",
       "mobile",
-      "Mobile–satellite (Earth-to-space)",
+      "Mobile\u2013satellite (Earth-to-space)",
       "Space research (space-to-Earth)"
     ],
     "footnotes": [
@@ -538,11 +538,11 @@
     "freq_start_mhz": 14.47,
     "freq_end_mhz": 14.5,
     "services": [
-      "FIXED–SATELLITE (Earth-to-space)",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
       "Fixed",
       "Mobile except aeronautical",
       "mobile",
-      "Mobile–satellite (Earth-to-space)",
+      "Mobile\u2013satellite (Earth-to-space)",
       "Radio astronomy"
     ],
     "footnotes": [
@@ -561,7 +561,7 @@
     "freq_end_mhz": 14.7145,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (Earth-to-space)",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
       "MOBILE",
       "Space research"
     ],
@@ -582,7 +582,7 @@
     "freq_end_mhz": 14.75,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (Earth-to-space)",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
       "MOBILE",
       "Space research"
     ],
@@ -604,7 +604,7 @@
     "freq_end_mhz": 14.8,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (Earth-to-space)",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
       "MOBILE",
       "Space research"
     ],
@@ -656,7 +656,7 @@
     "freq_start_mhz": 15.35,
     "freq_end_mhz": 15.4,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "RADIO ASTRONOMY",
       "SPACE RESEARCH",
       "(passive)"
@@ -686,7 +686,7 @@
     "freq_start_mhz": 15.43,
     "freq_end_mhz": 15.63,
     "services": [
-      "FIXED–SATELLITE (Earth-to-space)",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
       "RADIOLOCATION",
       "AERONAUTICAL",
       "RADIONAVIGATION"
@@ -759,7 +759,7 @@
     "freq_start_mhz": 17.2,
     "freq_end_mhz": 17.3,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (active)",
+      "EARTH EXPLORATION\u2013 SATELLITE (active)",
       "RADIOLOCATION",
       "SPACE RESEARCH (active)"
     ],
@@ -775,7 +775,7 @@
     "freq_start_mhz": 17.3,
     "freq_end_mhz": 17.7,
     "services": [
-      "FIXED–SATELLITE (Earth-to-space)",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
       "Radiolocation"
     ],
     "footnotes": [
@@ -790,7 +790,7 @@
     "freq_end_mhz": 18.1,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (space-to-Earth)",
+      "FIXED\u2013SATELLITE (space-to-Earth)",
       "(Earth-to-space)",
       "MOBILE"
     ],
@@ -809,7 +809,7 @@
     "freq_end_mhz": 18.4,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (space-to-Earth)",
+      "FIXED\u2013SATELLITE (space-to-Earth)",
       "(Earth-to-space)",
       "INTER-SATELLITE",
       "MOBILE"
@@ -832,7 +832,7 @@
     "freq_end_mhz": 18.6,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (space-to-Earth)",
+      "FIXED\u2013SATELLITE (space-to-Earth)",
       "INTER-SATELLITE",
       "MOBILE"
     ],
@@ -851,9 +851,9 @@
     "freq_start_mhz": 18.6,
     "freq_end_mhz": 18.8,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "FIXED",
-      "FIXED–SATELLITE (space-to-Earth)",
+      "FIXED\u2013SATELLITE (space-to-Earth)",
       "MOBILE except aeronautical",
       "mobile",
       "Space research (passive)"
@@ -872,7 +872,7 @@
     "freq_end_mhz": 19.3,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (space-to-Earth)",
+      "FIXED\u2013SATELLITE (space-to-Earth)",
       "INTER-SATELLITE",
       "MOBILE"
     ],
@@ -892,7 +892,7 @@
     "freq_end_mhz": 19.7,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (space-to-Earth) (Earth-to-space)",
+      "FIXED\u2013SATELLITE (space-to-Earth) (Earth-to-space)",
       "INTER-SATELLITE",
       "MOBILE"
     ],
@@ -913,9 +913,9 @@
     "freq_start_mhz": 19.7,
     "freq_end_mhz": 20.1,
     "services": [
-      "FIXED–SATELLITE (space-to-Earth)",
+      "FIXED\u2013SATELLITE (space-to-Earth)",
       "INTER-SATELLITE",
-      "Mobile–satellite (space-to-Earth)"
+      "Mobile\u2013satellite (space-to-Earth)"
     ],
     "footnotes": [
       "484A",
@@ -938,8 +938,8 @@
       "(20 kHz)"
     ],
     "footnotes": [],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "time_signal",
+    "notes": "Standard frequency and time signal (20 kHz). Internationally coordinated precision time/frequency broadcasts."
   },
   {
     "freq_start_mhz": 20.05,
@@ -960,9 +960,9 @@
     "freq_start_mhz": 20.1,
     "freq_end_mhz": 20.2,
     "services": [
-      "FIXED–SATELLITE (space-to-Earth)",
+      "FIXED\u2013SATELLITE (space-to-Earth)",
       "INTER-SATELLITE",
-      "MOBILE–SATELLITE (space-to-Earth)"
+      "MOBILE\u2013SATELLITE (space-to-Earth)"
     ],
     "footnotes": [
       "484A",
@@ -984,8 +984,8 @@
     "freq_start_mhz": 20.2,
     "freq_end_mhz": 21.2,
     "services": [
-      "FIXED–SATELLITE (space-to-Earth)",
-      "MOBILE–SATELLITE (space-to-Earth)",
+      "FIXED\u2013SATELLITE (space-to-Earth)",
+      "MOBILE\u2013SATELLITE (space-to-Earth)",
       "Standard frequency and time",
       "signal (space-to-Earth)"
     ],
@@ -1001,7 +1001,7 @@
     "freq_start_mhz": 21.2,
     "freq_end_mhz": 21.4,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "FIXED",
       "MOBILE",
       "SPACE RESEARCH",
@@ -1019,7 +1019,7 @@
     "services": [
       "FIXED",
       "MOBILE",
-      "BROADCASTING– SATELLITE"
+      "BROADCASTING\u2013 SATELLITE"
     ],
     "footnotes": [
       "208B",
@@ -1049,7 +1049,7 @@
     "freq_start_mhz": 22.21,
     "freq_end_mhz": 22.5,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "FIXED",
       "MOBILE except aeronautical",
       "mobile",
@@ -1083,7 +1083,7 @@
     "freq_end_mhz": 23.15,
     "services": [
       "FIXED",
-      "INTER–SATELLITE",
+      "INTER\u2013SATELLITE",
       "MOBILE",
       "SPACE RESEARCH (Earth-to-space)"
     ],
@@ -1101,7 +1101,7 @@
     "freq_end_mhz": 23.55,
     "services": [
       "FIXED",
-      "INTER–SATELLITE",
+      "INTER\u2013SATELLITE",
       "MOBILE"
     ],
     "footnotes": [
@@ -1128,7 +1128,7 @@
     "freq_start_mhz": 23.6,
     "freq_end_mhz": 24.0,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "RADIO ASTRONOMY",
       "SPACE RESEARCH",
       "(passive)"
@@ -1145,7 +1145,7 @@
     "freq_end_mhz": 24.05,
     "services": [
       "AMATEUR",
-      "AMATEUR–SATELLITE"
+      "AMATEUR\u2013SATELLITE"
     ],
     "footnotes": [
       "150",
@@ -1160,7 +1160,7 @@
     "services": [
       "RADIOLOCATION",
       "Amateur",
-      "Earth exploration–satellite",
+      "Earth exploration\u2013satellite",
       "(active)"
     ],
     "footnotes": [
@@ -1192,7 +1192,7 @@
     "freq_end_mhz": 24.65,
     "services": [
       "FIXED",
-      "INTER–SATELLITE",
+      "INTER\u2013SATELLITE",
       "MOBILE",
       "RADIONAVIGATION"
     ],
@@ -1210,8 +1210,8 @@
     "freq_end_mhz": 24.75,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (Earth-to-space)",
-      "INTER–SATELLITE",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
+      "INTER\u2013SATELLITE",
       "MOBILE"
     ],
     "footnotes": [
@@ -1228,7 +1228,7 @@
     "freq_end_mhz": 25.25,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (Earth-to-space)",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
       "MOBILE"
     ],
     "footnotes": [
@@ -1245,10 +1245,10 @@
     "freq_end_mhz": 25.5,
     "services": [
       "FIXED",
-      "INTER–SATELLITE",
+      "INTER\u2013SATELLITE",
       "MOBILE",
       "Standard frequency and time",
-      "signal–satellite (Earth-to-space)"
+      "signal\u2013satellite (Earth-to-space)"
     ],
     "footnotes": [
       "338A",
@@ -1263,13 +1263,13 @@
     "freq_start_mhz": 25.5,
     "freq_end_mhz": 27.0,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (space-to-Earth)",
+      "EARTH EXPLORATION\u2013 SATELLITE (space-to-Earth)",
       "FIXED",
-      "INTER–SATELLITE",
+      "INTER\u2013SATELLITE",
       "MOBILE",
       "SPACE RESEARCH (space-to-Earth)",
       "Standard frequency and time",
-      "signal–satellite (Earth-to-space)"
+      "signal\u2013satellite (Earth-to-space)"
     ],
     "footnotes": [
       "338A",
@@ -1286,8 +1286,8 @@
     "freq_end_mhz": 27.5,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (Earth-to-space)",
-      "INTER–SATELLITE",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
+      "INTER\u2013SATELLITE",
       "MOBILE"
     ],
     "footnotes": [
@@ -1304,7 +1304,7 @@
     "freq_end_mhz": 28.5,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (Earth-to-space)",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
       "INTER-SATELLITE",
       "MOBILE"
     ],
@@ -1327,10 +1327,10 @@
     "freq_end_mhz": 29.1,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (Earth-to-space)",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
       "INTER-SATELLITE",
       "MOBILE",
-      "Earth exploration–satellite (Earth-to-space)"
+      "Earth exploration\u2013satellite (Earth-to-space)"
     ],
     "footnotes": [
       "484A",
@@ -1352,10 +1352,10 @@
     "freq_end_mhz": 29.5,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (Earth-to-space)",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
       "INTER-SATELLITE",
       "MOBILE",
-      "Earth exploration–satellite (Earth-to-space)"
+      "Earth exploration\u2013satellite (Earth-to-space)"
     ],
     "footnotes": [
       "516B",
@@ -1376,10 +1376,10 @@
     "freq_start_mhz": 29.5,
     "freq_end_mhz": 29.9,
     "services": [
-      "FIXED–SATELLITE (Earth-to-space)",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
       "INTER-SATELLITE",
-      "Earth exploration–satellite (Earth-to-space)",
-      "Mobile–satellite (Earth-to-space)"
+      "Earth exploration\u2013satellite (Earth-to-space)",
+      "Mobile\u2013satellite (Earth-to-space)"
     ],
     "footnotes": [
       "484A",
@@ -1400,10 +1400,10 @@
     "freq_start_mhz": 29.9,
     "freq_end_mhz": 30.0,
     "services": [
-      "FIXED–SATELLITE (Earth-to-space)",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
       "INTER-SATELLITE",
-      "MOBILE–SATELLITE (Earth-to-space)",
-      "Earth exploration–satellite (Earth-to-space)"
+      "MOBILE\u2013SATELLITE (Earth-to-space)",
+      "Earth exploration\u2013satellite (Earth-to-space)"
     ],
     "footnotes": [
       "484A",
@@ -1429,10 +1429,10 @@
     "freq_start_mhz": 30.0,
     "freq_end_mhz": 31.0,
     "services": [
-      "FIXED–SATELLITE (Earth-to-space)",
-      "MOBILE–SATELLITE (Earth-to-space)",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
+      "MOBILE\u2013SATELLITE (Earth-to-space)",
       "Standard frequency and time",
-      "signal–satellite (space-to-Earth)"
+      "signal\u2013satellite (space-to-Earth)"
     ],
     "footnotes": [
       "338A",
@@ -1454,7 +1454,7 @@
       "AUS57"
     ],
     "mimir_band": null,
-    "notes": ""
+    "notes": "AUS57: this band may be used by defence radiolocation on condition of no interference to other services."
   },
   {
     "freq_start_mhz": 31.0,
@@ -1463,7 +1463,7 @@
       "FIXED",
       "MOBILE",
       "Standard frequency and time",
-      "signal–satellite (space-to-Earth)",
+      "signal\u2013satellite (space-to-Earth)",
       "Space research"
     ],
     "footnotes": [
@@ -1480,7 +1480,7 @@
     "freq_start_mhz": 31.3,
     "freq_end_mhz": 31.5,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "RADIO ASTRONOMY",
       "SPACE RESEARCH",
       "(passive)"
@@ -1496,7 +1496,7 @@
     "freq_start_mhz": 31.5,
     "freq_end_mhz": 31.8,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "RADIO ASTRONOMY",
       "SPACE RESEARCH",
       "(passive)",
@@ -1566,7 +1566,7 @@
     "freq_end_mhz": 33.0,
     "services": [
       "FIXED",
-      "INTER–SATELLITE",
+      "INTER\u2013SATELLITE",
       "RADIONAVIGATION"
     ],
     "footnotes": [
@@ -1611,7 +1611,7 @@
     "freq_end_mhz": 34.2,
     "services": [
       "RADIOLOCATION",
-      "FIXED–SATELLITE (space-to-Earth)"
+      "FIXED\u2013SATELLITE (space-to-Earth)"
     ],
     "footnotes": [
       "AUS101",
@@ -1641,7 +1641,7 @@
       "RADIOLOCATION",
       "SPACE RESEARCH (deep",
       "space) (Earth-to-space)",
-      "FIXED–SATELLITE (space-to-Earth)"
+      "FIXED\u2013SATELLITE (space-to-Earth)"
     ],
     "footnotes": [
       "AUS101A",
@@ -1656,7 +1656,7 @@
     "freq_end_mhz": 35.2,
     "services": [
       "RADIOLOCATION",
-      "FIXED–SATELLITE (space-to-Earth)",
+      "FIXED\u2013SATELLITE (space-to-Earth)",
       "Space research"
     ],
     "footnotes": [
@@ -1685,7 +1685,7 @@
     "services": [
       "METEOROLOGICAL AIDS",
       "RADIOLOCATION",
-      "FIXED–SATELLITE (space-to-Earth)"
+      "FIXED\u2013SATELLITE (space-to-Earth)"
     ],
     "footnotes": [
       "AUS101A",
@@ -1699,10 +1699,10 @@
     "freq_end_mhz": 36.0,
     "services": [
       "METEOROLOGICAL AIDS",
-      "EARTH EXPLORATION– SATELLITE (active)",
+      "EARTH EXPLORATION\u2013 SATELLITE (active)",
       "RADIOLOCATION",
       "SPACE RESEARCH (active)",
-      "FIXED–SATELLITE (space-to-Earth)"
+      "FIXED\u2013SATELLITE (space-to-Earth)"
     ],
     "footnotes": [
       "549A",
@@ -1716,7 +1716,7 @@
     "freq_start_mhz": 36.0,
     "freq_end_mhz": 37.0,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "FIXED",
       "MOBILE",
       "SPACE RESEARCH",
@@ -1785,9 +1785,9 @@
     "freq_end_mhz": 39.5,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (space-to-Earth)",
+      "FIXED\u2013SATELLITE (space-to-Earth)",
       "MOBILE",
-      "Earth exploration–satellite (space-to-Earth)"
+      "Earth exploration\u2013satellite (space-to-Earth)"
     ],
     "footnotes": [
       "547",
@@ -1847,7 +1847,7 @@
     "services": [
       "FIXED",
       "MOBILE",
-      "Earth exploration–satellite",
+      "Earth exploration\u2013satellite",
       "(active)"
     ],
     "footnotes": [
@@ -1861,13 +1861,13 @@
     "freq_start_mhz": 40.0,
     "freq_end_mhz": 40.5,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (Earth-to-space)",
+      "EARTH EXPLORATION\u2013 SATELLITE (Earth-to-space)",
       "FIXED",
-      "FIXED–SATELLITE (space-to-Earth)",
+      "FIXED\u2013SATELLITE (space-to-Earth)",
       "MOBILE",
-      "MOBILE–SATELLITE (space-to-Earth)",
+      "MOBILE\u2013SATELLITE (space-to-Earth)",
       "SPACE RESEARCH (Earth-to-space)",
-      "Earth exploration–satellite (space-to-Earth)"
+      "Earth exploration\u2013satellite (space-to-Earth)"
     ],
     "footnotes": [
       "516B",
@@ -1885,7 +1885,7 @@
     "services": [
       "FIXED",
       "MOBILE",
-      "Earth exploration–satellite",
+      "Earth exploration\u2013satellite",
       "(active)"
     ],
     "footnotes": [
@@ -1901,10 +1901,10 @@
     "freq_end_mhz": 41.0,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (space-to-Earth)",
+      "FIXED\u2013SATELLITE (space-to-Earth)",
       "LAND MOBILE",
       "BROADCASTING",
-      "BROADCASTING– SATELLITE",
+      "BROADCASTING\u2013 SATELLITE",
       "Aeronautical mobile",
       "Maritime mobile"
     ],
@@ -1923,7 +1923,7 @@
     "services": [
       "FIXED",
       "MOBILE",
-      "Earth exploration–satellite",
+      "Earth exploration\u2013satellite",
       "(active)"
     ],
     "footnotes": [
@@ -1939,10 +1939,10 @@
     "freq_end_mhz": 42.5,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (space-to-Earth)",
+      "FIXED\u2013SATELLITE (space-to-Earth)",
       "LAND MOBILE",
       "BROADCASTING",
-      "BROADCASTING– SATELLITE",
+      "BROADCASTING\u2013 SATELLITE",
       "Aeronautical mobile",
       "Maritime mobile"
     ],
@@ -1964,7 +1964,7 @@
     "services": [
       "FIXED",
       "MOBILE",
-      "Earth exploration–satellite",
+      "Earth exploration\u2013satellite",
       "(active)"
     ],
     "footnotes": [
@@ -1979,7 +1979,7 @@
     "freq_end_mhz": 43.5,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (Earth-to-space)",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
       "MOBILE except aeronautical",
       "mobile",
       "RADIO ASTRONOMY"
@@ -2000,7 +2000,7 @@
     "services": [
       "FIXED",
       "MOBILE",
-      "Earth exploration–satellite",
+      "Earth exploration\u2013satellite",
       "(active)"
     ],
     "footnotes": [
@@ -2016,9 +2016,9 @@
     "freq_end_mhz": 47.0,
     "services": [
       "MOBILE",
-      "MOBILE–SATELLITE",
+      "MOBILE\u2013SATELLITE",
       "RADIONAVIGATION",
-      "RADIONAVIGATION– SATELLITE"
+      "RADIONAVIGATION\u2013 SATELLITE"
     ],
     "footnotes": [
       "553",
@@ -2069,12 +2069,12 @@
     "freq_end_mhz": 47.2,
     "services": [
       "AMATEUR",
-      "AMATEUR–SATELLITE"
+      "AMATEUR\u2013SATELLITE"
     ],
     "footnotes": [
       "AUS87"
     ],
-    "mimir_band": null,
+    "mimir_band": "amateur",
     "notes": ""
   },
   {
@@ -2082,7 +2082,7 @@
     "freq_end_mhz": 47.5,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (Earth-to-space)",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
       "MOBILE"
     ],
     "footnotes": [
@@ -2100,7 +2100,7 @@
     "freq_end_mhz": 47.9,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (Earth-to-space)",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
       "MOBILE"
     ],
     "footnotes": [
@@ -2117,7 +2117,7 @@
     "freq_end_mhz": 48.2,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (Earth-to-space)",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
       "MOBILE"
     ],
     "footnotes": [
@@ -2135,7 +2135,7 @@
     "freq_end_mhz": 50.2,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (Earth-to-space)",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
       "MOBILE"
     ],
     "footnotes": [
@@ -2161,14 +2161,14 @@
       "162A",
       "168"
     ],
-    "mimir_band": null,
+    "mimir_band": "amateur",
     "notes": ""
   },
   {
     "freq_start_mhz": 50.2,
     "freq_end_mhz": 50.4,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "SPACE RESEARCH",
       "(passive)"
     ],
@@ -2183,9 +2183,9 @@
     "freq_end_mhz": 51.4,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (Earth-to-space)",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
       "MOBILE",
-      "Mobile–satellite (Earth-to-space)"
+      "Mobile\u2013satellite (Earth-to-space)"
     ],
     "footnotes": [
       "338A",
@@ -2199,7 +2199,7 @@
     "freq_end_mhz": 52.4,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (Earth-to-space)",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
       "MOBILE",
       "RADIO ASTRONOMY"
     ],
@@ -2220,7 +2220,7 @@
     "footnotes": [
       "162A"
     ],
-    "mimir_band": null,
+    "mimir_band": "amateur",
     "notes": ""
   },
   {
@@ -2242,7 +2242,7 @@
     "freq_start_mhz": 52.6,
     "freq_end_mhz": 54.25,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "SPACE RESEARCH",
       "(passive)",
       "RADIO ASTRONOMY"
@@ -2272,8 +2272,8 @@
     "freq_start_mhz": 54.25,
     "freq_end_mhz": 55.78,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
-      "INTER–SATELLITE",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
+      "INTER\u2013SATELLITE",
       "SPACE RESEARCH",
       "(passive)"
     ],
@@ -2287,9 +2287,9 @@
     "freq_start_mhz": 55.78,
     "freq_end_mhz": 56.9,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "FIXED",
-      "INTER–SATELLITE",
+      "INTER\u2013SATELLITE",
       "MOBILE",
       "SPACE RESEARCH",
       "(passive)"
@@ -2323,9 +2323,9 @@
     "freq_start_mhz": 56.9,
     "freq_end_mhz": 57.0,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "FIXED",
-      "INTER–SATELLITE",
+      "INTER\u2013SATELLITE",
       "MOBILE",
       "SPACE RESEARCH",
       "(passive)"
@@ -2342,9 +2342,9 @@
     "freq_start_mhz": 57.0,
     "freq_end_mhz": 58.2,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "FIXED",
-      "INTER–SATELLITE",
+      "INTER\u2013SATELLITE",
       "MOBILE",
       "SPACE RESEARCH",
       "(passive)"
@@ -2361,7 +2361,7 @@
     "freq_start_mhz": 58.2,
     "freq_end_mhz": 59.0,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "FIXED",
       "MOBILE",
       "SPACE RESEARCH",
@@ -2378,9 +2378,9 @@
     "freq_start_mhz": 59.0,
     "freq_end_mhz": 59.3,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "FIXED",
-      "INTER–SATELLITE",
+      "INTER\u2013SATELLITE",
       "MOBILE",
       "RADIOLOCATION",
       "SPACE RESEARCH",
@@ -2399,7 +2399,7 @@
     "freq_end_mhz": 64.0,
     "services": [
       "FIXED",
-      "INTER–SATELLITE",
+      "INTER\u2013SATELLITE",
       "MOBILE",
       "RADIOLOCATION"
     ],
@@ -2416,7 +2416,7 @@
     "freq_end_mhz": 65.0,
     "services": [
       "FIXED",
-      "INTER–SATELLITE",
+      "INTER\u2013SATELLITE",
       "MOBILE except aeronautical",
       "mobile",
       "RADIO ASTRONOMY"
@@ -2431,9 +2431,9 @@
     "freq_start_mhz": 65.0,
     "freq_end_mhz": 66.0,
     "services": [
-      "EARTH EXPLORATION– SATELLITE",
+      "EARTH EXPLORATION\u2013 SATELLITE",
       "FIXED",
-      "INTER–SATELLITE",
+      "INTER\u2013SATELLITE",
       "MOBILE except aeronautical",
       "mobile",
       "SPACE RESEARCH"
@@ -2448,11 +2448,11 @@
     "freq_start_mhz": 66.0,
     "freq_end_mhz": 71.0,
     "services": [
-      "INTER–SATELLITE",
+      "INTER\u2013SATELLITE",
       "MOBILE",
-      "MOBILE–SATELLITE",
+      "MOBILE\u2013SATELLITE",
       "RADIONAVIGATION",
-      "RADIONAVIGATION– SATELLITE"
+      "RADIONAVIGATION\u2013 SATELLITE"
     ],
     "footnotes": [
       "553",
@@ -2497,9 +2497,9 @@
     "freq_end_mhz": 74.0,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (space-to-Earth)",
+      "FIXED\u2013SATELLITE (space-to-Earth)",
       "MOBILE",
-      "MOBILE–SATELLITE (space-to-Earth)"
+      "MOBILE\u2013SATELLITE (space-to-Earth)"
     ],
     "footnotes": [],
     "mimir_band": null,
@@ -2525,10 +2525,10 @@
     "freq_end_mhz": 76.0,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (space-to-Earth)",
+      "FIXED\u2013SATELLITE (space-to-Earth)",
       "MOBILE",
       "BROADCASTING",
-      "BROADCASTING– SATELLITE",
+      "BROADCASTING\u2013 SATELLITE",
       "Space research (space-to-Earth)"
     ],
     "footnotes": [
@@ -2549,8 +2549,8 @@
       "180",
       "AUS25"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "ils_vor",
+    "notes": "ILS marker beacons (75 MHz). Per AUS25, subject to ICAO Annex 10."
   },
   {
     "freq_start_mhz": 75.2,
@@ -2574,7 +2574,7 @@
       "AUS103"
     ],
     "mimir_band": null,
-    "notes": ""
+    "notes": "AUS103: CSIRO Murchison Radio Astronomy Observatory (MWA operates 80-300 MHz, SKAO 70-350 MHz). Interference constraints apply in this range."
   },
   {
     "freq_start_mhz": 76.0,
@@ -2583,7 +2583,7 @@
       "RADIO ASTRONOMY",
       "RADIOLOCATION",
       "Amateur",
-      "Amateur–satellite",
+      "Amateur\u2013satellite",
       "Space research (space-to-Earth)"
     ],
     "footnotes": [
@@ -2598,7 +2598,7 @@
     "freq_end_mhz": 78.0,
     "services": [
       "AMATEUR",
-      "AMATEUR–SATELLITE",
+      "AMATEUR\u2013SATELLITE",
       "RADIOLOCATION",
       "Radio astronomy",
       "Space research (space-to-Earth)"
@@ -2617,7 +2617,7 @@
     "services": [
       "RADIOLOCATION",
       "Amateur",
-      "Amateur–satellite",
+      "Amateur\u2013satellite",
       "Radio astronomy",
       "Space research (space-to-Earth)"
     ],
@@ -2636,7 +2636,7 @@
       "RADIO ASTRONOMY",
       "RADIOLOCATION",
       "Amateur",
-      "Amateur–satellite",
+      "Amateur\u2013satellite",
       "Space research (space-to-Earth)"
     ],
     "footnotes": [
@@ -2651,9 +2651,9 @@
     "freq_end_mhz": 84.0,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (Earth-to-space)",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
       "MOBILE",
-      "MOBILE–SATELLITE (Earth-to-space)",
+      "MOBILE\u2013SATELLITE (Earth-to-space)",
       "RADIO ASTRONOMY",
       "Space research (space-to-Earth)"
     ],
@@ -2694,8 +2694,8 @@
       "AUS103",
       "AUS24"
     ],
-    "mimir_band": "fm_broadcast",
-    "notes": ""
+    "mimir_band": null,
+    "notes": "AUS24: Introduction of new broadcasting stations in 85-87.5 MHz requires special international agreements. TV services may be transferred to other bands."
   },
   {
     "freq_start_mhz": 86.0,
@@ -2709,14 +2709,14 @@
       "57",
       "60"
     ],
-    "mimir_band": "fm_broadcast",
+    "mimir_band": null,
     "notes": ""
   },
   {
     "freq_start_mhz": 86.0,
     "freq_end_mhz": 92.0,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "RADIO ASTRONOMY",
       "SPACE RESEARCH",
       "(passive)"
@@ -2725,7 +2725,7 @@
       "340",
       "AUS87"
     ],
-    "mimir_band": "fm_broadcast",
+    "mimir_band": null,
     "notes": ""
   },
   {
@@ -2753,8 +2753,8 @@
       "62",
       "64"
     ],
-    "mimir_band": "fm_broadcast",
-    "notes": ""
+    "mimir_band": null,
+    "notes": "ITU radionavigation overlay row (Region 2 only \u2014 does not apply in AU Region 3). AUS87: radio astronomy constraints (MWA range)."
   },
   {
     "freq_start_mhz": 92.0,
@@ -2770,14 +2770,14 @@
       "338A",
       "AUS87"
     ],
-    "mimir_band": "fm_broadcast",
+    "mimir_band": null,
     "notes": ""
   },
   {
     "freq_start_mhz": 94.0,
     "freq_end_mhz": 94.1,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (active)",
+      "EARTH EXPLORATION\u2013 SATELLITE (active)",
       "RADIOLOCATION",
       "SPACE RESEARCH (active)",
       "Radio astronomy"
@@ -2787,7 +2787,7 @@
       "562A",
       "AUS87"
     ],
-    "mimir_band": "fm_broadcast",
+    "mimir_band": null,
     "notes": ""
   },
   {
@@ -2803,7 +2803,7 @@
       "149",
       "AUS87"
     ],
-    "mimir_band": "fm_broadcast",
+    "mimir_band": null,
     "notes": ""
   },
   {
@@ -2815,21 +2815,21 @@
       "RADIO ASTRONOMY",
       "RADIOLOCATION",
       "RADIONAVIGATION",
-      "RADIONAVIGATION– SATELLITE"
+      "RADIONAVIGATION\u2013 SATELLITE"
     ],
     "footnotes": [
       "149",
       "554",
       "AUS87"
     ],
-    "mimir_band": "fm_broadcast",
+    "mimir_band": null,
     "notes": ""
   },
   {
     "freq_start_mhz": 100.0,
     "freq_end_mhz": 102.0,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "RADIO ASTRONOMY",
       "SPACE RESEARCH",
       "(passive)"
@@ -2839,7 +2839,7 @@
       "341",
       "AUS87"
     ],
-    "mimir_band": "fm_broadcast",
+    "mimir_band": null,
     "notes": ""
   },
   {
@@ -2855,7 +2855,7 @@
       "341",
       "AUS87"
     ],
-    "mimir_band": "fm_broadcast",
+    "mimir_band": null,
     "notes": ""
   },
   {
@@ -2874,7 +2874,7 @@
       "562B",
       "AUS87"
     ],
-    "mimir_band": "fm_broadcast",
+    "mimir_band": null,
     "notes": ""
   },
   {
@@ -2889,14 +2889,14 @@
       "AUS103",
       "AUS25"
     ],
-    "mimir_band": "fm_broadcast",
-    "notes": ""
+    "mimir_band": "ils_vor",
+    "notes": "ILS (Instrument Landing System) and VOR navigation aids. Per AUS25, subject to ICAO Annex 10 standards."
   },
   {
     "freq_start_mhz": 109.5,
     "freq_end_mhz": 111.8,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "RADIO ASTRONOMY",
       "SPACE RESEARCH",
       "(passive)"
@@ -2962,7 +2962,7 @@
     "freq_start_mhz": 114.25,
     "freq_end_mhz": 116.0,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "RADIO ASTRONOMY",
       "SPACE RESEARCH",
       "(passive)"
@@ -2979,8 +2979,8 @@
     "freq_start_mhz": 116.0,
     "freq_end_mhz": 119.98,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
-      "INTER–SATELLITE",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
+      "INTER\u2013SATELLITE",
       "SPACE RESEARCH",
       "(passive)"
     ],
@@ -2988,7 +2988,7 @@
       "341",
       "562C"
     ],
-    "mimir_band": "aviation_vhf",
+    "mimir_band": null,
     "notes": ""
   },
   {
@@ -3003,7 +3003,7 @@
       "60",
       "64"
     ],
-    "mimir_band": "aviation_vhf",
+    "mimir_band": null,
     "notes": ""
   },
   {
@@ -3028,8 +3028,8 @@
     "freq_start_mhz": 119.98,
     "freq_end_mhz": 122.25,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
-      "INTER–SATELLITE",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
+      "INTER\u2013SATELLITE",
       "SPACE RESEARCH",
       "(passive)"
     ],
@@ -3038,7 +3038,7 @@
       "341",
       "562C"
     ],
-    "mimir_band": "aviation_vhf",
+    "mimir_band": null,
     "notes": ""
   },
   {
@@ -3046,7 +3046,7 @@
     "freq_end_mhz": 123.0,
     "services": [
       "FIXED",
-      "INTER–SATELLITE",
+      "INTER\u2013SATELLITE",
       "MOBILE",
       "Amateur"
     ],
@@ -3054,24 +3054,24 @@
       "138",
       "558"
     ],
-    "mimir_band": "aviation_vhf",
+    "mimir_band": null,
     "notes": ""
   },
   {
     "freq_start_mhz": 123.0,
     "freq_end_mhz": 130.0,
     "services": [
-      "FIXED–SATELLITE (space-to-Earth)",
-      "MOBILE–SATELLITE (space-to-Earth)",
+      "FIXED\u2013SATELLITE (space-to-Earth)",
+      "MOBILE\u2013SATELLITE (space-to-Earth)",
       "RADIONAVIGATION",
-      "RADIONAVIGATION– SATELLITE",
+      "RADIONAVIGATION\u2013 SATELLITE",
       "Radio astronomy"
     ],
     "footnotes": [
       "149",
       "554"
     ],
-    "mimir_band": "aviation_vhf",
+    "mimir_band": null,
     "notes": ""
   },
   {
@@ -3086,7 +3086,7 @@
       "60",
       "64"
     ],
-    "mimir_band": "aviation_vhf",
+    "mimir_band": null,
     "notes": ""
   },
   {
@@ -3101,7 +3101,7 @@
       "60",
       "64"
     ],
-    "mimir_band": "aviation_vhf",
+    "mimir_band": null,
     "notes": ""
   },
   {
@@ -3115,16 +3115,16 @@
     "footnotes": [
       "64"
     ],
-    "mimir_band": "aviation_vhf",
+    "mimir_band": null,
     "notes": ""
   },
   {
     "freq_start_mhz": 130.0,
     "freq_end_mhz": 134.0,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (active)",
+      "EARTH EXPLORATION\u2013 SATELLITE (active)",
       "FIXED",
-      "INTER–SATELLITE",
+      "INTER\u2013SATELLITE",
       "MOBILE",
       "RADIO ASTRONOMY"
     ],
@@ -3134,7 +3134,7 @@
       "562A",
       "562E"
     ],
-    "mimir_band": "aviation_vhf",
+    "mimir_band": null,
     "notes": ""
   },
   {
@@ -3142,11 +3142,11 @@
     "freq_end_mhz": 136.0,
     "services": [
       "AMATEUR",
-      "AMATEUR–SATELLITE",
+      "AMATEUR\u2013SATELLITE",
       "Radio astronomy"
     ],
     "footnotes": [],
-    "mimir_band": "aviation_vhf",
+    "mimir_band": "amateur",
     "notes": ""
   },
   {
@@ -3163,7 +3163,7 @@
       "67A",
       "67B"
     ],
-    "mimir_band": "aviation_vhf",
+    "mimir_band": null,
     "notes": ""
   },
   {
@@ -3173,12 +3173,12 @@
       "RADIO ASTRONOMY",
       "RADIOLOCATION",
       "Amateur",
-      "Amateur–satellite"
+      "Amateur\u2013satellite"
     ],
     "footnotes": [
       "149"
     ],
-    "mimir_band": "aviation_vhf",
+    "mimir_band": null,
     "notes": ""
   },
   {
@@ -3187,8 +3187,8 @@
     "services": [
       "BROADCASTING",
       "SPACE OPERATION (space-to-Earth)",
-      "METEOROLOGICAL– SATELLITE (space-to-Earth)",
-      "MOBILE–SATELLITE (space-to-Earth)",
+      "METEOROLOGICAL\u2013 SATELLITE (space-to-Earth)",
+      "MOBILE\u2013SATELLITE (space-to-Earth)",
       "SPACE RESEARCH (space-to-Earth)",
       "Fixed",
       "Mobile except aeronautical",
@@ -3204,7 +3204,7 @@
       "AUS103",
       "AUS26"
     ],
-    "mimir_band": "aviation_vhf",
+    "mimir_band": "noaa_weather_sat",
     "notes": ""
   },
   {
@@ -3213,12 +3213,12 @@
     "services": [
       "BROADCASTING",
       "SPACE OPERATION (space-to-Earth)",
-      "METEOROLOGICAL– SATELLITE (space-to-Earth)",
+      "METEOROLOGICAL\u2013 SATELLITE (space-to-Earth)",
       "SPACE RESEARCH (space-to-Earth)",
       "Fixed",
       "Mobile except aeronautical",
       "mobile (R)",
-      "Mobile–satellite (space-to-Earth)"
+      "Mobile\u2013satellite (space-to-Earth)"
     ],
     "footnotes": [
       "203C",
@@ -3230,7 +3230,7 @@
       "AUS103",
       "AUS26"
     ],
-    "mimir_band": null,
+    "mimir_band": "noaa_weather_sat",
     "notes": ""
   },
   {
@@ -3239,8 +3239,8 @@
     "services": [
       "BROADCASTING",
       "SPACE OPERATION (space-to-Earth)",
-      "METEOROLOGICAL– SATELLITE (space-to-Earth)",
-      "MOBILE–SATELLITE (space-to-Earth)",
+      "METEOROLOGICAL\u2013 SATELLITE (space-to-Earth)",
+      "MOBILE\u2013SATELLITE (space-to-Earth)",
       "SPACE RESEARCH (space-to-Earth)",
       "Fixed",
       "Mobile except aeronautical",
@@ -3257,7 +3257,7 @@
       "AUS103",
       "AUS26"
     ],
-    "mimir_band": null,
+    "mimir_band": "noaa_weather_sat",
     "notes": ""
   },
   {
@@ -3271,7 +3271,7 @@
     "footnotes": [
       "64"
     ],
-    "mimir_band": "aprs",
+    "mimir_band": null,
     "notes": ""
   },
   {
@@ -3280,10 +3280,10 @@
     "services": [
       "BROADCASTING",
       "SPACE OPERATION (space-to-Earth)",
-      "METEOROLOGICAL– SATELLITE (space-to-Earth)",
+      "METEOROLOGICAL\u2013 SATELLITE (space-to-Earth)",
       "SPACE RESEARCH (space-to-Earth)",
       "Fixed",
-      "Mobile–satellite (space-to-Earth)",
+      "Mobile\u2013satellite (space-to-Earth)",
       "Mobile except aeronautical",
       "mobile (R)"
     ],
@@ -3297,7 +3297,7 @@
       "AUS103",
       "AUS26"
     ],
-    "mimir_band": null,
+    "mimir_band": "noaa_weather_sat",
     "notes": ""
   },
   {
@@ -3315,7 +3315,7 @@
       "AUS26"
     ],
     "mimir_band": null,
-    "notes": ""
+    "notes": "AUS26: Broadcasting allocation in 137-144 MHz is temporary legacy \u2014 no new assignments, existing stations to be transferred. AUS103: radio astronomy (MRO/MWA) constraints."
   },
   {
     "freq_start_mhz": 141.0,
@@ -3329,7 +3329,7 @@
     "footnotes": [
       "149"
     ],
-    "mimir_band": "aprs",
+    "mimir_band": null,
     "notes": ""
   },
   {
@@ -3347,7 +3347,7 @@
       "AUS26"
     ],
     "mimir_band": null,
-    "notes": ""
+    "notes": "AUS26: Broadcasting allocation is temporary legacy \u2014 no new assignments. AUS103 radio astronomy constraints."
   },
   {
     "freq_start_mhz": 143.65,
@@ -3363,15 +3363,15 @@
       "AUS103",
       "AUS26"
     ],
-    "mimir_band": "aprs",
-    "notes": ""
+    "mimir_band": null,
+    "notes": "AUS26: Broadcasting allocation is temporary legacy \u2014 no new assignments. AUS103 radio astronomy constraints."
   },
   {
     "freq_start_mhz": 144.0,
     "freq_end_mhz": 146.0,
     "services": [
       "AMATEUR",
-      "AMATEUR–SATELLITE"
+      "AMATEUR\u2013SATELLITE"
     ],
     "footnotes": [
       "AUS103"
@@ -3388,8 +3388,8 @@
     "footnotes": [
       "AUS103"
     ],
-    "mimir_band": "aprs",
-    "notes": ""
+    "mimir_band": "amateur",
+    "notes": "AUS103: CSIRO Murchison Radio Astronomy Observatory (MRO/MWA/SKAO) radio frequency interference constraints apply in this band (80-300 MHz range)."
   },
   {
     "freq_start_mhz": 148.0,
@@ -3397,7 +3397,7 @@
     "services": [
       "FIXED",
       "MOBILE",
-      "MOBILE–SATELLITE (Earth-to-space)"
+      "MOBILE\u2013SATELLITE (Earth-to-space)"
     ],
     "footnotes": [
       "209",
@@ -3414,7 +3414,7 @@
     "freq_start_mhz": 148.5,
     "freq_end_mhz": 151.5,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "RADIO ASTRONOMY",
       "SPACE RESEARCH",
       "(passive)"
@@ -3429,7 +3429,7 @@
     "freq_start_mhz": 149.9,
     "freq_end_mhz": 150.05,
     "services": [
-      "MOBILE–SATELLITE (Earth-to-space)"
+      "MOBILE\u2013SATELLITE (Earth-to-space)"
     ],
     "footnotes": [
       "209",
@@ -3525,7 +3525,7 @@
       "227",
       "AUS103"
     ],
-    "mimir_band": null,
+    "mimir_band": "marine_vhf",
     "notes": ""
   },
   {
@@ -3539,7 +3539,7 @@
       "226",
       "AUS103"
     ],
-    "mimir_band": null,
+    "mimir_band": "marine_vhf",
     "notes": ""
   },
   {
@@ -3547,7 +3547,7 @@
     "freq_end_mhz": 156.7875,
     "services": [
       "MARITIME MOBILE",
-      "Mobile–satellite (Earth-to-space)"
+      "Mobile\u2013satellite (Earth-to-space)"
     ],
     "footnotes": [
       "111",
@@ -3555,7 +3555,7 @@
       "228",
       "AUS103"
     ],
-    "mimir_band": null,
+    "mimir_band": "marine_vhf",
     "notes": ""
   },
   {
@@ -3570,7 +3570,7 @@
       "226",
       "AUS103"
     ],
-    "mimir_band": null,
+    "mimir_band": "marine_vhf",
     "notes": ""
   },
   {
@@ -3578,7 +3578,7 @@
     "freq_end_mhz": 156.8375,
     "services": [
       "MARITIME MOBILE",
-      "Mobile–satellite (Earth-to-space)"
+      "Mobile\u2013satellite (Earth-to-space)"
     ],
     "footnotes": [
       "111",
@@ -3586,7 +3586,7 @@
       "228",
       "AUS103"
     ],
-    "mimir_band": null,
+    "mimir_band": "marine_vhf",
     "notes": ""
   },
   {
@@ -3600,7 +3600,7 @@
       "226",
       "AUS103"
     ],
-    "mimir_band": null,
+    "mimir_band": "marine_vhf",
     "notes": ""
   },
   {
@@ -3609,7 +3609,7 @@
     "services": [
       "FIXED",
       "MOBILE",
-      "Maritime mobile–satellite"
+      "Maritime mobile\u2013satellite"
     ],
     "footnotes": [
       "208A",
@@ -3619,7 +3619,7 @@
       "228AC",
       "AUS103"
     ],
-    "mimir_band": null,
+    "mimir_band": "marine_vhf",
     "notes": ""
   },
   {
@@ -3633,7 +3633,7 @@
       "226",
       "AUS103"
     ],
-    "mimir_band": null,
+    "mimir_band": "marine_vhf",
     "notes": ""
   },
   {
@@ -3641,9 +3641,9 @@
     "freq_end_mhz": 164.0,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (space-to-Earth)",
+      "FIXED\u2013SATELLITE (space-to-Earth)",
       "MOBILE",
-      "MOBILE–SATELLITE (space-to-Earth)"
+      "MOBILE\u2013SATELLITE (space-to-Earth)"
     ],
     "footnotes": [],
     "mimir_band": null,
@@ -3666,7 +3666,7 @@
     "services": [
       "FIXED",
       "MOBILE",
-      "Maritime mobile–satellite"
+      "Maritime mobile\u2013satellite"
     ],
     "footnotes": [
       "208A",
@@ -3676,7 +3676,7 @@
       "228AC",
       "AUS103"
     ],
-    "mimir_band": null,
+    "mimir_band": "marine_vhf",
     "notes": ""
   },
   {
@@ -3685,14 +3685,14 @@
     "services": [
       "FIXED",
       "MOBILE",
-      "Maritime mobile–satellite (Earth-to-space)"
+      "Maritime mobile\u2013satellite (Earth-to-space)"
     ],
     "footnotes": [
       "226",
       "228AA",
       "AUS103"
     ],
-    "mimir_band": null,
+    "mimir_band": "marine_vhf",
     "notes": ""
   },
   {
@@ -3701,7 +3701,7 @@
     "services": [
       "MARITIME MOBILE",
       "Aeronautical mobile (OR)",
-      "Mobile–satellite (Earth-to-space)"
+      "Mobile\u2013satellite (Earth-to-space)"
     ],
     "footnotes": [
       "226",
@@ -3709,7 +3709,7 @@
       "228F",
       "AUS103"
     ],
-    "mimir_band": null,
+    "mimir_band": "marine_vhf",
     "notes": ""
   },
   {
@@ -3718,14 +3718,14 @@
     "services": [
       "FIXED",
       "MOBILE",
-      "Maritime mobile–satellite (Earth-to-space)"
+      "Maritime mobile\u2013satellite (Earth-to-space)"
     ],
     "footnotes": [
       "226",
       "228AA",
       "AUS103"
     ],
-    "mimir_band": null,
+    "mimir_band": "marine_vhf",
     "notes": ""
   },
   {
@@ -3734,7 +3734,7 @@
     "services": [
       "MARITIME MOBILE",
       "Aeronautical mobile (OR)",
-      "Mobile–satellite (Earth-to-space)"
+      "Mobile\u2013satellite (Earth-to-space)"
     ],
     "footnotes": [
       "226",
@@ -3742,7 +3742,7 @@
       "228F",
       "AUS103"
     ],
-    "mimir_band": null,
+    "mimir_band": "marine_vhf",
     "notes": ""
   },
   {
@@ -3763,7 +3763,7 @@
     "freq_start_mhz": 164.0,
     "freq_end_mhz": 167.0,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "RADIO ASTRONOMY",
       "SPACE RESEARCH",
       "(passive)"
@@ -3779,8 +3779,8 @@
     "freq_end_mhz": 174.5,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (space-to-Earth)",
-      "INTER–SATELLITE",
+      "FIXED\u2013SATELLITE (space-to-Earth)",
+      "INTER\u2013SATELLITE",
       "MOBILE"
     ],
     "footnotes": [
@@ -3802,7 +3802,7 @@
       "AUS103",
       "AUS92"
     ],
-    "mimir_band": null,
+    "mimir_band": "dab_plus",
     "notes": ""
   },
   {
@@ -3810,7 +3810,7 @@
     "freq_end_mhz": 174.8,
     "services": [
       "FIXED",
-      "INTER–SATELLITE",
+      "INTER\u2013SATELLITE",
       "MOBILE"
     ],
     "footnotes": [
@@ -3823,8 +3823,8 @@
     "freq_start_mhz": 174.8,
     "freq_end_mhz": 182.0,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
-      "INTER–SATELLITE",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
+      "INTER\u2013SATELLITE",
       "SPACE RESEARCH",
       "(passive)"
     ],
@@ -3838,7 +3838,7 @@
     "freq_start_mhz": 182.0,
     "freq_end_mhz": 185.0,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "RADIO ASTRONOMY",
       "SPACE RESEARCH",
       "(passive)"
@@ -3853,8 +3853,8 @@
     "freq_start_mhz": 185.0,
     "freq_end_mhz": 190.0,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
-      "INTER–SATELLITE",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
+      "INTER\u2013SATELLITE",
       "SPACE RESEARCH",
       "(passive)"
     ],
@@ -3875,13 +3875,13 @@
       "AUS49"
     ],
     "mimir_band": null,
-    "notes": ""
+    "notes": "AERONAUTICAL RADIONAVIGATION \u2014 Non-Directional Beacons (NDBs) for aircraft navigation. AUS49: subject to ICAO Annex 10. AUS68: underground mine comms also authorised."
   },
   {
     "freq_start_mhz": 190.0,
     "freq_end_mhz": 191.8,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "SPACE RESEARCH",
       "(passive)"
     ],
@@ -3896,11 +3896,11 @@
     "freq_end_mhz": 200.0,
     "services": [
       "FIXED",
-      "INTER–SATELLITE",
+      "INTER\u2013SATELLITE",
       "MOBILE",
-      "MOBILE–SATELLITE",
+      "MOBILE\u2013SATELLITE",
       "RADIONAVIGATION",
-      "RADIONAVIGATION– SATELLITE"
+      "RADIONAVIGATION\u2013 SATELLITE"
     ],
     "footnotes": [
       "149",
@@ -3923,13 +3923,13 @@
       "AUS68"
     ],
     "mimir_band": null,
-    "notes": ""
+    "notes": "AERONAUTICAL RADIONAVIGATION \u2014 NDBs for aircraft navigation. AUS49: ICAO Annex 10. AUS68: underground mine comms authorised."
   },
   {
     "freq_start_mhz": 200.0,
     "freq_end_mhz": 202.0,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "RADIO ASTRONOMY",
       "SPACE RESEARCH",
       "(passive)"
@@ -3946,7 +3946,7 @@
     "freq_start_mhz": 202.0,
     "freq_end_mhz": 209.0,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "RADIO ASTRONOMY",
       "SPACE RESEARCH",
       "(passive)"
@@ -3964,7 +3964,7 @@
     "freq_end_mhz": 217.0,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (Earth-to-space)",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
       "MOBILE",
       "RADIO ASTRONOMY"
     ],
@@ -3973,14 +3973,14 @@
       "341"
     ],
     "mimir_band": null,
-    "notes": ""
+    "notes": "AUS87: CSIRO radio astronomy observatory (MWA 80-300 MHz) constraints apply in this range. Fixed/mobile secondary to radio astronomy."
   },
   {
     "freq_start_mhz": 217.0,
     "freq_end_mhz": 226.0,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (Earth-to-space)",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
       "MOBILE",
       "RADIO ASTRONOMY",
       "SPACE RESEARCH",
@@ -4006,14 +4006,14 @@
       "AUS101A",
       "AUS103"
     ],
-    "mimir_band": null,
+    "mimir_band": "dab_plus",
     "notes": ""
   },
   {
     "freq_start_mhz": 226.0,
     "freq_end_mhz": 231.5,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "RADIO ASTRONOMY",
       "SPACE RESEARCH",
       "(passive)"
@@ -4057,7 +4057,7 @@
     "freq_end_mhz": 235.0,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (space-to-Earth)",
+      "FIXED\u2013SATELLITE (space-to-Earth)",
       "MOBILE",
       "Radiolocation"
     ],
@@ -4080,15 +4080,15 @@
       "AUS103"
     ],
     "mimir_band": null,
-    "notes": ""
+    "notes": "AUS100: designated for Australian Defence Force use. AUS103: radio astronomy (MRO/MWA) constraints. Frequency band used for military UHF satcomm and tactical comms."
   },
   {
     "freq_start_mhz": 235.0,
     "freq_end_mhz": 238.0,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "FIXED",
-      "FIXED–SATELLITE (space-to-Earth)",
+      "FIXED\u2013SATELLITE (space-to-Earth)",
       "MOBILE",
       "SPACE RESEARCH",
       "(passive)"
@@ -4106,11 +4106,11 @@
     "freq_end_mhz": 239.2,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (space-to-Earth)",
+      "FIXED\u2013SATELLITE (space-to-Earth)",
       "MOBILE",
       "RADIOLOCATION",
       "RADIONAVIGATION",
-      "RADIONAVIGATION– SATELLITE"
+      "RADIONAVIGATION\u2013 SATELLITE"
     ],
     "footnotes": [],
     "mimir_band": null,
@@ -4120,11 +4120,11 @@
     "freq_start_mhz": 239.2,
     "freq_end_mhz": 240.0,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
-      "FIXED–SATELLITE (space-to-Earth)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
+      "FIXED\u2013SATELLITE (space-to-Earth)",
       "RADIOLOCATION",
       "RADIONAVIGATION",
-      "RADIONAVIGATION– SATELLITE"
+      "RADIONAVIGATION\u2013 SATELLITE"
     ],
     "footnotes": [],
     "mimir_band": null,
@@ -4134,7 +4134,7 @@
     "freq_start_mhz": 240.0,
     "freq_end_mhz": 241.0,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "RADIOLOCATION"
     ],
     "footnotes": [],
@@ -4145,11 +4145,11 @@
     "freq_start_mhz": 241.0,
     "freq_end_mhz": 242.2,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "RADIO ASTRONOMY",
       "RADIOLOCATION",
       "Amateur",
-      "Amateur–satellite"
+      "Amateur\u2013satellite"
     ],
     "footnotes": [
       "149"
@@ -4164,23 +4164,23 @@
       "RADIO ASTRONOMY",
       "RADIOLOCATION",
       "Amateur",
-      "Amateur–satellite"
+      "Amateur\u2013satellite"
     ],
     "footnotes": [
       "149"
     ],
-    "mimir_band": null,
+    "mimir_band": "amateur",
     "notes": ""
   },
   {
     "freq_start_mhz": 244.2,
     "freq_end_mhz": 247.2,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "RADIO ASTRONOMY",
       "RADIOLOCATION",
       "Amateur",
-      "Amateur–satellite"
+      "Amateur\u2013satellite"
     ],
     "footnotes": [
       "138",
@@ -4196,12 +4196,12 @@
       "RADIO ASTRONOMY",
       "RADIOLOCATION",
       "Amateur",
-      "Amateur–satellite"
+      "Amateur\u2013satellite"
     ],
     "footnotes": [
       "149"
     ],
-    "mimir_band": null,
+    "mimir_band": "amateur",
     "notes": ""
   },
   {
@@ -4209,20 +4209,20 @@
     "freq_end_mhz": 250.0,
     "services": [
       "AMATEUR",
-      "AMATEUR–SATELLITE",
+      "AMATEUR\u2013SATELLITE",
       "Radio astronomy"
     ],
     "footnotes": [
       "149"
     ],
-    "mimir_band": null,
+    "mimir_band": "amateur",
     "notes": ""
   },
   {
     "freq_start_mhz": 250.0,
     "freq_end_mhz": 252.0,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "RADIO ASTRONOMY",
       "SPACE RESEARCH",
       "(passive)"
@@ -4240,10 +4240,10 @@
     "services": [
       "FIXED",
       "MOBILE",
-      "MOBILE–SATELLITE (Earth-to-space)",
+      "MOBILE\u2013SATELLITE (Earth-to-space)",
       "RADIO ASTRONOMY",
       "RADIONAVIGATION",
-      "RADIONAVIGATION– SATELLITE"
+      "RADIONAVIGATION\u2013 SATELLITE"
     ],
     "footnotes": [
       "149",
@@ -4257,7 +4257,7 @@
     "freq_end_mhz": 275.0,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (Earth-to-space)",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
       "MOBILE",
       "RADIO ASTRONOMY"
     ],
@@ -4326,7 +4326,7 @@
       "564A",
       "565"
     ],
-    "mimir_band": "ism_lora",
+    "mimir_band": null,
     "notes": ""
   },
   {
@@ -4353,7 +4353,7 @@
     "services": [
       "FIXED",
       "MOBILE",
-      "Mobile–satellite (Earth-to-space)"
+      "Mobile\u2013satellite (Earth-to-space)"
     ],
     "footnotes": [
       "254",
@@ -4435,8 +4435,8 @@
       "258",
       "AUS25"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "ils_vor",
+    "notes": "ILS glideslope (UHF component, 328.6-335.4 MHz). Per AUS25, subject to ICAO Annex 10."
   },
   {
     "freq_start_mhz": 335.4,
@@ -4472,7 +4472,7 @@
     "services": [
       "FIXED",
       "MOBILE",
-      "Mobile–satellite (space-to-Earth)"
+      "Mobile\u2013satellite (space-to-Earth)"
     ],
     "footnotes": [
       "208A",
@@ -4502,7 +4502,7 @@
     "freq_start_mhz": 399.9,
     "freq_end_mhz": 400.05,
     "services": [
-      "MOBILE–SATELLITE (Earth-to-space)"
+      "MOBILE\u2013SATELLITE (Earth-to-space)"
     ],
     "footnotes": [
       "209",
@@ -4518,21 +4518,21 @@
     "freq_end_mhz": 400.15,
     "services": [
       "STANDARD FREQUENCY",
-      "AND TIME SIGNAL– SATELLITE (400.1 MHz)"
+      "AND TIME SIGNAL\u2013 SATELLITE (400.1 MHz)"
     ],
     "footnotes": [
       "261"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "time_signal",
+    "notes": "Standard frequency and time signal satellite (400.1 MHz). Precision time/frequency reference."
   },
   {
     "freq_start_mhz": 400.15,
     "freq_end_mhz": 401.0,
     "services": [
       "METEOROLOGICAL AIDS",
-      "METEOROLOGICAL– SATELLITE (space-to-Earth)",
-      "MOBILE–SATELLITE (space-to-Earth)",
+      "METEOROLOGICAL\u2013 SATELLITE (space-to-Earth)",
+      "MOBILE\u2013SATELLITE (space-to-Earth)",
       "SPACE RESEARCH (space-to-Earth)",
       "Space operation (space-to-Earth)",
       "Radiolocation"
@@ -4546,16 +4546,16 @@
       "AUS101A",
       "AUS29"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "met_satellite",
+    "notes": "Meteorological satellite (space-to-Earth) and meteorological aids (radiosondes/weather balloons). AUS29 applies in offshore areas."
   },
   {
     "freq_start_mhz": 401.0,
     "freq_end_mhz": 402.0,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (Earth-to-space)",
+      "EARTH EXPLORATION\u2013 SATELLITE (Earth-to-space)",
       "METEOROLOGICAL AIDS",
-      "METEOROLOGICAL– SATELLITE (Earth-to-space)",
+      "METEOROLOGICAL\u2013 SATELLITE (Earth-to-space)",
       "SPACE OPERATION (space-to-Earth)",
       "Fixed",
       "Mobile except aeronautical",
@@ -4568,16 +4568,16 @@
       "AUS101A",
       "AUS29"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "met_satellite",
+    "notes": "Earth-to-space met satellite uplinks and meteorological aids."
   },
   {
     "freq_start_mhz": 402.0,
     "freq_end_mhz": 403.0,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (Earth-to-space)",
+      "EARTH EXPLORATION\u2013 SATELLITE (Earth-to-space)",
       "METEOROLOGICAL AIDS",
-      "METEOROLOGICAL– SATELLITE (Earth-to-space)",
+      "METEOROLOGICAL\u2013 SATELLITE (Earth-to-space)",
       "Fixed",
       "Mobile except aeronautical",
       "mobile (R)",
@@ -4589,8 +4589,8 @@
       "AUS101A",
       "AUS29"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "met_satellite",
+    "notes": "Earth-to-space met satellite uplinks and meteorological aids."
   },
   {
     "freq_start_mhz": 403.0,
@@ -4608,8 +4608,8 @@
       "AUS29",
       "AUS98"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "pmr_land_mobile",
+    "notes": "Land mobile / PMR. AUS98 harmonised government band: includes emergency services (police, fire, ambulance) frequencies. AUS29 radiolocation primary offshore."
   },
   {
     "freq_start_mhz": 405.0,
@@ -4628,15 +4628,15 @@
     "freq_start_mhz": 406.0,
     "freq_end_mhz": 406.1,
     "services": [
-      "MOBILE–SATELLITE (Earth-to-space)"
+      "MOBILE\u2013SATELLITE (Earth-to-space)"
     ],
     "footnotes": [
       "265",
       "266",
       "267"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "epirb_plb",
+    "notes": "International distress frequency. EPIRB and PLB (Emergency Position Indicating Radio Beacon / Personal Locator Beacon) transmissions at 406 MHz. Monitored by COSPAS-SARSAT satellite system."
   },
   {
     "freq_start_mhz": 406.1,
@@ -4654,8 +4654,8 @@
       "AUS29",
       "AUS98"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "pmr_land_mobile",
+    "notes": "Land mobile / PMR. AUS98 harmonised government emergency services band."
   },
   {
     "freq_start_mhz": 410.0,
@@ -4672,8 +4672,8 @@
       "AUS29",
       "AUS98"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "pmr_land_mobile",
+    "notes": "Land mobile / PMR. AUS98 harmonised government emergency services band."
   },
   {
     "freq_start_mhz": 415.0,
@@ -4710,7 +4710,7 @@
       "AUS99"
     ],
     "mimir_band": null,
-    "notes": ""
+    "notes": "AUS94: 420.8-421.2, 424.8-425.2, and 427.8-428.2 MHz are designated primarily for defence. AUS99: 420.8-421.2 MHz also allocated to amateur on secondary basis. AUS98: harmonised government emergency services band."
   },
   {
     "freq_start_mhz": 430.0,
@@ -4723,7 +4723,7 @@
       "AUS101A",
       "AUS95"
     ],
-    "mimir_band": null,
+    "mimir_band": "amateur",
     "notes": ""
   },
   {
@@ -4732,7 +4732,7 @@
     "services": [
       "RADIOLOCATION",
       "Amateur",
-      "Earth exploration–satellite",
+      "Earth exploration\u2013satellite",
       "(active)"
     ],
     "footnotes": [
@@ -4741,7 +4741,7 @@
       "AUS101A",
       "AUS95"
     ],
-    "mimir_band": null,
+    "mimir_band": "amateur",
     "notes": ""
   },
   {
@@ -4755,7 +4755,7 @@
       "AUS101A",
       "AUS95"
     ],
-    "mimir_band": null,
+    "mimir_band": "amateur",
     "notes": ""
   },
   {
@@ -4791,8 +4791,8 @@
       "287",
       "AUS98"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "pmr_land_mobile",
+    "notes": "Land mobile / PMR. AUS98 harmonised government emergency services band (includes 457-458 and 467-468 MHz repeater pairs)."
   },
   {
     "freq_start_mhz": 460.0,
@@ -4800,7 +4800,7 @@
     "services": [
       "FIXED",
       "MOBILE",
-      "Meteorological–satellite (space-to-Earth)"
+      "Meteorological\u2013satellite (space-to-Earth)"
     ],
     "footnotes": [
       "286AA",
@@ -4808,8 +4808,8 @@
       "289",
       "AUS98"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "pmr_land_mobile",
+    "notes": "Land mobile / PMR. AUS98 harmonised government emergency services band. Also meteorological satellite (space-to-Earth) secondary."
   },
   {
     "freq_start_mhz": 470.0,
@@ -4819,8 +4819,8 @@
       "MOBILE"
     ],
     "footnotes": [],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "uhf_cb",
+    "notes": "AU UHF CB (Citizens Band) channels 1-40 sit at 476.425-477.400 MHz within this allocation. Licensed under ACMA class licence \u2014 no individual licence required for compliant handheld UHF CB radios."
   },
   {
     "freq_start_mhz": 472.0,
@@ -4871,8 +4871,8 @@
       "82C",
       "82D"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "marine_hf",
+    "notes": "Maritime mobile \u2014 MF distress and calling frequency zone (500 kHz international distress in this range)."
   },
   {
     "freq_start_mhz": 505.0,
@@ -4906,8 +4906,8 @@
       "AUS103",
       "AUS104"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "uhf_tv",
+    "notes": "UHF television broadcasting band. AUS104: designated primarily for broadcasting under Broadcasting Services Act 1992."
   },
   {
     "freq_start_mhz": 526.5,
@@ -4921,8 +4921,8 @@
       "AUS50",
       "AUS74"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "am_broadcast",
+    "notes": "AM broadcasting (medium wave). Adjacent to main AU AM band. AUS50: subject to Regional Administrative LF/MF Broadcasting Conference provisions."
   },
   {
     "freq_start_mhz": 535.0,
@@ -4937,8 +4937,8 @@
       "AUS74",
       "AUS75"
     ],
-    "mimir_band": "ism_lora",
-    "notes": ""
+    "mimir_band": "am_broadcast",
+    "notes": "AUS50: AU AM broadcasting subject to Regional Administrative LF/MF Broadcasting Conference (Geneva 1975) provisions. AUS74: fixed service must not cause interference to broadcasting."
   },
   {
     "freq_start_mhz": 694.0,
@@ -4954,8 +4954,8 @@
       "320",
       "AUS103"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "mobile_cellular",
+    "notes": "Mobile cellular broadband. 700 MHz band (AU Digital Dividend) \u2014 4G/5G. AUS103 radio astronomy constraints near MRO."
   },
   {
     "freq_start_mhz": 850.0,
@@ -4973,8 +4973,8 @@
       "AUS103",
       "AUS29"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "mobile_cellular",
+    "notes": "Mobile cellular. 850 MHz band \u2014 4G LTE in AU (Telstra, Optus). AUS29: radiolocation primary offshore. AUS101A: defence secondary use."
   },
   {
     "freq_start_mhz": 890.0,
@@ -4991,8 +4991,8 @@
       "AUS103",
       "AUS29"
     ],
-    "mimir_band": "ism_lora",
-    "notes": ""
+    "mimir_band": "mobile_cellular",
+    "notes": "Already noted in mimir_band. AUS29: radiolocation is primary service in offshore areas. AUS101A: defence secondary use permitted."
   },
   {
     "freq_start_mhz": 915.0,
@@ -5010,7 +5010,7 @@
       "AUS32"
     ],
     "mimir_band": "ism_lora",
-    "notes": ""
+    "notes": "AU ISM band per footnote AUS32: 918-926 MHz (centre 922 MHz) designated for ISM/LoRa. The LoRa AU915 channel plan uses 915-928 MHz."
   },
   {
     "freq_start_mhz": 928.0,
@@ -5027,8 +5027,8 @@
       "AUS103",
       "AUS29"
     ],
-    "mimir_band": "ism_lora",
-    "notes": ""
+    "mimir_band": "mobile_cellular",
+    "notes": "Mobile cellular / fixed. Adjacent to AU ISM band. AUS101A: defence secondary. AUS29: radiolocation primary offshore."
   },
   {
     "freq_start_mhz": 942.0,
@@ -5043,8 +5043,8 @@
       "320",
       "AUS103"
     ],
-    "mimir_band": "adsb",
-    "notes": ""
+    "mimir_band": "mobile_cellular",
+    "notes": "Mobile cellular. 900 MHz band upper segment \u2014 used by cellular operators in AU."
   },
   {
     "freq_start_mhz": 960.0,
@@ -5063,7 +5063,7 @@
       "AUS64"
     ],
     "mimir_band": "adsb",
-    "notes": ""
+    "notes": "ADS-B at 1090 MHz falls within this AERONAUTICAL RADIONAVIGATION allocation"
   },
   {
     "freq_start_mhz": 1164.0,
@@ -5071,7 +5071,7 @@
     "services": [
       "AERONAUTICAL",
       "RADIONAVIGATION",
-      "RADIONAVIGATION– SATELLITE (space-to-Earth) (space-to-space)"
+      "RADIONAVIGATION\u2013 SATELLITE (space-to-Earth) (space-to-space)"
     ],
     "footnotes": [
       "328",
@@ -5082,16 +5082,16 @@
       "AUS64",
       "AUS87"
     ],
-    "mimir_band": "adsb",
-    "notes": ""
+    "mimir_band": "gnss",
+    "notes": "GNSS (GPS L5, Galileo E5, GLONASS). AERONAUTICAL RADIONAVIGATION + RADIONAVIGATION-SATELLITE. AUS25: ICAO Annex 10. AUS64: defence spread-spectrum use permitted."
   },
   {
     "freq_start_mhz": 1215.0,
     "freq_end_mhz": 1240.0,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (active)",
+      "EARTH EXPLORATION\u2013 SATELLITE (active)",
       "RADIOLOCATION",
-      "RADIONAVIGATION– SATELLITE (space-to-Earth) (space-to-space)",
+      "RADIONAVIGATION\u2013 SATELLITE (space-to-Earth) (space-to-space)",
       "SPACE RESEARCH (active)"
     ],
     "footnotes": [
@@ -5103,16 +5103,16 @@
       "AUS103",
       "AUS87"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "gnss",
+    "notes": "GNSS (GPS L2, GLONASS L2, Galileo E6). EARTH EXPLORATION-SATELLITE + RADIOLOCATION + RADIONAVIGATION-SATELLITE. AUS87: radio astronomy observatory constraints."
   },
   {
     "freq_start_mhz": 1240.0,
     "freq_end_mhz": 1300.0,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (active)",
+      "EARTH EXPLORATION\u2013 SATELLITE (active)",
       "RADIOLOCATION",
-      "RADIONAVIGATION– SATELLITE (space-to-Earth) (space-to-space)",
+      "RADIONAVIGATION\u2013 SATELLITE (space-to-Earth) (space-to-space)",
       "SPACE RESEARCH (active)",
       "Amateur"
     ],
@@ -5131,8 +5131,8 @@
       "AUS87",
       "AUS90"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "gnss",
+    "notes": "GNSS (GPS L2, GLONASS L2). RADIOLOCATION + RADIONAVIGATION-SATELLITE. AUS1A: intended for RNSS/defence shared use."
   },
   {
     "freq_start_mhz": 1300.0,
@@ -5141,7 +5141,7 @@
       "AERONAUTICAL",
       "RADIONAVIGATION",
       "RADIOLOCATION",
-      "RADIONAVIGATION– SATELLITE (Earth-to-space)"
+      "RADIONAVIGATION\u2013 SATELLITE (Earth-to-space)"
     ],
     "footnotes": [
       "149",
@@ -5177,7 +5177,7 @@
     "freq_start_mhz": 1400.0,
     "freq_end_mhz": 1427.0,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "RADIO ASTRONOMY",
       "SPACE RESEARCH",
       "(passive)"
@@ -5189,7 +5189,7 @@
       "AUS87"
     ],
     "mimir_band": null,
-    "notes": ""
+    "notes": "RADIO ASTRONOMY passive band \u2014 protected from interference globally. AUS87: CSIRO observatories at Narrabri, Parkes, Mopra, Hobart, and Ceduna operate sensitive receivers. AUS103: MRO/ASKAP constraints also apply."
   },
   {
     "freq_start_mhz": 1427.0,
@@ -5233,7 +5233,7 @@
     "freq_end_mhz": 1492.0,
     "services": [
       "BROADCASTING",
-      "BROADCASTING– SATELLITE",
+      "BROADCASTING\u2013 SATELLITE",
       "FIXED",
       "MOBILE"
     ],
@@ -5272,7 +5272,7 @@
     "services": [
       "FIXED",
       "MOBILE",
-      "MOBILE–SATELLITE (space-to-Earth)"
+      "MOBILE\u2013SATELLITE (space-to-Earth)"
     ],
     "footnotes": [
       "341",
@@ -5293,8 +5293,8 @@
     "services": [
       "SPACE OPERATION (space-to-Earth)",
       "FIXED",
-      "MOBILE–SATELLITE (space-to-Earth)",
-      "Earth exploration–satellite",
+      "MOBILE\u2013SATELLITE (space-to-Earth)",
+      "Earth exploration\u2013satellite",
       "Mobile"
     ],
     "footnotes": [
@@ -5316,8 +5316,8 @@
     "freq_end_mhz": 1535.0,
     "services": [
       "SPACE OPERATION (space-to-Earth)",
-      "MOBILE–SATELLITE (space-to-Earth)",
-      "Earth exploration–satellite",
+      "MOBILE\u2013SATELLITE (space-to-Earth)",
+      "Earth exploration\u2013satellite",
       "Fixed",
       "Mobile"
     ],
@@ -5339,7 +5339,7 @@
     "freq_start_mhz": 1535.0,
     "freq_end_mhz": 1559.0,
     "services": [
-      "MOBILE–SATELLITE (space-to-Earth)"
+      "MOBILE\u2013SATELLITE (space-to-Earth)"
     ],
     "footnotes": [
       "208B",
@@ -5364,7 +5364,7 @@
     "services": [
       "AERONAUTICAL",
       "RADIONAVIGATION",
-      "RADIONAVIGATION– SATELLITE (space-to-Earth) (space-to-space)"
+      "RADIONAVIGATION\u2013 SATELLITE (space-to-Earth) (space-to-space)"
     ],
     "footnotes": [
       "208B",
@@ -5374,8 +5374,8 @@
       "AUS103",
       "AUS87"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "gnss",
+    "notes": "GNSS (GPS L1 at 1575.42 MHz, Galileo E1, GLONASS L1). Primary GNSS downlink band. AERONAUTICAL RADIONAVIGATION + RADIONAVIGATION-SATELLITE. AUS25 and AUS87 apply."
   },
   {
     "freq_start_mhz": 1606.5,
@@ -5396,10 +5396,10 @@
     "freq_start_mhz": 1610.0,
     "freq_end_mhz": 1610.6,
     "services": [
-      "MOBILE–SATELLITE (Earth-to-space)",
+      "MOBILE\u2013SATELLITE (Earth-to-space)",
       "AERONAUTICAL",
       "RADIONAVIGATION",
-      "RADIODETERMINATION– SATELLITE (Earth-to-space)"
+      "RADIODETERMINATION\u2013 SATELLITE (Earth-to-space)"
     ],
     "footnotes": [
       "341",
@@ -5420,11 +5420,11 @@
     "freq_start_mhz": 1610.6,
     "freq_end_mhz": 1613.8,
     "services": [
-      "MOBILE–SATELLITE (Earth-to-space)",
+      "MOBILE\u2013SATELLITE (Earth-to-space)",
       "RADIO ASTRONOMY",
       "AERONAUTICAL",
       "RADIONAVIGATION",
-      "RADIODETERMINATION– SATELLITE (Earth-to-space)"
+      "RADIODETERMINATION\u2013 SATELLITE (Earth-to-space)"
     ],
     "footnotes": [
       "149",
@@ -5446,11 +5446,11 @@
     "freq_start_mhz": 1613.8,
     "freq_end_mhz": 1621.35,
     "services": [
-      "MOBILE–SATELLITE (Earth-to-space)",
+      "MOBILE\u2013SATELLITE (Earth-to-space)",
       "AERONAUTICAL",
       "RADIONAVIGATION",
-      "RADIODETERMINATION– SATELLITE (Earth-to-space)",
-      "Mobile–satellite (space-to-Earth)"
+      "RADIODETERMINATION\u2013 SATELLITE (Earth-to-space)",
+      "Mobile\u2013satellite (space-to-Earth)"
     ],
     "footnotes": [
       "208B",
@@ -5474,13 +5474,13 @@
     "freq_start_mhz": 1621.35,
     "freq_end_mhz": 1626.5,
     "services": [
-      "MARITIME MOBILE– SATELLITE (space-to-Earth)",
-      "MOBILE–SATELLITE (Earth-to-space)",
+      "MARITIME MOBILE\u2013 SATELLITE (space-to-Earth)",
+      "MOBILE\u2013SATELLITE (Earth-to-space)",
       "AERONAUTICAL",
       "RADIONAVIGATION",
-      "RADIODETERMINATION– SATELLITE (Earth-to-space)",
-      "Mobile–satellite (space-to-Earth) except maritime",
-      "mobile–satellite (space-to-Earth)"
+      "RADIODETERMINATION\u2013 SATELLITE (Earth-to-space)",
+      "Mobile\u2013satellite (space-to-Earth) except maritime",
+      "mobile\u2013satellite (space-to-Earth)"
     ],
     "footnotes": [
       "208B",
@@ -5498,14 +5498,14 @@
       "AUS103",
       "AUS87"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "marine_satellite",
+    "notes": "Maritime mobile-satellite (space-to-Earth) and mobile-satellite. Inmarsat maritime satphone downlinks."
   },
   {
     "freq_start_mhz": 1626.5,
     "freq_end_mhz": 1660.0,
     "services": [
-      "MOBILE–SATELLITE (Earth-to-space)"
+      "MOBILE\u2013SATELLITE (Earth-to-space)"
     ],
     "footnotes": [
       "341",
@@ -5526,7 +5526,7 @@
     "freq_start_mhz": 1660.0,
     "freq_end_mhz": 1660.5,
     "services": [
-      "MOBILE–SATELLITE (Earth-to-space)",
+      "MOBILE\u2013SATELLITE (Earth-to-space)",
       "RADIO ASTRONOMY"
     ],
     "footnotes": [
@@ -5568,7 +5568,7 @@
     "freq_start_mhz": 1668.0,
     "freq_end_mhz": 1668.4,
     "services": [
-      "MOBILE–SATELLITE (Earth-to-space)",
+      "MOBILE\u2013SATELLITE (Earth-to-space)",
       "RADIO ASTRONOMY",
       "SPACE RESEARCH",
       "(passive)",
@@ -5597,7 +5597,7 @@
       "FIXED",
       "MOBILE except aeronautical",
       "mobile",
-      "MOBILE–SATELLITE (Earth-to-space)",
+      "MOBILE\u2013SATELLITE (Earth-to-space)",
       "RADIO ASTRONOMY"
     ],
     "footnotes": [
@@ -5620,9 +5620,9 @@
     "services": [
       "METEOROLOGICAL AIDS",
       "FIXED",
-      "METEOROLOGICAL– SATELLITE (space-to-Earth)",
+      "METEOROLOGICAL\u2013 SATELLITE (space-to-Earth)",
       "MOBILE",
-      "MOBILE–SATELLITE (Earth-to-space)"
+      "MOBILE\u2013SATELLITE (Earth-to-space)"
     ],
     "footnotes": [
       "341",
@@ -5634,8 +5634,8 @@
       "AUS103",
       "AUS87"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "met_satellite",
+    "notes": "Meteorological satellite (space-to-Earth). NOAA HRPT high-resolution imagery downlinks operate in this range."
   },
   {
     "freq_start_mhz": 1675.0,
@@ -5643,7 +5643,7 @@
     "services": [
       "METEOROLOGICAL AIDS",
       "FIXED",
-      "METEOROLOGICAL– SATELLITE (space-to-Earth)",
+      "METEOROLOGICAL\u2013 SATELLITE (space-to-Earth)",
       "MOBILE except aeronautical",
       "mobile"
     ],
@@ -5652,15 +5652,15 @@
       "AUS103",
       "AUS87"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "met_satellite",
+    "notes": "Meteorological satellite (space-to-Earth). NOAA HRPT downlink band."
   },
   {
     "freq_start_mhz": 1690.0,
     "freq_end_mhz": 1700.0,
     "services": [
       "METEOROLOGICAL AIDS",
-      "METEOROLOGICAL– SATELLITE (space-to-Earth)",
+      "METEOROLOGICAL\u2013 SATELLITE (space-to-Earth)",
       "Fixed",
       "Mobile except aeronautical",
       "mobile"
@@ -5671,15 +5671,15 @@
       "AUS103",
       "AUS87"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "met_satellite",
+    "notes": "Meteorological satellite (space-to-Earth). Includes NOAA APT/HRPT and Meteosat downlinks."
   },
   {
     "freq_start_mhz": 1700.0,
     "freq_end_mhz": 1710.0,
     "services": [
       "FIXED",
-      "METEOROLOGICAL– SATELLITE (space-to-Earth)",
+      "METEOROLOGICAL\u2013 SATELLITE (space-to-Earth)",
       "MOBILE except aeronautical",
       "mobile"
     ],
@@ -5689,8 +5689,8 @@
       "AUS103",
       "AUS87"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "met_satellite",
+    "notes": "Meteorological satellite (space-to-Earth). NOAA/Meteosat downlink range."
   },
   {
     "freq_start_mhz": 1710.0,
@@ -5710,8 +5710,8 @@
       "AUS103",
       "AUS87"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "mobile_cellular",
+    "notes": "Mobile cellular. 1800 MHz band (4G LTE Band 3) \u2014 widely used in AU by all major operators."
   },
   {
     "freq_start_mhz": 1800.0,
@@ -5722,7 +5722,7 @@
     "footnotes": [
       "97"
     ],
-    "mimir_band": null,
+    "mimir_band": "amateur",
     "notes": ""
   },
   {
@@ -5736,7 +5736,7 @@
     "footnotes": [
       "97"
     ],
-    "mimir_band": null,
+    "mimir_band": "amateur",
     "notes": ""
   },
   {
@@ -5782,8 +5782,8 @@
       "388",
       "388A"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "mobile_cellular",
+    "notes": "Mobile cellular. 2 GHz band \u2014 3G/4G."
   },
   {
     "freq_start_mhz": 1970.0,
@@ -5796,8 +5796,8 @@
       "388",
       "388A"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "mobile_cellular",
+    "notes": "Mobile cellular. 2 GHz band."
   },
   {
     "freq_start_mhz": 1975.0,
@@ -5821,15 +5821,15 @@
     "services": [
       "FIXED",
       "MOBILE",
-      "MOBILE–SATELLITE (Earth-to-space)"
+      "MOBILE\u2013SATELLITE (Earth-to-space)"
     ],
     "footnotes": [
       "351A",
       "388",
       "389A"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "mobile_cellular",
+    "notes": "Mobile cellular + mobile-satellite (Earth-to-space). 2 GHz IMT band."
   },
   {
     "freq_start_mhz": 2000.0,
@@ -5853,15 +5853,15 @@
       "388",
       "388A"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "mobile_cellular",
+    "notes": "Mobile cellular. 2 GHz band."
   },
   {
     "freq_start_mhz": 2025.0,
     "freq_end_mhz": 2110.0,
     "services": [
       "SPACE OPERATION (Earth-to-space) (space-to-space)",
-      "EARTH EXPLORATION– SATELLITE (Earth-to-space) (space-to-space)",
+      "EARTH EXPLORATION\u2013 SATELLITE (Earth-to-space) (space-to-space)",
       "FIXED",
       "MOBILE",
       "SPACE RESEARCH (Earth-to-space) (space-to-space)"
@@ -5872,7 +5872,7 @@
       "AUS106"
     ],
     "mimir_band": null,
-    "notes": ""
+    "notes": "AUS106: frequency band 2103.406-2109.406 MHz used by space operation/research/earth-exploration services to support the Bilateration Ranging Transponder System near Alice Springs (23\u00b045'S 133\u00b052'E)."
   },
   {
     "freq_start_mhz": 2065.0,
@@ -5883,8 +5883,8 @@
     "footnotes": [
       "106"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "marine_hf",
+    "notes": "Maritime mobile HF working frequencies."
   },
   {
     "freq_start_mhz": 2107.0,
@@ -5910,8 +5910,8 @@
       "388",
       "388A"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "mobile_cellular",
+    "notes": "Mobile cellular. 2.1 GHz band \u2014 3G UMTS/4G downlink."
   },
   {
     "freq_start_mhz": 2120.0,
@@ -5924,8 +5924,8 @@
       "388",
       "388A"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "mobile_cellular",
+    "notes": "Mobile cellular. 2.1 GHz band \u2014 3G/4G downlink."
   },
   {
     "freq_start_mhz": 2170.0,
@@ -5934,8 +5934,8 @@
       "MARITIME MOBILE"
     ],
     "footnotes": [],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "marine_hf",
+    "notes": "Maritime mobile HF."
   },
   {
     "freq_start_mhz": 2170.0,
@@ -5943,7 +5943,7 @@
     "services": [
       "FIXED",
       "MOBILE",
-      "MOBILE–SATELLITE (space-to-Earth)"
+      "MOBILE\u2013SATELLITE (space-to-Earth)"
     ],
     "footnotes": [
       "351A",
@@ -5976,8 +5976,8 @@
       "MARITIME MOBILE"
     ],
     "footnotes": [],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "marine_hf",
+    "notes": "Maritime mobile HF."
   },
   {
     "freq_start_mhz": 2194.0,
@@ -5995,7 +5995,7 @@
     "freq_end_mhz": 2290.0,
     "services": [
       "SPACE OPERATION (space-to-Earth) (space-to-space)",
-      "EARTH EXPLORATION– SATELLITE (space-to-Earth) (space-to-space)",
+      "EARTH EXPLORATION\u2013 SATELLITE (space-to-Earth) (space-to-space)",
       "FIXED",
       "MOBILE",
       "SPACE RESEARCH (space-to-Earth) (space-to-space)"
@@ -6007,7 +6007,7 @@
       "AUS87"
     ],
     "mimir_band": null,
-    "notes": ""
+    "notes": "AUS106A: 2284.5-2290.5 MHz used by space operation services supporting the Bilateration Ranging Transponder System near Alice Springs. AUS87: CSIRO radio astronomy constraints."
   },
   {
     "freq_start_mhz": 2290.0,
@@ -6056,7 +6056,7 @@
       "384A",
       "AUS87"
     ],
-    "mimir_band": null,
+    "mimir_band": "amateur",
     "notes": ""
   },
   {
@@ -6080,9 +6080,9 @@
     "services": [
       "FIXED",
       "MOBILE",
-      "MOBILE–SATELLITE (space-to-Earth)",
+      "MOBILE\u2013SATELLITE (space-to-Earth)",
       "RADIOLOCATION",
-      "RADIODETERMINATION– SATELLITE (space-to-Earth)"
+      "RADIODETERMINATION\u2013 SATELLITE (space-to-Earth)"
     ],
     "footnotes": [
       "150",
@@ -6106,18 +6106,18 @@
       "(2 500 kHz)"
     ],
     "footnotes": [],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "time_signal",
+    "notes": "Standard frequency and time signal (2500 kHz)."
   },
   {
     "freq_start_mhz": 2500.0,
     "freq_end_mhz": 2520.0,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (space-to-Earth)",
+      "FIXED\u2013SATELLITE (space-to-Earth)",
       "MOBILE except aeronautical",
       "mobile",
-      "MOBILE–SATELLITE (space-to-Earth)"
+      "MOBILE\u2013SATELLITE (space-to-Earth)"
     ],
     "footnotes": [
       "351A",
@@ -6130,8 +6130,8 @@
       "415",
       "AUS87"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "mobile_cellular",
+    "notes": "Mobile cellular. 2.5 GHz band (4G LTE Band 41/42) \u2014 used by some AU operators."
   },
   {
     "freq_start_mhz": 2501.0,
@@ -6142,8 +6142,8 @@
       "Space research"
     ],
     "footnotes": [],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "time_signal",
+    "notes": "Standard frequency and time signal with space research component."
   },
   {
     "freq_start_mhz": 2502.0,
@@ -6153,8 +6153,8 @@
       "AND TIME SIGNAL"
     ],
     "footnotes": [],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "time_signal",
+    "notes": "Standard frequency and time signal."
   },
   {
     "freq_start_mhz": 2505.0,
@@ -6172,10 +6172,10 @@
     "freq_end_mhz": 2535.0,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (space-to-Earth)",
+      "FIXED\u2013SATELLITE (space-to-Earth)",
       "MOBILE except aeronautical",
       "mobile",
-      "BROADCASTING– SATELLITE"
+      "BROADCASTING\u2013 SATELLITE"
     ],
     "footnotes": [
       "384A",
@@ -6187,8 +6187,8 @@
       "416",
       "AUS87"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "mobile_cellular",
+    "notes": "Mobile cellular. 2.5 GHz band."
   },
   {
     "freq_start_mhz": 2535.0,
@@ -6197,7 +6197,7 @@
       "FIXED",
       "MOBILE except aeronautical",
       "mobile",
-      "BROADCASTING– SATELLITE"
+      "BROADCASTING\u2013 SATELLITE"
     ],
     "footnotes": [
       "339",
@@ -6210,19 +6210,19 @@
       "418C",
       "AUS87"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "mobile_cellular",
+    "notes": "Mobile cellular. 2.5 GHz band \u2014 4G LTE. Broadcasting-satellite secondary."
   },
   {
     "freq_start_mhz": 2655.0,
     "freq_end_mhz": 2670.0,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (Earth-to-space)",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
       "MOBILE except aeronautical",
       "mobile",
-      "BROADCASTING– SATELLITE",
-      "Earth exploration–satellite",
+      "BROADCASTING\u2013 SATELLITE",
+      "Earth exploration\u2013satellite",
       "(passive)",
       "Radio astronomy",
       "Space research (passive)"
@@ -6238,19 +6238,19 @@
       "420",
       "AUS87"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "mobile_cellular",
+    "notes": "Mobile cellular. 2.6 GHz band."
   },
   {
     "freq_start_mhz": 2670.0,
     "freq_end_mhz": 2690.0,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (Earth-to-space)",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
       "MOBILE except aeronautical",
       "mobile",
-      "MOBILE–SATELLITE (Earth-to-space)",
-      "Earth exploration–satellite",
+      "MOBILE\u2013SATELLITE (Earth-to-space)",
+      "Earth exploration\u2013satellite",
       "(passive)",
       "Radio astronomy",
       "Space research (passive)"
@@ -6264,14 +6264,14 @@
       "419",
       "AUS87"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "mobile_cellular",
+    "notes": "Mobile cellular. 2.6 GHz band upper edge."
   },
   {
     "freq_start_mhz": 2690.0,
     "freq_end_mhz": 2700.0,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (passive)",
+      "EARTH EXPLORATION\u2013 SATELLITE (passive)",
       "RADIO ASTRONOMY",
       "SPACE RESEARCH",
       "(passive)"
@@ -6359,7 +6359,7 @@
     "freq_end_mhz": 3300.0,
     "services": [
       "RADIOLOCATION",
-      "Earth exploration–satellite",
+      "Earth exploration\u2013satellite",
       "(active)",
       "Space research (active)",
       "Fixed",
@@ -6434,7 +6434,7 @@
       "149",
       "AUS100A"
     ],
-    "mimir_band": null,
+    "mimir_band": "amateur",
     "notes": ""
   },
   {
@@ -6457,7 +6457,7 @@
       "MOBILE",
       "RADIOLOCATION",
       "Amateur",
-      "Fixed–satellite (space-to-Earth)"
+      "Fixed\u2013satellite (space-to-Earth)"
     ],
     "footnotes": [
       "282",
@@ -6466,7 +6466,7 @@
       "433A",
       "AUS101A"
     ],
-    "mimir_band": null,
+    "mimir_band": "amateur",
     "notes": ""
   },
   {
@@ -6476,7 +6476,7 @@
       "AMATEUR"
     ],
     "footnotes": [],
-    "mimir_band": null,
+    "mimir_band": "amateur",
     "notes": ""
   },
   {
@@ -6484,7 +6484,7 @@
     "freq_end_mhz": 4200.0,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (space-to-Earth)",
+      "FIXED\u2013SATELLITE (space-to-Earth)",
       "MOBILE except aeronautical",
       "mobile"
     ],
@@ -6502,7 +6502,7 @@
     "footnotes": [
       "AUS57"
     ],
-    "mimir_band": null,
+    "mimir_band": "amateur",
     "notes": ""
   },
   {
@@ -6514,7 +6514,7 @@
     "footnotes": [
       "AUS57"
     ],
-    "mimir_band": null,
+    "mimir_band": "amateur",
     "notes": ""
   },
   {
@@ -6614,8 +6614,8 @@
       "440",
       "AUS87"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "aeronautical_comms",
+    "notes": "Aeronautical mobile (R) and radionavigation \u2014 airborne systems including radio altimeters (4200-4400 MHz). Per AUS25 ICAO Annex 10."
   },
   {
     "freq_start_mhz": 4400.0,
@@ -6670,7 +6670,7 @@
     "freq_end_mhz": 4800.0,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (space-to-Earth)",
+      "FIXED\u2013SATELLITE (space-to-Earth)",
       "MOBILE"
     ],
     "footnotes": [
@@ -6806,26 +6806,26 @@
       "(5 000 kHz)"
     ],
     "footnotes": [],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "time_signal",
+    "notes": "Standard frequency and time signal (5000 kHz)."
   },
   {
     "freq_start_mhz": 5000.0,
     "freq_end_mhz": 5010.0,
     "services": [
       "AERONAUTICAL",
-      "MOBILE–SATELLITE (R)",
+      "MOBILE\u2013SATELLITE (R)",
       "AERONAUTICAL",
       "RADIONAVIGATION",
-      "RADIONAVIGATION– SATELLITE (Earth-to-space)"
+      "RADIONAVIGATION\u2013 SATELLITE (Earth-to-space)"
     ],
     "footnotes": [
       "443AA",
       "AUS25",
       "AUS87"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "aeronautical_comms",
+    "notes": "Aeronautical mobile-satellite (R) and radionavigation. Future aeronautical satcomm. AUS25 applies."
   },
   {
     "freq_start_mhz": 5003.0,
@@ -6836,8 +6836,8 @@
       "Space research"
     ],
     "footnotes": [],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "time_signal",
+    "notes": "Standard frequency and time signal with space research component."
   },
   {
     "freq_start_mhz": 5005.0,
@@ -6857,10 +6857,10 @@
     "freq_end_mhz": 5030.0,
     "services": [
       "AERONAUTICAL",
-      "MOBILE–SATELLITE (R)",
+      "MOBILE\u2013SATELLITE (R)",
       "AERONAUTICAL",
       "RADIONAVIGATION",
-      "RADIONAVIGATION– SATELLITE (space-to-Earth) (space-to-space)"
+      "RADIONAVIGATION\u2013 SATELLITE (space-to-Earth) (space-to-space)"
     ],
     "footnotes": [
       "328B",
@@ -6869,8 +6869,8 @@
       "AUS25",
       "AUS87"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "aeronautical_comms",
+    "notes": "Aeronautical mobile-satellite (R) and radionavigation. AUS25 applies."
   },
   {
     "freq_start_mhz": 5030.0,
@@ -6878,7 +6878,7 @@
     "services": [
       "AERONAUTICAL MOBILE (R)",
       "AERONAUTICAL",
-      "MOBILE–SATELLITE (R)",
+      "MOBILE\u2013SATELLITE (R)",
       "AERONAUTICAL",
       "RADIONAVIGATION"
     ],
@@ -6889,8 +6889,8 @@
       "AUS25",
       "AUS87"
     ],
-    "mimir_band": null,
-    "notes": ""
+    "mimir_band": "aeronautical_comms",
+    "notes": "Aeronautical mobile (R) \u2014 VHF data link (VDL) Mode 2 and future broadband aeronautical comms. AUS25 applies."
   },
   {
     "freq_start_mhz": 5060.0,
@@ -6911,9 +6911,9 @@
     "freq_start_mhz": 5091.0,
     "freq_end_mhz": 5150.0,
     "services": [
-      "FIXED–SATELLITE (Earth-to-space)",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
       "AERONAUTICAL",
-      "MOBILE–SATELLITE (R)",
+      "MOBILE\u2013SATELLITE (R)",
       "AERONAUTICAL",
       "RADIONAVIGATION",
       "AERONAUTICAL MOBILE"
@@ -6935,7 +6935,7 @@
     "services": [
       "AERONAUTICAL",
       "RADIONAVIGATION",
-      "FIXED–SATELLITE (Earth-to-space)",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
       "MOBILE except aeronautical",
       "mobile"
     ],
@@ -6973,7 +6973,7 @@
     "freq_start_mhz": 5250.0,
     "freq_end_mhz": 5255.0,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (active)",
+      "EARTH EXPLORATION\u2013 SATELLITE (active)",
       "RADIOLOCATION",
       "SPACE RESEARCH",
       "MOBILE except aeronautical",
@@ -6995,7 +6995,7 @@
     "freq_start_mhz": 5255.0,
     "freq_end_mhz": 5350.0,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (active)",
+      "EARTH EXPLORATION\u2013 SATELLITE (active)",
       "RADIOLOCATION",
       "SPACE RESEARCH (active)",
       "MOBILE except aeronautical",
@@ -7031,7 +7031,7 @@
     "freq_start_mhz": 5350.0,
     "freq_end_mhz": 5460.0,
     "services": [
-      "EARTH EXPLORATION– SATELLITE (active)",
+      "EARTH EXPLORATION\u2013 SATELLITE (active)",
       "SPACE RESEARCH (active)",
       "AERONAUTICAL",
       "RADIONAVIGATION",
@@ -7061,7 +7061,7 @@
       "AUS57",
       "AUS7"
     ],
-    "mimir_band": null,
+    "mimir_band": "amateur",
     "notes": ""
   },
   {
@@ -7101,7 +7101,7 @@
     "freq_end_mhz": 5470.0,
     "services": [
       "RADIONAVIGATION",
-      "EARTH EXPLORATION– SATELLITE (active)",
+      "EARTH EXPLORATION\u2013 SATELLITE (active)",
       "SPACE RESEARCH (active)",
       "RADIOLOCATION"
     ],
@@ -7122,7 +7122,7 @@
       "RADIONAVIGATION",
       "MOBILE except aeronautical",
       "mobile",
-      "EARTH EXPLORATION– SATELLITE (active)",
+      "EARTH EXPLORATION\u2013 SATELLITE (active)",
       "SPACE RESEARCH (active)",
       "RADIOLOCATION"
     ],
@@ -7188,7 +7188,7 @@
       "AUS101A",
       "AUS87"
     ],
-    "mimir_band": null,
+    "mimir_band": "amateur",
     "notes": ""
   },
   {
@@ -7221,7 +7221,7 @@
       "AUS87",
       "AUS96"
     ],
-    "mimir_band": null,
+    "mimir_band": "amateur",
     "notes": ""
   },
   {
@@ -7244,7 +7244,7 @@
     "services": [
       "RADIOLOCATION",
       "Amateur",
-      "Amateur–satellite (space-to-Earth)"
+      "Amateur\u2013satellite (space-to-Earth)"
     ],
     "footnotes": [
       "150",
@@ -7252,7 +7252,7 @@
       "AUS87",
       "AUS96"
     ],
-    "mimir_band": null,
+    "mimir_band": "amateur",
     "notes": ""
   },
   {
@@ -7260,7 +7260,7 @@
     "freq_end_mhz": 5925.0,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (Earth-to-space)",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
       "MOBILE",
       "Radiolocation"
     ],
@@ -7293,7 +7293,7 @@
     "freq_end_mhz": 6700.0,
     "services": [
       "FIXED",
-      "FIXED–SATELLITE (Earth-to-space)",
+      "FIXED\u2013SATELLITE (Earth-to-space)",
       "MOBILE"
     ],
     "footnotes": [
