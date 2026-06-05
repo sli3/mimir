@@ -4,8 +4,7 @@ description: >
   dual-review step, run in parallel with @deep-analyst on all changed files.
   Reviews for correctness, regressions, AU legal/TX compliance, and adherence to
   AGENTS.md conventions. Read-only — reports findings to the Project Manager,
-  does not edit code. Invoked by /build at Step 5b. Replaces the retired
-  cloud-reviewer.
+  does not edit code. Invoked by /build at Step 5b.
 mode: subagent
 model: opencode-go/minimax-m2.7
 temperature: 0.1

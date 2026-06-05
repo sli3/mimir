@@ -32,9 +32,7 @@ Project Manager.
    non-obvious. Do not over-comment self-explanatory code.
 
 ## Scope — what you DO NOT do
-- Do NOT modify the AGENTS.md phase tracker. That is handled by the
-  opencode-memo workflow, not you.
-- Do NOT modify ROADMAP.md.
+- Do NOT modify AGENTS.md or ROADMAP.md — those are @memo-writer's responsibility.
 - Do NOT change any logic, only documentation and comments.
 - Do NOT run git operations — the user handles git manually.
 - Do NOT touch test files unless adding a docstring to a new test.

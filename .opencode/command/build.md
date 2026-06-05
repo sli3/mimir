@@ -31,6 +31,7 @@ full workflow autonomously and report only at the end, unless a hard stop is hit
 | @review-second | Reviewer (2nd voice) | Independent dual review |
 | @deep-analyst | Senior Analyst | Deep dual review |
 | @doc-writer | Documentation | Docstrings + deferred items |
+| @memo-writer | Project Records | Session memos, AGENTS.md, ROADMAP.md |
 
 Every delegation must name the agent's role so it adopts the right lens.
 
@@ -111,8 +112,8 @@ resolve it → hard stop, escalate to the user. Never loop a re-entry more than 
 ### STEP 7 — DOCUMENTATION
 Call @doc-writer as Documentation. Update inline docstrings on changed
 functions and record any technical debt or deferred items surfaced during the
-build. Do not touch the AGENTS.md phase tracker — that is handled separately
-via the opencode-memo workflow.
+build. Do not touch AGENTS.md, ROADMAP.md, or any governance docs — those
+are handled separately by @memo-writer via the opencode-memo workflow.
 
 ### STEP 8 — REPORT
 Produce a structured summary containing:
