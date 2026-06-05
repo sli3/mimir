@@ -162,8 +162,9 @@ uv run python tools/seed_chromadb.py
 | 8A | Wire ACMA frequency_reference.json into LLM classifier user prompt | ✅ Complete | 251/251 |
 | 8B | Wire real ScanRunner values into system_stats; fix AGENTS.md event table | ✅ Complete | 259/259 |
 | 8C | Single-frequency focus mode + LLM tuning | ✅ Complete | 260/260 |
+| 9A | ACMA Ref Expansion + /api/frequencies | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
 
-**Total passing: 260/260 (204 pytest + 56 Vitest)**
+**Total passing: 278/278 (222 pytest + 56 Vitest)**
 
 ### Session memo — Phase 8B: Wire ScanRunner stats into system_stats + AGENTS.md cleanup
 
@@ -224,6 +225,98 @@ uv run python tools/seed_chromadb.py
 - `docs/ROADMAP.md` — phase tracker, Phase 8C section, Phase 9 placeholder
 
 **Test counts:** 204 pytest + 56 Vitest = 260/260
+
+---
+
+### Session memo — Phase 9A: ACMA Reference Expansion + /api/frequencies endpoint
+
+**Status:** Complete
+**Phase context:** Phase 9A — expand ACMA band coverage in LLM classifier
+
+**What was built:**
+- llm/classifier.py: _AU_BAND_REFERENCE expanded from 5 to 23 mimir_band labels
+  with AU-only frequency ranges and plain-English descriptions.
+  _JSON_SCHEMA comment updated to list all 23 valid signal_type values.
+  Notes pass-through added to _build_user_prompt — non-empty notes fields from
+  frequency_reference.json now appear in the ACMA section of the LLM user prompt.
+  Marine HF range corrected to 4–27.5 MHz. UHF CB narrowed to 476.425–477.400 MHz.
+- dashboard/server.py: GET /api/frequencies endpoint added with query param
+  support (?min_mhz, ?max_mhz, ?tagged_only=1). Returns filtered JSON array
+  from data/frequency_reference.json, read fresh per request. Returns 500 on file
+  read failure. handle_set_focus now coerces input to float with try/except —
+  invalid or missing values clear focus safely.
+- tests/dashboard/test_server_api.py: 10 tests — all filter combinations, schema
+  validation, empty range, error paths. Counts loaded dynamically from
+  frequency_reference.json to avoid brittleness.
+- tests/dashboard/test_server_stats.py: 2 new tests for handle_set_focus type
+  coercion and invalid string handling.
+- tests/llm/test_phase4_classifier.py: 4 new tests — notes appear/omit, all 23
+  mimir_band labels in system prompt, no FCC/ETSI in system prompt.
+- tests/llm/test_acma_reference.py: 2 new tests — notes field present, non-empty
+  notes preserved in lookup results.
+
+**QA re-run note:** Original build had misconfigured agent model strings
+(opencode/ prefix instead of opencode-go/). Fixed in opencode.json and all
+.opencode/agents/*.md files. Re-run caught two factual errors in band reference
+data and one input validation bug — all fixed before commit.
+
+**Files modified:**
+- llm/classifier.py — _AU_BAND_REFERENCE, _JSON_SCHEMA, notes pass-through
+- dashboard/server.py — /api/frequencies endpoint, handle_set_focus type coercion
+- tests/dashboard/test_server_api.py — new file (10 tests)
+- tests/dashboard/test_server_stats.py — 2 focus type tests
+- tests/llm/test_phase4_classifier.py — 4 ACMA / band reference tests
+- tests/llm/test_acma_reference.py — 2 notes field tests
+
+**Test counts:** 222 pytest + 56 Vitest = 278/278
+
+---
+
+### Session memo — Chore: Agent model string fix + analyst bash guard
+
+**Status:** Complete
+**Phase context:** Infrastructure/tooling — not tied to a numbered phase
+
+**What was done:**
+- All agent model strings in opencode.json and .opencode/agents/*.md
+  corrected from opencode/ prefix to opencode-go/ prefix
+- deep-bug-hunter.md duplicate model: key fixed
+- analyst.md and opencode.json analyst description updated to explicitly
+  state analyst does not run bash — receives pre-run pytest output from PM
+- Agents now firing correctly under OpenCode Go subscription
+
+**Files modified:**
+- opencode.json — corrected all agent model IDs
+- .opencode/agents/*.md — corrected model strings where applicable
+
+**Test counts:** No tests run — infrastructure/tooling change only.
+
+---
+
+### Session memo — Chore: /build workflow overhaul + agent roster update
+
+**Status:** Complete
+**Phase context:** Infrastructure/tooling — not tied to a numbered phase
+
+**What was done:**
+- /build command updated to 8-step workflow: plan → research → security
+  gate → code → QA loop → PM audit → docs → report
+- New agents: @security-analyst (opencode-go/glm-5.1, pre-code TX/AU legal
+  gate, read-only), @review-second (opencode-go/minimax-m2.7, replaces
+  retired cloud-reviewer, read-only), @doc-writer (opencode-go/mimo-v2.5,
+  docs only, does not touch ROADMAP)
+- @cloud-reviewer retired and removed
+- Full roster: main=opencode-go/kimi-k2.6, plan-reviewer=opencode-go/minimax-m2.7,
+  researcher=opencode-go/mimo-v2.5, analyst=opencode-go/mimo-v2.5-pro,
+  deep-analyst=opencode-go/glm-5.1, deep-bug-hunter=opencode-go/glm-5.1,
+  security-analyst=opencode-go/glm-5.1, review-second=opencode-go/minimax-m2.7,
+  doc-writer=opencode-go/mimo-v2.5, local-reviewer=local-llama/Qwen3.5-9B(Q4)
+
+**Files modified:**
+- opencode.json — updated agent roster and model strings
+- .opencode/skills/ — updated workflow descriptions
+
+**Test counts:** No tests run — infrastructure/tooling change only.
 
 ---
 
@@ -405,7 +498,6 @@ Do not apply this pre-emptively — only if context problems are observed.
 
 | Item | Detail | Fix in |
 |---|---|---|
-| Stats panel placeholders | active_frequency_hz, scan_count, queue_depth, llm_last_inference_ms hardcoded in system_stats emit | Post 7B |
 | Waterfall scroll rate slow | One row per dwell cycle (~8–10s). High-rate streaming requires separate FFT loop decoupled from classification | Post 7B |
 | `FrequencyList.jsx:67` | `confidence_score` lacks null guard | Phase 7B polish |
 | CORS wildcard | `cors_allowed_origins="*"` in server.py — fine for dev | Pre-prod |

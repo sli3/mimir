@@ -1,9 +1,41 @@
+"""
+dashboard/server.py — Flask + SocketIO Backend for the Mimir Dashboard
+
+Legal: Receive-only. Radiocommunications Act 1992 (Cth).
+       No transmission. Jurisdiction: AU/SA. Authority: ACMA.
+
+WHAT THIS FILE DOES
+───────────────────
+Provides the HTTP and WebSocket backend that the cyberpunk React
+dashboard connects to. Serves two roles:
+
+1. Static file serving — the Vite build output in dashboard/static/
+   is served at the root URL.
+
+2. Real-time data — Flask-SocketIO pushes scan_result, spectrum_update,
+   and system_stats events to connected browsers. Also accepts
+   set_focus_frequency events from the browser to change which frequency
+   the scanner dwells on.
+
+3. REST API — GET /api/frequencies returns ACMA frequency reference
+   entries with optional query-parameter filtering (min_mhz, max_mhz,
+   tagged_only).
+
+CONSTRAINTS
+───────────
+- async_mode='threading' — do not change to eventlet or gevent.
+- broadcast() and broadcast_spectrum() are defined inside start_server()
+  and are not importable directly. Retrieve via start_server._broadcast_fn
+  and start_server._broadcast_spectrum_fn after calling start_server().
+"""
+
+import json
 import logging
 import os
 import threading
 import time
 
-from flask import Flask
+from flask import Flask, jsonify, request
 from flask_socketio import SocketIO
 
 from core.pipeline.scan_result import ScanResult
@@ -22,12 +54,28 @@ _focused_freq_lock = threading.Lock()
 
 @socketio.on("set_focus_frequency")
 def handle_set_focus(data):
-    """Set or clear the focused frequency filter for scan_result emissions."""
+    """Set or clear the focused frequency filter for scan_result emissions.
+
+    Coerces freq_hz to float. Non-numeric or missing values clear the focus
+    (set to None, meaning all frequencies pass through). When a scanner
+    reference is available, also calls scanner.set_focus_frequency() to
+    retune the HackRF and flush any queued results.
+
+    Args:
+        data: Dict from the browser with key "freq_hz". Values accepted:
+              numeric (int/float), string numeric, None (clear focus),
+              or missing key (clear focus).
+    """
     global _focused_freq_hz
+    raw = data.get("freq_hz")
+    try:
+        freq_hz = float(raw) if raw is not None else None
+    except (TypeError, ValueError):
+        freq_hz = None
     with _focused_freq_lock:
-        _focused_freq_hz = data.get("freq_hz")
+        _focused_freq_hz = freq_hz
     if _scanner_ref is not None:
-        _scanner_ref.set_focus_frequency(data.get("freq_hz"))
+        _scanner_ref.set_focus_frequency(freq_hz)
 
 
 def record_hw_error() -> None:
@@ -44,6 +92,23 @@ def _compute_hackrf_status() -> str:
 
 
 def start_server(host: str, port: int, device=None, scanner=None):
+    """
+    Start the Flask-SocketIO dashboard server in a background thread.
+
+    Args:
+        host    : Bind address (e.g. "0.0.0.0" for all interfaces).
+        port    : Port number (e.g. 5000).
+        device  : Optional HackRF device reference for status reporting.
+        scanner : Optional ScanRunner instance for live system_stats.
+                  When provided, system_stats events report real values
+                  (scan_count, queue_depth, llm_last_inference_ms) instead
+                  of zeros.
+
+    After calling start_server(), the broadcast functions are attached
+    as attributes on the function itself:
+        start_server._broadcast_fn        — emit a scan_result event
+        start_server._broadcast_spectrum_fn — emit a spectrum_update event
+    """
     global _device_ref, _scanner_ref
     _device_ref = device
     _scanner_ref = scanner
@@ -126,3 +191,42 @@ def index():
         os.path.join(os.path.dirname(__file__), "static"),
         "index.html"
     )
+
+
+@app.route("/api/frequencies")
+def api_frequencies():
+    """
+    Return ACMA frequency reference entries with optional filtering.
+
+    Query parameters:
+        min_mhz=float    — only entries where freq_end_mhz >= min_mhz
+        max_mhz=float    — only entries where freq_start_mhz <= max_mhz
+        tagged_only=1    — only entries where mimir_band is not null
+
+    Returns JSON array of matching entries (same schema as source file).
+    """
+    ref_path = os.path.join(
+        os.path.dirname(__file__), "..", "data", "frequency_reference.json"
+    )
+    try:
+        with open(ref_path, "r", encoding="utf-8") as f:
+            entries = json.load(f)
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.error("Failed to read frequency_reference.json: %s", exc)
+        return jsonify({"error": str(exc)}), 500
+
+    min_mhz = request.args.get("min_mhz", type=float)
+    max_mhz = request.args.get("max_mhz", type=float)
+    tagged_only = request.args.get("tagged_only", "0") == "1"
+
+    results = []
+    for entry in entries:
+        if min_mhz is not None and entry["freq_end_mhz"] < min_mhz:
+            continue
+        if max_mhz is not None and entry["freq_start_mhz"] > max_mhz:
+            continue
+        if tagged_only and entry.get("mimir_band") is None:
+            continue
+        results.append(entry)
+
+    return jsonify(results), 200

@@ -6,7 +6,7 @@ description: >
   AGENTS.md phase tracker or ROADMAP.md — those are handled separately by the
   opencode-memo workflow.
 mode: subagent
-model: opencode/mimo-v2.5
+model: opencode-go/mimo-v2.5
 temperature: 0.2
 permission:
   edit: allow

@@ -101,6 +101,24 @@ class TestFocusFrequencyFilter:
         finally:
             server._focused_freq_hz = saved
 
+    def test_handle_set_focus_coerces_string_to_float(self):
+        saved = server._focused_freq_hz
+        try:
+            handle_set_focus({"freq_hz": "98000000"})
+            assert server._focused_freq_hz == 98e6
+            assert isinstance(server._focused_freq_hz, float)
+        finally:
+            server._focused_freq_hz = saved
+
+    def test_handle_set_focus_clears_on_invalid_string(self):
+        saved = server._focused_freq_hz
+        try:
+            server._focused_freq_hz = 100e6
+            handle_set_focus({"freq_hz": "not_a_number"})
+            assert server._focused_freq_hz is None
+        finally:
+            server._focused_freq_hz = saved
+
     def _start_server_with_mocks(self):
         mock_device = MagicMock()
         with (

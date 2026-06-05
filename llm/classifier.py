@@ -51,8 +51,13 @@ class ClassificationResult:
     Fields
     ──────
     signal_type      : Best guess at what the signal is.
-                       Examples: "fm_broadcast", "adsb", "aprs",
-                       "ism_lora", "aviation_vhf", "noise", "unknown".
+                       Examples: "fm_broadcast", "am_broadcast", "dab_plus",
+                       "aviation_vhf", "aeronautical_comms", "ils_vor", "adsb",
+                       "gnss", "aprs", "amateur", "ism_lora", "uhf_cb",
+                       "pmr_land_mobile", "uhf_tv", "mobile_cellular",
+                       "marine_vhf", "marine_hf", "marine_satellite",
+                       "epirb_plb", "noaa_weather_sat", "met_satellite",
+                       "satellite_tv", "time_signal", "noise", "unknown".
                        "unavailable" means the LLM server was unreachable.
 
     confidence       : Human-readable confidence tier.
@@ -77,8 +82,16 @@ class ClassificationResult:
                                             bands or LLM could not verify.
 
     frequency_band   : Which AU band the signal appears to be in.
-                       Examples: "fm_broadcast_band", "aviation_vhf_band",
-                       "aprs_band", "ism_lora_band", "adsb_band", "unknown".
+                       Examples: "fm_broadcast_band", "am_broadcast_band",
+                       "dab_plus_band", "aviation_vhf_band",
+                       "aeronautical_comms_band", "ils_vor_band", "adsb_band",
+                       "gnss_band", "aprs_band", "amateur_band",
+                       "ism_lora_band", "uhf_cb_band", "pmr_land_mobile_band",
+                       "uhf_tv_band", "mobile_cellular_band",
+                       "marine_vhf_band", "marine_hf_band",
+                       "marine_satellite_band", "epirb_plb_band",
+                       "noaa_weather_sat_band", "met_satellite_band",
+                       "satellite_tv_band", "time_signal_band", "unknown".
 
     raw_response     : The raw string the LLM returned. Kept for debugging
                        — useful if the JSON parse fails or the result looks
@@ -100,11 +113,29 @@ class ClassificationResult:
 
 _AU_BAND_REFERENCE = """
 Australian frequency bands (legal to receive passively — no licence required):
-  FM Broadcast  : 87.5 MHz – 108 MHz
-  Aviation VHF  : 118 MHz  – 136 MHz
-  APRS          : 145.175 MHz  (Australian APRS frequency)
-  ISM / LoRa    : 915 MHz      (Australian/NZ ISM band)
-  ADS-B         : 1090 MHz     (aircraft GPS position, mandatory unencrypted broadcast)
+  FM Broadcast       : 87.5 MHz – 108 MHz
+  AM Broadcast       : 526.5 kHz – 1606.5 kHz (medium-wave radio)
+  DAB+ Digital Radio : 174 MHz – 230 MHz
+  Aviation VHF       : 118 MHz – 136 MHz (ATC and aircraft comms)
+  Aeronautical Comms : 4.2 GHz – 5.091 GHz (C-band airborne data links, radio altimeters)
+  ILS / VOR          : 74.8 MHz – 335.4 MHz (instrument landing and navigation aids)
+  ADS-B              : 1090 MHz (aircraft GPS position, mandatory unencrypted broadcast)
+  GNSS               : 1164 MHz – 1610 MHz (GPS, GLONASS, Galileo, BeiDou downlinks)
+  APRS               : 145.175 MHz (Australian APRS frequency)
+  Amateur            : 47 MHz – 5850 MHz (multiple hobby radio bands across the spectrum)
+  ISM / LoRa         : 915 MHz (Australian/NZ ISM band)
+  UHF CB             : 476.425 MHz – 477.400 MHz (citizens band, 80 channels, within 470–520 MHz allocation)
+  PMR Land Mobile    : 403 MHz – 470 MHz (professional handheld / emergency services)
+  UHF TV             : 520 MHz – 694 MHz (digital terrestrial television)
+  Mobile Cellular    : 694 MHz – 2690 MHz (4G/5G mobile phone towers)
+  Marine VHF         : 156.5 MHz – 162.0 MHz (ship and coast radio)
+  Marine HF          : 4 MHz – 27.5 MHz (long-range maritime HF comms, ITU marine bands)
+  Marine Satellite   : 1621.35 MHz – 1626.5 MHz (Inmarsat, Iridium satphone downlinks)
+  EPIRB / PLB        : 406 MHz – 406.1 MHz (distress beacons, emergency only)
+  NOAA Weather Sat   : 137 MHz – 138 MHz (NOAA 15: 137.620 MHz, NOAA 18: 137.9125 MHz, NOAA 19: 137.100 MHz, Meteor-M2: 137.9 MHz — all passive downlinks)
+  Met Satellite      : 400.15 MHz – 1710 MHz (weather satellite imagery downlinks, NOAA/Meteosat)
+  Satellite TV       : 11.7 GHz – 12.75 GHz (Ku-band Foxtel/Optus downlinks, household dish)
+  Time Signal        : 20 kHz, 400.1 MHz, 2.5 GHz, 5 GHz (precision time/frequency reference broadcasts)
 """.strip()
 
 # ── ChromaDB distance scale reference ─────────────────────────────────────────
@@ -132,13 +163,13 @@ Reference distances from calibration:
 
 _JSON_SCHEMA = """
 {
-  "signal_type":       string,   // e.g. "fm_broadcast", "adsb", "aprs", "ism_lora", "aviation_vhf", "noise", "unknown"
+  "signal_type":       string,   // e.g. "fm_broadcast", "am_broadcast", "dab_plus", "aviation_vhf", "aeronautical_comms", "ils_vor", "adsb", "gnss", "aprs", "amateur", "ism_lora", "uhf_cb", "pmr_land_mobile", "uhf_tv", "mobile_cellular", "marine_vhf", "marine_hf", "marine_satellite", "epirb_plb", "noaa_weather_sat", "met_satellite", "satellite_tv", "time_signal", "noise", "unknown"
   "confidence":        string,   // "high", "medium", or "low"
   "confidence_score":  float,    // 0.0 to 1.0
   "novel":             boolean,  // true if no close ChromaDB match exists
   "reasoning":         string,   // plain English explanation of the classification
   "au_legal_status":   string,   // "legal_rx" or "verify_before_use"
-  "frequency_band":    string    // "fm_broadcast_band", "aviation_vhf_band", "aprs_band", "ism_lora_band", "adsb_band", or "unknown"
+  "frequency_band":    string    // "fm_broadcast_band", "am_broadcast_band", "dab_plus_band", "aviation_vhf_band", "aeronautical_comms_band", "ils_vor_band", "adsb_band", "gnss_band", "aprs_band", "amateur_band", "ism_lora_band", "uhf_cb_band", "pmr_land_mobile_band", "uhf_tv_band", "mobile_cellular_band", "marine_vhf_band", "marine_hf_band", "marine_satellite_band", "epirb_plb_band", "noaa_weather_sat_band", "met_satellite_band", "satellite_tv_band", "time_signal_band", or "unknown"
 }
 """.strip()
 
@@ -208,6 +239,13 @@ class SignalClassifier:
             neighbours  : List of neighbour dicts from Phase 3
                           SignalStore.query(). Each dict must contain
                           at minimum: label, distance.
+
+            acma_allocations: Optional list of ACMA spectrum plan dicts
+                          covering this frequency. Each dict should contain
+                          freq_start_mhz, freq_end_mhz, services, mimir_band,
+                          and optionally notes. Passed through to the user
+                          prompt so the LLM can use regulatory context when
+                          classifying. None or empty list to omit.
 
         Returns:
             ClassificationResult — always. Never raises on LLM failure.
@@ -398,11 +436,15 @@ set novel to true. Never invent data — only classify based on what you are giv
             for idx, alloc in enumerate(acma_allocations, start=1):
                 services = ", ".join(alloc.get("services", []))
                 band_tag = alloc.get("mimir_band") or "untagged"
-                acma_lines.append(
+                notes = alloc.get("notes", "")
+                line = (
                     f"  {idx}. {alloc['freq_start_mhz']}-{alloc['freq_end_mhz']} MHz "
                     f"| Services: {services}\n"
                     f"     Band tag: {band_tag}"
                 )
+                if notes:
+                    line += f"\n     Notes: {notes}"
+                acma_lines.append(line)
             acma_section = "\n".join(acma_lines) + "\n"
             acma_footer = (
                 "Use this regulatory context to inform your classification. "

@@ -23,8 +23,9 @@
 | 8A | Wire ACMA frequency_reference.json into LLM classifier user prompt | ✅ Complete | 251/251 |
 | 8B | Wire real ScanRunner values into system_stats; fix AGENTS.md event table | ✅ Complete | 259/259 |
 | 8C | Single-frequency focus mode + LLM tuning | ✅ Complete | 260/260 |
+| 9A | ACMA Ref Expansion + /api/frequencies | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
 
-**Total: 260/260 tests passing (204 pytest + 56 Vitest)**
+**Total: 278/278 tests passing (222 pytest + 56 Vitest)**
 
 ---
 
@@ -185,6 +186,16 @@ frequency at a time, and tune the LLM for faster inference.
 - Address BUG-01 (bandwidth_hz=0 / occupied_bins=0 from low SNR threshold)
 - NOAA/Meteor-M2 satellite planning: 137.620, 137.9125, 137.100, 137.9 MHz
 - Antenna requirements: V-dipole or QFH for 137 MHz satellite band
+
+---
+
+### Phase 9A — ACMA Reference Expansion + /api/frequencies ✅
+Goal: Expand ACMA band coverage in LLM classifier from 5 to 23 mimir_band
+labels, add notes pass-through to user prompt, fix two factual band range
+errors (Marine HF, UHF CB), add handle_set_focus input validation, and
+expose GET /api/frequencies Flask endpoint for frontend consumption in
+Phase 9C.
+Tests: 278/278 (222 pytest + 56 Vitest)
 
 ---
 

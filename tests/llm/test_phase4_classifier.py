@@ -635,3 +635,93 @@ class TestAcmaAllocationsInPrompt:
         )
         assert isinstance(result, ClassificationResult)
         assert result.signal_type == "fm_broadcast"
+
+    def test_acma_notes_appear_when_non_empty(
+        self, classifier, fm_fingerprint, fm_neighbours
+    ):
+        """ACMA section includes the notes field when it is non-empty."""
+        allocation_with_notes = [
+            {
+                "freq_start_mhz": 12.2,
+                "freq_end_mhz": 12.5,
+                "services": ["BROADCASTING"],
+                "mimir_band": "satellite_tv",
+                "notes": "Ku band satellite TV — mixed BSS/FSS.",
+            },
+        ]
+        prompt = classifier._build_user_prompt(
+            fm_fingerprint, fm_neighbours,
+            acma_allocations=allocation_with_notes,
+        )
+        assert "Notes:" in prompt, (
+            "User prompt must include a 'Notes:' line when the ACMA "
+            "allocation has a non-empty notes field."
+        )
+        assert "Ku band satellite TV" in prompt, (
+            "User prompt must contain the actual notes text from the "
+            "allocation entry."
+        )
+
+    def test_acma_notes_omitted_when_empty(
+        self, classifier, fm_fingerprint, fm_neighbours
+    ):
+        """ACMA section does not include a Notes line when notes is empty."""
+        allocation_without_notes = [
+            {
+                "freq_start_mhz": 87.5,
+                "freq_end_mhz": 108.0,
+                "services": ["BROADCASTING"],
+                "mimir_band": "fm_broadcast",
+                "notes": "",
+            },
+        ]
+        prompt = classifier._build_user_prompt(
+            fm_fingerprint, fm_neighbours,
+            acma_allocations=allocation_without_notes,
+        )
+        assert "Notes:" not in prompt, (
+            "User prompt must not include a 'Notes:' line when the "
+            "allocation notes field is empty."
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════
+# GROUP 8 — AU band reference completeness
+# ══════════════════════════════════════════════════════════════════════
+
+class TestBandReferenceCompleteness:
+    """Tests that all mimir_band labels from the ACMA file are in the system prompt."""
+
+    _ALL_MIMIR_BANDS = [
+        "fm_broadcast", "am_broadcast", "dab_plus",
+        "aviation_vhf", "aeronautical_comms", "ils_vor",
+        "adsb", "gnss", "aprs", "amateur",
+        "ism_lora", "uhf_cb", "pmr_land_mobile",
+        "uhf_tv", "mobile_cellular",
+        "marine_vhf", "marine_hf", "marine_satellite",
+        "epirb_plb", "noaa_weather_sat", "met_satellite",
+        "satellite_tv", "time_signal",
+    ]
+
+    def test_all_mimir_bands_in_system_prompt(self, classifier):
+        """Every mimir_band label must appear in the AU band reference."""
+        system_prompt = classifier._build_system_prompt()
+        missing = []
+        for band in self._ALL_MIMIR_BANDS:
+            if band not in system_prompt:
+                missing.append(band)
+        assert not missing, (
+            f"System prompt is missing the following mimir_band labels: "
+            f"{missing}. The _AU_BAND_REFERENCE must be updated whenever "
+            f"new labels are added to frequency_reference.json."
+        )
+
+    def test_no_fcc_etsi_in_system_prompt(self, classifier):
+        """System prompt must not contain FCC or ETSI references."""
+        system_prompt = classifier._build_system_prompt()
+        assert "FCC" not in system_prompt, (
+            "System prompt must not reference FCC — AU jurisdiction only."
+        )
+        assert "ETSI" not in system_prompt, (
+            "System prompt must not reference ETSI — AU jurisdiction only."
+        )

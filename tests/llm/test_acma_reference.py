@@ -121,6 +121,29 @@ class TestDataIntegrity:
         assert len(results) > 0
         assert any(r["mimir_band"] == "fm_broadcast" for r in results)
 
+    def test_entries_include_notes_field(self, acma_ref):
+        """Each returned dict contains a 'notes' key (may be empty string)."""
+        results = acma_ref.lookup(98_000_000)
+        assert len(results) > 0
+        for entry in results:
+            assert "notes" in entry, (
+                "ACMA lookup result must include a 'notes' key so the "
+                "classifier can pass it through to the LLM prompt."
+            )
+
+    def test_notes_preserved_for_entries_with_notes(self, acma_ref):
+        """Entries that have non-empty notes in the JSON retain them."""
+        # 406.0-406.1 MHz epirb_plb entry has notes
+        results = acma_ref.lookup(406_000_000)
+        assert len(results) > 0
+        epirb = [r for r in results if r.get("mimir_band") == "epirb_plb"]
+        assert len(epirb) > 0
+        for entry in epirb:
+            assert entry.get("notes", "") != "", (
+                "epirb_plb entries in the 406.0-406.1 MHz range should "
+                "have non-empty notes in the ACMA reference file."
+            )
+
 
 # ══════════════════════════════════════════════════════════════════════════
 # GROUP 4 — TX safety

@@ -7,7 +7,7 @@ description: >
   does not edit code. Invoked by /build at Step 5b. Replaces the retired
   cloud-reviewer.
 mode: subagent
-model: opencode/minimax-m2.7
+model: opencode-go/minimax-m2.7
 temperature: 0.1
 permission:
   edit: deny

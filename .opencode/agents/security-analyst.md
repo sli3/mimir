@@ -6,7 +6,7 @@ description: >
   Invoked by /build at Step 3 (pre-code gate) and available on demand. Raises a
   hard stop on any transmit capability or legal concern.
 mode: subagent
-model: opencode/glm-5.1
+model: opencode-go/glm-5.1
 temperature: 0.1
 permission:
   edit: deny

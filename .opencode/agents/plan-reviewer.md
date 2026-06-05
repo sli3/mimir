@@ -1,7 +1,7 @@
 ---
 description: Reviews proposed plans against AGENTS.md, AU law, and RF safety before user says OK. Read-only. Invoke after preflight shows a plan.
 mode: subagent
-model: opencode/minimax-m2.7
+model: opencode-go/minimax-m2.7
 temperature: 0.2
 tools:
   write: false
