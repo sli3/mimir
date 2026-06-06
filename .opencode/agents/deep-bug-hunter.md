@@ -1,7 +1,7 @@
 ---
 description: Deep bug analysis for Mimir — invoked by deep-bug-analysis skill only. Never invoke directly.
 mode: subagent
-model: opencode/glm-5.1
+model: opencode-go/glm-5.1
 temperature: 0.1
 tools:
   write: false

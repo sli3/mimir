@@ -1,27 +1,26 @@
 ---
 name: dual-review
 description: >
-  Run a parallel dual code review — @analyst and @deep-analyst simultaneously —
+  Run a parallel dual code review — @review-second and @deep-analyst simultaneously —
   then synthesise findings into a single actionable report. Use this skill whenever Prin asks
   for a code review, wants both reviewers to check something, says "dual review", "run both
-  reviewers", "get both reviewers on this", "analyst and deep-analyst review", or any variation of
-  wanting more than one perspective on code before committing. Always use this skill for
-  review requests — never run just a single reviewer when this skill applies. Particularly
-  valuable after completing a phase, fixing a bug, or before pushing to main.
+  reviewers", "get both reviewers on this", or any variation of wanting more than one
+  perspective on code before committing. Always use this skill for review requests — never
+  run just a single reviewer when this skill applies. Particularly valuable after completing
+  a phase, fixing a bug, or before pushing to main.
 ---
 
 # Dual Review Skill
 
-Fires `@analyst` (opencode/mimo-v2.5-pro, read-only) and `@deep-analyst`
-(opencode/glm-5.1, read-only) in parallel using the `/multi` command, then
+Fires `@review-second` (opencode-go/minimax-m2.7, read-only) and `@deep-analyst`
+(opencode-go/glm-5.1, read-only) in parallel using the `/multi` command, then
 synthesises their findings into a single actionable report.
 
 Two reviewers catch different classes of problems:
-- `@analyst` — fast, broad: TX safety, AU legal compliance, style, edge cases, Python correctness
-- `@deep-analyst` — deep, thorough: root cause tracing, multi-file dependencies, complex logic
-
-This is the pattern that caught the stale docstring in `fingerprint_spectrum()` during
-BUG-01 — neither reviewer would have caught it alone.
+- `@review-second` — independent second voice: correctness, regressions, AU legal/TX
+  compliance, AGENTS.md adherence
+- `@deep-analyst` — deep, thorough: root cause tracing, multi-file dependencies,
+  complex logic, architecture
 
 ---
 
@@ -29,8 +28,8 @@ BUG-01 — neither reviewer would have caught it alone.
 
 | Agent | Model | Strengths |
 |---|---|---|
-| `@analyst` | opencode/mimo-v2.5-pro | TX safety, AU legal, style, edge cases, Python correctness |
-| `@deep-analyst` | opencode/glm-5.1 | Root cause, multi-file tracing, complex logic, architecture |
+| `@review-second` | opencode-go/minimax-m2.7 | Correctness, regressions, TX/AU legal, AGENTS.md conventions |
+| `@deep-analyst` | opencode-go/glm-5.1 | Root cause, multi-file tracing, complex logic, architecture |
 
 Both agents are read-only (`edit: deny`, `bash: deny`). Neither modifies files.
 
@@ -52,7 +51,7 @@ If Prin hasn't specified, ask: *"Which files or changes should I send to both re
 Use this exact structure — the `/multi` command requires `@agent` mentions in the message:
 
 ```
-/multi @analyst @deep-analyst
+/multi @review-second @deep-analyst
 
 Review the following changes to the Mimir RF scanner project in parallel.
 Each of you must independently assess the code and report your findings.
@@ -86,7 +85,7 @@ Do not coordinate — give your own honest assessment.
 
 ### Step 3 — Wait for both agents
 
-Do not synthesise until both `@analyst` and `@deep-analyst` have reported back.
+Do not synthesise until both `@review-second` and `@deep-analyst` have reported back.
 The `/multi` command launches them simultaneously — both will complete before synthesis begins.
 
 ### Step 4 — Synthesise findings
@@ -97,7 +96,7 @@ Produce this table once both reports are in:
 
 **DUAL REVIEW SYNTHESIS**
 
-| | @analyst | @deep-analyst |
+| | @review-second | @deep-analyst |
 |---|---|---|
 | Correctness | [finding or ✓ clean] | [finding or ✓ clean] |
 | TX safety | [finding or ✓ clean] | [finding or ✓ clean] |
@@ -106,7 +105,7 @@ Produce this table once both reports are in:
 | Verdict | APPROVE / NOTES / CHANGES | APPROVE / NOTES / CHANGES |
 
 **Unique findings** (caught by only one reviewer):
-- @analyst only: [list or "none"]
+- @review-second only: [list or "none"]
 - @deep-analyst only: [list or "none"]
 
 **Contradictions** (reviewers disagreed):
@@ -135,11 +134,7 @@ Produce this table once both reports are in:
 ## Notes
 
 - Never write or modify files until synthesis is complete and Prin has confirmed direction
-  (this mirrors the `/multi` command's own instruction)
-- If `/multi` fails or hangs, run `@analyst` and `@deep-analyst` sequentially
+- If `/multi` fails or hangs, run `@review-second` and `@deep-analyst` sequentially
   and still produce the synthesis table — the table is the deliverable regardless
 - If the two reviewers directly contradict each other, surface it explicitly in the
   Contradictions row — never silently pick one
-- `@analyst` auto-triggers after edits anyway — the value of this skill is the
-  *parallel* run with `@deep-analyst` and the structured synthesis, not just the
-  analyst review alone
