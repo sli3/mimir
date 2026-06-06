@@ -1,9 +1,9 @@
 ---
 description: >
   Full automated build cycle for Mimir. Runs the complete software-team
-  workflow — plan → research → security gate → code → QA loop → dual review →
-  PM audit → docs → report — with no user intervention. The task description
-  is pre-planned and pre-approved by the architect. Usage: /build [task description]
+  workflow — plan → research → security gate → code → fix loop → code review →
+  PM audit → docs → memo → report — with no user intervention. The task description
+  is pre-planned and pre-approved by the architect. Usage: /build "<task>" [CHECKPOINT]
 subtask: false
 ---
 
@@ -18,6 +18,25 @@ full workflow autonomously and report only at the end, unless a hard stop is hit
 
 ---
 
+## TASK
+
+This command takes two positional arguments, captured below.
+
+Task description (first argument — pass it QUOTED, e.g. `/build "implement the X filter"`):
+
+$1
+
+Checkpoint flag (second argument — optional; the exact word CHECKPOINT, or nothing):
+
+$2
+
+Treat the task description above as the pre-approved specification for this
+build. If it is empty or unintelligible, that is the one exception to "no
+clarifying questions" — stop and ask Prin rather than guessing. The checkpoint
+flag is NOT part of the task; it only drives the Step 9 phase-tracker gate.
+
+---
+
 ## YOUR TEAM
 
 | Agent | Role | Reports on |
@@ -28,10 +47,17 @@ full workflow autonomously and report only at the end, unless a hard stop is hit
 | @security-analyst | Security & Legal Lead | AU law, TX safety, attack surface |
 | @analyst | QA Lead | Bug and issue detection (fast) |
 | @deep-bug-hunter | Senior QA | Deep root-cause analysis (heavy) |
-| @review-second | Reviewer (2nd voice) | Independent dual review |
-| @deep-analyst | Senior Analyst | Deep dual review |
+| @review-second | Reviewer (2nd voice) | Independent code review |
+| @deep-analyst | Senior Analyst | Deep code review (heavy) |
 | @doc-writer | Documentation | Docstrings + deferred items |
-| @memo-writer | Project Records | Session memos, AGENTS.md, ROADMAP.md |
+| @memo-writer | Project Records | Session memo (always) + phase tracker & ROADMAP (checkpoint-gated) |
+
+**Note on @memo-writer:** it runs in Step 9, after docs. It cannot run bash,
+search, or fetch — it only edits governance docs (AGENTS.md, ROADMAP.md) from
+what you hand it. It must never touch code, tests, opencode.json, or
+`.opencode/agents/*.md`. The separate `opencode-memo` workflow remains available
+for memos outside a build; do not run both for the same build, or you will
+double-write the governance docs.
 
 Every delegation must name the agent's role so it adopts the right lens.
 
@@ -41,10 +67,10 @@ Every delegation must name the agent's role so it adopts the right lens.
 Stop immediately and report to the user if any occur:
 
 - @plan-reviewer or @security-analyst flags a TX violation or AU legal issue
-- @analyst or @deep-analyst flags a TX violation
-- Tests still failing after 3 QA-loop iterations
+- @analyst, @review-second, or @deep-analyst flags a TX violation
+- Tests still failing after 3 fix-loop iterations
 - Any agent produces a result that contradicts AGENTS.md
-- A PM-audit re-entry (Step 6) fails to resolve on its single allowed retry
+- A PM-audit re-entry (Step 7) fails to resolve on its single allowed retry
 
 Do not work around a hard stop. Surface it clearly.
 
@@ -53,7 +79,8 @@ Do not work around a hard stop. Surface it clearly.
 ## WORKFLOW
 
 ### STEP 1 — PLAN
-Load the `code-preflight` skill.
+Load the `code-preflight` skill (verify the skill name resolves; if it does
+not, report rather than proceeding silently).
 Call @plan-reviewer as Planning Lead with your proposed approach.
 Wait for completion. If a hard stop is raised → stop and report.
 
@@ -61,6 +88,11 @@ Wait for completion. If a hard stop is raised → stop and report.
 Call @researcher as Knowledge Lead for background on any library, API,
 regulation, or concept the implementation needs.
 Wait for completion before writing any code.
+
+**Output gate:** If @researcher surfaces a regulation conflict, a TX-capable
+dependency, or any unresolved legal ambiguity → route that finding to
+@security-analyst now, before proceeding to Step 3. Do not absorb a legal
+concern into the plan silently.
 
 ### STEP 3 — SECURITY GATE (pre-code)
 Call @security-analyst as Security & Legal Lead. Review the plan and research
@@ -74,59 +106,122 @@ conventions. Never produce transmit code, TX flags, or TX configuration.
 HardwareTransmitError must be raised on any TX function call.
 Write the implementation and its tests together.
 
-### STEP 5 — QA LOOP (up to 3 iterations, early exit)
-Run the relevant pytest suite immediately after writing code.
+### STEP 5 — FIX LOOP (up to 3 iterations, early exit)
+This loop has ONE job: get the test suite green. It does not perform code-quality
+review — that happens once, in Step 6, on stable code. Keep this loop tight.
 
-For each iteration (max 3):
-  a. DETECT — for rounds 1 and 2, call @analyst as QA Lead with full error
-     output and stack traces. For round 3 (only if issues persist), escalate
-     to @deep-bug-hunter as Senior QA for deep root-cause analysis.
-  b. DUAL REVIEW — spawn @review-second AND @deep-analyst SIMULTANEOUSLY on
-     all changed files. Do not run them sequentially — launch both at once.
-     Wait for both to complete.
-  c. If this iteration produced ZERO findings from both detection and dual
-     review → EXIT THE LOOP EARLY and proceed to Step 6.
-  d. Otherwise apply the fixes, rerun pytest, and continue to the next iteration.
+Run the relevant pytest suite. If it is already PASSING → proceed straight to
+Step 6 (the loop body never runs).
 
-If either reviewer flags a hard stop at any iteration → stop and report.
-If tests are still failing after 3 iterations → hard stop, report to user.
+Otherwise, for each iteration (max 3):
+  a. Triage the current failures:
+     - Rounds 1 and 2: call @analyst as QA Lead with full error output and
+       stack traces.
+     - Round 3 (only if failures persist): escalate to @deep-bug-hunter as
+       Senior QA for deep root-cause analysis.
+  b. Apply the fixes and rerun pytest.
+  c. Evaluate the rerun result:
+     - PASSING → exit the loop and proceed to Step 6.
+     - FAILING and iterations remain → start the next iteration.
+     - FAILING and this was iteration 3 → hard stop, report to user.
 
-### STEP 6 — PM AUDIT
-As Project Manager, review the full output of Steps 1–5 before anything is
+If @analyst or @deep-bug-hunter flags a hard stop (e.g. a TX violation
+uncovered while debugging) → stop and report.
+
+### STEP 6 — CODE REVIEW (runs once, on green code)
+Only entered after the suite is passing. Spawn @review-second AND @deep-analyst
+SIMULTANEOUSLY on all changed files. Do not run them sequentially — launch both
+at once. Wait for both to complete.
+
+  a. If BOTH return zero findings → proceed to Step 7.
+  b. If either flags a hard stop (TX, AU/SA legal, AGENTS.md contradiction) →
+     stop and report.
+  c. If @review-second and @deep-analyst produce CONFLICTING findings (one
+     flags an issue the other does not, or they disagree on severity) → you,
+     as PM, adjudicate. Document the conflict and your resolution. Do not
+     silently pick one. If your resolution calls for a change, apply it through
+     the fix pass in (d); if it calls for accepting the code as-is, record that
+     and proceed to Step 7.
+  d. Otherwise (agreed findings, or a fix mandated by an adjudication in c)
+     apply one fix pass, rerun pytest to confirm still green, and proceed to
+     Step 7. If that fix pass breaks the suite, re-enter Step 5 for a SINGLE
+     corrective iteration only (not a fresh 3-round budget); if it still cannot
+     be made green → hard stop.
+
+### STEP 7 — PM AUDIT
+As Project Manager, review the full output of Steps 1–6 before anything is
 presented. Check:
   - Were all reviewer and QA findings either actioned or explicitly accepted?
+  - Was any reviewer conflict from Step 6 properly adjudicated and recorded?
   - Did any step produce a partial, skipped, or "good enough" result?
   - Does the build match what was planned in Step 1?
   - Does anything touch TX, AU/SA legal, or AGENTS.md constraints?
 
-If the audit is CLEAN → proceed to Step 7.
+If the audit is CLEAN → proceed to Step 8.
 
 If the audit FLAGS an issue → re-enter ONLY the affected step(s):
-  - Missed reviewer/QA finding → re-run from Step 5
+  - Missed/ignored code-review finding → re-run from Step 6
+  - Test failure or QA gap → re-run from Step 5
   - Code defect → re-run from Step 4
   - Plan/spec mismatch → re-run from Step 1
   - Security/legal concern → re-run from Step 3
 Each flagged issue gets EXACTLY ONE re-entry pass. If the re-run still does not
 resolve it → hard stop, escalate to the user. Never loop a re-entry more than once.
 
-### STEP 7 — DOCUMENTATION
+### STEP 8 — DOCUMENTATION
 Call @doc-writer as Documentation. Update inline docstrings on changed
 functions and record any technical debt or deferred items surfaced during the
-build. Do not touch AGENTS.md, ROADMAP.md, or any governance docs — those
-are handled separately by @memo-writer via the opencode-memo workflow.
+build. @doc-writer may modify docstrings and source comments only. It must NOT
+touch: test files, AGENTS.md, ROADMAP.md, or any governance doc — those belong
+to @memo-writer, which runs next in Step 9.
 
-### STEP 8 — REPORT
+### STEP 9 — PROJECT MEMO
+Call @memo-writer as Project Records to record this build in the governance
+docs. @memo-writer cannot run bash, search, or fetch — it edits docs only from
+what you give it. You must therefore hand it explicitly:
+  - a concise summary of what this build changed (files, functions)
+  - the current test counts taken from the Step 5/6 runs (it cannot run pytest)
+  - any tech debt or deferred items surfaced during the build
+
+ALWAYS: add a session-memo entry to AGENTS.md and refresh the test counts in
+ROADMAP.md.
+
+PHASE-TRACKER GATE — deterministic, driven solely by the checkpoint flag
+captured in the TASK block above:
+  - Checkpoint mode is ON if and ONLY if that flag reads exactly the token
+    CHECKPOINT (case-insensitive). When ON, @memo-writer also updates the
+    AGENTS.md phase tracker and may mark a phase complete in ROADMAP.md.
+  - In EVERY other case — the flag is blank, absent, still showing as an
+    unsubstituted placeholder, or holds any other value — checkpoint mode is
+    OFF: write the session memo only and leave the phase tracker and all
+    phase-completion status untouched.
+  - Never infer checkpoint status from the task description or from the work
+    itself. Only the checkpoint flag decides.
+
+@memo-writer must not touch code, test files, opencode.json, or
+`.opencode/agents/*.md`.
+
+### STEP 10 — REPORT
 Produce a structured summary containing:
 - What was built (files changed, functions added/modified)
-- Test results (pass count, any skipped)
-- QA-loop summary (how many iterations ran, whether it exited early)
-- Reviewer findings (@review-second and @deep-analyst separately)
+- Research findings (@researcher) — anything that shaped the implementation,
+  plus any legal/TX concern routed to @security-analyst in Step 2
 - Security findings (@security-analyst)
+- Test results (pass count, any skipped)
+- Fix-loop summary (how many iterations ran, whether it exited early, whether
+  @deep-bug-hunter was escalated to)
+- Code-review findings (@review-second and @deep-analyst separately, plus any
+  conflict and how you adjudicated it)
 - PM audit result (clean, or what was flagged and how the re-entry resolved)
+- Project memo (@memo-writer) — which governance docs were touched, and whether
+  the phase tracker was updated (it must have moved ONLY if the checkpoint flag
+  was exactly CHECKPOINT)
 - Any tech debt or follow-up items identified during the build
 
-Do NOT commit. Do NOT push. Do NOT modify AGENTS.md phase tracker.
-The user handles all git operations manually via the git-workflow skill.
+Do NOT commit. Do NOT push. The phase tracker is updated only by @memo-writer
+in Step 9, and only on an explicit checkpoint — you (the PM) and @doc-writer
+never touch it directly. The user handles all git operations manually via the
+git-workflow skill.
 
 ---
 
