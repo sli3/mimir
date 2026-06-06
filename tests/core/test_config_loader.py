@@ -24,8 +24,8 @@ def _valid_config() -> dict:
             "frequencies_hz": [98000000, 145175000, 915000000, 1090000000],
             "dwell_time_sec": 2.0,
             "num_samples": 2000000,
-            "lna_gain_db": 16,
-            "vga_gain_db": 20,
+            "lna_gain_db": 32,
+            "vga_gain_db": 40,
             "amp_enable": False,
             "queue_maxsize": 20,
             "llm_url": "http://192.168.0.66:8080/v1",
@@ -53,8 +53,8 @@ class TestConfigLoader:
             assert cfg.frequencies_hz == [98_000_000, 145_175_000, 915_000_000, 1_090_000_000]
             assert cfg.dwell_time_sec == 2.0
             assert cfg.num_samples == 2_000_000
-            assert cfg.lna_gain_db == 16.0
-            assert cfg.vga_gain_db == 20.0
+            assert cfg.lna_gain_db == 32.0
+            assert cfg.vga_gain_db == 40.0
             assert cfg.amp_enable is False
             assert cfg.queue_maxsize == 20
             assert cfg.dashboard_host == "127.0.0.1"

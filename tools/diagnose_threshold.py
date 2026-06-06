@@ -1,9 +1,10 @@
 """
 DIAGNOSTIC TOOL — delete after use
 
-Sweeps SIGNAL_THRESHOLD_DB values (3–15 dB) and prints which one
+Sweeps SIGNAL_THRESHOLD_DB values (18–40 dB) and prints which one
 produces an occupied bandwidth closest to 200 kHz for a live FM
-broadcast signal at 98.9 MHz (Adelaide).
+broadcast signal at 98.9 MHz (Adelaide).  The candidate values are
+defined in THRESHOLD_CANDIDATES below.
 
 Legal: Receive-only. Radiocommunications Act 1992 (Cth).
        No transmission. Jurisdiction: AU/SA. Authority: ACMA.

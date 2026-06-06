@@ -24,6 +24,7 @@
 | 8B | Wire real ScanRunner values into system_stats; fix AGENTS.md event table | ✅ Complete | 259/259 |
 | 8C | Single-frequency focus mode + LLM tuning | ✅ Complete | 260/260 |
 | 9A | ACMA Ref Expansion + /api/frequencies | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
+| 9B | BUG-01 fix: bandwidth_hz/occupied_bins zero | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
 
 **Total: 278/278 tests passing (222 pytest + 56 Vitest)**
 
@@ -181,9 +182,11 @@ frequency at a time, and tune the LLM for faster inference.
 
 **Goal:** Clean up remaining Phase 8C tech debt and plan satellite reception module.
 
-**Planned:**
-- Fix `scan.py` startup message ("Scanning N frequencies" → reflect single-freq mode)
-- Address BUG-01 (bandwidth_hz=0 / occupied_bins=0 from low SNR threshold)
+**Delivered (9A):** ACMA band expansion (5->23 labels), /api/frequencies endpoint, notes pass-through
+**Delivered (9B):** BUG-01 fix — gain values raised to match calibration basis, all 6 embedding features now active
+
+**Remaining:**
+- Fix `scan.py` startup message ("Scanning N frequencies" -> reflect single-freq mode)
 - NOAA/Meteor-M2 satellite planning: 137.620, 137.9125, 137.100, 137.9 MHz
 - Antenna requirements: V-dipole or QFH for 137 MHz satellite band
 
@@ -196,6 +199,31 @@ errors (Marine HF, UHF CB), add handle_set_focus input validation, and
 expose GET /api/frequencies Flask endpoint for frontend consumption in
 Phase 9C.
 Tests: 278/278 (222 pytest + 56 Vitest)
+
+---
+
+### Phase 9B — BUG-01 fix: bandwidth_hz/occupied_bins zero ✅
+
+**Goal:** Fix BUG-01 where bandwidth_hz and occupied_bins were always zero in
+live ChromaDB embeddings because production gain settings (lna=16, vga=20)
+yielded only 6-10 dB live SNR, below the 27 dB SIGNAL_THRESHOLD_DB.
+
+**Root cause:** Threshold was calibrated at lna=32/vga=40 against live FM Adelaide
+(98.9 MHz) but production config was never updated from the old 16/20 values.
+
+**Delivered:**
+- `config/mimir.yaml` — raised lna_gain_db 16->32, vga_gain_db 20->40 (both hardware and scanner sections)
+- `core/pipeline/features.py` — updated SIGNAL_THRESHOLD_DB comment with calibration context, fixed inline comment bug
+- `tools/diagnose_threshold.py` — fixed header comment inaccuracy
+- `tests/core/test_config_loader.py` — updated fixture and assertions for new gain values
+- `tests/core/test_scanner.py` — updated fixture gain values for consistency
+
+**Known follow-up items (outside scope):**
+- `MimirConfig` dataclass defaults still at lna=16 / vga=20 (latent BUG-01 path)
+- `hackrf_rx.py` DEFAULT_LNA/DEFAULT_VGA still 16/20 (used by capture_and_save)
+- `config/mimir.yaml` hardware section gains duplicated but never consumed by load_config()
+
+**Complete when:** `uv run pytest` → 278/278
 
 ---
 

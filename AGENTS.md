@@ -163,6 +163,7 @@ uv run python tools/seed_chromadb.py
 | 8B | Wire real ScanRunner values into system_stats; fix AGENTS.md event table | ✅ Complete | 259/259 |
 | 8C | Single-frequency focus mode + LLM tuning | ✅ Complete | 260/260 |
 | 9A | ACMA Ref Expansion + /api/frequencies | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
+| 9B | BUG-01 fix: bandwidth_hz/occupied_bins zero | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
 
 **Total passing: 278/278 (222 pytest + 56 Vitest)**
 
@@ -269,6 +270,44 @@ data and one input validation bug — all fixed before commit.
 - tests/llm/test_acma_reference.py — 2 notes field tests
 
 **Test counts:** 222 pytest + 56 Vitest = 278/278
+
+---
+
+### Session memo — Phase 9B: BUG-01 fix: bandwidth_hz/occupied_bins zero in live ChromaDB embeddings
+
+**Status:** Complete
+**Phase context:** Phase 9B — fix BUG-01 where bandwidth_hz and occupied_bins were always zero in live embeddings
+
+**Root cause:**
+`SIGNAL_THRESHOLD_DB = 27` in `core/pipeline/features.py` was calibrated at lna_gain_db=32 / vga_gain_db=40 against live FM Adelaide (98.9 MHz), producing ~185 kHz bandwidth. But production config (`config/mimir.yaml`) was never updated from lna=16 / vga=20, yielding only 6-10 dB live SNR. No bin ever exceeded the 27 dB threshold, so `occupied_bins` and `bandwidth_hz` were always zero in live embeddings.
+
+**What was done:**
+- Raised `hardware.lna_gain_db` 16->32, `hardware.vga_gain_db` 20->40 in `config/mimir.yaml`
+- Raised `scanner.lna_gain_db` 16->32, `scanner.vga_gain_db` 20->40 in `config/mimir.yaml`
+- Updated `SIGNAL_THRESHOLD_DB` comment in `core/pipeline/features.py` to document calibration basis and BUG-01 root cause
+- Fixed pre-existing inline comment bug in `features.py` that said "+ 3 dB" instead of "+ SIGNAL_THRESHOLD_DB dB"
+- Enhanced `fingerprint_spectrum()` docstring with calibration context
+- Fixed pre-existing header comment inaccuracy in `tools/diagnose_threshold.py`: sweep range said "3-15 dB" instead of actual candidates
+- Updated `_valid_config()` fixture and assertions in `tests/core/test_config_loader.py` to match new gain values
+- Updated `config()` fixture gain values to 32/40 in `tests/core/test_scanner.py`
+
+**Files modified:**
+- `config/mimir.yaml` — raised gain values from 16/20 to 32/40
+- `core/pipeline/features.py` — threshold comment, inline comment fix, docstring enhancement
+- `tools/diagnose_threshold.py` — header comment accuracy fix
+- `tests/core/test_config_loader.py` — updated fixture and assertions for new gain values
+- `tests/core/test_scanner.py` — updated fixture gain values
+
+**Test counts:** 222 pytest + 56 Vitest = 278/278
+
+**Tech debt / follow-up items identified:**
+- `MimirConfig` dataclass defaults still at lna=16 / vga=20 — latent BUG-01 path for direct construction
+- `hackrf_rx.py` DEFAULT_LNA/DEFAULT_VGA still 16/20 — used by `capture_and_save()`
+- `capture.py` docstring references old "safe defaults (LNA 16 dB, VGA 20 dB)"
+- `config/mimir.yaml` `hardware:` section gains duplicated but never consumed by `load_config()`
+- `dashboard/shared_state.py` `BAND_PROFILES["noise_floor"]` intentionally uses low gain (16/20) but not documented
+
+**No TX or AU/SA legal issues.** All changes are RX-only gain adjustments.
 
 ---
 
@@ -396,12 +435,14 @@ Do not apply this pre-emptively — only if context problems are observed.
 
 ## Deferred Items
 
-- **BUG-01 (open, deferred post-8B):** bandwidth_hz=0 and occupied_bins=0 in all
-  live embeddings because live SNR (6-10 dB) is below SIGNAL_THRESHOLD_DB (27 dB).
-  Only 4/6 embedding features are active. FM misclassification is now partially
-  mitigated by ACMA context wiring (Phase 8A) but the threshold issue remains.
-  Address after Phase 8B. When fixing: always explain the bug in plain English
-  before writing any code.
+- ~~**BUG-01 (fixed — Phase 9B):**~~ Root cause was lna_gain_db=16 / vga_gain_db=20
+  in production config yielding 6-10 dB live SNR, below the 27 dB threshold.
+  Fixed by raising gain to 32/40 in `config/mimir.yaml`. All 6 embedding features
+  now active. Resolved 2026-06-06.
+
+- **Latent BUG-01 paths (open):** `MimirConfig` dataclass defaults (lna=16, vga=20),
+  `hackrf_rx.py` DEFAULT_LNA/DEFAULT_VGA (16/20), and `capture_and_save()` docstring
+  still reference old gain values. Not addressed in Phase 9B (outside pre-approved scope).
 
 - **NOAA/Meteor-M2 satellite module (post-Phase 8):** HackRF covers 137-138 MHz.
   NOAA 15 (137.620 MHz), NOAA 18 (137.9125 MHz), NOAA 19 (137.100 MHz),

@@ -13,8 +13,8 @@ hardware:
   driver: hackrf
   serial: null          # null = use first detected device
   sample_rate_hz: 2000000
-  lna_gain_db: 16
-  vga_gain_db: 20
+  lna_gain_db: 32
+  vga_gain_db: 40
   amp_enable: false
 
 # ── Default frequency ──────────────────────────────────────────────────
@@ -65,8 +65,8 @@ scanner:
     - 1090000000
   dwell_time_sec: 2.0
   num_samples: 2000000
-  lna_gain_db: 16
-  vga_gain_db: 20
+  lna_gain_db: 32
+  vga_gain_db: 40
   amp_enable: false
   queue_maxsize: 20
   # LLM inference server — override with MIMIR_LLM_URL env var
