@@ -86,7 +86,8 @@ class TestComputePsd:
     def test_psd_values_are_negative_dbfs(self, samples, sample_rate, center_freq, nfft):
         """Median PSD of random noise input is well below 0 dBFS."""
         result = compute_psd(samples, sample_rate, center_freq, nfft)
-        assert np.median(result["psd_db"]) < -3.0
+        # True dBFS: random noise sits well below -10 dBFS
+        assert np.median(result["psd_db"]) < -10.0
 
     def test_too_few_samples_returns_empty(self, sample_rate, center_freq, nfft):
         """With fewer samples than nfft, returns empty arrays and num_chunks == 0."""

@@ -1,7 +1,7 @@
 """
 DIAGNOSTIC TOOL — delete after use
 
-Sweeps SIGNAL_THRESHOLD_DB values (18–40 dB) and prints which one
+Sweeps SIGNAL_THRESHOLD_DB values (3–27 dB) and prints which one
 produces an occupied bandwidth closest to 200 kHz for a live FM
 broadcast signal at 98.9 MHz (Adelaide).  The candidate values are
 defined in THRESHOLD_CANDIDATES below.
@@ -25,10 +25,12 @@ from core.pipeline.fft import compute_psd
 FREQ_HZ = 98_900_000
 SAMPLE_RATE_HZ = 2_000_000
 NUM_SAMPLES = 256_000
-LNA_GAIN_DB = 32
-VGA_GAIN_DB = 40
 
-THRESHOLD_CANDIDATES = [18, 21, 24, 27, 30, 35, 40]
+# Adelaide FM is extremely strong. Use minimum gain to avoid saturation.
+LNA_GAIN_DB = 0
+VGA_GAIN_DB = 0
+
+THRESHOLD_CANDIDATES = [3, 5, 8, 10, 12, 15, 18, 21, 24, 27]
 
 TARGET_BANDWIDTH_HZ = 200_000
 

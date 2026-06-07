@@ -13,14 +13,10 @@ import numpy as np
 NOISE_FLOOR_PERCENTILE: float = 10.0
 
 # Minimum SNR above the noise floor for a bin to be considered a signal.
-# Calibrated at lna_gain_db=32 / vga_gain_db=40 against live FM Adelaide
-# capture (98.9 MHz).  Value of 27 dB produces ~185 kHz bandwidth —
-# closest to the expected ~200 kHz for Australian FM broadcast.
-#
-# BUG-01 root cause: previous production config used lna=16 / vga=20,
-# yielding only 6–10 dB live SNR.  No bin exceeded this threshold, so
-# occupied_bins and bandwidth_hz were always zero in live embeddings.
-SIGNAL_THRESHOLD_DB: float = 27.0
+# Provisional value — recalibrate using tools/diagnose_threshold.py
+# after fft.py normalisation fix. Old value of 27 dB was derived from
+# broken /max_power normalisation and is no longer valid.
+SIGNAL_THRESHOLD_DB: float = 10.0
 
 logger = logging.getLogger(__name__)
 
@@ -41,10 +37,9 @@ def fingerprint_spectrum(
     of the background noise level. Signal bins are identified as those
     exceeding the noise floor by at least ``SIGNAL_THRESHOLD_DB``.
 
-    ``SIGNAL_THRESHOLD_DB`` is calibrated at lna_gain_db=32 /
-    vga_gain_db=40 against a live FM Adelaide capture (98.9 MHz).
-    A value of 27 dB produces ~185 kHz occupied bandwidth, closest
-    to the expected ~200 kHz for Australian FM broadcast signals.
+    ``SIGNAL_THRESHOLD_DB`` is currently set to a provisional value
+    of 10.0 dB. It must be recalibrated on live hardware after the
+    fft.py normalisation fix is deployed.
 
     Args:
         psd_result: Dictionary returned by ``compute_psd`` containing

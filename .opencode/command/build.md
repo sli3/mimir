@@ -155,10 +155,13 @@ at once. Wait for both to complete.
      the fix pass in (d); if it calls for accepting the code as-is, record that
      and proceed to Step 7.
   d. Otherwise (agreed findings, or a fix mandated by an adjudication in c)
-     apply one fix pass, rerun pytest to confirm still green, and proceed to
-     Step 7. If that fix pass breaks the suite, re-enter Step 5 for a SINGLE
-     corrective iteration only (not a fresh 3-round budget); if it still cannot
-     be made green → hard stop.
+    apply one fix pass, rerun pytest to confirm still green, and proceed
+    IMMEDIATELY and AUTOMATICALLY to Step 7 without pausing or waiting for
+    user input. Do not surface a summary or prompt at this point — continue
+    the workflow. If that fix pass breaks the suite, re-enter Step 5 for a
+    SINGLE corrective iteration only (not a fresh 3-round budget); if it
+    still cannot be made green → hard stop.
+
 
 ### STEP 7 — PM AUDIT
 As Project Manager, review the full output of Steps 1–6 before anything is

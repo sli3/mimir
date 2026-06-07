@@ -163,7 +163,8 @@ uv run python tools/seed_chromadb.py
 | 8B | Wire real ScanRunner values into system_stats; fix AGENTS.md event table | ✅ Complete | 259/259 |
 | 8C | Single-frequency focus mode + LLM tuning | ✅ Complete | 260/260 |
 | 9A | ACMA Ref Expansion + /api/frequencies | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
-| 9B | BUG-01 fix: bandwidth_hz/occupied_bins zero | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
+| 9B | BUG-01 fix: bandwidth_hz/occupied_bins zero (gain red herring) | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
+| 9B-Hotfix | BUG-01 true root cause: fft.py normalisation | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
 
 **Total passing: 278/278 (222 pytest + 56 Vitest)**
 
@@ -433,16 +434,102 @@ Do not apply this pre-emptively — only if context problems are observed.
 
 ---
 
+### Session memo — Phase 9B Diagnostic: True BUG-01 root cause found in fft.py
+
+**Status:** Diagnostic discovery — no code changed
+**Phase context:** Phase 9B — post-commit diagnostic revealing the gain fix was incorrect
+
+**What was discovered:**
+- Phase 9B gain fix (lna=32/vga=40) committed to main but did NOT resolve BUG-01
+- Live hardware testing: peak power always = 0.0 dBFS regardless of gain setting
+- Root cause in `core/pipeline/fft.py` `compute_psd()`: normalisation divides
+  `averaged_power` by `max_power` before dBFS conversion, making peak always 0.0 dBFS
+- This means `bandwidth_hz` and `occupied_bins` can never exceed threshold — the
+  scale is self-referential, not true dBFS
+- Gain settings are irrelevant to this bug (red herring)
+- Correct fix: normalise against `nfft²` (FFT scaling factor) not `max_power`
+- `SIGNAL_THRESHOLD_DB` will need recalibration after fft fix
+- Fix scoped as Phase 9B-Hotfix in fresh build session
+
+**Files that need changing in hotfix:**
+- `core/pipeline/fft.py` — fix normalisation line
+- `core/pipeline/features.py` — recalibrate `SIGNAL_THRESHOLD_DB` after fft fix
+- `tools/diagnose_threshold.py` — rerun on live hardware to derive new threshold
+
+**No code was changed this session. No tests were run.**
+
+---
+
+### Session memo — Phase 9B-Hotfix: BUG-01 true root cause: fft.py normalisation
+
+**Status:** Complete
+**Phase context:** Phase 9B-Hotfix — fix the real BUG-01 root cause in fft.py after Phase 9B gain fix proved to be a red herring
+
+**Root cause:**
+`core/pipeline/fft.py` `compute_psd()` normalised `averaged_power` by `max_power`
+before converting to dBFS, forcing the peak bin to always be 0.0 dBFS by
+definition. This made the threshold comparison in `features.py` mathematically
+impossible to pass — `occupied_bins` and `bandwidth_hz` could never be non-zero
+regardless of gain settings.
+
+**What was done:**
+- `core/pipeline/fft.py`: replaced `/max_power` normalisation with
+  `/ (nfft * window_power)` standard Welch periodogram normalisation. Produces
+  true dBFS referenced to ADC full scale. Full-scale Hann-windowed sinusoid now
+  peaks at approximately -1.76 dBFS. Unit-variance complex noise median is
+  approximately -30.1 dBFS.
+- `core/pipeline/features.py`: set `SIGNAL_THRESHOLD_DB = 10.0` (provisional).
+  Old value of 27 dB was derived from broken normalisation and is no longer valid.
+  Comment and docstring updated.
+- `config/mimir.yaml`: set `lna_gain_db: 0`, `vga_gain_db: 0`, `amp_enable: false`
+  (both hardware and scanner sections). Adelaide FM is extremely strong — minimum
+  gain prevents ADC saturation.
+- `tools/diagnose_threshold.py`: set `LNA_GAIN_DB = 0`, `VGA_GAIN_DB = 0`,
+  expanded `THRESHOLD_CANDIDATES` to `[3, 5, 8, 10, 12, 15, 18, 21, 24, 27]`,
+  fixed header comment.
+- `tests/core/test_fft_features.py`: tightened `test_psd_values_are_negative_dbfs`
+  from `< -3.0` to `< -10.0` (true dBFS puts random noise well below -10 dBFS).
+
+**Files modified:**
+- `core/pipeline/fft.py` — replaced max_power normalisation with nfft * window_power
+- `core/pipeline/features.py` — SIGNAL_THRESHOLD_DB = 10.0, comment and docstring
+- `config/mimir.yaml` — lna=0, vga=0, amp_enable=false
+- `tools/diagnose_threshold.py` — gain defaults, threshold candidates, header
+- `tests/core/test_fft_features.py` — tightened PSD assertion for true dBFS
+
+**Test counts:** 222 pytest + 56 Vitest = 278/278
+
+**Tech debt / follow-up items identified:**
+- ChromaDB must be re-seeded — old embeddings computed under broken normalisation
+  are now incompatible with new captures
+- `MimirConfig` dataclass defaults still at lna=16 / vga=20 — latent inconsistency
+- `hackrf_rx.py` DEFAULT_LNA/DEFAULT_VGA still 16/20 — used by `capture_and_save()`
+- `core/pipeline/capture.py` docstring references old "safe defaults (LNA 16 dB, VGA 20 dB)"
+- `dashboard/shared_state.py` BAND_PROFILES uses inconsistent gain values
+- LLM classifier power label thresholds may need recalibration after live testing
+  with lna=0 / vga=0
+- Dashboard waterfall may appear dimmer because true dBFS values are now
+  significantly below 0 dBFS
+
+**No TX or AU/SA legal issues.** All changes are RX-only.
+
+---
+
 ## Deferred Items
 
-- ~~**BUG-01 (fixed — Phase 9B):**~~ Root cause was lna_gain_db=16 / vga_gain_db=20
-  in production config yielding 6-10 dB live SNR, below the 27 dB threshold.
-  Fixed by raising gain to 32/40 in `config/mimir.yaml`. All 6 embedding features
-  now active. Resolved 2026-06-06.
+- **BUG-01 (RESOLVED — Phase 9B-Hotfix):** True root cause was in `core/pipeline/fft.py`:
+  `compute_psd()` divided `averaged_power` by `max_power` before dBFS conversion,
+  forcing peak bin to always be 0.0 dBFS. Fixed by replacing with standard Welch
+  periodogram normalisation (`/ (nfft * window_power)`). Gain settings were a red
+  herring. Threshold recalibrated to 10.0 dB (provisional). Requires live testing
+  with `tools/diagnose_threshold.py` to confirm.
+
+- **ChromaDB re-seed required (open):** Old embeddings computed under broken normalisation
+  are now incompatible with new captures. Must re-seed after deploy.
 
 - **Latent BUG-01 paths (open):** `MimirConfig` dataclass defaults (lna=16, vga=20),
   `hackrf_rx.py` DEFAULT_LNA/DEFAULT_VGA (16/20), and `capture_and_save()` docstring
-  still reference old gain values. Not addressed in Phase 9B (outside pre-approved scope).
+  still reference old gain values. Not addressed in Phase 9B-Hotfix (outside pre-approved scope).
 
 - **NOAA/Meteor-M2 satellite module (post-Phase 8):** HackRF covers 137-138 MHz.
   NOAA 15 (137.620 MHz), NOAA 18 (137.9125 MHz), NOAA 19 (137.100 MHz),
@@ -544,5 +631,5 @@ Do not apply this pre-emptively — only if context problems are observed.
 | CORS wildcard | `cors_allowed_origins="*"` in server.py — fine for dev | Pre-prod |
 | Queue max hard-coded | `020` in SystemStatsPanel — should read from systemStats | Phase 7B |
 | `sampleRateHz` dead param | Accepted by `useWaterfall.js` but unused | Post 7B |
-| `psd_db` uncalibrated | FFT missing nfft normalisation — absolute dBFS wrong, SNR unaffected | Post 7B |
+| ~~`psd_db` uncalibrated~~ | ~~FFT missing nfft normalisation~~ — fixed in Phase 9B-Hotfix (true dBFS) | ~~Post 7B~~ ✅ 9B-Hotfix |
 | scan.py startup message | "Scanning N frequencies" is misleading now that single-freq focus mode is active | Post 8C cosmetic |

@@ -25,6 +25,7 @@
 | 8C | Single-frequency focus mode + LLM tuning | ✅ Complete | 260/260 |
 | 9A | ACMA Ref Expansion + /api/frequencies | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
 | 9B | BUG-01 fix: bandwidth_hz/occupied_bins zero | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
+| 9B-Hotfix | BUG-01 true root cause: fft.py normalisation | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
 
 **Total: 278/278 tests passing (222 pytest + 56 Vitest)**
 
@@ -77,9 +78,9 @@ report = fingerprint_spectrum(psd)
 ```
 
 **Known tech debt:**
-- BUG-01 CLOSED — SIGNAL_THRESHOLD_DB calibrated to 27 dB
-  against live FM Adelaide capture (98.9 MHz). Bandwidth now
-  correctly reports ~185 kHz for FM broadcast. Fixed in this session.
+- BUG-01 — initially marked closed here, later found to be unresolved.
+  Gain fix attempted in 9B (red herring). True root cause: fft.py
+  normalisation. Fixed in Phase 9B-Hotfix.
 
 **Complete when:** `python -m pytest tests/core/test_fft_features.py -v` → 20/20
 
@@ -183,7 +184,8 @@ frequency at a time, and tune the LLM for faster inference.
 **Goal:** Clean up remaining Phase 8C tech debt and plan satellite reception module.
 
 **Delivered (9A):** ACMA band expansion (5->23 labels), /api/frequencies endpoint, notes pass-through
-**Delivered (9B):** BUG-01 fix — gain values raised to match calibration basis, all 6 embedding features now active
+**Delivered (9B):** BUG-01 gain fix (red herring — gain raised to lna=32/vga=40, did not resolve bug)
+**Delivered (9B-Hotfix):** BUG-01 true root cause fixed — fft.py normalisation corrected, true dBFS achieved
 
 **Remaining:**
 - Fix `scan.py` startup message ("Scanning N frequencies" -> reflect single-freq mode)
@@ -202,14 +204,17 @@ Tests: 278/278 (222 pytest + 56 Vitest)
 
 ---
 
-### Phase 9B — BUG-01 fix: bandwidth_hz/occupied_bins zero ✅
+### Phase 9B — BUG-01 fix: bandwidth_hz/occupied_bins zero ✅ (red herring)
 
 **Goal:** Fix BUG-01 where bandwidth_hz and occupied_bins were always zero in
 live ChromaDB embeddings because production gain settings (lna=16, vga=20)
 yielded only 6-10 dB live SNR, below the 27 dB SIGNAL_THRESHOLD_DB.
 
-**Root cause:** Threshold was calibrated at lna=32/vga=40 against live FM Adelaide
-(98.9 MHz) but production config was never updated from the old 16/20 values.
+**Root cause (initial, incorrect):** Threshold was calibrated at lna=32/vga=40
+against live FM Adelaide (98.9 MHz) but production config was never updated from
+the old 16/20 values. **This turned out to be a red herring** — live hardware
+testing after the fix revealed peak power was always exactly 0.0 dBFS regardless
+of gain. The true root cause was in fft.py normalisation (see Phase 9B-Hotfix).
 
 **Delivered:**
 - `config/mimir.yaml` — raised lna_gain_db 16->32, vga_gain_db 20->40 (both hardware and scanner sections)
@@ -222,6 +227,38 @@ yielded only 6-10 dB live SNR, below the 27 dB SIGNAL_THRESHOLD_DB.
 - `MimirConfig` dataclass defaults still at lna=16 / vga=20 (latent BUG-01 path)
 - `hackrf_rx.py` DEFAULT_LNA/DEFAULT_VGA still 16/20 (used by capture_and_save)
 - `config/mimir.yaml` hardware section gains duplicated but never consumed by load_config()
+
+**Complete when:** `uv run pytest` → 278/278
+
+---
+
+### Phase 9B-Hotfix — BUG-01 true root cause: fft.py normalisation ✅
+
+**Goal:** Fix the real BUG-01 root cause after Phase 9B gain fix proved to be a
+red herring. Live hardware testing showed peak power was always 0.0 dBFS
+regardless of gain — the fft.py normalisation was self-referential.
+
+**Root cause:** `core/pipeline/fft.py` `compute_psd()` divided `averaged_power`
+by `max_power` before converting to dBFS, forcing the peak bin to always be
+0.0 dBFS by definition. This made the threshold comparison in `features.py`
+mathematically impossible to pass — `occupied_bins` and `bandwidth_hz` could
+never be non-zero regardless of gain settings.
+
+**Delivered:**
+- `core/pipeline/fft.py` — replaced `/max_power` with `/ (nfft * window_power)` standard Welch periodogram normalisation, producing true dBFS referenced to ADC full scale
+- `core/pipeline/features.py` — set `SIGNAL_THRESHOLD_DB = 10.0` (provisional, old value derived from broken normalisation)
+- `config/mimir.yaml` — set lna=0, vga=0, amp_enable=false (minimum gain prevents ADC saturation on strong Adelaide FM)
+- `tools/diagnose_threshold.py` — gain defaults 0/0, expanded threshold candidates to [3,5,8,10,12,15,18,21,24,27]
+- `tests/core/test_fft_features.py` — tightened PSD assertion from < -3.0 to < -10.0 for true dBFS
+
+**Key normalisation change:**
+```python
+# Before (broken — peak always 0.0 dBFS):
+psd = 10 * log10(averaged_power / max_power + epsilon)
+
+# After (correct — true dBFS):
+psd = 10 * log10(averaged_power / (nfft * window_power) + epsilon)
+```
 
 **Complete when:** `uv run pytest` → 278/278
 

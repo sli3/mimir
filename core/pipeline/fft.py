@@ -56,8 +56,11 @@ def compute_psd(
           - num_chunks: Number of chunks that were averaged
 
     Note:
-        dBFS is decibels relative to full scale. 0 dBFS = maximum possible
-        digital value. Negative values indicate power below full scale.
+        dBFS is decibels relative to full scale. 0 dBFS represents the ADC
+        full-scale (maximum possible digital value). Real signals will be
+        significantly below 0 dBFS because a full-scale sinusoid would clip
+        the ADC. The Hann window processing loss means a perfectly aligned
+        full-scale tone peaks at approximately -1.76 dBFS.
     """
     # Ensure we have enough samples for at least one FFT chunk
     if len(samples) < nfft:
@@ -112,9 +115,12 @@ def compute_psd(
     # Average across all chunks
     averaged_power = np.mean(chunk_psd_list, axis=0)
 
-    # Normalize by maximum power and convert to dBFS (decibels relative to full scale)
-    max_power = np.max(averaged_power)
-    psd_db = 10 * np.log10(averaged_power / max_power + 1e-12)
+    # Normalise against window power — produces true dBFS referenced to ADC full scale.
+    # Dividing by (nfft * window_power) is the standard Welch periodogram normalisation.
+    # This replaces the previous /max_power approach which forced peak to 0.0 dBFS and
+    # prevented SIGNAL_THRESHOLD_DB from ever being met.
+    window_power = np.sum(hann_window ** 2)
+    psd_db = 10 * np.log10(averaged_power / (nfft * window_power) + 1e-12)
 
     # Compute frequency array with absolute frequencies
     # fftfreq gives offsets from 0, fftshift centers them around 0
