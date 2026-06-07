@@ -1,0 +1,388 @@
+---
+description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
+status: live
+last_updated_phase: 9
+---
+
+# Mimir Wiki
+
+Knowledge base for the Mimir project. Written in plain English for an RF beginner.
+Updated automatically by `@doc-writer` at the end of each build cycle.
+
+---
+
+## Contents
+
+1. [What Mimir Is](#what-mimir-is)
+2. [Signal Pipeline — The Full Flow](#signal-pipeline)
+3. [Phase Log](#phase-log)
+4. [Frontend Stack](#frontend-stack)
+5. [Hardware Concepts](#hardware-concepts)
+6. [Acronym Glossary](#acronym-glossary)
+
+---
+
+## What Mimir Is
+
+Mimir is a passive RF spectrum scanner. It uses a HackRF software-defined radio to
+listen to the air, processes what it hears through a Python pipeline, classifies
+signals using a local LLM running on a machine called yubaba, and displays everything
+live in a browser-based waterfall dashboard.
+
+It is passive receive-only. It never transmits. All frequencies are Australian
+ACMA-compliant under the Radiocommunications Act 1992.
+
+---
+
+## Signal Pipeline
+
+Every scan flows through these steps in order. Each function does one job and passes
+its output to the next.
+
+```
+Step  Function / Component          What it does
+────  ────────────────────────────  ──────────────────────────────────────────────
+  1   HackRF hardware               Physical USB device. Converts radio waves to
+                                    digital samples.
+
+  2   capture_iq()                  Tunes to a frequency, collects the requested
+      core/pipeline/capture.py      number of IQ samples, returns a NumPy array.
+
+  3   compute_psd()                 Runs an FFT on the IQ samples. Returns a PSD —
+      core/pipeline/fft.py          a list of power values (dB) per frequency bin.
+
+  4   fingerprint_spectrum()        Measures the PSD: bandwidth, occupied bins,
+      core/pipeline/features.py     peak power. Returns a fingerprint dict.
+
+  5   detect_signals()              Decides whether something real is present or
+      core/detection/detector.py    just noise.
+
+  6   classify_signal()             Sends the fingerprint to the LLM on yubaba.
+      core/classification/          Returns: signal type + confidence score.
+      classifier.py
+
+  7   Dashboard / Waterfall         FastAPI server streams PSD data over WebSocket.
+      dashboard/                    Browser draws one row of pixels per frame.
+```
+
+---
+
+## Phase Log
+
+Phases are listed newest-first so the current phase is always at the top.
+
+---
+
+### Phase 9 — Threshold Tuning ▶ ACTIVE
+
+**What:** Tune `SIGNAL_THRESHOLD_DB` — the dB value that decides which frequency
+bins count as signal vs noise. Too low = noise counted as signal (false positive).
+Too high = real signals missed (false negative).
+
+**How:** A debug script loops through threshold values 3–8 dB and prints
+`occupied_bins` and `bandwidth_hz` at each level. The right value is the one where
+known signals are cleanly captured without the noise floor bleeding in.
+
+**Analogy:** Squelch on a walkie-talkie. You adjust it until static disappears but
+weak transmissions still come through.
+
+**Key variable:** `SIGNAL_THRESHOLD_DB` in `core/pipeline/features.py`
+
+---
+
+### Phase 8 — Calibration Tool ✓ DONE
+
+**What:** Measure how far apart different signal types are in fingerprint space.
+Capture known signals (FM, ADS-B, etc.), compute pairwise distance scores, derive
+classification thresholds automatically.
+
+**Key output:** Distance scores: same-type signals score near 0 (e.g. two ADS-B
+signals: 0.0007). Different types score 0.2+. These thresholds feed the classifier.
+
+**Files:** `tools/calibrate.py`
+
+**Key function:**
+
+`compute_distance(fp_a, fp_b)` — takes two fingerprint dicts, returns a float
+distance score. Close to 0 = nearly identical. 0.2+ = clearly different types.
+
+---
+
+### Phase 7 — Classification ✓ DONE
+
+**What:** Given a fingerprint, ask the local LLM what type of signal it is.
+
+**Files:** `core/classification/classifier.py`, `core/llm/client.py`
+
+**Key function:**
+
+`classify_signal(fingerprint)` — formats the fingerprint as a prompt, sends it to
+yubaba (RTX 3060, llama.cpp), returns `{signal_type, confidence, reasoning}`.
+
+**Analogy:** A bird ID app — you show it a photo, it says "magpie, 94% confident".
+
+---
+
+### Phase 6 — Signal Detection ✓ DONE
+
+**What:** Not everything above the noise floor is a real signal. This phase adds
+logic to decide whether `occupied_bins` is meaningful.
+
+**Files:** `core/pipeline/features.py`, `core/detection/detector.py`
+
+**Key function:**
+
+`detect_signals(psd)` — scans PSD for regions that look like real transmissions.
+Returns a list of detected regions with frequency bounds and estimated power.
+
+**Analogy:** Motion detection on a security camera — only records when something
+actually moves.
+
+---
+
+### Phase 5 — Live Dashboard ✓ DONE
+
+**What:** FastAPI server + browser waterfall. The server runs a single background
+capture loop that streams spectrum data over WebSocket to all connected browsers.
+Phase 5b fixed a crash: previously each new browser connection opened a new HackRF
+RX stream; the hardware only supports one. Fixed by making one loop broadcast to
+all clients via `shared_state.spectrum_clients`.
+
+**Files:** `dashboard/server.py`, `dashboard/shared_state.py`,
+`dashboard/capture_loop.py`, `dashboard/static/waterfall.js`,
+`dashboard/static/index.html`, `dashboard/static/style.css`
+
+**Key function:**
+
+`capture_loop()` — asyncio background task. Runs forever: capture IQ → compute PSD
+→ JSON → broadcast to all connected browsers. Never returns. One instance only.
+
+**Analogy:** A broadcast tower. Transmits continuously. Browsers are just receivers.
+
+---
+
+### Phase 4 — Fingerprinting ✓ DONE
+
+**What:** Extract meaningful measurements from the PSD: bandwidth, occupied bins,
+peak power. This is the signal's "fingerprint" — what gets passed to the classifier.
+
+**Files:** `core/pipeline/features.py`
+
+**Key function:**
+
+`fingerprint_spectrum(psd)` — counts bins above `SIGNAL_THRESHOLD_DB`, measures
+bandwidth they span, finds peak power. Returns a fingerprint dict.
+
+**Analogy:** If the PSD is a photo, fingerprint_spectrum measures it — how wide is
+the bright area? How many pixels are lit? What's the brightest?
+
+---
+
+### Phase 3 — FFT / PSD ✓ DONE
+
+**What:** Convert raw IQ samples from time-domain numbers into a frequency picture
+(PSD) using an FFT.
+
+**Files:** `core/pipeline/fft.py`
+
+**Key function:**
+
+`compute_psd(samples, sample_rate_hz, centre_freq_hz)` — runs FFT on IQ array.
+Returns `{freq_hz: [...], power_db: [...]}` — one power value per frequency bin.
+
+**Analogy:** A music equaliser — splits the signal into frequency bands and shows
+the strength of each.
+
+---
+
+### Phase 2 — IQ Capture ✓ DONE
+
+**What:** Open the HackRF, tune to a frequency, collect samples, return them.
+
+**Files:** `core/pipeline/capture.py`
+
+**Key function:**
+
+`capture_iq(freq_hz, num_samples, sample_rate_hz, lna_gain_db, vga_gain_db)`
+
+Parameters:
+- `freq_hz` — which frequency to tune to (e.g. 96_500_000 = 96.5 MHz FM)
+- `num_samples` — how many samples to collect (256,000 ≈ 128 ms at 2 MHz)
+- `sample_rate_hz` — samples per second; higher = wider frequency view
+- `lna_gain_db` — first amplifier stage; 24 is a safe starting value
+- `vga_gain_db` — second amplifier stage; 30 is typical
+
+Returns: NumPy array of complex (IQ) numbers.
+
+**Analogy:** Your ear before your brain processes anything — raw vibration data.
+
+---
+
+### Phase 1 — Hardware Setup ✓ DONE
+
+**What:** Install HackRF drivers and Python library, verify USB connection, confirm
+raw samples can be received. No signal processing — just a health check.
+
+---
+
+## Frontend Stack
+
+### Architecture Overview
+
+The dashboard has two halves: a Python server (FastAPI + uvicorn) and a browser
+client (plain HTML + vanilla JavaScript). They communicate over WebSocket — a
+persistent live connection, not normal HTTP request/response.
+
+```
+Python server side                    Browser side
+──────────────────────────────────    ──────────────────────────────
+server.py                             index.html
+  starts FastAPI + uvicorn              page skeleton + band buttons
+  serves static files                   loads waterfall.js + style.css
+  registers WebSocket routes
+
+shared_state.py                       waterfall.js
+  spectrum_clients (set of             opens WS to /ws/spectrum
+  connected browser sockets)           parses JSON frames
+  current_band settings                maps power_db → colours
+  shutdown_event                       draws pixels on canvas
+  BAND_PROFILES dict                   scrolls canvas each frame
+                                       opens WS to /ws/command
+capture_loop.py                        sends band switch commands
+  asyncio background task
+  runs pipeline in loop:             style.css
+    capture_iq()                       dark theme layout
+    compute_psd()                      band button styles (.band-btn)
+    → JSON → broadcast to all          annotation text formatting
+      browsers in spectrum_clients
+```
+
+### Data Flow — Server to Browser
+
+```
+HackRF hardware
+  → capture_loop.py: raw IQ samples (NumPy array, in Python memory)
+  → compute_psd(): PSD dict {freq_hz, power_db} (in Python memory)
+  → capture_loop.py serialises to JSON string
+  → WebSocket /ws/spectrum: JSON packet over network
+  → waterfall.js parses JSON in browser
+  → canvas pixels: power_db values mapped through colourmap (browser GPU)
+```
+
+### Band Switching Flow
+
+```
+User clicks [ADS-B] button in browser
+  → waterfall.js sends: {"action": "set_band", "band": "adsb"}
+  → WebSocket /ws/command: JSON packet over network
+  → server command handler looks up "adsb" in BAND_PROFILES
+  → updates shared_state.current_band (frequency + gain)
+  → next capture_loop iteration reads current_band, retunes HackRF
+  (no server restart needed)
+```
+
+### How the Waterfall Works — Step by Step
+
+1. `capture_loop.py` finishes one pipeline cycle: gets a PSD dict with 2048
+   `freq_hz` values and 2048 `power_db` values.
+2. Serialises to a JSON string and sends to every socket in `spectrum_clients`.
+3. `waterfall.js` receives the JSON and parses it back to a JS object.
+4. Loops through each `power_db` value, maps it through the colourmap
+   (weak = dark blue/black, strong = yellow/white), draws one pixel per bin
+   across the canvas.
+5. Before drawing, shifts all existing pixels down one row:
+   `ctx.drawImage(canvas, 0, 1)`. This is what makes the waterfall scroll —
+   old rows sink, new rows appear at the top.
+6. Repeats every time a new PSD arrives (roughly once per capture cycle).
+
+### Frontend Files
+
+| File | Layer | Role |
+|---|---|---|
+| `dashboard/server.py` | Python | Entry point. Starts FastAPI + uvicorn, registers routes, kicks off `capture_loop`. |
+| `dashboard/shared_state.py` | Python | Shared memory. Holds `spectrum_clients`, `current_band`, `shutdown_event`, `BAND_PROFILES`. |
+| `dashboard/capture_loop.py` | Python | Pipeline engine. Runs capture → PSD → JSON → broadcast in an asyncio loop. |
+| `dashboard/static/index.html` | Browser | Page skeleton. Defines canvas, band buttons, annotation div. |
+| `dashboard/static/waterfall.js` | Browser | Browser brain. WebSocket client, colourmap, canvas drawing, band switch commands. |
+| `dashboard/static/style.css` | Browser | Visual styling. Dark theme, band button styles. |
+
+---
+
+## Hardware Concepts
+
+### Antennas — One Does NOT Fit All
+
+An antenna is physically tuned to a wavelength, not a frequency range. The length
+of the antenna determines which frequency it receives best. Too short or too long
+and the antenna becomes inefficient — it still picks something up, but weakly.
+
+The rule is straightforward:
+
+- Higher frequency = shorter wavelength = shorter antenna needed
+- Lower frequency = longer wavelength = longer antenna needed
+
+Real examples relevant to Mimir:
+
+| Signal type | Frequency | Ideal antenna length |
+|---|---|---|
+| FM broadcast | ~100 MHz | ~68 cm |
+| APRS | 145 MHz | ~49 cm |
+| ADS-B | 1090 MHz | ~6.5 cm |
+
+**Why this matters for Mimir:** the antenna you connect to the HackRF directly
+affects what you can receive. A short fixed antenna (like a spiral) is optimised
+for high frequencies and physically cannot perform well at FM. A telescopic whip
+is more flexible — you extend it to match the frequency you want.
+
+**The body effect:** if touching an antenna dramatically improves reception, your
+body is acting as an antenna extension. A human body is roughly 68 cm of conducting
+material — which is almost exactly the right length for FM broadcast (~100 MHz).
+This is a strong sign the connected antenna is too short for that frequency.
+
+**Antenna types in practice:**
+
+- **Telescopic whip** — adjustable length, good all-rounder. Extend it to the right
+  length for whatever frequency you are monitoring. One physical antenna, many uses.
+- **Fixed spiral / stubby** — short fixed length, optimised for high frequencies
+  (800 MHz+). Cannot be extended. Not suitable for FM or other low-frequency bands.
+- **Dedicated band antenna** — cut to exactly the right length for one frequency.
+  Best performance for that band, useless outside it.
+
+---
+
+## Acronym Glossary
+
+| Term | Full name | Plain English |
+|---|---|---|
+| ADS-B | Automatic Dependent Surveillance–Broadcast | Aircraft broadcast their position on 1090 MHz. Legal to receive passively. Mimir can detect and classify these. |
+| ACMA | Australian Communications and Media Authority | Australian body that regulates radio spectrum. Mimir's hard requirement — ACMA-compliant frequencies only. |
+| antenna | Antenna | A physical conductor that picks up radio waves. Its length determines which frequency it receives best. Not one-size-fits-all — see Hardware Concepts. |
+| APRS | Automatic Packet Reporting System | A digital radio protocol used by amateur radio operators at 145 MHz. Carries GPS position, weather data, and short messages. |
+| ASGI | Asynchronous Server Gateway Interface | Python standard for async web servers. FastAPI is an ASGI framework; uvicorn is the ASGI server that runs it. |
+| asyncio | Asynchronous I/O | Python's way of doing multiple things concurrently without threads. `capture_loop` runs as an asyncio background task. |
+| Canvas | HTML Canvas | Browser element that JavaScript draws on pixel by pixel. The waterfall is drawn here — one row of pixels per PSD frame. |
+| colourmap | Colour Map | Lookup table: power (dB) → colour. Weak signals = dark blue. Strong signals = yellow/white. Produces the heat-map look. |
+| dB | Decibel | Unit of signal strength. Logarithmic scale. Values in Mimir are negative (e.g. -50 dB). Closer to 0 = stronger signal. Noise floor ≈ -50 to -60 dB. |
+| DOM | Document Object Model | Browser's internal model of the HTML page. `waterfall.js` uses it to find the canvas element and draw on it. |
+| FastAPI | FastAPI | Python web framework. Handles HTTP and WebSocket connections. The engine behind the dashboard server. |
+| FFT | Fast Fourier Transform | Maths that converts time-domain samples into frequency + strength data. Answers: "what frequencies are present and how strong is each?" |
+| frame | Waterfall Frame | One row of the waterfall. Each new PSD from the server is drawn as one horizontal strip of coloured pixels. |
+| HTTP | HyperText Transfer Protocol | Standard web protocol. Used once on page load to fetch `index.html`, JS, and CSS. After that, WebSocket takes over for live data. |
+| Hz / MHz / GHz | Hertz / Megahertz / Gigahertz | Units of frequency. FM radio: 88–108 MHz. ADS-B: 1090 MHz. HackRF covers 1 MHz to 6 GHz. |
+| IQ | In-phase / Quadrature | Raw format for SDR data. Two number streams (I and Q) that together describe amplitude and phase. "IQ data" = raw radio samples. |
+| JSON | JavaScript Object Notation | Text format for structured data. The server sends PSD as JSON: `{"freq_hz": [...], "power_db": [...]}`. |
+| LLM | Large Language Model | AI model on yubaba (RTX 3060, llama.cpp) used for signal classification. Reads a fingerprint, says what type of signal it is. |
+| LNA | Low Noise Amplifier | First amplifier in the receive chain. Boosts signal before anything else. Set via `lna_gain_db`. Typical: 24. |
+| NumPy | Numerical Python | Python library for fast array maths. All IQ samples and PSD values are NumPy arrays. `np.` in code = NumPy. |
+| PSD | Power Spectral Density | Output of the FFT. A bar chart of frequency vs signal strength. One dB value per frequency bin. |
+| PYTHONPATH | Python Path | Environment variable telling Python where to find modules. `PYTHONPATH=.` means "look from current directory" — needed for debug scripts to find Mimir's own modules. |
+| SDR | Software-Defined Radio | A radio where processing is done in software, not hardware circuits. The HackRF is an SDR. |
+| shared_state | Shared State Module | `dashboard/shared_state.py`. Holds variables used across the whole server. Because Python caches imports, every file gets the same object. |
+| spiral antenna | Spiral Antenna | A compact fixed-length antenna optimised for high frequencies (800 MHz+). Cannot be extended. Poor performance at FM and other low-frequency bands. |
+| telescopic whip | Telescopic Whip Antenna | An adjustable-length antenna. Extend it to match the wavelength of the frequency you want. One physical antenna usable across many bands. |
+| TX | Transmit | Sending radio signals. Mimir never transmits. Any TX function call must raise `HardwareTransmitError`. AU law — criminal offence without licence. |
+| uvicorn | Uvicorn | ASGI server that runs FastAPI. When you start the server, uvicorn listens on the port. FastAPI defines the routes; uvicorn serves them. |
+| VGA | Variable Gain Amplifier | Second amplifier stage after LNA. Together LNA + VGA = two gain knobs. Set via `vga_gain_db`. Typical: 30. |
+| wavelength | Wavelength | The physical length of one radio wave cycle. Higher frequency = shorter wavelength. An antenna works best when its length matches the wavelength of the signal it is receiving. |
+| WebSocket | WebSocket | Persistent two-way browser–server connection. Unlike HTTP (closes after response), it stays open so the server can push data in real time. |
+| yubaba | yubaba | Prin's local LLM inference server. RTX 3060 12GB, llama.cpp. Hosts the model used by `classify_signal()`. |
