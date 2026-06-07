@@ -165,6 +165,7 @@ uv run python tools/seed_chromadb.py
 | 9A | ACMA Ref Expansion + /api/frequencies | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
 | 9B | BUG-01 fix: bandwidth_hz/occupied_bins zero (gain red herring) | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
 | 9B-Hotfix | BUG-01 true root cause: fft.py normalisation | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
+| 9C | Calibrate SIGNAL_THRESHOLD_DB + clean up gain defaults | ⏳ PENDING ANTENNA | — |
 
 **Total passing: 278/278 (222 pytest + 56 Vitest)**
 
@@ -515,6 +516,49 @@ regardless of gain settings.
 
 ---
 
+### Session memo — Phase 9B-Hotfix (CHECKPOINT): fft.py dBFS normalisation — BUG-01 true root cause
+
+**Date:** 2026-06-07
+**Status:** Complete
+**Phase context:** Phase 9B-Hotfix — CHECKPOINT session
+
+**Summary:**
+Fixed fft.py dBFS normalisation bug — the true root cause of BUG-01. The /max_power approach forced peak to always be 0.0 dBFS, making the SIGNAL_THRESHOLD_DB comparison mathematically impossible. Replaced with /window_power (Welch periodogram normalisation).
+
+**What was done:**
+- `core/pipeline/fft.py`: replaced `/max_power` normalisation with `/ (nfft * window_power)` standard Welch periodogram normalisation. Produces true dBFS referenced to ADC full scale.
+- `core/pipeline/features.py`: set `SIGNAL_THRESHOLD_DB = 10.0` (provisional). Old 27 dB value was derived from broken normalisation.
+- `config/mimir.yaml`: set `lna=0, vga=0, amp_enable=false` (both hardware and scanner sections). Adelaide FM is extremely strong — minimum gain prevents ADC saturation.
+- `tools/diagnose_threshold.py`: set `LNA=0, VGA=0`, expanded `THRESHOLD_CANDIDATES` to `[3, 5, 8, 10, 12, 15, 18, 21, 24, 27]`, fixed header comment.
+- `tests/core/test_fft_features.py`: tightened `test_psd_values_are_negative_dbfs` from `< -3.0` to `< -10.0` (true dBFS puts random noise well below -10 dBFS).
+- ChromaDB re-seeded (800 vectors, clean).
+- Antenna investigation confirmed: HackRF and code are healthy. SNR limitation is physical — current stub antenna insufficient for FM.
+- Telescopic whip antenna (~68 cm SMA) being sourced from Jaycar for full calibration.
+
+**Files modified:**
+- `core/pipeline/fft.py` — normalisation fix
+- `core/pipeline/features.py` — provisional threshold, docstrings
+- `config/mimir.yaml` — gain settings
+- `tools/diagnose_threshold.py` — gain defaults, threshold candidates
+- `tests/core/test_fft_features.py` — tightened assertion
+- `AGENTS.md` — phase tracker, session memo, deferred items
+- `docs/ROADMAP.md` — phase tracker, Phase 9B-Hotfix section, Phase 9C entry
+
+**Test counts:** 222 pytest + 56 Vitest = 278/278
+
+**Tech debt / follow-up items:**
+- ChromaDB re-seed required after any future fft.py changes — old embeddings will be on wrong dBFS scale
+- `seed_chromadb.py` tech debt: script must wipe collection before inserting to prevent duplicate records (800→1600 observed)
+- `MimirConfig` dataclass defaults still at lna=16 / vga=20 — latent path
+- `hackrf_rx.py` DEFAULT_LNA/DEFAULT_VGA still 16/20
+- `core/pipeline/capture.py` docstring references old "safe defaults (LNA 16 dB, VGA 20 dB)"
+- `dashboard/shared_state.py` BAND_PROFILES uses inconsistent gain values
+- Phase 9C will run after antenna acquisition: run `tools/diagnose_threshold.py` on live hardware to derive final `SIGNAL_THRESHOLD_DB` value
+
+**Next step:** Source telescopic whip antenna (~68 cm SMA), then run Phase 9C build.
+
+---
+
 ## Deferred Items
 
 - **BUG-01 (RESOLVED — Phase 9B-Hotfix):** True root cause was in `core/pipeline/fft.py`:
@@ -526,6 +570,12 @@ regardless of gain settings.
 
 - **ChromaDB re-seed required (open):** Old embeddings computed under broken normalisation
   are now incompatible with new captures. Must re-seed after deploy.
+
+- **ChromaDB re-seed future-proofing (open):** Any future change to fft.py normalisation will
+  again invalidate existing embeddings. Document this as a migration requirement.
+
+- **seed_chromadb.py tech debt (open):** Script must wipe collection before inserting to
+  prevent duplicate records (800→1600 observed during re-seed).
 
 - **Latent BUG-01 paths (open):** `MimirConfig` dataclass defaults (lna=16, vga=20),
   `hackrf_rx.py` DEFAULT_LNA/DEFAULT_VGA (16/20), and `capture_and_save()` docstring

@@ -26,8 +26,11 @@
 | 9A | ACMA Ref Expansion + /api/frequencies | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
 | 9B | BUG-01 fix: bandwidth_hz/occupied_bins zero | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
 | 9B-Hotfix | BUG-01 true root cause: fft.py normalisation | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
+| 9C | Calibrate SIGNAL_THRESHOLD_DB + clean up gain defaults | ⏳ PENDING | — |
 
 **Total: 278/278 tests passing (222 pytest + 56 Vitest)**
+
+**BUG-01 status:** Code fixed in 9B-Hotfix. Full calibration deferred to Phase 9C pending telescopic whip antenna (~68 cm SMA) purchase.
 
 ---
 
@@ -261,6 +264,25 @@ psd = 10 * log10(averaged_power / (nfft * window_power) + epsilon)
 ```
 
 **Complete when:** `uv run pytest` → 278/278
+
+---
+
+### Phase 9C — Calibrate SIGNAL_THRESHOLD_DB + clean up gain defaults ⏳
+
+**Goal:** Run `tools/diagnose_threshold.py` on live hardware with proper antenna
+(~68 cm telescopic whip SMA) to derive the final `SIGNAL_THRESHOLD_DB` value.
+Clean up latent gain default inconsistencies.
+
+**Status:** PENDING — awaiting antenna acquisition.
+
+**Delivered (placeholder):**
+- Code fixed in 9B-Hotfix. Full calibration deferred.
+
+**Known follow-up items:**
+- `MimirConfig` dataclass defaults still at lna=16 / vga=20
+- `hackrf_rx.py` DEFAULT_LNA/DEFAULT_VGA still 16/20
+- `core/pipeline/capture.py` docstring references old "safe defaults (LNA 16 dB, VGA 20 dB)"
+- `dashboard/shared_state.py` BAND_PROFILES uses inconsistent gain values
 
 ---
 
