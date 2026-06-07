@@ -79,9 +79,21 @@ Do not work around a hard stop. Surface it clearly.
 ## WORKFLOW
 
 ### STEP 1 — PLAN
+Before calling @plan-reviewer, establish prior session context:
+  1. Use bash to find and read the most recent session memo file:
+       ls -t .session-memos/*.md 2>/dev/null | head -1
+     Read that file in full if it exists. If no files exist yet, continue.
+  2. Also read the current session-memo section of AGENTS.md.
+  3. Extract and note: last recorded phase state, any open deferred items,
+     open bugs, and any architectural decisions flagged last session.
+  4. Carry a brief "Prior session context" block into every subsequent agent
+     delegation in this build. No agent should plan, research, or review
+     without knowing what state the project was left in.
+
 Load the `code-preflight` skill (verify the skill name resolves; if it does
 not, report rather than proceeding silently).
-Call @plan-reviewer as Planning Lead with your proposed approach.
+Call @plan-reviewer as Planning Lead with your proposed approach, including
+the prior session context extracted above.
 Wait for completion. If a hard stop is raised → stop and report.
 
 ### STEP 2 — RESEARCH
@@ -178,7 +190,13 @@ to @memo-writer, which runs next in Step 9.
 ### STEP 9 — PROJECT MEMO
 Call @memo-writer as Project Records to record this build in the governance
 docs. @memo-writer cannot run bash, search, or fetch — it edits docs only from
-what you give it. You must therefore hand it explicitly:
+what you give it. Instruct it to:
+  1. Read AGENTS.md in full before writing anything — to see the current
+     session-memo section, phase tracker, and tech debt table. It must not
+     contradict or silently overwrite existing entries; write as a continuation.
+  2. Read ROADMAP.md before touching it, for the same reason.
+
+You must also hand it explicitly:
   - a concise summary of what this build changed (files, functions)
   - the current test counts taken from the Step 5/6 runs (it cannot run pytest)
   - any tech debt or deferred items surfaced during the build
@@ -200,6 +218,17 @@ captured in the TASK block above:
 
 @memo-writer must not touch code, test files, opencode.json, or
 `.opencode/agents/*.md`.
+
+After @memo-writer completes, save the timestamped session record by invoking
+the `session-memo` skill. The session type is always Code for a /build run, so
+state it explicitly — the skill must not ask the user:
+
+  memo this was a Code session
+
+The session-memo skill will write a timestamped file to `.session-memos/` via
+bash. This is separate from what @memo-writer wrote — the AGENTS.md entry is
+the authoritative governance record; the `.session-memos/` file is the raw
+per-build log for historical lookup. Both are required every build.
 
 ### STEP 10 — REPORT
 Produce a structured summary containing:
