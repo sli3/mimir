@@ -183,12 +183,23 @@ If the audit FLAGS an issue → re-enter ONLY the affected step(s):
 Each flagged issue gets EXACTLY ONE re-entry pass. If the re-run still does not
 resolve it → hard stop, escalate to the user. Never loop a re-entry more than once.
 
-### STEP 8 — DOCUMENTATION
-Call @doc-writer as Documentation. Update inline docstrings on changed
-functions and record any technical debt or deferred items surfaced during the
-build. @doc-writer may modify docstrings and source comments only. It must NOT
-touch: test files, AGENTS.md, ROADMAP.md, or any governance doc — those belong
-to @memo-writer, which runs next in Step 9.
+STEP 8 — DOCUMENTATION
+Call @doc-writer as Documentation. Hand it explicitly:
+
+The list of changed files and functions from this build
+Any technical debt or deferred items surfaced during the build
+The current phase number (so it can update docs/wiki.md correctly)
+
+@doc-writer will:
+
+Update inline docstrings on changed functions
+Record any deferred items as inline comments in the relevant source file
+Update docs/wiki.md: phase log, function entries, frontend stack, and
+acronym glossary as needed
+
+@doc-writer may modify source docstrings, inline comments, and docs/wiki.md
+only. It must NOT touch: test files, AGENTS.md, ROADMAP.md, or any other
+governance doc — those belong to @memo-writer in Step 9.
 
 ### STEP 9 — PROJECT MEMO
 Call @memo-writer as Project Records to record this build in the governance
