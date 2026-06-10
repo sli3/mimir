@@ -184,7 +184,6 @@ Each flagged issue gets EXACTLY ONE re-entry pass. If the re-run still does not
 resolve it → hard stop, escalate to the user. Never loop a re-entry more than once.
 
 ### STEP 8 — DOCUMENTATION
-### STEP 8 — DOCUMENTATION
 Call @doc-writer as Documentation. Hand it explicitly:
   - The list of changed files and functions from this build
   - Any technical debt or deferred items surfaced during the build

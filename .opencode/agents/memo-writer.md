@@ -9,7 +9,7 @@ model: opencode-go/mimo-v2.5
 temperature: 0.2
 permission:
   edit: allow
-  bash: deny
+  bash: allow
   webfetch: deny
   websearch: deny
 ---
