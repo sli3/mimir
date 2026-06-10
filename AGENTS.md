@@ -165,9 +165,54 @@ uv run python tools/seed_chromadb.py
 | 9A | ACMA Ref Expansion + /api/frequencies | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
 | 9B | BUG-01 fix: bandwidth_hz/occupied_bins zero (gain red herring) | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
 | 9B-Hotfix | BUG-01 true root cause: fft.py normalisation | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
-| 9C | Calibrate SIGNAL_THRESHOLD_DB + clean up gain defaults | ⏳ PENDING ANTENNA | — |
+| pre-9C | Latent gain defaults cleanup (housekeeping) | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
+| 9C | Calibrate SIGNAL_THRESHOLD_DB | ⏳ PENDING ANTENNA | — |
 
 **Total passing: 278/278 (222 pytest + 56 Vitest)**
+
+### Session memo — Phase pre-9C: Latent gain defaults cleanup (housekeeping)
+
+**Date:** 2026-06-10
+**Status:** Complete
+**Phase context:** Housekeeping — not a numbered phase. Fixed four latent gain default values that still referenced the old 16/20 dB defaults from before the Phase 9B-Hotfix gain investigation.
+
+**What was done:**
+- `core/config/loader.py`: MimirConfig dataclass defaults updated lna 16.0->0.0, vga 20.0->0.0 to match settled safe configuration (lna=0, vga=0, amp=False)
+- `core/device/hackrf_rx.py`: DEFAULT_LNA_GAIN_DB 16->0, DEFAULT_VGA_GAIN_DB 20->0 — used by `capture_and_save()`
+- `core/pipeline/capture.py`: capture_and_save() docstring updated from "LNA 16 dB / VGA 20 dB" to "LNA 0 dB / VGA 0 dB" with Adelaide FM saturation note
+- `dashboard/shared_state.py`: BAND_PROFILES gains updated and documented:
+  - fm_broadcast: 0/0 (Adelaide FM strong — min gain)
+  - aviation: 16/20 (VHF weaker than FM — moderate gain)
+  - adsb: 24/24 (1090 MHz moderate strength)
+  - noise_floor: 0/0 (reference measurement — same gain as FM)
+- `docs/wiki.md`: Phase Log entry, Phase 2 parameter descriptions, LNA/VGA glossary entries (updated by @doc-writer)
+
+**Security gate:** @security-analyst APPROVED — no TX exposure, no AU legal concerns, no attack surface increase
+**Dual review:** @review-second APPROVED — no correctness issues, no regressions, no TX exposure
+**Deep analysis:** @deep-analyst APPROVE WITH NOTES — optional non-blocking items identified (diagnostic tools still use old gains, test fixtures use 32/40 from Phase 9B era)
+
+**Files modified:**
+- `core/config/loader.py` — MimirConfig dataclass defaults: lna 16.0->0.0, vga 20.0->0.0
+- `core/device/hackrf_rx.py` — DEFAULT_LNA_GAIN_DB 16->0, DEFAULT_VGA_GAIN_DB 20->0
+- `core/pipeline/capture.py` — capture_and_save() docstring: LNA 0 dB / VGA 0 dB
+- `dashboard/shared_state.py` — BAND_PROFILES gains updated and documented
+- `docs/wiki.md` — Phase Log, parameter descriptions, glossary entries
+
+**Test counts:** 222 pytest + 56 Vitest = 278/278 (unchanged, no new tests needed)
+
+**Deferred items resolved by this build:**
+- `MimirConfig` dataclass defaults (lna=16, vga=20) — now 0/0
+- `hackrf_rx.py` DEFAULT_LNA/DEFAULT_VGA (16/20) — now 0/0
+- `capture_and_save()` docstring (LNA 16 dB, VGA 20 dB) — now LNA 0 dB, VGA 0 dB
+- `dashboard/shared_state.py` BAND_PROFILES inconsistent gains — now documented with per-band rationale
+
+**Non-blocking follow-up items (not addressed — outside pre-approved scope):**
+- `tools/diagnose_threshold.py` still uses its own hardcoded gain values (0/0, already correct)
+- Test fixtures in `test_config_loader.py` and `test_scanner.py` use lna=32 / vga=40 from Phase 9B era — not a runtime issue but inconsistent with production defaults
+
+**No TX or AU/SA legal issues.** All changes are RX-only gain default alignment.
+
+---
 
 ### Session memo — Phase 8B: Wire ScanRunner stats into system_stats + AGENTS.md cleanup
 
@@ -577,9 +622,11 @@ Fixed fft.py dBFS normalisation bug — the true root cause of BUG-01. The /max_
 - **seed_chromadb.py tech debt (open):** Script must wipe collection before inserting to
   prevent duplicate records (800→1600 observed during re-seed).
 
-- **Latent BUG-01 paths (open):** `MimirConfig` dataclass defaults (lna=16, vga=20),
-  `hackrf_rx.py` DEFAULT_LNA/DEFAULT_VGA (16/20), and `capture_and_save()` docstring
-  still reference old gain values. Not addressed in Phase 9B-Hotfix (outside pre-approved scope).
+- **Latent BUG-01 paths (RESOLVED — pre-9C-gain-defaults):** `MimirConfig`
+  dataclass defaults updated to lna=0.0 / vga=0.0, `hackrf_rx.py` DEFAULT_LNA/DEFAULT_VGA
+  updated to 0/0, `capture_and_save()` docstring updated to "LNA 0 dB / VGA 0 dB".
+  `dashboard/shared_state.py` BAND_PROFILES gains documented with per-band rationale.
+  All aligned to settled safe configuration (lna=0, vga=0, amp=False).
 
 - **NOAA/Meteor-M2 satellite module (post-Phase 8):** HackRF covers 137-138 MHz.
   NOAA 15 (137.620 MHz), NOAA 18 (137.9125 MHz), NOAA 19 (137.100 MHz),

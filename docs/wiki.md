@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: 9
+last_updated_phase: pre-9C-gain-defaults
 ---
 
 # Mimir Wiki
@@ -70,6 +70,35 @@ Step  Function / Component          What it does
 ## Phase Log
 
 Phases are listed newest-first so the current phase is always at the top.
+
+---
+
+### pre-9C-gain-defaults — Gain Defaults Housekeeping ✓ DONE
+
+**What:** Align four source files to the settled gain configuration of
+`lna=0, vga=0, amp=False`. The old defaults (LNA 16 dB, VGA 20 dB) were
+left over from early development and were misleading — Adelaide FM broadcast
+is extremely strong, and those values risked ADC saturation. Phase 9B-Hotfix
+already set `config/mimir.yaml` to `lna=0, vga=0`, but the Python defaults
+and band profiles still carried the old values.
+
+**Why:** When a new `MimirConfig` was constructed directly (bypassing YAML
+loading), or when `capture_and_save()` ran without explicit gain arguments,
+it silently applied 16/20 dB — too much gain for FM, producing clipped
+samples. Making the Python defaults match the YAML eliminates this latent
+inconsistency.
+
+**Files changed:**
+- `core/config/loader.py` — `MimirConfig` dataclass: `lna_gain_db` 16.0→0.0, `vga_gain_db` 20.0→0.0
+- `core/device/hackrf_rx.py` — `DEFAULT_LNA_GAIN_DB` 16→0, `DEFAULT_VGA_GAIN_DB` 20→0
+- `core/pipeline/capture.py` — docstring updated to reflect LNA 0 dB / VGA 0 dB with Adelaide FM saturation note
+- `dashboard/shared_state.py` — `BAND_PROFILES` gains updated per band:
+  - fm_broadcast: 0/0 (Adelaide FM is strong — minimum gain prevents saturation)
+  - aviation: 16/20 (VHF weaker than FM — moderate gain needed)
+  - adsb: 24/24 (1090 MHz moderate strength — more gain required)
+  - noise_floor: 0/0 (reference measurement — same gain as FM)
+
+**Test counts:** 278/278 (222 pytest + 56 Vitest) — no new tests required (defaults-only change).
 
 ---
 
@@ -209,8 +238,12 @@ Parameters:
 - `freq_hz` — which frequency to tune to (e.g. 96_500_000 = 96.5 MHz FM)
 - `num_samples` — how many samples to collect (256,000 ≈ 128 ms at 2 MHz)
 - `sample_rate_hz` — samples per second; higher = wider frequency view
-- `lna_gain_db` — first amplifier stage; 24 is a safe starting value
-- `vga_gain_db` — second amplifier stage; 30 is typical
+- `lna_gain_db` — first amplifier stage; default is 0 dB for strong signals
+  like Adelaide FM broadcast (98 MHz). Weaker bands (e.g. aviation VHF, ADS-B)
+  may need 16–24 dB. Higher gain = more amplification but risk of clipping.
+- `vga_gain_db` — second amplifier stage; default is 0 dB for FM broadcast.
+  Weaker bands may need 20–24 dB. LNA and VGA together control total gain —
+  too much for a strong signal will saturate the ADC and produce distorted data.
 
 Returns: NumPy array of complex (IQ) numbers.
 
@@ -372,7 +405,7 @@ This is a strong sign the connected antenna is too short for that frequency.
 | IQ | In-phase / Quadrature | Raw format for SDR data. Two number streams (I and Q) that together describe amplitude and phase. "IQ data" = raw radio samples. |
 | JSON | JavaScript Object Notation | Text format for structured data. The server sends PSD as JSON: `{"freq_hz": [...], "power_db": [...]}`. |
 | LLM | Large Language Model | AI model on yubaba (RTX 3060, llama.cpp) used for signal classification. Reads a fingerprint, says what type of signal it is. |
-| LNA | Low Noise Amplifier | First amplifier in the receive chain. Boosts signal before anything else. Set via `lna_gain_db`. Typical: 24. |
+| LNA | Low Noise Amplifier | First amplifier in the receive chain. Boosts signal before anything else. Set via `lna_gain_db`. Default: 0 dB for strong signals (FM broadcast). Weaker bands may need 16–24 dB. |
 | NumPy | Numerical Python | Python library for fast array maths. All IQ samples and PSD values are NumPy arrays. `np.` in code = NumPy. |
 | PSD | Power Spectral Density | Output of the FFT. A bar chart of frequency vs signal strength. One dB value per frequency bin. |
 | PYTHONPATH | Python Path | Environment variable telling Python where to find modules. `PYTHONPATH=.` means "look from current directory" — needed for debug scripts to find Mimir's own modules. |
@@ -382,7 +415,7 @@ This is a strong sign the connected antenna is too short for that frequency.
 | telescopic whip | Telescopic Whip Antenna | An adjustable-length antenna. Extend it to match the wavelength of the frequency you want. One physical antenna usable across many bands. |
 | TX | Transmit | Sending radio signals. Mimir never transmits. Any TX function call must raise `HardwareTransmitError`. AU law — criminal offence without licence. |
 | uvicorn | Uvicorn | ASGI server that runs FastAPI. When you start the server, uvicorn listens on the port. FastAPI defines the routes; uvicorn serves them. |
-| VGA | Variable Gain Amplifier | Second amplifier stage after LNA. Together LNA + VGA = two gain knobs. Set via `vga_gain_db`. Typical: 30. |
+| VGA | Variable Gain Amplifier | Second amplifier stage after LNA. Together LNA + VGA = two gain knobs. Set via `vga_gain_db`. Default: 0 dB for strong signals (FM broadcast). Weaker bands may need 20–24 dB. |
 | wavelength | Wavelength | The physical length of one radio wave cycle. Higher frequency = shorter wavelength. An antenna works best when its length matches the wavelength of the signal it is receiving. |
 | WebSocket | WebSocket | Persistent two-way browser–server connection. Unlike HTTP (closes after response), it stays open so the server can push data in real time. |
 | yubaba | yubaba | Prin's local LLM inference server. RTX 3060 12GB, llama.cpp. Hosts the model used by `classify_signal()`. |

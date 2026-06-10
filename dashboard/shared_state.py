@@ -98,27 +98,31 @@ spectrum_clients_lock = threading.Lock()
 # The capture loop checks this every frame and restarts on the new band.
 band_change_event = threading.Event()
 
-# The four AU-legal band profiles. All receive-only.
+# Per-band gain profiles for the live waterfall dashboard.
+# These are independent of the main scan pipeline gain set in
+# config/mimir.yaml (lna=0, vga=0, amp=False) and are tuned for
+# each band's typical signal strength in Adelaide.
+# All receive-only — AU-legal bands only.
 BAND_PROFILES: dict = {
     "fm_broadcast": {
         "center_freq_hz": 98_000_000,
-        "lna_gain_db":    32,
-        "vga_gain_db":    40,
+        "lna_gain_db":    0,   # Adelaide FM is extremely strong — min gain
+        "vga_gain_db":    0,
     },
     "aviation": {
         "center_freq_hz": 127_000_000,
-        "lna_gain_db":    32,
-        "vga_gain_db":    40,
+        "lna_gain_db":    16,  # VHF aviation weaker than FM; moderate gain
+        "vga_gain_db":    20,
     },
     "adsb": {
         "center_freq_hz": 1_090_000_000,
-        "lna_gain_db":    32,
-        "vga_gain_db":    38,
+        "lna_gain_db":    24,  # 1090 MHz ADS-B moderate strength
+        "vga_gain_db":    24,
     },
     "noise_floor": {
         "center_freq_hz": 98_000_000,
-        "lna_gain_db":    16,
-        "vga_gain_db":    20,
+        "lna_gain_db":    0,   # Reference measurement — same gain as FM
+        "vga_gain_db":    0,
     },
 }
 

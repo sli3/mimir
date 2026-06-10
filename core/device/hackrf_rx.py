@@ -88,8 +88,8 @@ class HackRFReceiver(DeviceBase):
     # Default safe receive settings
     DEFAULT_CENTER_FREQ_HZ: float = 98_000_000    # 98 MHz — FM broadcast
     DEFAULT_SAMPLE_RATE_HZ: float = 2_000_000     # 2 MHz bandwidth
-    DEFAULT_LNA_GAIN_DB: float = 16               # RF front-end gain (0–40 dB)
-    DEFAULT_VGA_GAIN_DB: float = 20               # Baseband gain (0–62 dB)
+    DEFAULT_LNA_GAIN_DB: float = 0                # RF front-end gain (0–40 dB)
+    DEFAULT_VGA_GAIN_DB: float = 0                # Baseband gain (0–62 dB)
     DEFAULT_AMP_ENABLE: bool = False              # RF amp — leave off by default
 
     def __init__(

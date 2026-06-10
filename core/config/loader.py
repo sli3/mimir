@@ -14,8 +14,8 @@ class MimirConfig:
     frequencies_hz: list[float] = field(default_factory=lambda: [98_000_000, 145_175_000, 915_000_000, 1_090_000_000])
     dwell_time_sec: float = 2.0
     num_samples: int = 2_000_000
-    lna_gain_db: float = 16.0
-    vga_gain_db: float = 20.0
+    lna_gain_db: float = 0.0
+    vga_gain_db: float = 0.0
     amp_enable: bool = False
     queue_maxsize: int = 20
     llm_url: str = "http://192.168.0.66:8080/v1"
