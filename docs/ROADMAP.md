@@ -27,9 +27,10 @@
 | 9B | BUG-01 fix: bandwidth_hz/occupied_bins zero | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
 | 9B-Hotfix | BUG-01 true root cause: fft.py normalisation | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
 | pre-9C | Latent gain defaults cleanup (housekeeping) | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
+| pre-9C-seed-autowipe | seed_chromadb.py auto-wipe before seeding | ✅ Complete | 279/279 (223 pytest + 56 Vitest) |
 | 9C | Calibrate SIGNAL_THRESHOLD_DB | ⏳ PENDING | — |
 
-**Total: 278/278 tests passing (222 pytest + 56 Vitest)**
+**Total: 279/279 tests passing (223 pytest + 56 Vitest)**
 
 **BUG-01 status:** Code fixed in 9B-Hotfix. Full calibration deferred to Phase 9C pending telescopic whip antenna (~68 cm SMA) purchase.
 
@@ -190,6 +191,7 @@ frequency at a time, and tune the LLM for faster inference.
 **Delivered (9A):** ACMA band expansion (5->23 labels), /api/frequencies endpoint, notes pass-through
 **Delivered (9B):** BUG-01 gain fix (red herring — gain raised to lna=32/vga=40, did not resolve bug)
 **Delivered (9B-Hotfix):** BUG-01 true root cause fixed — fft.py normalisation corrected, true dBFS achieved
+**Delivered (pre-9C-seed-autowipe):** seed_chromadb.py auto-wipe before seeding — fixed duplicate insert bug
 
 **Remaining:**
 - Fix `scan.py` startup message ("Scanning N frequencies" -> reflect single-freq mode)
@@ -289,6 +291,24 @@ four latent defaults still referenced the old 16/20 dB values.
 - `dashboard/shared_state.py` BAND_PROFILES inconsistent gains (now documented)
 
 **Complete when:** `uv run pytest` → 278/278
+
+---
+
+### Phase pre-9C-seed-autowipe — seed_chromadb.py auto-wipe before seeding ✅
+
+**Goal:** Fix known seed_chromadb.py tech debt where the script could insert
+duplicate records into ChromaDB (800→1600 observed during re-seed). The old
+`check_duplicates()` function relied on an interactive prompt which blocked
+automated use.
+
+**Delivered:**
+- `tools/seed_chromadb.py` — removed `check_duplicates()`, added `wipe_collection()` that unconditionally deletes and recreates the collection before seeding, updated module docstring with data destruction warning
+- `tests/tools/test_seed_chromadb.py` — removed `TestSkipDuplicateDetection` (3 tests), added `TestWipeAndReseed` (4 tests)
+
+**Resolved deferred items:**
+- `seed_chromadb.py` tech debt: script must wipe collection before inserting to prevent duplicate records — replaced interactive prompt with automatic wipe
+
+**Complete when:** `uv run pytest` → 279/279
 
 ---
 

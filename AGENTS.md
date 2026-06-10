@@ -166,9 +166,10 @@ uv run python tools/seed_chromadb.py
 | 9B | BUG-01 fix: bandwidth_hz/occupied_bins zero (gain red herring) | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
 | 9B-Hotfix | BUG-01 true root cause: fft.py normalisation | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
 | pre-9C | Latent gain defaults cleanup (housekeeping) | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
+| pre-9C-seed-autowipe | seed_chromadb.py auto-wipe before seeding | ✅ Complete | 279/279 (223 pytest + 56 Vitest) |
 | 9C | Calibrate SIGNAL_THRESHOLD_DB | ⏳ PENDING ANTENNA | — |
 
-**Total passing: 278/278 (222 pytest + 56 Vitest)**
+**Total passing: 279/279 (223 pytest + 56 Vitest)**
 
 ### Session memo — Phase pre-9C: Latent gain defaults cleanup (housekeeping)
 
@@ -604,6 +605,29 @@ Fixed fft.py dBFS normalisation bug — the true root cause of BUG-01. The /max_
 
 ---
 
+### Session memo — Phase pre-9C-seed-autowipe: seed_chromadb.py auto-wipe before seeding
+
+**Date:** 2026-06-10
+**Status:** Complete
+**Phase context:** Housekeeping — not a numbered phase. Fixed the known seed_chromadb.py tech debt where the script could insert duplicate records into ChromaDB (800→1600 observed during re-seed).
+
+**What was done:**
+- `tools/seed_chromadb.py`: Removed `check_duplicates()` interactive prompt function, added `wipe_collection(store)` that unconditionally deletes and recreates the ChromaDB collection before seeding. Updated module docstring with data destruction warning. Updated `main()` to wipe then recreate store.
+- `tests/tools/test_seed_chromadb.py`: Removed `TestSkipDuplicateDetection` (3 old tests relying on interactive prompt), added `TestWipeAndReseed` (4 new tests for the wipe-then-seed flow), cleaned up unused imports.
+
+**Files modified:**
+- `tools/seed_chromadb.py` — removed `check_duplicates()`, added `wipe_collection()`, updated `main()` and module docstring
+- `tests/tools/test_seed_chromadb.py` — replaced duplicate-detection tests with wipe-and-reseed tests
+
+**Test counts:** 223 pytest + 56 Vitest = 279/279 (up from 222/278)
+
+**Deferred items resolved by this build:**
+- `seed_chromadb.py` tech debt: script must wipe collection before inserting to prevent duplicate records (800→1600 observed during re-seed) — replaced interactive `check_duplicates()` with automatic `wipe_collection()`
+
+**No TX or AU/SA legal issues.** All changes are RX-only tooling.
+
+---
+
 ## Deferred Items
 
 - **BUG-01 (RESOLVED — Phase 9B-Hotfix):** True root cause was in `core/pipeline/fft.py`:
@@ -619,8 +643,9 @@ Fixed fft.py dBFS normalisation bug — the true root cause of BUG-01. The /max_
 - **ChromaDB re-seed future-proofing (open):** Any future change to fft.py normalisation will
   again invalidate existing embeddings. Document this as a migration requirement.
 
-- **seed_chromadb.py tech debt (open):** Script must wipe collection before inserting to
-  prevent duplicate records (800→1600 observed during re-seed).
+- **seed_chromadb.py tech debt (RESOLVED — pre-9C-seed-autowipe):** Script must wipe
+  collection before inserting to prevent duplicate records (800→1600 observed during
+  re-seed). Replaced interactive `check_duplicates()` with automatic `wipe_collection()`.
 
 - **Latent BUG-01 paths (RESOLVED — pre-9C-gain-defaults):** `MimirConfig`
   dataclass defaults updated to lna=0.0 / vga=0.0, `hackrf_rx.py` DEFAULT_LNA/DEFAULT_VGA

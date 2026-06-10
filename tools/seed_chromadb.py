@@ -5,6 +5,10 @@ Downloads RTL-ML dataset from HuggingFace, processes each sample through
 Mimir's pipeline (FFT -> fingerprint -> embed), and stores vectors in
 ChromaDB as labelled reference signals.
 
+WARNING: Re-running this script will destroy all existing ChromaDB data
+(including any manually added reference vectors) and re-seed from scratch.
+The collection is unconditionally wiped before each seed run.
+
 This is a one-off seeding script. Do not import or use in production code.
 
 Legal: Receive-only. Radiocommunications Act 1992 (Cth).
@@ -27,6 +31,12 @@ logger = logging.getLogger(__name__)
 
 RTL_ML_SAMPLE_RATE = 1_024_000
 
+# RTL-ML dataset class metadata. Frequencies are taken from the dataset as-is.
+# NOTE: APRS (144.390 MHz) is the US frequency; AU uses 145.175 MHz.
+# ISM_sensors (433.92 MHz) is the EU frequency; AU uses 433.05 MHz.
+# These do not affect ChromaDB seeding (used only for metadata labelling),
+# but LLM classifier prompts should use the AU frequencies from the
+# ACMA frequency reference instead.
 CLASS_META: dict[str, dict] = {
     "ADS_B": {"center_freq_hz": 1_090_000_000, "label": "ADS_B"},
     "APRS": {"center_freq_hz": 144_390_000, "label": "APRS"},
@@ -174,30 +184,45 @@ def discover_dataset_files(dataset_path: Path) -> dict[str, list[tuple[Path, int
     return classes
 
 
-def check_duplicates(store: SignalStore) -> None:
-    """Check for existing records and prompt user to proceed or abort.
+def wipe_collection(store: SignalStore) -> None:
+    """Delete the existing collection to prepare for fresh seeding.
 
-    Exits with code 0 if user declines.
+    Replaces the old interactive check_duplicates() function. Unconditionally
+    wipes the collection so re-seeding never produces duplicate records
+    (the 800->1600 problem observed during earlier builds).
+
+    After calling this function, the caller must create a new SignalStore
+    instance because the old instance's internal collection handle becomes
+    stale after deletion.
+
+    Catches Exception broadly because ChromaDB raises different exception
+    types depending on backend version (ValueError, NotFoundError, or
+    others). First-run case (collection does not exist) is also caught here.
     """
-    existing = store.count()
-    if existing > 0:
-        print(f"WARNING: ChromaDB already has {existing} records.")
-        print("Re-seeding will create duplicates. Proceed? [y/N]: ", end="")
-        response = input().strip().lower()
-        if response != "y":
-            print("Aborted.")
-            sys.exit(0)
+    print("Wiping existing collection before seeding...")
+    try:
+        store.delete_collection()
+    except Exception:
+        # First run: collection does not exist yet. Also catches
+        # ValueError/NotFoundError depending on ChromaDB backend version.
+        pass
 
 
 def main() -> None:
-    """Run the seeding process: download, process, insert."""
+    """Run the seeding process: wipe, download, process, insert.
+
+    The collection is wiped before each run to guarantee a clean seed.
+    A fresh SignalStore instance is created after the wipe because the
+    old instance's internal collection handle is stale post-deletion.
+    """
     logging.basicConfig(
         level=logging.INFO,
         format="%(levelname)s:%(name)s:%(message)s",
     )
 
     store = SignalStore(path="data/vectorstore")
-    check_duplicates(store)
+    wipe_collection(store)
+    store = SignalStore(path="data/vectorstore")
 
     embedder = SpectrumEmbedder()
 

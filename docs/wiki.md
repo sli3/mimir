@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: pre-9C-gain-defaults
+last_updated_phase: pre-9C-seed-autowipe
 ---
 
 # Mimir Wiki
@@ -70,6 +70,39 @@ Step  Function / Component          What it does
 ## Phase Log
 
 Phases are listed newest-first so the current phase is always at the top.
+
+---
+
+### pre-9C-seed-autowipe — ChromaDB Seed Auto-Wipe ▶ ACTIVE
+
+**What:** Replace the interactive `check_duplicates()` function in `tools/seed_chromadb.py`
+with an automatic `wipe_collection()` that unconditionally deletes and recreates the
+ChromaDB collection before each seed run. The old function prompted the user with
+an `[y/N]` question; the new one always wipes, eliminating the possibility of
+accidental duplicate records (the 800->1600 problem observed during Phase 9B-Hotfix).
+
+**Why:** During the Phase 9B-Hotfix re-seed, running the script without answering
+the prompt (or answering incorrectly) produced duplicate records — the collection
+grew from 800 to 1600. An automatic wipe is safer: every seed run starts clean.
+
+**Files changed:**
+- `tools/seed_chromadb.py` — removed `check_duplicates()`, added `wipe_collection(store)`,
+  updated `main()` to wipe then re-create SignalStore (old instance's collection handle
+  is stale after deletion). Module docstring now warns that re-running destroys all data.
+- `tests/tools/test_seed_chromadb.py` — removed 3 interactive prompt tests, added 4
+  wipe-and-reseed tests (populated store, empty store, no doubling, nonexistent collection).
+
+**Key function:**
+
+`wipe_collection(store)` — deletes the existing ChromaDB collection so the seed
+run starts from a clean slate. Catches `Exception` broadly because ChromaDB raises
+different exception types depending on backend version (`ValueError`, `NotFoundError`,
+or others). First-run case (collection does not exist) is also handled.
+
+**Analogy:** Formatting a memory card before loading new photos. You always start
+empty so there are never old and new files mixed together.
+
+**Test counts:** 278/278 (222 pytest + 56 Vitest).
 
 ---
 

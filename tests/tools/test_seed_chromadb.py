@@ -4,7 +4,6 @@ All tests use synthetic data. No HuggingFace download, no hardware required.
 """
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -17,10 +16,10 @@ from tools.seed_chromadb import (
     CLASS_META,
     RTL_ML_SAMPLE_RATE,
     build_metadata,
-    check_duplicates,
     discover_dataset_files,
     extract_iq_data,
     process_sample,
+    wipe_collection,
 )
 
 
@@ -138,43 +137,70 @@ class TestBatchInsertIntoStore:
         assert store.count() == 0
 
 
-class TestSkipDuplicateDetection:
-    """Duplicate detection warns when store already has records."""
+class TestWipeAndReseed:
+    """Wipe clears existing records before seeding."""
 
-    def test_no_warning_on_empty_store(self) -> None:
-        """No warning printed when store is empty."""
-        store = _clean_store()
-        with patch("builtins.input") as mock_input:
-            check_duplicates(store)
-            mock_input.assert_not_called()
-
-    @patch("builtins.input", return_value="y")
-    def test_warning_printed_when_existing(
-        self, mock_input: MagicMock, capsys: pytest.CaptureFixture
-    ) -> None:
-        """Warning is printed when store contains records."""
+    def test_wipe_clears_populated_store(self) -> None:
+        """Wiping a populated store then seeding results in expected count."""
         store = _clean_store()
         record = _make_synthetic_record()
         store.add_batch([record])
         assert store.count() == 1
-        check_duplicates(store)
-        captured = capsys.readouterr()
-        assert "WARNING" in captured.out
-        assert "1" in captured.out
 
-    @patch("builtins.input", return_value="n")
-    def test_aborts_on_user_decline(
-        self, mock_input: MagicMock, capsys: pytest.CaptureFixture
-    ) -> None:
-        """User declining exits with code 0."""
+        wipe_collection(store)
+        store = SignalStore(path=":memory:")
+        assert store.count() == 0
+
+        store.add_batch([record])
+        assert store.count() == 1
+
+    def test_wipe_on_empty_store(self) -> None:
+        """Wiping an empty store (first run) does not raise and allows clean seeding."""
         store = _clean_store()
+        assert store.count() == 0
+
+        wipe_collection(store)
+        store = SignalStore(path=":memory:")
+        assert store.count() == 0
+
         record = _make_synthetic_record()
         store.add_batch([record])
-        with pytest.raises(SystemExit) as exc_info:
-            check_duplicates(store)
-        assert exc_info.value.code == 0
-        captured = capsys.readouterr()
-        assert "Aborted." in captured.out
+        assert store.count() == 1
+
+    def test_no_doubling_after_wipe(self) -> None:
+        """Seeding after wipe produces exactly N records, not 2N."""
+        store = _clean_store()
+        records = []
+        for i in range(3):
+            rng = np.random.default_rng(i)
+            iq = (rng.standard_normal(4096) + 1j * rng.standard_normal(4096)).astype(
+                np.complex64
+            )
+            psd = compute_psd(iq, RTL_ML_SAMPLE_RATE, 100_000_000 + i)
+            fp = fingerprint_spectrum(psd)
+            embedder = SpectrumEmbedder()
+            meta = build_metadata("test", i, iq, {"center_freq_hz": 100_000_000 + i, "label": f"test_{i}"})
+            records.append(embedder.embed_fingerprint(fp, metadata=meta))
+        store.add_batch(records)
+        assert store.count() == 3
+
+        # Simulate seeding again (as if re-running seed_chromadb.py)
+        wipe_collection(store)
+        store = SignalStore(path=":memory:")
+        store.add_batch(records)
+        assert store.count() == 3  # Not 6
+
+    def test_wipe_on_nonexistent_collection(self) -> None:
+        """wipe_collection handles ValueError when collection does not exist."""
+        store = _clean_store()
+        store.delete_collection()
+        # collection no longer exists — call wipe_collection on stale store
+        wipe_collection(store)
+        store = SignalStore(path=":memory:")
+        assert store.count() == 0
+        record = _make_synthetic_record()
+        store.add_batch([record])
+        assert store.count() == 1
 
 
 class TestExtractIqData:
