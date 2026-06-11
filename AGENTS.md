@@ -178,268 +178,6 @@ uv run python tools/seed_chromadb.py
 
 **Total passing: 290/290 (223 pytest + 56 Vitest + 11 bash)**
 
-### Session memo — Phase pre-9C: Latent gain defaults cleanup (housekeeping)
-
-**Date:** 2026-06-10
-**Status:** Complete
-**Phase context:** Housekeeping — not a numbered phase. Fixed four latent gain default values that still referenced the old 16/20 dB defaults from before the Phase 9B-Hotfix gain investigation.
-
-**What was done:**
-- `core/config/loader.py`: MimirConfig dataclass defaults updated lna 16.0->0.0, vga 20.0->0.0 to match settled safe configuration (lna=0, vga=0, amp=False)
-- `core/device/hackrf_rx.py`: DEFAULT_LNA_GAIN_DB 16->0, DEFAULT_VGA_GAIN_DB 20->0 — used by `capture_and_save()`
-- `core/pipeline/capture.py`: capture_and_save() docstring updated from "LNA 16 dB / VGA 20 dB" to "LNA 0 dB / VGA 0 dB" with Adelaide FM saturation note
-- `dashboard/shared_state.py`: BAND_PROFILES gains updated and documented:
-  - fm_broadcast: 0/0 (Adelaide FM strong — min gain)
-  - aviation: 16/20 (VHF weaker than FM — moderate gain)
-  - adsb: 24/24 (1090 MHz moderate strength)
-  - noise_floor: 0/0 (reference measurement — same gain as FM)
-- `docs/wiki.md`: Phase Log entry, Phase 2 parameter descriptions, LNA/VGA glossary entries (updated by @doc-writer)
-
-**Security gate:** @security-analyst APPROVED — no TX exposure, no AU legal concerns, no attack surface increase
-**Dual review:** @review-second APPROVED — no correctness issues, no regressions, no TX exposure
-**Deep analysis:** @deep-analyst APPROVE WITH NOTES — optional non-blocking items identified (diagnostic tools still use old gains, test fixtures use 32/40 from Phase 9B era)
-
-**Files modified:**
-- `core/config/loader.py` — MimirConfig dataclass defaults: lna 16.0->0.0, vga 20.0->0.0
-- `core/device/hackrf_rx.py` — DEFAULT_LNA_GAIN_DB 16->0, DEFAULT_VGA_GAIN_DB 20->0
-- `core/pipeline/capture.py` — capture_and_save() docstring: LNA 0 dB / VGA 0 dB
-- `dashboard/shared_state.py` — BAND_PROFILES gains updated and documented
-- `docs/wiki.md` — Phase Log, parameter descriptions, glossary entries
-
-**Test counts:** 222 pytest + 56 Vitest = 278/278 (unchanged, no new tests needed)
-
-**Deferred items resolved by this build:**
-- `MimirConfig` dataclass defaults (lna=16, vga=20) — now 0/0
-- `hackrf_rx.py` DEFAULT_LNA/DEFAULT_VGA (16/20) — now 0/0
-- `capture_and_save()` docstring (LNA 16 dB, VGA 20 dB) — now LNA 0 dB, VGA 0 dB
-- `dashboard/shared_state.py` BAND_PROFILES inconsistent gains — now documented with per-band rationale
-
-**Non-blocking follow-up items (not addressed — outside pre-approved scope):**
-- `tools/diagnose_threshold.py` still uses its own hardcoded gain values (0/0, already correct)
-- Test fixtures in `test_config_loader.py` and `test_scanner.py` use lna=32 / vga=40 from Phase 9B era — not a runtime issue but inconsistent with production defaults
-
-**No TX or AU/SA legal issues.** All changes are RX-only gain default alignment.
-
----
-
-### Session memo — Phase 8B: Wire ScanRunner stats into system_stats + AGENTS.md cleanup
-
-**Status:** Complete
-**Phase context:** Phase 8B — final phase of the 8-phase roadmap
-
-**What was done:**
-- Added `_scan_count`, `_active_freq_hz`, `_last_llm_ms` tracking to `ScanRunner.__init__()`
-- Added `_active_freq_hz = freq_hz` after `device.set_center_frequency()` in `_scan_loop`
-- Added `self._scan_count += 1` at end of each per-frequency iteration
-- Timed `self._classifier.classify()` call in `_ai_loop` to populate `_last_llm_ms`
-- Added `ScanRunner.get_stats()` public method returning all four runtime metrics
-- Modified `start_server()` to accept optional `scanner=` parameter
-- Replaced hardcoded zeros in system_stats emit with live scanner values
-- Reordered `scan.py` to create scanner before calling `start_server()`
-- Removed resolved deferred items from AGENTS.md (system_stats placeholders, event table fix)
-- Updated Phase 8B status to ✅ Complete with test counts
-- Added 6 scanner tests and 2 server tests
-
-**Files modified:**
-- `core/pipeline/scanner.py` — stats tracking fields, get_stats(), timed classify()
-- `dashboard/server.py` — scanner parameter, live stats emit
-- `scan.py` — scanner created before start_server()
-- `AGENTS.md` — phase tracker, total count, deferred items cleanup, this memo block
-- `tests/core/test_scanner.py` — 6 new tests for get_stats()
-- `tests/dashboard/test_server_stats.py` — 2 new tests for scanner wiring
-
-**Test counts:** 203 pytest + 56 Vitest = 259/259
-
----
-
-### Session memo — Phase 8C: Single-frequency focus mode + LLM tuning
-
-**Status:** Complete
-**Phase context:** Phase 8C — single-frequency focus mode to resolve LLM queue saturation
-
-**What was done:**
-- Replaced `for freq_hz in config.frequencies_hz` rotation in `_scan_loop` with single-frequency focus mode
-- Added `_focus_freq_hz` (defaults to `config.frequencies_hz[0]` = 98 MHz) and `_focus_lock` to `ScanRunner.__init__()`
-- Added `set_focus_frequency(freq_hz)` public method: acquires lock, updates focus freq, flushes queue with `get_nowait()` until `queue.Empty`
-- `_scan_loop` now reads focus frequency under lock at start of each iteration, stays on that frequency
-- `dashboard/server.py`: `handle_set_focus` now calls `scanner.set_focus_frequency()` via `_scanner_ref` module-level global
-- Replaced `test_frequency_hopping_order` with `test_scan_loop_stays_on_focus_frequency`
-- Added `test_set_focus_frequency_flushes_queue`
-- LLM model swap: Qwen3 → Qwen3-4B-Q4_K_M (llama.cpp on yubaba)
-- LLM tuning: `max_tokens=300` added to API request; `/no_think` appended to system prompt end
-  (reasoning-budget parameter caused empty responses, so it was removed)
-- LLM inference speed: 18–23s → ~2.5s (15x speedup)
-- `fm_broadcast` classifying at 95–98% confidence with new model
-- Queue depth: permanently pegged at 20/20 → ~0/20 at steady state
-
-**Files modified:**
-- `core/pipeline/scanner.py` — `_scan_loop` rewrite, `set_focus_frequency()`, `_focus_freq_hz`, `_focus_lock`
-- `dashboard/server.py` — `_scanner_ref`, `handle_set_focus` calls `scanner.set_focus_frequency()`
-- `tests/core/test_scanner.py` — focus frequency tests, queue flush test
-- `llm/classifier.py` — model default, `max_tokens=300`, `/no_think` system prompt suffix
-- `AGENTS.md` — phase tracker, total count, this memo block, LLM hardware info, run command note
-- `docs/ROADMAP.md` — phase tracker, Phase 8C section, Phase 9 placeholder
-
-**Test counts:** 204 pytest + 56 Vitest = 260/260
-
----
-
-### Session memo — Phase 9A: ACMA Reference Expansion + /api/frequencies endpoint
-
-**Status:** Complete
-**Phase context:** Phase 9A — expand ACMA band coverage in LLM classifier
-
-**What was built:**
-- llm/classifier.py: _AU_BAND_REFERENCE expanded from 5 to 23 mimir_band labels
-  with AU-only frequency ranges and plain-English descriptions.
-  _JSON_SCHEMA comment updated to list all 23 valid signal_type values.
-  Notes pass-through added to _build_user_prompt — non-empty notes fields from
-  frequency_reference.json now appear in the ACMA section of the LLM user prompt.
-  Marine HF range corrected to 4–27.5 MHz. UHF CB narrowed to 476.425–477.400 MHz.
-- dashboard/server.py: GET /api/frequencies endpoint added with query param
-  support (?min_mhz, ?max_mhz, ?tagged_only=1). Returns filtered JSON array
-  from data/frequency_reference.json, read fresh per request. Returns 500 on file
-  read failure. handle_set_focus now coerces input to float with try/except —
-  invalid or missing values clear focus safely.
-- tests/dashboard/test_server_api.py: 10 tests — all filter combinations, schema
-  validation, empty range, error paths. Counts loaded dynamically from
-  frequency_reference.json to avoid brittleness.
-- tests/dashboard/test_server_stats.py: 2 new tests for handle_set_focus type
-  coercion and invalid string handling.
-- tests/llm/test_phase4_classifier.py: 4 new tests — notes appear/omit, all 23
-  mimir_band labels in system prompt, no FCC/ETSI in system prompt.
-- tests/llm/test_acma_reference.py: 2 new tests — notes field present, non-empty
-  notes preserved in lookup results.
-
-**QA re-run note:** Original build had misconfigured agent model strings
-(opencode/ prefix instead of opencode-go/). Fixed in opencode.json and all
-.opencode/agents/*.md files. Re-run caught two factual errors in band reference
-data and one input validation bug — all fixed before commit.
-
-**Files modified:**
-- llm/classifier.py — _AU_BAND_REFERENCE, _JSON_SCHEMA, notes pass-through
-- dashboard/server.py — /api/frequencies endpoint, handle_set_focus type coercion
-- tests/dashboard/test_server_api.py — new file (10 tests)
-- tests/dashboard/test_server_stats.py — 2 focus type tests
-- tests/llm/test_phase4_classifier.py — 4 ACMA / band reference tests
-- tests/llm/test_acma_reference.py — 2 notes field tests
-
-**Test counts:** 222 pytest + 56 Vitest = 278/278
-
----
-
-### Session memo — Phase 9B: BUG-01 fix: bandwidth_hz/occupied_bins zero in live ChromaDB embeddings
-
-**Status:** Complete
-**Phase context:** Phase 9B — fix BUG-01 where bandwidth_hz and occupied_bins were always zero in live embeddings
-
-**Root cause:**
-`SIGNAL_THRESHOLD_DB = 27` in `core/pipeline/features.py` was calibrated at lna_gain_db=32 / vga_gain_db=40 against live FM Adelaide (98.9 MHz), producing ~185 kHz bandwidth. But production config (`config/mimir.yaml`) was never updated from lna=16 / vga=20, yielding only 6-10 dB live SNR. No bin ever exceeded the 27 dB threshold, so `occupied_bins` and `bandwidth_hz` were always zero in live embeddings.
-
-**What was done:**
-- Raised `hardware.lna_gain_db` 16->32, `hardware.vga_gain_db` 20->40 in `config/mimir.yaml`
-- Raised `scanner.lna_gain_db` 16->32, `scanner.vga_gain_db` 20->40 in `config/mimir.yaml`
-- Updated `SIGNAL_THRESHOLD_DB` comment in `core/pipeline/features.py` to document calibration basis and BUG-01 root cause
-- Fixed pre-existing inline comment bug in `features.py` that said "+ 3 dB" instead of "+ SIGNAL_THRESHOLD_DB dB"
-- Enhanced `fingerprint_spectrum()` docstring with calibration context
-- Fixed pre-existing header comment inaccuracy in `tools/diagnose_threshold.py`: sweep range said "3-15 dB" instead of actual candidates
-- Updated `_valid_config()` fixture and assertions in `tests/core/test_config_loader.py` to match new gain values
-- Updated `config()` fixture gain values to 32/40 in `tests/core/test_scanner.py`
-
-**Files modified:**
-- `config/mimir.yaml` — raised gain values from 16/20 to 32/40
-- `core/pipeline/features.py` — threshold comment, inline comment fix, docstring enhancement
-- `tools/diagnose_threshold.py` — header comment accuracy fix
-- `tests/core/test_config_loader.py` — updated fixture and assertions for new gain values
-- `tests/core/test_scanner.py` — updated fixture gain values
-
-**Test counts:** 222 pytest + 56 Vitest = 278/278
-
-**Tech debt / follow-up items identified:**
-- `MimirConfig` dataclass defaults still at lna=16 / vga=20 — latent BUG-01 path for direct construction
-- `hackrf_rx.py` DEFAULT_LNA/DEFAULT_VGA still 16/20 — used by `capture_and_save()`
-- `capture.py` docstring references old "safe defaults (LNA 16 dB, VGA 20 dB)"
-- `config/mimir.yaml` `hardware:` section gains duplicated but never consumed by `load_config()`
-- `dashboard/shared_state.py` `BAND_PROFILES["noise_floor"]` intentionally uses low gain (16/20) but not documented
-
-**No TX or AU/SA legal issues.** All changes are RX-only gain adjustments.
-
----
-
-### Session memo — Chore: Agent model string fix + analyst bash guard
-
-**Status:** Complete
-**Phase context:** Infrastructure/tooling — not tied to a numbered phase
-
-**What was done:**
-- All agent model strings in opencode.json and .opencode/agents/*.md
-  corrected from opencode/ prefix to opencode-go/ prefix
-- deep-bug-hunter.md duplicate model: key fixed
-- analyst.md and opencode.json analyst description updated to explicitly
-  state analyst does not run bash — receives pre-run pytest output from PM
-- Agents now firing correctly under OpenCode Go subscription
-
-**Files modified:**
-- opencode.json — corrected all agent model IDs
-- .opencode/agents/*.md — corrected model strings where applicable
-
-**Test counts:** No tests run — infrastructure/tooling change only.
-
----
-
-### Session memo — Chore: /build workflow overhaul + agent roster update
-
-**Status:** Complete
-**Phase context:** Infrastructure/tooling — not tied to a numbered phase
-
-**What was done:**
-- /build command updated to 8-step workflow: plan → research → security
-  gate → code → QA loop → PM audit → docs → report
-- New agents: @security-analyst (opencode-go/glm-5.1, pre-code TX/AU legal
-  gate, read-only), @review-second (opencode-go/minimax-m2.7, replaces
-  retired cloud-reviewer, read-only), @doc-writer (opencode-go/mimo-v2.5,
-  docs only, does not touch ROADMAP)
-- @cloud-reviewer retired and removed
-- Full roster: main=opencode-go/kimi-k2.6, plan-reviewer=opencode-go/minimax-m2.7,
-  researcher=opencode-go/mimo-v2.5, analyst=opencode-go/mimo-v2.5-pro,
-  deep-analyst=opencode-go/glm-5.1, deep-bug-hunter=opencode-go/glm-5.1,
-  security-analyst=opencode-go/glm-5.1, review-second=opencode-go/minimax-m2.7,
-  doc-writer=opencode-go/mimo-v2.5, local-reviewer=local-llama/Qwen3.5-9B(Q4)
-
-**Files modified:**
-- opencode.json — updated agent roster and model strings
-- .opencode/skills/ — updated workflow descriptions
-
-**Test counts:** No tests run — infrastructure/tooling change only.
-
----
-
-### Session memo — GitHub MCP setup (chore)
-
-**Status:** Complete
-**Phase context:** Infrastructure/tooling — not tied to a numbered phase
-
-**What was done:**
-- Installed GitHub MCP server for OpenCode using the remote transport option
-  (`https://api.githubcopilot.com/mcp/`) — no Docker required
-- Created a fine-grained GitHub PAT scoped to the Mimir repo only with permissions:
-  Contents (read/write), Issues (read/write), Metadata (read-only), Pull requests (read-only)
-- Set `GITHUB_PERSONAL_ACCESS_TOKEN` as a global fish shell env var in `~/.config/fish/config.fish`
-- Added `"mcp"` block to `opencode.json` using `{env:GITHUB_PERSONAL_ACCESS_TOKEN}` interpolation
-  so the token is never hardcoded in the config file
-- Fixed a pre-existing typo in `.opencode/agents/local-reviewer.md`: `temperature: 0.s`
-  corrected to `temperature: 0.3` — this was causing OpenCode config validation to fail
-  on startup with "Expected number | undefined, got '0.s'"
-- Verified both MCP servers connected: `opencode mcp list` shows `local-files` and `github`
-  both as ● ✓ connected
-
-**Files modified:**
-- `opencode.json` — added `"mcp"` block for github remote server
-- `.opencode/agents/local-reviewer.md` — fixed temperature typo (0.s → 0.3)
-- `~/.config/fish/config.fish` — added GITHUB_PERSONAL_ACCESS_TOKEN env var (outside repo)
-
-**Test counts:** No tests run this session — infrastructure/tooling change only.
-
 ---
 
 ## MCP Servers
@@ -485,232 +223,6 @@ globally and re-enable per-agent:
 ```
 
 Do not apply this pre-emptively — only if context problems are observed.
-
----
-
-### Session memo — Phase 9B Diagnostic: True BUG-01 root cause found in fft.py
-
-**Status:** Diagnostic discovery — no code changed
-**Phase context:** Phase 9B — post-commit diagnostic revealing the gain fix was incorrect
-
-**What was discovered:**
-- Phase 9B gain fix (lna=32/vga=40) committed to main but did NOT resolve BUG-01
-- Live hardware testing: peak power always = 0.0 dBFS regardless of gain setting
-- Root cause in `core/pipeline/fft.py` `compute_psd()`: normalisation divides
-  `averaged_power` by `max_power` before dBFS conversion, making peak always 0.0 dBFS
-- This means `bandwidth_hz` and `occupied_bins` can never exceed threshold — the
-  scale is self-referential, not true dBFS
-- Gain settings are irrelevant to this bug (red herring)
-- Correct fix: normalise against `nfft²` (FFT scaling factor) not `max_power`
-- `SIGNAL_THRESHOLD_DB` will need recalibration after fft fix
-- Fix scoped as Phase 9B-Hotfix in fresh build session
-
-**Files that need changing in hotfix:**
-- `core/pipeline/fft.py` — fix normalisation line
-- `core/pipeline/features.py` — recalibrate `SIGNAL_THRESHOLD_DB` after fft fix
-- `tools/diagnose_threshold.py` — rerun on live hardware to derive new threshold
-
-**No code was changed this session. No tests were run.**
-
----
-
-### Session memo — Phase 9B-Hotfix: BUG-01 true root cause: fft.py normalisation
-
-**Status:** Complete
-**Phase context:** Phase 9B-Hotfix — fix the real BUG-01 root cause in fft.py after Phase 9B gain fix proved to be a red herring
-
-**Root cause:**
-`core/pipeline/fft.py` `compute_psd()` normalised `averaged_power` by `max_power`
-before converting to dBFS, forcing the peak bin to always be 0.0 dBFS by
-definition. This made the threshold comparison in `features.py` mathematically
-impossible to pass — `occupied_bins` and `bandwidth_hz` could never be non-zero
-regardless of gain settings.
-
-**What was done:**
-- `core/pipeline/fft.py`: replaced `/max_power` normalisation with
-  `/ (nfft * window_power)` standard Welch periodogram normalisation. Produces
-  true dBFS referenced to ADC full scale. Full-scale Hann-windowed sinusoid now
-  peaks at approximately -1.76 dBFS. Unit-variance complex noise median is
-  approximately -30.1 dBFS.
-- `core/pipeline/features.py`: set `SIGNAL_THRESHOLD_DB = 10.0` (provisional).
-  Old value of 27 dB was derived from broken normalisation and is no longer valid.
-  Comment and docstring updated.
-- `config/mimir.yaml`: set `lna_gain_db: 0`, `vga_gain_db: 0`, `amp_enable: false`
-  (both hardware and scanner sections). Adelaide FM is extremely strong — minimum
-  gain prevents ADC saturation.
-- `tools/diagnose_threshold.py`: set `LNA_GAIN_DB = 0`, `VGA_GAIN_DB = 0`,
-  expanded `THRESHOLD_CANDIDATES` to `[3, 5, 8, 10, 12, 15, 18, 21, 24, 27]`,
-  fixed header comment.
-- `tests/core/test_fft_features.py`: tightened `test_psd_values_are_negative_dbfs`
-  from `< -3.0` to `< -10.0` (true dBFS puts random noise well below -10 dBFS).
-
-**Files modified:**
-- `core/pipeline/fft.py` — replaced max_power normalisation with nfft * window_power
-- `core/pipeline/features.py` — SIGNAL_THRESHOLD_DB = 10.0, comment and docstring
-- `config/mimir.yaml` — lna=0, vga=0, amp_enable=false
-- `tools/diagnose_threshold.py` — gain defaults, threshold candidates, header
-- `tests/core/test_fft_features.py` — tightened PSD assertion for true dBFS
-
-**Test counts:** 222 pytest + 56 Vitest = 278/278
-
-**Tech debt / follow-up items identified:**
-- ChromaDB must be re-seeded — old embeddings computed under broken normalisation
-  are now incompatible with new captures
-- `MimirConfig` dataclass defaults still at lna=16 / vga=20 — latent inconsistency
-- `hackrf_rx.py` DEFAULT_LNA/DEFAULT_VGA still 16/20 — used by `capture_and_save()`
-- `core/pipeline/capture.py` docstring references old "safe defaults (LNA 16 dB, VGA 20 dB)"
-- `dashboard/shared_state.py` BAND_PROFILES uses inconsistent gain values
-- LLM classifier power label thresholds may need recalibration after live testing
-  with lna=0 / vga=0
-- Dashboard waterfall may appear dimmer because true dBFS values are now
-  significantly below 0 dBFS
-
-**No TX or AU/SA legal issues.** All changes are RX-only.
-
----
-
-### Session memo — Phase 9B-Hotfix (CHECKPOINT): fft.py dBFS normalisation — BUG-01 true root cause
-
-**Date:** 2026-06-07
-**Status:** Complete
-**Phase context:** Phase 9B-Hotfix — CHECKPOINT session
-
-**Summary:**
-Fixed fft.py dBFS normalisation bug — the true root cause of BUG-01. The /max_power approach forced peak to always be 0.0 dBFS, making the SIGNAL_THRESHOLD_DB comparison mathematically impossible. Replaced with /window_power (Welch periodogram normalisation).
-
-**What was done:**
-- `core/pipeline/fft.py`: replaced `/max_power` normalisation with `/ (nfft * window_power)` standard Welch periodogram normalisation. Produces true dBFS referenced to ADC full scale.
-- `core/pipeline/features.py`: set `SIGNAL_THRESHOLD_DB = 10.0` (provisional). Old 27 dB value was derived from broken normalisation.
-- `config/mimir.yaml`: set `lna=0, vga=0, amp_enable=false` (both hardware and scanner sections). Adelaide FM is extremely strong — minimum gain prevents ADC saturation.
-- `tools/diagnose_threshold.py`: set `LNA=0, VGA=0`, expanded `THRESHOLD_CANDIDATES` to `[3, 5, 8, 10, 12, 15, 18, 21, 24, 27]`, fixed header comment.
-- `tests/core/test_fft_features.py`: tightened `test_psd_values_are_negative_dbfs` from `< -3.0` to `< -10.0` (true dBFS puts random noise well below -10 dBFS).
-- ChromaDB re-seeded (800 vectors, clean).
-- Antenna investigation confirmed: HackRF and code are healthy. SNR limitation is physical — current stub antenna insufficient for FM.
-- Telescopic whip antenna (~68 cm SMA) being sourced from Jaycar for full calibration.
-
-**Files modified:**
-- `core/pipeline/fft.py` — normalisation fix
-- `core/pipeline/features.py` — provisional threshold, docstrings
-- `config/mimir.yaml` — gain settings
-- `tools/diagnose_threshold.py` — gain defaults, threshold candidates
-- `tests/core/test_fft_features.py` — tightened assertion
-- `AGENTS.md` — phase tracker, session memo, deferred items
-- `docs/ROADMAP.md` — phase tracker, Phase 9B-Hotfix section, Phase 9C entry
-
-**Test counts:** 222 pytest + 56 Vitest = 278/278
-
-**Tech debt / follow-up items:**
-- ChromaDB re-seed required after any future fft.py changes — old embeddings will be on wrong dBFS scale
-- `seed_chromadb.py` tech debt: script must wipe collection before inserting to prevent duplicate records (800→1600 observed)
-- `MimirConfig` dataclass defaults still at lna=16 / vga=20 — latent path
-- `hackrf_rx.py` DEFAULT_LNA/DEFAULT_VGA still 16/20
-- `core/pipeline/capture.py` docstring references old "safe defaults (LNA 16 dB, VGA 20 dB)"
-- `dashboard/shared_state.py` BAND_PROFILES uses inconsistent gain values
-- Phase 9C will run after antenna acquisition: run `tools/diagnose_threshold.py` on live hardware to derive final `SIGNAL_THRESHOLD_DB` value
-
-**Next step:** Source telescopic whip antenna (~68 cm SMA), then run Phase 9C build.
-
----
-
-### Session memo — Phase pre-9C-seed-autowipe: seed_chromadb.py auto-wipe before seeding
-
-**Date:** 2026-06-10
-**Status:** Complete
-**Phase context:** Housekeeping — not a numbered phase. Fixed the known seed_chromadb.py tech debt where the script could insert duplicate records into ChromaDB (800→1600 observed during re-seed).
-
-**What was done:**
-- `tools/seed_chromadb.py`: Removed `check_duplicates()` interactive prompt function, added `wipe_collection(store)` that unconditionally deletes and recreates the ChromaDB collection before seeding. Updated module docstring with data destruction warning. Updated `main()` to wipe then recreate store.
-- `tests/tools/test_seed_chromadb.py`: Removed `TestSkipDuplicateDetection` (3 old tests relying on interactive prompt), added `TestWipeAndReseed` (4 new tests for the wipe-then-seed flow), cleaned up unused imports.
-
-**Files modified:**
-- `tools/seed_chromadb.py` — removed `check_duplicates()`, added `wipe_collection()`, updated `main()` and module docstring
-- `tests/tools/test_seed_chromadb.py` — replaced duplicate-detection tests with wipe-and-reseed tests
-
-**Test counts:** 223 pytest + 56 Vitest = 279/279 (up from 222/278)
-
-**Deferred items resolved by this build:**
-- `seed_chromadb.py` tech debt: script must wipe collection before inserting to prevent duplicate records (800→1600 observed during re-seed) — replaced interactive `check_duplicates()` with automatic `wipe_collection()`
-
-**No TX or AU/SA legal issues.** All changes are RX-only tooling.
-
----
-
-### Session memo — Phase 9C: ACARS Decoder + Setup Infrastructure
-
-**Date:** 2026-06-11
-**Status:** Complete
-**Phase context:** Phase 9C — ACARS decoder setup infrastructure and bash mock test coverage
-
-**What was done:**
-- `setup.sh`: Added `if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then main; fi` guard at end to prevent `main()` from running when sourced (required for test script). No other changes — file already had correct `build_acarsdec()` function and all OS blocks.
-- `tests/setup/test_setup_sh.sh`: New file. Bash mock test suite with 11 tests (10 specified + 1 ubuntu block assertion). Stubs all side-effect commands (dnf, apt-get, pacman, zypper, brew, git, cmake, make, sudo, nproc, sysctl). Uses temp file for call recording shared across subshells. Tests all 5 OS blocks + unsupported + unknown + build_acarsdec skip/clone/nproc paths.
-- `docs/au-legal-reference.md`: Added ACARS section (129.125 / 130.025 MHz) after Aviation VHF section.
-- `config/mimir.yaml`: Added `acars` preset at 129125000 Hz. Added `129125000` to `scanner.frequencies_hz` list.
-- `AGENTS.md`: Updated prerequisites block with acarsdec notes, added key files entry, added ACARS to frequency table, updated phase tracker.
-- `docs/ROADMAP.md`: Added Phase 9C section, updated phase tracker.
-- `docs/wiki.md`: Updated by @doc-writer with Phase 9C log entry and ACARS glossary entry.
-
-**Files modified:**
-- `setup.sh` — added bash guard to prevent `main()` execution when sourced
-- `tests/setup/test_setup_sh.sh` — new bash mock test suite (11 tests)
-- `docs/au-legal-reference.md` — ACARS legal reference section
-- `config/mimir.yaml` — acars preset + frequency added
-- `AGENTS.md` — prerequisites, key files, frequency table, phase tracker
-- `docs/ROADMAP.md` — Phase 9C section, phase tracker
-- `docs/wiki.md` — Phase 9C log entry, ACARS glossary entry (by @doc-writer)
-
-**Test counts:** 223 pytest + 56 Vitest + 11 bash = 290/290
-
-**Tech debt / follow-up items identified during the build:**
-- `build_acarsdec()` `cd` without pushd/popd (pre-existing, non-blocking)
-- LLM classifier `_AU_BAND_REFERENCE` does not include ACARS as distinct band (ACARS is subset of aviation_vhf — decision needed in future phase)
-- `data/frequency_reference.json` has no `mimir_band: "acars"` entry (ACARS is subset of aviation VHF allocation)
-- ChromaDB re-seed still required after deploy (old embeddings on wrong dBFS scale — open deferred item)
-
-**No TX or AU/SA legal issues.** All changes are RX-only setup and documentation.
-
----
-
-## Deferred Items
-
-- **BUG-01 (RESOLVED — Phase 9B-Hotfix):** True root cause was in `core/pipeline/fft.py`:
-  `compute_psd()` divided `averaged_power` by `max_power` before dBFS conversion,
-  forcing peak bin to always be 0.0 dBFS. Fixed by replacing with standard Welch
-  periodogram normalisation (`/ (nfft * window_power)`). Gain settings were a red
-  herring. Threshold recalibrated to 10.0 dB (provisional). Requires live testing
-  with `tools/diagnose_threshold.py` to confirm.
-
-- **ChromaDB re-seed required (open):** Old embeddings computed under broken normalisation
-  are now incompatible with new captures. Must re-seed after deploy.
-
-- **ChromaDB re-seed future-proofing (open):** Any future change to fft.py normalisation will
-  again invalidate existing embeddings. Document this as a migration requirement.
-
-- **seed_chromadb.py tech debt (RESOLVED — pre-9C-seed-autowipe):** Script must wipe
-  collection before inserting to prevent duplicate records (800→1600 observed during
-  re-seed). Replaced interactive `check_duplicates()` with automatic `wipe_collection()`.
-
-- **Latent BUG-01 paths (RESOLVED — pre-9C-gain-defaults):** `MimirConfig`
-  dataclass defaults updated to lna=0.0 / vga=0.0, `hackrf_rx.py` DEFAULT_LNA/DEFAULT_VGA
-  updated to 0/0, `capture_and_save()` docstring updated to "LNA 0 dB / VGA 0 dB".
-  `dashboard/shared_state.py` BAND_PROFILES gains documented with per-band rationale.
-  All aligned to settled safe configuration (lna=0, vga=0, amp=False).
-
-- **NOAA/Meteor-M2 satellite module (post-Phase 8):** HackRF covers 137-138 MHz.
-  NOAA 15 (137.620 MHz), NOAA 18 (137.9125 MHz), NOAA 19 (137.100 MHz),
-  Meteor-M2 (137.9 MHz). Requires V-dipole or QFH antenna. Address after all
-  8x phases are closed.
-
-- **GitHub MCP toolset scoping** — The github MCP server registers many tools and may
-  bloat agent context windows in future. Deferred because it is not yet causing problems.
-  When addressed: add `"tools": { "github_*": false }` globally to `opencode.json` and
-  re-enable per-agent as needed. See MCP Servers section for the exact config block.
-
-- **GitHub PAT rotation reminder** — PAT expires in 90 days from date of creation.
-  When it expires: generate a new fine-grained PAT with identical scopes (Contents r/w,
-  Issues r/w, Metadata r/o, Pull requests r/o, Mimir repo only), update
-  `GITHUB_PERSONAL_ACCESS_TOKEN` in `~/.config/fish/config.fish`, restart OpenCode,
-  verify with `opencode mcp list`.
 
 ---
 
@@ -799,3 +311,46 @@ Fixed fft.py dBFS normalisation bug — the true root cause of BUG-01. The /max_
 | `sampleRateHz` dead param | Accepted by `useWaterfall.js` but unused | Post 7B |
 | ~~`psd_db` uncalibrated~~ | ~~FFT missing nfft normalisation~~ — fixed in Phase 9B-Hotfix (true dBFS) | ~~Post 7B~~ ✅ 9B-Hotfix |
 | scan.py startup message | "Scanning N frequencies" is misleading now that single-freq focus mode is active | Post 8C cosmetic |
+
+---
+
+## Deferred Items
+
+- **BUG-01 (RESOLVED — Phase 9B-Hotfix):** True root cause was in `core/pipeline/fft.py`:
+  `compute_psd()` divided `averaged_power` by `max_power` before dBFS conversion,
+  forcing peak bin to always be 0.0 dBFS. Fixed by replacing with standard Welch
+  periodogram normalisation (`/ (nfft * window_power)`). Gain settings were a red
+  herring. Threshold recalibrated to 10.0 dB (provisional). Requires live testing
+  with `tools/diagnose_threshold.py` to confirm.
+
+- **ChromaDB re-seed required (open):** Old embeddings computed under broken normalisation
+  are now incompatible with new captures. Must re-seed after deploy.
+
+- **ChromaDB re-seed future-proofing (open):** Any future change to fft.py normalisation will
+  again invalidate existing embeddings. Document this as a migration requirement.
+
+- **seed_chromadb.py tech debt (RESOLVED — pre-9C-seed-autowipe):** Script must wipe
+  collection before inserting to prevent duplicate records (800→1600 observed during
+  re-seed). Replaced interactive `check_duplicates()` with automatic `wipe_collection()`.
+
+- **Latent BUG-01 paths (RESOLVED — pre-9C-gain-defaults):** `MimirConfig`
+  dataclass defaults updated to lna=0.0 / vga=0.0, `hackrf_rx.py` DEFAULT_LNA/DEFAULT_VGA
+  updated to 0/0, `capture_and_save()` docstring updated to "LNA 0 dB / VGA 0 dB".
+  `dashboard/shared_state.py` BAND_PROFILES gains documented with per-band rationale.
+  All aligned to settled safe configuration (lna=0, vga=0, amp=False).
+
+- **NOAA/Meteor-M2 satellite module (post-Phase 8):** HackRF covers 137-138 MHz.
+  NOAA 15 (137.620 MHz), NOAA 18 (137.9125 MHz), NOAA 19 (137.100 MHz),
+  Meteor-M2 (137.9 MHz). Requires V-dipole or QFH antenna. Address after all
+  8x phases are closed.
+
+- **GitHub MCP toolset scoping** — The github MCP server registers many tools and may
+  bloat agent context windows in future. Deferred because it is not yet causing problems.
+  When addressed: add `"tools": { "github_*": false }` globally to `opencode.json` and
+  re-enable per-agent as needed. See MCP Servers section for the exact config block.
+
+- **GitHub PAT rotation reminder** — PAT expires in 90 days from date of creation.
+  When it expires: generate a new fine-grained PAT with identical scopes (Contents r/w,
+  Issues r/w, Metadata r/o, Pull requests r/o, Mimir repo only), update
+  `GITHUB_PERSONAL_ACCESS_TOKEN` in `~/.config/fish/config.fish`, restart OpenCode,
+  verify with `opencode mcp list`.
