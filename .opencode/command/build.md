@@ -213,8 +213,8 @@ You must also hand it explicitly:
   - the current test counts taken from the Step 5/6 runs (it cannot run pytest)
   - any tech debt or deferred items surfaced during the build
 
-ALWAYS: add a session-memo entry to AGENTS.md and refresh the test counts in
-ROADMAP.md.
+ALWAYS: refresh the test counts in ROADMAP.md. Do NOT add session memo prose blocks 
+to AGENTS.md.
 
 PHASE-TRACKER GATE — deterministic, driven solely by the checkpoint flag
 captured in the TASK block above:
