@@ -194,9 +194,11 @@ Call @doc-writer as Documentation. Hand it explicitly:
   - Record any deferred items as inline comments in the relevant source file
   - Update docs/wiki.md: phase log, function entries, frontend stack, and
     acronym glossary as needed
+  - Update README.md: any user-facing changes introduced by this build
+    (new features, new dependencies, changed setup steps, changed CLI usage)
 
-@doc-writer may modify source docstrings, inline comments, and docs/wiki.md
-only. It must NOT touch: test files, AGENTS.md, ROADMAP.md, or any other
+@doc-writer may modify source docstrings, inline comments, docs/wiki.md,
+and README.md only. It must NOT touch: test files, AGENTS.md, ROADMAP.md, or any other
 governance doc — those belong to @memo-writer in Step 9.
 
 ### STEP 9 — PROJECT MEMO

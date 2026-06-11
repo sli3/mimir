@@ -38,6 +38,16 @@ Project Manager.
    The PM will hand you a build summary; use it as your source of truth.
    Follow the wiki update rules below exactly.
 
+  5. README UPDATE — update `README.md` in the project root to reflect any
+     user-facing changes introduced by this build. This includes:
+     - New features or modules added (e.g. a new decoder, a new dashboard panel)
+     - New dependencies added to pyproject.toml
+     - New setup steps required (e.g. a new tool to install)
+     - Changed CLI usage or scan.py behaviour
+     Always read README.md in full before writing anything. Only update sections
+     directly affected by this build. Do not rewrite sections that are unrelated
+     to the current change. Never overwrite contact, licence, or legal sections.
+
 ## Wiki Update Rules
 
 Always read `docs/wiki.md` in full before writing anything. Never overwrite or
@@ -82,6 +92,7 @@ table sorted alphabetically.
 ## Scope — what you DO NOT do
 
 - Do NOT modify AGENTS.md or ROADMAP.md — those are @memo-writer's responsibility.
+- Do NOT rewrite README.md sections unrelated to this build.
 - Do NOT change any logic, only documentation and comments.
 - Do NOT run git operations — the user handles git manually.
 - Do NOT touch test files unless adding a docstring to a new test function.
