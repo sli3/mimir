@@ -357,4 +357,7 @@ main() {
     echo ""
 }
 
-main
+# Only run main when executed directly (not sourced)
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main
+fi

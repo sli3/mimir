@@ -35,6 +35,7 @@ every code change, without exception.
 |---|---|---|
 | FM Broadcast | 87.5–108 MHz | Commercial radio |
 | Aviation VHF | 118–136 MHz | ATC and aircraft comms |
+| ACARS | 129.125 / 130.025 MHz | Aircraft operational messaging, AU primary |
 | APRS | 145.175 MHz | AU frequency — NOT 144.390 (US) |
 | ISM / LoRa | 915 MHz | AU/NZ band — NOT 868 MHz (EU) |
 | ADS-B | 1090 MHz | Aircraft position broadcasts |
@@ -103,9 +104,14 @@ System-level dependencies (UV cannot manage these):
 sudo dnf install hackrf SoapySDR python3-SoapySDR
 # NOTE: SoapySDR-module-hackrf does NOT exist in dnf repos.
 # Build from source: https://github.com/pothosware/SoapyHackRF
+# acarsdec — ACARS decoder, must be built from source
+# NOT in dnf repos. Build: https://github.com/f00b4r0/acarsdec
+# Deps: SoapySDR-devel cmake gcc make git
+# Run setup.sh — build_acarsdec() handles this automatically
 
 # Ubuntu/Debian
 sudo apt-get install hackrf soapysdr-module-hackrf python3-soapysdr
+# acarsdec: build from source (see setup.sh — handled automatically)
 ```
 
 ### Install UV (if not present)
@@ -167,9 +173,10 @@ uv run python tools/seed_chromadb.py
 | 9B-Hotfix | BUG-01 true root cause: fft.py normalisation | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
 | pre-9C | Latent gain defaults cleanup (housekeeping) | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
 | pre-9C-seed-autowipe | seed_chromadb.py auto-wipe before seeding | ✅ Complete | 279/279 (223 pytest + 56 Vitest) |
-| 9C | Calibrate SIGNAL_THRESHOLD_DB | ⏳ PENDING ANTENNA | — |
+| 9C | ACARS Decoder + Setup Infrastructure | ✅ Complete | 290/290 (223 pytest + 56 Vitest + 11 bash) |
+| 9C-Threshold | Calibrate SIGNAL_THRESHOLD_DB | ⏳ PENDING ANTENNA | — |
 
-**Total passing: 279/279 (223 pytest + 56 Vitest)**
+**Total passing: 290/290 (223 pytest + 56 Vitest + 11 bash)**
 
 ### Session memo — Phase pre-9C: Latent gain defaults cleanup (housekeeping)
 
@@ -628,6 +635,42 @@ Fixed fft.py dBFS normalisation bug — the true root cause of BUG-01. The /max_
 
 ---
 
+### Session memo — Phase 9C: ACARS Decoder + Setup Infrastructure
+
+**Date:** 2026-06-11
+**Status:** Complete
+**Phase context:** Phase 9C — ACARS decoder setup infrastructure and bash mock test coverage
+
+**What was done:**
+- `setup.sh`: Added `if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then main; fi` guard at end to prevent `main()` from running when sourced (required for test script). No other changes — file already had correct `build_acarsdec()` function and all OS blocks.
+- `tests/setup/test_setup_sh.sh`: New file. Bash mock test suite with 11 tests (10 specified + 1 ubuntu block assertion). Stubs all side-effect commands (dnf, apt-get, pacman, zypper, brew, git, cmake, make, sudo, nproc, sysctl). Uses temp file for call recording shared across subshells. Tests all 5 OS blocks + unsupported + unknown + build_acarsdec skip/clone/nproc paths.
+- `docs/au-legal-reference.md`: Added ACARS section (129.125 / 130.025 MHz) after Aviation VHF section.
+- `config/mimir.yaml`: Added `acars` preset at 129125000 Hz. Added `129125000` to `scanner.frequencies_hz` list.
+- `AGENTS.md`: Updated prerequisites block with acarsdec notes, added key files entry, added ACARS to frequency table, updated phase tracker.
+- `docs/ROADMAP.md`: Added Phase 9C section, updated phase tracker.
+- `docs/wiki.md`: Updated by @doc-writer with Phase 9C log entry and ACARS glossary entry.
+
+**Files modified:**
+- `setup.sh` — added bash guard to prevent `main()` execution when sourced
+- `tests/setup/test_setup_sh.sh` — new bash mock test suite (11 tests)
+- `docs/au-legal-reference.md` — ACARS legal reference section
+- `config/mimir.yaml` — acars preset + frequency added
+- `AGENTS.md` — prerequisites, key files, frequency table, phase tracker
+- `docs/ROADMAP.md` — Phase 9C section, phase tracker
+- `docs/wiki.md` — Phase 9C log entry, ACARS glossary entry (by @doc-writer)
+
+**Test counts:** 223 pytest + 56 Vitest + 11 bash = 290/290
+
+**Tech debt / follow-up items identified during the build:**
+- `build_acarsdec()` `cd` without pushd/popd (pre-existing, non-blocking)
+- LLM classifier `_AU_BAND_REFERENCE` does not include ACARS as distinct band (ACARS is subset of aviation_vhf — decision needed in future phase)
+- `data/frequency_reference.json` has no `mimir_band: "acars"` entry (ACARS is subset of aviation VHF allocation)
+- ChromaDB re-seed still required after deploy (old embeddings on wrong dBFS scale — open deferred item)
+
+**No TX or AU/SA legal issues.** All changes are RX-only setup and documentation.
+
+---
+
 ## Deferred Items
 
 - **BUG-01 (RESOLVED — Phase 9B-Hotfix):** True root cause was in `core/pipeline/fft.py`:
@@ -740,6 +783,7 @@ Fixed fft.py dBFS normalisation bug — the true root cause of BUG-01. The /max_
 | `dashboard/static/` | Vite build output — served by Flask |
 | `scan.py` | CLI entry point |
 | `config/mimir.yaml` | Runtime configuration |
+| `setup.sh` (build_acarsdec) | Builds acarsdec from source on first run |
 | `docs/au-legal-reference.md` | ACMA legal reference |
 
 ---

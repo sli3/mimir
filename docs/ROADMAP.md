@@ -28,9 +28,10 @@
 | 9B-Hotfix | BUG-01 true root cause: fft.py normalisation | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
 | pre-9C | Latent gain defaults cleanup (housekeeping) | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
 | pre-9C-seed-autowipe | seed_chromadb.py auto-wipe before seeding | ✅ Complete | 279/279 (223 pytest + 56 Vitest) |
-| 9C | Calibrate SIGNAL_THRESHOLD_DB | ⏳ PENDING | — |
+| 9C | ACARS Decoder + Setup Infrastructure | ✅ Complete | 290/290 (223 pytest + 56 Vitest + 11 bash) |
+| 9C-Threshold | Calibrate SIGNAL_THRESHOLD_DB | ⏳ PENDING | — |
 
-**Total: 279/279 tests passing (223 pytest + 56 Vitest)**
+**Total: 290/290 tests passing (223 pytest + 56 Vitest + 11 bash)**
 
 **BUG-01 status:** Code fixed in 9B-Hotfix. Full calibration deferred to Phase 9C pending telescopic whip antenna (~68 cm SMA) purchase.
 
@@ -309,6 +310,29 @@ automated use.
 - `seed_chromadb.py` tech debt: script must wipe collection before inserting to prevent duplicate records — replaced interactive prompt with automatic wipe
 
 **Complete when:** `uv run pytest` → 279/279
+
+---
+
+### Phase 9C — ACARS Decoder + Setup Infrastructure ✅
+
+**Goal:** Add acarsdec build support to setup.sh for all supported OSes,
+add mock test coverage for setup.sh, add ACARS frequency to config,
+and update all legal/reference documentation for ACARS band coverage.
+
+**Delivered:**
+- setup.sh: `build_acarsdec()` function — builds f00b4r0/acarsdec from
+  source, all OS blocks updated (Fedora/RHEL/Debian/Ubuntu/Arch/openSUSE/macOS)
+- `tests/setup/test_setup_sh.sh` — bash mock suite for setup.sh (11 tests)
+- `docs/au-legal-reference.md` — ACARS section added
+- `config/mimir.yaml` — acars preset + frequency added
+- `AGENTS.md` — prerequisites, key files, frequency table updated
+- `docs/ROADMAP.md` — Phase 9C section, phase tracker updated
+- `docs/wiki.md` — Phase 9C log entry and ACARS glossary entry (by @doc-writer)
+
+**Complete when:** `bash tests/setup/test_setup_sh.sh` → all tests pass.
+                `uv run pytest` → all existing tests still passing (no regressions)
+
+**Test counts:** 290/290 (223 pytest + 56 Vitest + 11 bash)
 
 ---
 

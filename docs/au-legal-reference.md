@@ -49,6 +49,25 @@ Air traffic control communications and aircraft position reports.
 Broadcast openly for aviation safety. LiveATC.net streams these
 publicly as a reference point for their legality to receive.
 
+### ACARS — 129.125 MHz / 130.025 MHz (Australian primary frequencies)
+Aircraft Communications Addressing and Reporting System. A digital
+messaging protocol used by aircraft to exchange short operational data
+with ground stations — engine readings, flight plan updates, weather
+information, and clearances. Messages are transmitted over VHF radio
+using AM modulation with FSK data encoding.
+
+ACARS is distinct from ADS-B:
+- ADS-B (1090 MHz) broadcasts GPS position continuously and automatically
+- ACARS (VHF) exchanges operational messages on demand
+
+Both are passive receive only. ACARS operates within the VHF aviation
+band (118–136 MHz) already covered by the existing ACMA allocation.
+Specific channel assignments at 129.125 MHz and 130.025 MHz are made
+by ICAO and Airservices Australia within that allocation.
+
+Reception is legal under the Radiocommunications Act 1992 (Cth).
+No licence required. ACMA authority applies.
+
 ### APRS — 145.175 MHz (Australian frequency)
 Automatic Packet Reporting System. Amateur radio operators broadcast
 their GPS positions, weather data, and messages on this frequency.

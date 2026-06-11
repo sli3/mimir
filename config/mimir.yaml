@@ -36,6 +36,11 @@ presets:
     sample_rate_hz: 2000000
     notes: "Aviation VHF 118–136 MHz"
 
+  acars:
+    center_freq_hz: 129125000    # 129.125 MHz — ACARS AU primary
+    sample_rate_hz: 2000000
+    notes: "ACARS AU primary — Aircraft operational messaging, VHF aviation band"
+
   aprs:
     center_freq_hz: 145175000    # 145.175 MHz — APRS Australia
     sample_rate_hz: 250000
@@ -64,6 +69,7 @@ llm:
 scanner:
   frequencies_hz:
     - 98000000
+    - 129125000
     - 145175000
     - 915000000
     - 1090000000

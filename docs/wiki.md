@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: pre-9C-seed-autowipe
+last_updated_phase: 9C
 ---
 
 # Mimir Wiki
@@ -70,6 +70,32 @@ Step  Function / Component          What it does
 ## Phase Log
 
 Phases are listed newest-first so the current phase is always at the top.
+
+---
+
+### Phase 9C — ACARS Decoder Infrastructure ✓ DONE
+
+**What:** Added ACARS (Aircraft Communications Addressing and Reporting System)
+decoder infrastructure. ACARS is a VHF data link between aircraft and ground stations
+used for flight plans, weather, and maintenance messages. Added `acars` preset to
+`config/mimir.yaml` at 129.125 MHz (AU primary). Added `129.125 MHz` to the scanner
+frequencies list. Updated `docs/au-legal-reference.md` with ACARS legal reference.
+Added a bash guard to `setup.sh` so it can be safely sourced without executing `main()`.
+
+**Why:** ACARS is an active Australian aviation band signal. Mimir needs to scan and
+classify it. The setup script guard is a safety improvement for development workflows
+where `source setup.sh` might be used to load helper functions.
+
+**Files changed:**
+- `setup.sh` — added `if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then main; fi` guard
+- `config/mimir.yaml` — added `acars` preset at 129125000 Hz, added 129125000 to `scanner.frequencies_hz`
+- `docs/au-legal-reference.md` — added ACARS section (129.125 / 130.025 MHz)
+- `tests/setup/test_setup_sh.sh` — new bash mock test suite (11 tests, stubs all side-effect commands)
+
+**Analogy:** Adding a new station to your car radio presets — now ACARS is tuned in
+and ready to listen.
+
+**Test counts:** 279/279 (223 pytest + 56 Vitest).
 
 ---
 
@@ -422,6 +448,7 @@ This is a strong sign the connected antenna is too short for that frequency.
 |---|---|---|
 | ADS-B | Automatic Dependent Surveillance–Broadcast | Aircraft broadcast their position on 1090 MHz. Legal to receive passively. Mimir can detect and classify these. |
 | ACMA | Australian Communications and Media Authority | Australian body that regulates radio spectrum. Mimir's hard requirement — ACMA-compliant frequencies only. |
+| ACARS | Aircraft Communications Addressing and Reporting System | A digital data link between aircraft and ground stations. Used for flight plans, weather, and maintenance messages. AU primary frequency: 129.125 MHz. Legal to receive passively. |
 | antenna | Antenna | A physical conductor that picks up radio waves. Its length determines which frequency it receives best. Not one-size-fits-all — see Hardware Concepts. |
 | APRS | Automatic Packet Reporting System | A digital radio protocol used by amateur radio operators at 145 MHz. Carries GPS position, weather data, and short messages. |
 | ASGI | Asynchronous Server Gateway Interface | Python standard for async web servers. FastAPI is an ASGI framework; uvicorn is the ASGI server that runs it. |
