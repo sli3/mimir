@@ -71,6 +71,60 @@ detect_os() {
 OS=$(detect_os)
 info "Detected OS: ${OS}"
 
+# ── Build acarsdec from source ────────────────────────────────────────────────
+# acarsdec is an ACARS decoder (Aircraft Communications Addressing and
+# Reporting System). It is not available in any Linux package manager and
+# must be built from source. The binary is installed to /usr/local/bin/acarsdec.
+#
+# Source: https://github.com/f00b4r0/acarsdec
+# The f00b4r0 fork is the actively maintained version (TLeconte is legacy).
+#
+# SoapySDR support is enabled automatically by cmake — no flag required.
+# The cmake build detects libSoapySDR and links against it.
+#
+# AU legal note: ACARS operates in the VHF aviation band (118–136 MHz).
+# Passive reception is legal under the Radiocommunications Act 1992 (Cth).
+# AU primary ACARS frequencies: 129.125 MHz, 130.025 MHz.
+build_acarsdec() {
+    info "Building acarsdec from source (f00b4r0 fork)..."
+
+    # Use a temporary build directory — cleaned up after install
+    BUILD_DIR="/tmp/mimir-deps/acarsdec"
+
+    if command -v acarsdec &>/dev/null; then
+        success "acarsdec already installed at $(command -v acarsdec) — skipping build."
+        return
+    fi
+
+    mkdir -p "${BUILD_DIR}"
+    git clone --depth=1 https://github.com/f00b4r0/acarsdec.git "${BUILD_DIR}/src"
+    mkdir -p "${BUILD_DIR}/build"
+    cd "${BUILD_DIR}/build"
+    cmake ../src
+
+    # Use all available CPU cores for the build.
+    # nproc is Linux-only; macOS uses sysctl.
+    if command -v nproc &>/dev/null; then
+        make -j"$(nproc)"
+    else
+        make -j"$(sysctl -n hw.logicalcpu)"
+    fi
+
+    sudo make install
+    cd - > /dev/null
+
+    # Clean up build directory
+    rm -rf "${BUILD_DIR}"
+
+    if command -v acarsdec &>/dev/null; then
+        success "acarsdec installed to $(command -v acarsdec)"
+    else
+        error "acarsdec build succeeded but binary not found in PATH."
+        error "Check that /usr/local/bin is in your PATH."
+        exit 1
+    fi
+}
+
 # ── Install system packages ────────────────────────────────────────────────────
 install_system_packages() {
     case "${OS}" in
@@ -80,14 +134,20 @@ install_system_packages() {
             sudo dnf install -y \
                 hackrf \
                 SoapySDR \
+                SoapySDR-devel \
                 python3-SoapySDR \
                 gr-osmosdr \
                 python3-pip \
-                python3-devel
+                python3-devel \
+                cmake \
+                gcc \
+                make \
+                git
             success "System packages installed (Fedora/RHEL)"
             warn "IMPORTANT — Fedora/RHEL: SoapySDR-module-hackrf does NOT exist in dnf repos."
             warn "You must build the HackRF SoapySDR plugin from source before Mimir can use the HackRF:"
             warn "  https://github.com/pothosware/SoapyHackRF"
+            build_acarsdec
             ;;
 
         debian|ubuntu)
@@ -102,8 +162,13 @@ install_system_packages() {
                 python3-soapysdr \
                 gr-osmosdr \
                 python3-pip \
-                python3-dev
+                python3-dev \
+                cmake \
+                gcc \
+                make \
+                git
             success "System packages installed (Debian/Ubuntu)"
+            build_acarsdec
             ;;
 
         arch)
@@ -113,10 +178,15 @@ install_system_packages() {
                 soapysdr \
                 soapyhackrf \
                 python \
-                python-pip
+                python-pip \
+                cmake \
+                gcc \
+                make \
+                git
             success "System packages installed (Arch Linux)"
             warn "python3-SoapySDR bindings on Arch may need to be built from source."
             warn "If 'import SoapySDR' fails, see: https://github.com/pothosware/SoapySDR/wiki/PythonSupport"
+            build_acarsdec
             ;;
 
         opensuse)
@@ -124,11 +194,17 @@ install_system_packages() {
             sudo zypper install -y \
                 hackrf \
                 SoapySDR \
+                SoapySDR-devel \
                 python3-SoapySDR \
-                python3-pip
+                python3-pip \
+                cmake \
+                gcc \
+                make \
+                git
             success "System packages installed (openSUSE)"
             warn "If soapysdr-module-hackrf is not available in your repos, build from source:"
             warn "  https://github.com/pothosware/SoapyHackRF"
+            build_acarsdec
             ;;
 
         macos)
@@ -138,20 +214,23 @@ install_system_packages() {
                 error "  /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
                 exit 1
             fi
-            brew install hackrf soapysdr soapyhackrf
+            brew install hackrf soapysdr soapyhackrf cmake git
             success "System packages installed via Homebrew"
             warn "macOS: Python SoapySDR bindings are not installed by Homebrew."
             warn "You must build them from source:"
             warn "  https://github.com/pothosware/SoapySDR/wiki/PythonSupport"
             warn "udev rules are not needed on macOS (USB access handled by the OS)."
+            build_acarsdec
             ;;
 
         unknown)
             warn "Could not detect your Linux distribution."
             warn "Please install the following manually before continuing:"
             warn "  - hackrf (libhackrf + tools)"
-            warn "  - SoapySDR + Python bindings"
+            warn "  - SoapySDR + development headers + Python bindings"
             warn "  - SoapyHackRF plugin: https://github.com/pothosware/SoapyHackRF"
+            warn "  - acarsdec (build from source): https://github.com/f00b4r0/acarsdec"
+            warn "    cmake + gcc + make + git required to build acarsdec"
             warn "Then re-run this script or install Python deps manually:"
             warn "  pip install -r requirements.txt"
             ;;
