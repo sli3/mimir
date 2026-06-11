@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: 9C
+last_updated_phase: 9D
 ---
 
 # Mimir Wiki
@@ -96,6 +96,46 @@ where `source setup.sh` might be used to load helper functions.
 and ready to listen.
 
 **Test counts:** 279/279 (223 pytest + 56 Vitest).
+
+---
+
+### Phase 9D — ACARS Pure-Python Decoder Subscriber ✓ DONE
+
+**What:** Implemented a complete ACARS decoder as a subscriber on Mimir's shared IQ
+bus. No new process, no second device open — everything runs inside the existing
+Python process as a daemon thread. The decoder includes AM envelope detection,
+decimation to audio rate, FFSK tone detection (1200/2400 Hz), NRZI decode, frame
+sync (preamble + SYN SYN SOH), ARINC 618 field parsing, and CRC-16 validation.
+Decoded messages are broadcast via SocketIO to a new ACARS panel in the dashboard.
+
+**Why:** The HackRF cannot be opened by two processes simultaneously. The existing
+`acarsdec` binary cannot be used as a subprocess because it would conflict with
+Mimir's SoapySDR device handle. A pure-Python decoder running inside Mimir's process
+is the only viable architecture for live ACARS decoding.
+
+**Files changed:**
+- `modules/acars/__init__.py` — package exports
+- `modules/acars/constants.py` — AU ACARS frequencies (129.125 / 130.025 MHz), baud rate, tone constants
+- `modules/acars/message.py` — `AcarsMessage` dataclass
+- `modules/acars/demodulator.py` — `AcarsDemodulator` (AM envelope, decimation, tone detection, NRZI)
+- `modules/acars/decoder.py` — `AcarsDecoder` (frame sync, field parsing, CRC-16 CCITT)
+- `modules/acars/subscriber.py` — `AcarsSubscriber` (queue + daemon thread, frequency filter, pipeline)
+- `core/pipeline/scanner.py` — `register_iq_subscriber()` + broadcast in `_scan_loop`
+- `dashboard/server.py` — `emit_acars_message()` SocketIO emitter
+- `scan.py` — instantiate `AcarsSubscriber`, register with `ScanRunner`, stop in finally block
+- `dashboard/frontend/src/hooks/useSocket.js` — handle `acars_message` events, keep last 20
+- `dashboard/frontend/src/components/AcarsMessagePanel.jsx` — new scrolling table panel
+- `dashboard/frontend/src/App.jsx` — add ACARS panel to grid layout
+- `tests/modules/test_acars_message.py` — dataclass field tests
+- `tests/modules/test_acars_demodulator.py` — synthetic signal DSP tests
+- `tests/modules/test_acars_decoder.py` — frame sync, parsing, CRC tests
+- `tests/modules/test_acars_subscriber.py` — lifecycle, queue, frequency filter, scan loop integration
+- `pyproject.toml` — added `scipy>=1.12.0` dependency
+- `docs/wiki.md` — updated phase tracker
+
+**Analogy:** Adding a second radio inside the same receiver. The main receiver
+still does its job (spectrum scanning), but now a second circuit listens to the
+same audio and decodes the digital messages hidden in it.
 
 ---
 

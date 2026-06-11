@@ -20,6 +20,7 @@ export function useSocket() {
   const [focusedFreq, setFocusedFreq] = useState(null)
   const [isConnected, setIsConnected] = useState(false)
   const [aiReasoning, setAiReasoning] = useState(INITIAL_AI_REASONING)
+  const [acarsMessages, setAcarsMessages] = useState([])
   const socketRef = useRef(null)
   const psdMapRef = useRef({})
   const focusedFreqRef = useRef(null)
@@ -71,12 +72,20 @@ export function useSocket() {
       setSystemStats(data)
     })
 
+    socket.on('acars_message', (data) => {
+      setAcarsMessages((prev) => {
+        const next = [data, ...prev]
+        return next.slice(0, 20)
+      })
+    })
+
     return () => {
       socket.off('connect')
       socket.off('disconnect')
       socket.off('scan_result')
       socket.off('spectrum_update')
       socket.off('system_stats')
+      socket.off('acars_message')
       socket.disconnect()
     }
   }, [])
@@ -104,5 +113,6 @@ export function useSocket() {
     getPsdDb,
     isConnected,
     aiReasoning,
+    acarsMessages,
   }
 }

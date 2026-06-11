@@ -35,6 +35,7 @@ class ScanRunner:
         self._last_llm_ms: float = 0.0
         self._focus_freq_hz: float = config.frequencies_hz[0]
         self._focus_lock: threading.Lock = threading.Lock()
+        self._iq_subscribers: list = []
 
     def run(self) -> None:
         self._running = True
@@ -69,6 +70,10 @@ class ScanRunner:
                     break
         logger.info("Focus changed to %.3f MHz — queue flushed", freq_hz / 1e6)
 
+    def register_iq_subscriber(self, subscriber) -> None:
+        """Register an IQ subscriber that receives raw samples before FFT."""
+        self._iq_subscribers.append(subscriber)
+
     def _scan_loop(self) -> None:
         config = self._config
         device = self._device
@@ -88,6 +93,8 @@ class ScanRunner:
                 except Exception:
                     record_hw_error()
                     raise
+                for subscriber in self._iq_subscribers:
+                    subscriber.receive(samples, freq_hz, _SAMPLE_RATE_HZ)
                 psd = compute_psd(samples, _SAMPLE_RATE_HZ, freq_hz)
                 fingerprint = fingerprint_spectrum(psd)
                 vector = embedder.embed(fingerprint)

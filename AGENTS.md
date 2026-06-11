@@ -174,9 +174,10 @@ uv run python tools/seed_chromadb.py
 | pre-9C | Latent gain defaults cleanup (housekeeping) | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
 | pre-9C-seed-autowipe | seed_chromadb.py auto-wipe before seeding | ✅ Complete | 279/279 (223 pytest + 56 Vitest) |
 | 9C | ACARS Decoder + Setup Infrastructure | ✅ Complete | 290/290 (223 pytest + 56 Vitest + 11 bash) |
+| 9D | ACARS Pure-Python Decoder Subscriber | ✅ Complete | 305/305 (249 pytest + 56 Vitest) |
 | 9C-Threshold | Calibrate SIGNAL_THRESHOLD_DB | ⏳ PENDING ANTENNA | — |
 
-**Total passing: 290/290 (223 pytest + 56 Vitest + 11 bash)**
+**Total passing: 305/305 (249 pytest + 56 Vitest)**
 
 ---
 
@@ -292,6 +293,11 @@ Do not apply this pre-emptively — only if context problems are observed.
 | `dashboard/frontend/src/hooks/useSocket.js` | SocketIO state management |
 | `dashboard/frontend/src/hooks/useWaterfall.js` | Canvas ImageData rendering |
 | `dashboard/frontend/src/utils/colourmap.js` | PSD dBFS → RGB colourmap |
+| `modules/acars/subscriber.py` | AcarsSubscriber — IQ bus subscriber + decode thread |
+| `modules/acars/demodulator.py` | AcarsDemodulator — AM envelope + FFSK tone detection |
+| `modules/acars/decoder.py` | AcarsDecoder — frame sync + field parsing + CRC-16 |
+| `modules/acars/message.py` | AcarsMessage dataclass |
+| `modules/acars/constants.py` | AU ACARS frequencies and modulation constants |
 | `dashboard/static/` | Vite build output — served by Flask |
 | `scan.py` | CLI entry point |
 | `config/mimir.yaml` | Runtime configuration |

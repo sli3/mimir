@@ -6,6 +6,7 @@ import SystemStatsPanel from './components/SystemStatsPanel.jsx'
 import AIReasoningPanel from './components/AIReasoningPanel.jsx'
 import CharacterPanel from './components/CharacterPanel.jsx'
 import WaterfallPanel from './components/WaterfallPanel.jsx'
+import AcarsMessagePanel from './components/AcarsMessagePanel.jsx'
 const panelStyle = {
   background: 'var(--panel)',
   border: '1px solid var(--border)',
@@ -19,12 +20,13 @@ export default function App() {
     <div style={{
       display: 'grid',
       gridTemplateColumns: '1fr 320px',
-      gridTemplateRows: '48px 1fr 200px 160px 120px',
+      gridTemplateRows: '48px 1fr 200px 160px 140px 120px',
       gridTemplateAreas: `
         "header    header"
         "waterfall ai"
         "waterfall character"
         "history   history"
+        "acars     acars"
         "freqlist  stats"
       `,
       height: '100vh',
@@ -97,6 +99,16 @@ export default function App() {
         gridArea: 'history',
       }}>
         <SignalHistoryLog scanResults={socket.scanResults} />
+      </div>
+
+      <div style={{
+        ...panelStyle,
+        gridArea: 'acars',
+      }}>
+        <AcarsMessagePanel
+          acarsMessages={socket.acarsMessages}
+          focusedFreq={socket.focusedFreq}
+        />
       </div>
 
       <div style={{

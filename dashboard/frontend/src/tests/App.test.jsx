@@ -10,6 +10,7 @@ vi.mock('../hooks/useSocket.js', () => ({
     focusedFreq: null,
     focusFrequency: vi.fn(),
     isConnected: false,
+    acarsMessages: [],
     aiReasoning: {
       freq_hz: null,
       signal_type: null,

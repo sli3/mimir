@@ -39,6 +39,7 @@ from flask import Flask, jsonify, request
 from flask_socketio import SocketIO
 
 from core.pipeline.scan_result import ScanResult
+from modules.acars.message import AcarsMessage
 
 logger = logging.getLogger(__name__)
 
@@ -182,6 +183,19 @@ def start_server(host: str, port: int, device=None, scanner=None):
     start_server._broadcast_spectrum_fn = broadcast_spectrum
 
     return broadcast
+
+
+def emit_acars_message(msg: AcarsMessage) -> None:
+    """Broadcast a decoded ACARS message to all connected browsers."""
+    socketio.emit("acars_message", {
+        "timestamp": msg.timestamp.isoformat(),
+        "freq_hz": msg.freq_hz,
+        "registration": msg.registration.strip(),
+        "label": msg.label,
+        "block_id": msg.block_id,
+        "text": msg.text,
+        "crc_ok": msg.crc_ok,
+    })
 
 
 @app.route("/")
