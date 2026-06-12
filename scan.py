@@ -13,11 +13,12 @@ import time
 from core.config.loader import load_config
 from core.device.hackrf_rx import HackRFReceiver
 from core.pipeline.scanner import ScanRunner
-from dashboard.server import emit_acars_message, start_server
+from dashboard.server import emit_acars_message, emit_ais_message, start_server
 from embeddings.embedder import SpectrumEmbedder
 from embeddings.store import SignalStore
 from llm.classifier import SignalClassifier
 from modules.acars import AcarsSubscriber
+from modules.ais import AisSubscriber
 
 logging.basicConfig(
     level=logging.INFO,
@@ -52,6 +53,10 @@ def main() -> None:
     acars_subscriber.start()
     scanner.register_iq_subscriber(acars_subscriber)
 
+    ais_subscriber = AisSubscriber(broadcast_fn=emit_ais_message)
+    ais_subscriber.start()
+    scanner.register_iq_subscriber(ais_subscriber)
+
     broadcast = start_server(
         config.dashboard_host, config.dashboard_port,
         device=device, scanner=scanner,
@@ -74,6 +79,7 @@ def main() -> None:
     finally:
         scanner.stop()
         acars_subscriber.stop()
+        ais_subscriber.stop()
         device.close()
         time.sleep(1.0)   # give SoapySDR time to release USB before exit
         print("HackRF closed cleanly.")

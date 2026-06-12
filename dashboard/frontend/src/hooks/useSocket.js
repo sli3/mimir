@@ -21,6 +21,7 @@ export function useSocket() {
   const [isConnected, setIsConnected] = useState(false)
   const [aiReasoning, setAiReasoning] = useState(INITIAL_AI_REASONING)
   const [acarsMessages, setAcarsMessages] = useState([])
+  const [aisMessages, setAisMessages] = useState([])
   const socketRef = useRef(null)
   const psdMapRef = useRef({})
   const focusedFreqRef = useRef(null)
@@ -79,6 +80,13 @@ export function useSocket() {
       })
     })
 
+    socket.on('ais_message', (data) => {
+      setAisMessages((prev) => {
+        const next = [data, ...prev]
+        return next.slice(0, 20)
+      })
+    })
+
     return () => {
       socket.off('connect')
       socket.off('disconnect')
@@ -86,6 +94,7 @@ export function useSocket() {
       socket.off('spectrum_update')
       socket.off('system_stats')
       socket.off('acars_message')
+      socket.off('ais_message')
       socket.disconnect()
     }
   }, [])
@@ -114,5 +123,6 @@ export function useSocket() {
     isConnected,
     aiReasoning,
     acarsMessages,
+    aisMessages,
   }
 }

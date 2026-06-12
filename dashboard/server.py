@@ -40,6 +40,7 @@ from flask_socketio import SocketIO
 
 from core.pipeline.scan_result import ScanResult
 from modules.acars.message import AcarsMessage
+from modules.ais.message import AisMessage
 
 logger = logging.getLogger(__name__)
 
@@ -195,6 +196,20 @@ def emit_acars_message(msg: AcarsMessage) -> None:
         "block_id": msg.block_id,
         "text": msg.text,
         "crc_ok": msg.crc_ok,
+    })
+
+
+def emit_ais_message(msg: AisMessage) -> None:
+    """Broadcast a decoded AIS message to all connected browsers."""
+    socketio.emit("ais_message", {
+        "timestamp": msg.timestamp.isoformat() if hasattr(msg.timestamp, "isoformat") else msg.timestamp,
+        "mmsi": msg.mmsi,
+        "vessel_name": msg.vessel_name or "---",
+        "lat": msg.lat if msg.lat is not None else "---",
+        "lon": msg.lon if msg.lon is not None else "---",
+        "speed": msg.speed if msg.speed is not None else "---",
+        "course": msg.course if msg.course is not None else "---",
+        "channel": msg.channel,
     })
 
 

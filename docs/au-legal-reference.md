@@ -68,6 +68,23 @@ by ICAO and Airservices Australia within that allocation.
 Reception is legal under the Radiocommunications Act 1992 (Cth).
 No licence required. ACMA authority applies.
 
+### AIS — 161.975 MHz / 162.025 MHz (Australian maritime VHF)
+Automatic Identification System. A digital data link used by ships and
+vessels to broadcast their identity, position, course, speed, and other
+navigational data. AIS operates on two VHF channels (161.975 MHz and
+162.025 MHz) using GMSK modulation at 9600 baud. All commercial vessels
+over 300 gross tonnage and passenger vessels are required to transmit
+AIS data under International Maritime Organization (IMO) SOLAS regulations.
+
+AIS is a public broadcast safety system — the data is transmitted
+unencrypted and intended to be received by all vessels and shore stations
+in range. Services like MarineTraffic and VesselFinder are built entirely
+on AIS reception, confirming its fully public legal status.
+
+Reception is legal under the Radiocommunications Act 1992 (Cth).
+No licence required. ACMA authority applies.
+Transmission requires an AMSA-issued maritime radio licence.
+
 ### APRS — 145.175 MHz (Australian frequency)
 Automatic Packet Reporting System. Amateur radio operators broadcast
 their GPS positions, weather data, and messages on this frequency.

@@ -16,6 +16,7 @@ dependencies = [
     "python-socketio[client]>=5.11.0",
     "huggingface-hub>=0.24.0",
     "scipy>=1.12.0",
+    "pyais>=3.0.0",
 ]
 
 [project.optional-dependencies]

@@ -51,6 +51,11 @@ presets:
     sample_rate_hz: 2000000
     notes: "ISM/LoRa AU/NZ — NOT 868 MHz (that is the EU frequency)"
 
+  ais:
+    center_freq_hz: 162000000    # 162.0 MHz — AIS maritime midpoint
+    sample_rate_hz: 2000000
+    notes: "AIS maritime — single tune captures both AU channels (161.975 + 162.025 MHz)"
+
   adsb:
     center_freq_hz: 1090000000   # 1090 MHz — ADS-B aircraft transponders
     sample_rate_hz: 2000000
@@ -71,6 +76,7 @@ scanner:
     - 98000000
     - 129125000
     - 145175000
+    - 162000000
     - 915000000
     - 1090000000
   dwell_time_sec: 2.0

@@ -1125,6 +1125,7 @@ dependencies = [
     { name = "flask-socketio" },
     { name = "huggingface-hub" },
     { name = "numpy" },
+    { name = "pyais" },
     { name = "python-engineio" },
     { name = "python-socketio", extra = ["client"] },
     { name = "pyyaml" },
@@ -1145,6 +1146,7 @@ requires-dist = [
     { name = "flask-socketio", specifier = ">=5.3.0" },
     { name = "huggingface-hub", specifier = ">=0.24.0" },
     { name = "numpy", specifier = ">=1.26.0" },
+    { name = "pyais", specifier = ">=3.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0.0" },
     { name = "python-engineio", specifier = ">=4.8.0" },
@@ -1795,6 +1797,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/9b/ca/25afc144934014700c52e05103c2421997482d561f3101ff352e1292fb81/protobuf-6.33.6-cp39-abi3-manylinux2014_s390x.whl", hash = "sha256:c96c37eec15086b79762ed265d59ab204dabc53056e3443e702d2681f4b39ce3", size = 339381, upload-time = "2026-03-18T19:04:54.616Z" },
     { url = "https://files.pythonhosted.org/packages/16/92/d1e32e3e0d894fe00b15ce28ad4944ab692713f2e7f0a99787405e43533a/protobuf-6.33.6-cp39-abi3-manylinux2014_x86_64.whl", hash = "sha256:e9db7e292e0ab79dd108d7f1a94fe31601ce1ee3f7b79e0692043423020b0593", size = 323436, upload-time = "2026-03-18T19:04:55.768Z" },
     { url = "https://files.pythonhosted.org/packages/c4/72/02445137af02769918a93807b2b7890047c32bfb9f90371cbc12688819eb/protobuf-6.33.6-py3-none-any.whl", hash = "sha256:77179e006c476e69bf8e8ce866640091ec42e1beb80b213c3900006ecfba6901", size = 170656, upload-time = "2026-03-18T19:04:59.826Z" },
+]
+
+[[package]]
+name = "pyais"
+version = "3.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "attrs" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/6b/95/eab6f5c6aae63d66c02c51efca2f7b7b889359302b782901ce6c0bd53403/pyais-3.1.0.tar.gz", hash = "sha256:047705084bbd7e3865b6beeb3646cb00c2de63df5f21d6af795309c3e59201cb", size = 118570, upload-time = "2026-06-06T12:36:35.021Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/eb/28/8d0dc0f20bb3872063130ed6f611d8e4b6435fe5b690bbddb9fdde3ba459/pyais-3.1.0-py3-none-any.whl", hash = "sha256:60d9abfbc356cc8cf4052b7225ee8a815ea141f8fdddd611811051d3ae909d97", size = 67917, upload-time = "2026-06-06T12:36:33.664Z" },
 ]
 
 [[package]]

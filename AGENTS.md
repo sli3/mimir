@@ -37,6 +37,7 @@ every code change, without exception.
 | Aviation VHF | 118–136 MHz | ATC and aircraft comms |
 | ACARS | 129.125 / 130.025 MHz | Aircraft operational messaging, AU primary |
 | APRS | 145.175 MHz | AU frequency — NOT 144.390 (US) |
+| AIS | 161.975 / 162.025 MHz | Maritime VHF — automatic vessel identification |
 | ISM / LoRa | 915 MHz | AU/NZ band — NOT 868 MHz (EU) |
 | ADS-B | 1090 MHz | Aircraft position broadcasts |
 
@@ -175,9 +176,10 @@ uv run python tools/seed_chromadb.py
 | pre-9C-seed-autowipe | seed_chromadb.py auto-wipe before seeding | ✅ Complete | 279/279 (223 pytest + 56 Vitest) |
 | 9C | ACARS Decoder + Setup Infrastructure | ✅ Complete | 290/290 (223 pytest + 56 Vitest + 11 bash) |
 | 9D | ACARS Pure-Python Decoder Subscriber | ✅ Complete | 305/305 (249 pytest + 56 Vitest) |
+| 9E | AIS Pure-Python Decoder Subscriber | ✅ Complete | 331/331 (275 pytest + 56 Vitest) |
 | 9C-Threshold | Calibrate SIGNAL_THRESHOLD_DB | ⏳ PENDING ANTENNA | — |
 
-**Total passing: 305/305 (249 pytest + 56 Vitest)**
+**Total passing: 331/331 (275 pytest + 56 Vitest)**
 
 ---
 
@@ -237,6 +239,8 @@ Do not apply this pre-emptively — only if context problems are observed.
 | `spectrum_update` | server → browser | center_freq_hz, psd_db (2048 floats dBFS) |
 | `system_stats` | server → browser | hackrf_status, active_frequency_hz, scan_count, queue_depth, llm_last_inference_ms |
 | `set_focus_frequency` | browser → server | freq_hz |
+| `acars_message` | server → browser | timestamp, freq_hz, registration, label, block_id, text, crc_ok |
+| `ais_message` | server → browser | timestamp, mmsi, vessel_name, lat, lon, speed, course, channel |
 
 ### Critical field name facts
 - `timestamp` — ISO string e.g. `"2026-06-01T22:21:57.549402"` — use `new Date(ts)` not `new Date(ts * 1000)`
@@ -298,6 +302,11 @@ Do not apply this pre-emptively — only if context problems are observed.
 | `modules/acars/decoder.py` | AcarsDecoder — frame sync + field parsing + CRC-16 |
 | `modules/acars/message.py` | AcarsMessage dataclass |
 | `modules/acars/constants.py` | AU ACARS frequencies and modulation constants |
+| `modules/aIS/subscriber.py` | AisSubscriber — IQ bus subscriber + decode thread |
+| `modules/aIS/demodulator.py` | AisDemodulator — frequency shift + GMSK differential + HDLC extract |
+| `modules/aIS/decoder.py` | AisDecoder — NMEA sentence reconstruction + pyais decode |
+| `modules/aIS/message.py` | AisMessage dataclass |
+| `modules/aIS/constants.py` | AU AIS frequencies (161.975/162.025 MHz) and GMSK constants |
 | `dashboard/static/` | Vite build output — served by Flask |
 | `scan.py` | CLI entry point |
 | `config/mimir.yaml` | Runtime configuration |
@@ -349,6 +358,12 @@ Do not apply this pre-emptively — only if context problems are observed.
   NOAA 15 (137.620 MHz), NOAA 18 (137.9125 MHz), NOAA 19 (137.100 MHz),
   Meteor-M2 (137.9 MHz). Requires V-dipole or QFH antenna. Address after all
   8x phases are closed.
+
+- **pyais library with TX capability (post-9E):** `pyais>=3.0.0` is used for AIS NMEA
+  decoding. Its `encode` module is loaded at package level but is NEVER called by
+  Mimir. It produces NMEA text strings only and has no interaction with radio hardware.
+  Documented as RX-only safe usage in `modules/ais/decoder.py` TX-Safety Note.
+  Should be added to a future "Libraries with TX capability" tracking table in AGENTS.md.
 
 - **GitHub MCP toolset scoping** — The github MCP server registers many tools and may
   bloat agent context windows in future. Deferred because it is not yet causing problems.
