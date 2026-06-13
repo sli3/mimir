@@ -287,6 +287,7 @@ install_python_deps() {
 
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+    # pyModeS: pure Python ADS-B decoder, no system deps
     if [ -f "${SCRIPT_DIR}/requirements.txt" ]; then
         if [[ "${OS}" == "macos" ]]; then
             # macOS with Homebrew Python requires --break-system-packages or a venv

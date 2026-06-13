@@ -97,13 +97,24 @@ some wireless sensors, and other low-power devices.
 **Important**: The Australian ISM/LoRa band is **915 MHz**.
 The European band is 868 MHz. Do not assume EU frequencies apply here.
 
-### ADS-B — 1090 MHz
-Automatic Dependent Surveillance-Broadcast. All commercial and most
-private aircraft broadcast their GPS position, altitude, speed, heading,
-and flight number on 1090 MHz continuously and unencrypted. This is
-mandated by CASA (Civil Aviation Safety Authority) for aviation safety.
-Services like FlightAware and Flightradar24 are built entirely on
-ADS-B reception, confirming its fully public legal status.
+### ADS-B — Automatic Dependent Surveillance Broadcast
+
+**Frequency:** 1090 MHz
+
+**Legal status:** Passive receive — legal, no licence required.
+**Authority:** ACMA. **Law:** Radiocommunications Act 1992 (Cth).
+
+ADS-B is a mandatory one-way broadcast from aircraft transponders.
+Aircraft transmit position, altitude, speed, heading, and callsign to
+any receiver.  Licensing under the Act attaches to transmission, not
+reception.  Receiving ADS-B is equivalent to listening to AM radio.
+
+Australia uses 1090 MHz Extended Squitter (1090ES) as the national
+standard, consistent with ICAO international standards.  Airservices
+Australia operates the national ADS-B ground network.
+
+**Important:** Transmitting on 1090 MHz without authorisation is a
+criminal offence and endangers aviation safety.  Mimir never transmits.
 
 ---
 

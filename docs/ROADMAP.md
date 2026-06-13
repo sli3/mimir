@@ -30,8 +30,9 @@
 | pre-9C-seed-autowipe | seed_chromadb.py auto-wipe before seeding | ✅ Complete | 279/279 (223 pytest + 56 Vitest) |
 | 9C | ACARS Decoder + Setup Infrastructure | ✅ Complete | 290/290 (223 pytest + 56 Vitest + 11 bash) |
 | 9C-Threshold | Calibrate SIGNAL_THRESHOLD_DB | ⏳ PENDING | — |
+| 9F | ADS-B Pure-Python Decoder Subscriber | ✅ Complete | 354/354 (298 pytest + 56 Vitest) |
 
-**Total: 290/290 tests passing (223 pytest + 56 Vitest + 11 bash)**
+**Total: 354/354 tests passing (298 pytest + 56 Vitest)**
 
 **BUG-01 status:** Code fixed in 9B-Hotfix. Full calibration deferred to Phase 9C pending telescopic whip antenna (~68 cm SMA) purchase.
 
@@ -352,6 +353,43 @@ Gain defaults already aligned in pre-9C housekeeping.
 - ~~`hackrf_rx.py` DEFAULT_LNA/DEFAULT_VGA still 16/20~~ — fixed pre-9C: now 0/0
 - ~~`core/pipeline/capture.py` docstring references old "safe defaults (LNA 16 dB, VGA 20 dB)"~~ — fixed pre-9C: now LNA 0 dB / VGA 0 dB
 - ~~`dashboard/shared_state.py` BAND_PROFILES uses inconsistent gain values~~ — fixed pre-9C: gains documented per band
+
+---
+
+### Phase 9F — ADS-B Pure-Python Decoder Subscriber ✅
+
+**Goal:** Add ADS-B (1090 MHz) decoding to Mimir's shared IQ bus, following
+the established ACARS (9C/9D) and AIS (9E) subscriber pattern.
+
+**Delivered:**
+- `modules/adsb/constants.py` — AU ADS-B frequency (1090 MHz) and demodulation constants
+- `modules/adsb/message.py` — AdsbMessage dataclass (icao, callsign, altitude, position, velocity)
+- `modules/adsb/demodulator.py` — AdsbDemodulator — PPM demodulation + pulse extraction from IQ samples
+- `modules/adsb/decoder.py` — AdsbDecoder — message frame parsing + pyModeS v3 decode with single-frame CPR position resolution
+- `modules/adsb/subscriber.py` — AdsbSubscriber — IQ bus subscriber + decode thread (queue maxsize=64, timeout=0.1s)
+- `dashboard/server.py` — `emit_adsb_aircraft()` for SocketIO broadcast
+- `dashboard/frontend/src/hooks/useSocket.js` — `adsb_aircraft` event handler + state (keyed by ICAO, max 30, 90s expiry)
+- `dashboard/frontend/src/components/AdsbAircraftPanel.jsx` — cyberpunk aircraft table
+- `dashboard/frontend/src/App.jsx` — AdsbAircraftPanel added to grid
+- `scan.py` — registered AdsbSubscriber, start()/stop()
+- `pyproject.toml` — added `pyModeS>=3.0`
+- `docs/au-legal-reference.md` — updated ADS-B legal section
+- `tests/modules/test_adsb_message.py` — 5 tests
+- `tests/modules/test_adsb_demodulator.py` — 6 tests
+- `tests/modules/test_adsb_decoder.py` — 6 tests
+- `tests/modules/test_adsb_subscriber.py` — 6 tests
+
+**Key decisions:**
+- pyModeS v3 `decode(msg, reference=(lat, lon))` used for single-frame airborne CPR
+  position resolution (v2's `position_with_ref()` removed in v3).
+- Empty-ICAO guard in decoder to avoid broadcasting invalid frames.
+- Surface position messages (typecodes 5-8) not decoded; acceptable for Adelaide.
+
+**Known debt:**
+- `PREAMBLE_THRESHOLD = 2.0` provisional — requires live field testing.
+- CPR pair accumulator (even/odd frames without fixed reference) deferred.
+
+**Complete when:** `uv run pytest` → 354/354 (298 pytest + 56 Vitest)
 
 ---
 

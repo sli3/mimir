@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: 9D
+last_updated_phase: 9F
 ---
 
 # Mimir Wiki
@@ -70,6 +70,47 @@ Step  Function / Component          What it does
 ## Phase Log
 
 Phases are listed newest-first so the current phase is always at the top.
+
+---
+
+### Phase 9F — ADS-B Decoder Subscriber ✅ DONE
+
+**What:** Implemented a complete ADS-B (Automatic Dependent Surveillance-Broadcast)
+decoder as a subscriber on Mimir's shared IQ bus. ADS-B is a Mode S extended squitter
+protocol where aircraft broadcast their position, altitude, callsign, and velocity on
+1090 MHz. The decoder includes amplitude-only preamble detection, Pulse Position
+Modulation (PPM) bit extraction at 2 MSa/s, CRC validation, and field extraction
+via pyModeS. Decoded aircraft messages are broadcast via SocketIO to a new ADS-B
+panel in the dashboard.
+
+**Why:** ADS-B at 1090 MHz is one of the strongest and most information-rich aviation
+signals receivable in Adelaide. Unlike ACARS and AIS, ADS-B carries structured
+aircraft telemetry (position, altitude, speed, callsign) that the LLM classifier
+can use directly. A pure-Python demodulator avoids the HackRF single-process
+constraint — the same architecture as ACARS (9D) and AIS (9E).
+
+**Files changed:**
+- `modules/adsb/__init__.py` — package exports for AdsbSubscriber, AdsbDemodulator, AdsbDecoder, AdsbMessage, and constants
+- `modules/adsb/constants.py` — AU ADS-B frequency (1090 MHz), Adelaide reference position for CPR decoding, preamble detection parameters, message length constants
+- `modules/adsb/message.py` — `AdsbMessage` dataclass (icao, callsign, altitude, lat/lon, groundspeed, track, vertical_rate, raw_hex, timestamp)
+- `modules/adsb/demodulator.py` — `AdsbDemodulator` (vectorised preamble detection via amplitude ratio, PPM bit extraction at 2 MSa/s, hex string packing)
+- `modules/adsb/decoder.py` — `AdsbDecoder` (pyModeS decode with Adelaide reference position, CRC validation, field extraction into AdsbMessage)
+- `modules/adsb/subscriber.py` — `AdsbSubscriber` (queue + daemon thread, frequency filter at 1090 MHz +/- 2 MHz, demodulate-decode-broadcast pipeline)
+
+**Key functions:**
+
+`AdsbDemodulator.demodulate(iq_chunk)` — scans the amplitude envelope of raw IQ
+samples for the 8 us ADS-B preamble (high/low sample ratio >= 2.0), then extracts
+112 PPM bits. Returns a list of 28-character hex strings, one per candidate frame.
+Analogy: a barcode scanner looking for the right pattern of wide and narrow bars.
+
+`AdsbDecoder.decode(raw_hex)` — validates a 28-char hex string via pyModeS (CRC,
+DF17/DF18 check, typecode range), then extracts structured fields (ICAO, callsign,
+altitude, position, groundspeed, track, vertical_rate). Uses a fixed Adelaide
+reference position for CPR single-frame position decoding. Analogy: translating
+a shorthand code into a full aircraft report.
+
+**Test counts:** 354/354 (298 pytest + 56 Vitest).
 
 ---
 
@@ -486,7 +527,7 @@ This is a strong sign the connected antenna is too short for that frequency.
 
 | Term | Full name | Plain English |
 |---|---|---|
-| ADS-B | Automatic Dependent Surveillance–Broadcast | Aircraft broadcast their position on 1090 MHz. Legal to receive passively. Mimir can detect and classify these. |
+| ADS-B | Automatic Dependent Surveillance–Broadcast | Aircraft broadcast their position on 1090 MHz. Legal to receive passively. Mimir can demodulate, decode, and classify ADS-B messages — extracting ICAO address, callsign, altitude, position, groundspeed, and track. |
 | ACMA | Australian Communications and Media Authority | Australian body that regulates radio spectrum. Mimir's hard requirement — ACMA-compliant frequencies only. |
 | ACARS | Aircraft Communications Addressing and Reporting System | A digital data link between aircraft and ground stations. Used for flight plans, weather, and maintenance messages. AU primary frequency: 129.125 MHz. Legal to receive passively. |
 | antenna | Antenna | A physical conductor that picks up radio waves. Its length determines which frequency it receives best. Not one-size-fits-all — see Hardware Concepts. |
@@ -495,6 +536,7 @@ This is a strong sign the connected antenna is too short for that frequency.
 | asyncio | Asynchronous I/O | Python's way of doing multiple things concurrently without threads. `capture_loop` runs as an asyncio background task. |
 | Canvas | HTML Canvas | Browser element that JavaScript draws on pixel by pixel. The waterfall is drawn here — one row of pixels per PSD frame. |
 | colourmap | Colour Map | Lookup table: power (dB) → colour. Weak signals = dark blue. Strong signals = yellow/white. Produces the heat-map look. |
+| CPR | Compact Position Reporting | ADS-B position encoding scheme. Aircraft transmit latitude/longitude as compressed even/odd frame pairs. A receiver needs both frames (or a known reference position) to resolve the full position. Mimir uses a fixed Adelaide reference for single-frame decoding. |
 | dB | Decibel | Unit of signal strength. Logarithmic scale. Values in Mimir are negative (e.g. -50 dB). Closer to 0 = stronger signal. Noise floor ≈ -50 to -60 dB. |
 | DOM | Document Object Model | Browser's internal model of the HTML page. `waterfall.js` uses it to find the canvas element and draw on it. |
 | FastAPI | FastAPI | Python web framework. Handles HTTP and WebSocket connections. The engine behind the dashboard server. |
@@ -508,7 +550,9 @@ This is a strong sign the connected antenna is too short for that frequency.
 | LNA | Low Noise Amplifier | First amplifier in the receive chain. Boosts signal before anything else. Set via `lna_gain_db`. Default: 0 dB for strong signals (FM broadcast). Weaker bands may need 16–24 dB. |
 | NumPy | Numerical Python | Python library for fast array maths. All IQ samples and PSD values are NumPy arrays. `np.` in code = NumPy. |
 | PSD | Power Spectral Density | Output of the FFT. A bar chart of frequency vs signal strength. One dB value per frequency bin. |
+| PPM | Pulse Position Modulation | Modulation scheme used by ADS-B. Each bit is transmitted as a pulse in one of two time slots within a bit period. The slot with the larger pulse determines whether the bit is 1 or 0. Mimir demodulates PPM at 2 MSa/s (2 samples per bit). |
 | PYTHONPATH | Python Path | Environment variable telling Python where to find modules. `PYTHONPATH=.` means "look from current directory" — needed for debug scripts to find Mimir's own modules. |
+| pyModeS | Python Mode S | Python library for decoding Mode S / ADS-B hex strings. Used by `AdsbDecoder` to validate CRC and extract structured fields (ICAO, callsign, altitude, position). Decode-only — no transmit capability. |
 | SDR | Software-Defined Radio | A radio where processing is done in software, not hardware circuits. The HackRF is an SDR. |
 | shared_state | Shared State Module | `dashboard/shared_state.py`. Holds variables used across the whole server. Because Python caches imports, every file gets the same object. |
 | spiral antenna | Spiral Antenna | A compact fixed-length antenna optimised for high frequencies (800 MHz+). Cannot be extended. Poor performance at FM and other low-frequency bands. |

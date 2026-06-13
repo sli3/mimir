@@ -8,6 +8,7 @@ import CharacterPanel from './components/CharacterPanel.jsx'
 import WaterfallPanel from './components/WaterfallPanel.jsx'
 import AcarsMessagePanel from './components/AcarsMessagePanel.jsx'
 import AisVesselPanel from './components/AisVesselPanel.jsx'
+import AdsbAircraftPanel from './components/AdsbAircraftPanel.jsx'
 const panelStyle = {
   background: 'var(--panel)',
   border: '1px solid var(--border)',
@@ -21,7 +22,7 @@ export default function App() {
     <div style={{
       display: 'grid',
       gridTemplateColumns: '1fr 320px',
-      gridTemplateRows: '48px 1fr 200px 160px 140px 120px 120px',
+      gridTemplateRows: '48px 1fr 200px 160px 140px 120px 120px 120px',
       gridTemplateAreas: `
         "header    header"
         "waterfall ai"
@@ -29,6 +30,7 @@ export default function App() {
         "history   history"
         "acars     acars"
         "ais       ais"
+        "adsb      adsb"
         "freqlist  stats"
       `,
       height: '100vh',
@@ -119,6 +121,16 @@ export default function App() {
       }}>
         <AisVesselPanel
           aisMessages={socket.aisMessages}
+          focusedFreq={socket.focusedFreq}
+        />
+      </div>
+
+      <div style={{
+        ...panelStyle,
+        gridArea: 'adsb',
+      }}>
+        <AdsbAircraftPanel
+          adsbAircraft={socket.adsbAircraft}
           focusedFreq={socket.focusedFreq}
         />
       </div>

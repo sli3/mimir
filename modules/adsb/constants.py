@@ -1,0 +1,42 @@
+"""ADS-B constants — Australian frequency and demodulation parameters.
+
+Legal: passive receive only.  Radiocommunications Act 1992 (Cth).
+Jurisdiction: AU / SA.  Authority: ACMA.
+"""
+
+# AU ADS-B Extended Squitter frequency (Hz)
+AU_ADSB_FREQUENCY_HZ: int = 1_090_000_000
+
+# Accept anything within 2 MHz of the ADS-B centre frequency
+FREQ_TOLERANCE_HZ: int = 2_000_000
+
+# Adelaide receiver reference position for CPR position_with_ref()
+# Used to decode position from a single ADS-B frame without needing
+# a paired even/odd frame.  Valid for aircraft within ~180 NM (~333 km).
+# All aircraft receivable at 1090 MHz from Adelaide are within this range.
+ADELAIDE_LAT: float = -34.93
+ADELAIDE_LON: float = 138.60
+
+# Aircraft table retention
+MAX_AIRCRAFT: int = 30
+AIRCRAFT_EXPIRY_SEC: float = 90.0
+
+# Preamble detection threshold ratio: mean(high samples) / mean(low samples)
+# Must exceed this to be considered a valid preamble candidate.
+# DEFERRED: This value (2.0) is provisional.  It requires live field testing
+# with real ADS-B traffic from Adelaide airports to confirm it reliably
+# distinguishes genuine preambles from noise.  If too many false positives or
+# missed frames are observed, recalibrate with tools/diagnose_threshold.py
+# or a dedicated ADS-B threshold sweep.
+PREAMBLE_THRESHOLD: float = 2.0
+
+# Preamble sample positions at 2 MSa/s (0.5 us per sample)
+# ADS-B preamble is 8 us = 16 samples at 2 MSa/s
+PREAMBLE_HIGH_INDICES: tuple = (0, 2, 7, 9)
+PREAMBLE_LOW_INDICES: tuple = (1, 3, 4, 5, 6, 8, 10, 11, 12, 13, 14, 15)
+
+# Message length
+PREAMBLE_SAMPLES: int = 16        # 8 us * 2 MSa/s
+DATA_BITS: int = 112              # DF17/DF18 long message
+DATA_SAMPLES: int = DATA_BITS * 2  # 2 samples per bit at 2 MSa/s
+MESSAGE_SAMPLES: int = PREAMBLE_SAMPLES + DATA_SAMPLES  # = 240

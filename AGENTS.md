@@ -177,9 +177,10 @@ uv run python tools/seed_chromadb.py
 | 9C | ACARS Decoder + Setup Infrastructure | ✅ Complete | 290/290 (223 pytest + 56 Vitest + 11 bash) |
 | 9D | ACARS Pure-Python Decoder Subscriber | ✅ Complete | 305/305 (249 pytest + 56 Vitest) |
 | 9E | AIS Pure-Python Decoder Subscriber | ✅ Complete | 331/331 (275 pytest + 56 Vitest) |
+| 9F | ADS-B Pure-Python Decoder Subscriber | ✅ Complete | 354/354 (298 pytest + 56 Vitest) |
 | 9C-Threshold | Calibrate SIGNAL_THRESHOLD_DB | ⏳ PENDING ANTENNA | — |
 
-**Total passing: 331/331 (275 pytest + 56 Vitest)**
+**Total passing: 354/354 (298 pytest + 56 Vitest)**
 
 ---
 
@@ -241,6 +242,7 @@ Do not apply this pre-emptively — only if context problems are observed.
 | `set_focus_frequency` | browser → server | freq_hz |
 | `acars_message` | server → browser | timestamp, freq_hz, registration, label, block_id, text, crc_ok |
 | `ais_message` | server → browser | timestamp, mmsi, vessel_name, lat, lon, speed, course, channel |
+| `adsb_aircraft` | server → browser | icao, callsign, altitude_ft, latitude, longitude, groundspeed, track, vertical_rate, timestamp |
 
 ### Critical field name facts
 - `timestamp` — ISO string e.g. `"2026-06-01T22:21:57.549402"` — use `new Date(ts)` not `new Date(ts * 1000)`
@@ -307,6 +309,11 @@ Do not apply this pre-emptively — only if context problems are observed.
 | `modules/aIS/decoder.py` | AisDecoder — NMEA sentence reconstruction + pyais decode |
 | `modules/aIS/message.py` | AisMessage dataclass |
 | `modules/aIS/constants.py` | AU AIS frequencies (161.975/162.025 MHz) and GMSK constants |
+| `modules/adsb/subscriber.py` | AdsbSubscriber — IQ bus subscriber + decode thread |
+| `modules/adsb/demodulator.py` | AdsbDemodulator — PPM demodulation + pulse extraction |
+| `modules/adsb/decoder.py` | AdsbDecoder — message frame parsing + pyModeS decode |
+| `modules/adsb/message.py` | AdsbMessage dataclass |
+| `modules/adsb/constants.py` | AU ADS-B frequency (1090 MHz) and demod constants |
 | `dashboard/static/` | Vite build output — served by Flask |
 | `scan.py` | CLI entry point |
 | `config/mimir.yaml` | Runtime configuration |

@@ -40,6 +40,7 @@ from flask_socketio import SocketIO
 
 from core.pipeline.scan_result import ScanResult
 from modules.acars.message import AcarsMessage
+from modules.adsb.message import AdsbMessage
 from modules.ais.message import AisMessage
 
 logger = logging.getLogger(__name__)
@@ -210,6 +211,21 @@ def emit_ais_message(msg: AisMessage) -> None:
         "speed": msg.speed if msg.speed is not None else "---",
         "course": msg.course if msg.course is not None else "---",
         "channel": msg.channel,
+    })
+
+
+def emit_adsb_aircraft(msg: AdsbMessage) -> None:
+    """Broadcast a decoded ADS-B aircraft message via SocketIO."""
+    socketio.emit("adsb_aircraft", {
+        "icao": msg.icao,
+        "callsign": msg.callsign,
+        "altitude_ft": msg.altitude_ft,
+        "latitude": msg.latitude,
+        "longitude": msg.longitude,
+        "groundspeed": msg.groundspeed,
+        "track": msg.track,
+        "vertical_rate": msg.vertical_rate,
+        "timestamp": msg.timestamp.isoformat(),
     })
 
 

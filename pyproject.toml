@@ -17,6 +17,7 @@ dependencies = [
     "huggingface-hub>=0.24.0",
     "scipy>=1.12.0",
     "pyais>=3.0.0",
+    "pyModeS>=3.0",
 ]
 
 [project.optional-dependencies]

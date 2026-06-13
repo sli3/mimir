@@ -138,9 +138,12 @@ event rate, gap detection, and a PASS/FAIL summary. Use `--duration 60` minimum
 | 6     | Socket.IO + Scan Pipeline   | ✅ Complete  | 14/14   |
 | 7A    | Cyberpunk React Dashboard   | ✅ Complete  | 158/158 |
 | 7B-pre| Frontend Consolidation      | ✅ Complete  | 192/192 |
-| 7B    | Data Layer                  | 🔜 Next      | —       |
+| 7B    | Data Layer                  | ✅ Complete  | 192/192 |
+| 9D    | ACARS Decoder Subscriber    | ✅ Complete  | 305/305 |
+| 9E    | AIS Decoder Subscriber      | ✅ Complete  | 331/331 |
+| 9F    | ADS-B Decoder Subscriber    | ✅ Complete  | 354/354 |
 
-**Total: 192/192 tests passing (142 pytest + 50 Vitest)**
+**Total: 354/354 tests passing (298 pytest + 56 Vitest)**
 
 ---
 
@@ -225,6 +228,9 @@ Then open your browser at `http://localhost:5000`. The cyberpunk dashboard will 
 - **Frequency List** — the bands Mimir is currently monitoring
 - **System Stats** — scanner status, connection state, and hardware info
 - **Character Panel** — visual indicator of current activity level (idle / low / high / anomaly)
+- **ADS-B Messages** — decoded aircraft transponder data (ICAO, callsign, altitude, position, groundspeed, track)
+- **ACARS Messages** — decoded aircraft data link messages (registration, label, text)
+- **AIS Messages** — decoded vessel identification data (MMSI, vessel name, position, speed)
 
 The scanner starts automatically when the server starts. It cycles through the configured frequency bands continuously.
 
@@ -255,6 +261,22 @@ The production vector store (`data/vectorstore/`) does not need to be cleared �
 
 ---
 
+## Signal Decoder Modules
+
+Mimir includes three pure-Python signal decoder modules that run inside the main process as daemon threads on the shared IQ bus. No additional hardware or separate processes are required.
+
+| Module | Signal | Frequency | Library | What it decodes |
+|---|---|---|---|---|
+| `modules/acars/` | ACARS | 129.125 MHz | None (pure Python) | Aircraft data link messages — registration, label, text |
+| `modules/ais/` | AIS | 161.975 / 162.025 MHz | `pyais>=3.0.0` | Vessel identification — MMSI, name, position, speed |
+| `modules/adsb/` | ADS-B | 1090 MHz | `pyModeS>=3.0` | Aircraft transponder — ICAO, callsign, altitude, position, groundspeed, track |
+
+All three are installed automatically by `uv sync --all-extras`. No additional system packages are needed.
+
+**Legal:** All decoders are passive receive-only. pyModeS and pyais are decode-only libraries with no transmit capability. Jurisdiction: AU/SA — Radiocommunications Act 1992 (Cth).
+
+---
+
 ## Project Structure
 
 ```
@@ -281,6 +303,10 @@ mimir/
 │   └── store.py                       ← SignalStore (ChromaDB)
 ├── llm/
 │   └── classifier.py                  ← LLM signal classification
+├── modules/
+│   ├── acars/                         ← ACARS decoder (Phase 9D)
+│   ├── ais/                           ← AIS decoder (Phase 9E)
+│   └── adsb/                          ← ADS-B decoder (Phase 9F)
 ├── dashboard/
 │   ├── server.py                      ← Flask + Socket.IO server
 │   ├── scanner.py                     ← Scan loop + event emission

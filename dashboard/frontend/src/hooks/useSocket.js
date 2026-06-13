@@ -22,6 +22,7 @@ export function useSocket() {
   const [aiReasoning, setAiReasoning] = useState(INITIAL_AI_REASONING)
   const [acarsMessages, setAcarsMessages] = useState([])
   const [aisMessages, setAisMessages] = useState([])
+  const [adsbAircraft, setAdsbAircraft] = useState({})
   const socketRef = useRef(null)
   const psdMapRef = useRef({})
   const focusedFreqRef = useRef(null)
@@ -87,6 +88,17 @@ export function useSocket() {
       })
     })
 
+    socket.on('adsb_aircraft', (data) => {
+      setAdsbAircraft((prev) => {
+        const now = Date.now()
+        const updated = { ...prev, [data.icao]: { ...data, receivedAt: now } }
+        const cutoff = now - 90000
+        return Object.fromEntries(
+          Object.entries(updated).filter(([, v]) => v.receivedAt > cutoff)
+        )
+      })
+    })
+
     return () => {
       socket.off('connect')
       socket.off('disconnect')
@@ -95,6 +107,7 @@ export function useSocket() {
       socket.off('system_stats')
       socket.off('acars_message')
       socket.off('ais_message')
+      socket.off('adsb_aircraft')
       socket.disconnect()
     }
   }, [])
@@ -124,5 +137,6 @@ export function useSocket() {
     aiReasoning,
     acarsMessages,
     aisMessages,
+    adsbAircraft,
   }
 }
