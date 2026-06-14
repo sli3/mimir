@@ -71,6 +71,53 @@ detect_os() {
 OS=$(detect_os)
 info "Detected OS: ${OS}"
 
+# ── Build SoapyHackRF plugin from source (Fedora/RHEL only) ──────────────────
+# The SoapySDR HackRF plugin does not exist in Fedora/RHEL dnf repos under
+# any package name. It must be built from source.
+#
+# Source: https://github.com/pothosware/SoapyHackRF
+# Requires: gcc-c++, hackrf-devel, SoapySDR-devel (all installed above)
+#
+# AU legal note: This plugin enables receive-only SDR access to the HackRF.
+# No transmit functionality is configured or enabled.
+build_soapyhackrf() {
+    info "Building SoapyHackRF plugin from source..."
+    info "(Not available in Fedora/RHEL dnf repos — must be built)"
+
+    # Check if already installed and registered with SoapySDR
+    if SoapySDRUtil --info 2>/dev/null | grep -q "hackrf"; then
+        success "SoapyHackRF plugin already registered — skipping build."
+        return
+    fi
+
+    BUILD_DIR="/tmp/mimir-deps/SoapyHackRF"
+    mkdir -p "${BUILD_DIR}"
+    git clone --depth=1 https://github.com/pothosware/SoapyHackRF.git "${BUILD_DIR}/src"
+    mkdir -p "${BUILD_DIR}/build"
+    cd "${BUILD_DIR}/build"
+    cmake ../src
+
+    if command -v nproc &>/dev/null; then
+        make -j"$(nproc)"
+    else
+        make -j"$(sysctl -n hw.logicalcpu)"
+    fi
+
+    sudo make install
+    sudo ldconfig
+    cd - > /dev/null
+
+    rm -rf "${BUILD_DIR}"
+
+    if SoapySDRUtil --info 2>/dev/null | grep -q "hackrf"; then
+        success "SoapyHackRF plugin installed and registered."
+    else
+        error "SoapyHackRF build succeeded but plugin not detected by SoapySDRUtil."
+        error "Try: sudo ldconfig && SoapySDRUtil --info"
+        exit 1
+    fi
+}
+
 # ── Build acarsdec from source ────────────────────────────────────────────────
 # acarsdec is an ACARS decoder (Aircraft Communications Addressing and
 # Reporting System). It is not available in any Linux package manager and
@@ -133,6 +180,7 @@ install_system_packages() {
             info "Installing system packages via dnf..."
             sudo dnf install -y \
                 hackrf \
+                hackrf-devel \
                 SoapySDR \
                 SoapySDR-devel \
                 python3-SoapySDR \
@@ -141,12 +189,12 @@ install_system_packages() {
                 python3-devel \
                 cmake \
                 gcc \
+                gcc-c++ \
                 make \
-                git
+                git \
+                nodejs22
             success "System packages installed (Fedora/RHEL)"
-            warn "IMPORTANT — Fedora/RHEL: SoapySDR-module-hackrf does NOT exist in dnf repos."
-            warn "You must build the HackRF SoapySDR plugin from source before Mimir can use the HackRF:"
-            warn "  https://github.com/pothosware/SoapyHackRF"
+            build_soapyhackrf
             build_acarsdec
             ;;
 
@@ -165,8 +213,10 @@ install_system_packages() {
                 python3-dev \
                 cmake \
                 gcc \
+                g++ \
                 make \
-                git
+                git \
+                nodejs
             success "System packages installed (Debian/Ubuntu)"
             build_acarsdec
             ;;
@@ -182,7 +232,9 @@ install_system_packages() {
                 cmake \
                 gcc \
                 make \
-                git
+                git \
+                nodejs \
+                npm
             success "System packages installed (Arch Linux)"
             warn "python3-SoapySDR bindings on Arch may need to be built from source."
             warn "If 'import SoapySDR' fails, see: https://github.com/pothosware/SoapySDR/wiki/PythonSupport"
@@ -199,8 +251,10 @@ install_system_packages() {
                 python3-pip \
                 cmake \
                 gcc \
+                gcc-c++ \
                 make \
-                git
+                git \
+                nodejs22
             success "System packages installed (openSUSE)"
             warn "If soapysdr-module-hackrf is not available in your repos, build from source:"
             warn "  https://github.com/pothosware/SoapyHackRF"
@@ -214,7 +268,7 @@ install_system_packages() {
                 error "  /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
                 exit 1
             fi
-            brew install hackrf soapysdr soapyhackrf cmake git
+            brew install hackrf soapysdr soapyhackrf cmake git node
             success "System packages installed via Homebrew"
             warn "macOS: Python SoapySDR bindings are not installed by Homebrew."
             warn "You must build them from source:"
@@ -226,11 +280,12 @@ install_system_packages() {
         unknown)
             warn "Could not detect your Linux distribution."
             warn "Please install the following manually before continuing:"
-            warn "  - hackrf (libhackrf + tools)"
+            warn "  - hackrf (libhackrf + tools + dev headers)"
             warn "  - SoapySDR + development headers + Python bindings"
             warn "  - SoapyHackRF plugin: https://github.com/pothosware/SoapyHackRF"
             warn "  - acarsdec (build from source): https://github.com/f00b4r0/acarsdec"
-            warn "    cmake + gcc + make + git required to build acarsdec"
+            warn "    cmake + gcc + gcc-c++ + make + git required to build"
+            warn "  - nodejs (for dashboard build)"
             warn "Then re-run this script or install Python deps manually:"
             warn "  pip install -r requirements.txt"
             ;;
@@ -287,7 +342,6 @@ install_python_deps() {
 
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-    # pyModeS: pure Python ADS-B decoder, no system deps
     if [ -f "${SCRIPT_DIR}/requirements.txt" ]; then
         if [[ "${OS}" == "macos" ]]; then
             # macOS with Homebrew Python requires --break-system-packages or a venv
