@@ -45,14 +45,19 @@ def _colour(text: str, code: str) -> str:
 # =============================================================================
 # SECTION 1 — CALIBRATION_TARGETS config block
 # =============================================================================
+# TODO (Phase 9C-Threshold): Gain values below are stale (lna=32/vga=40 for
+# FM, etc.) and do not match the calibrated production gains (lna=24/vga=26).
+# Update all entries to match config/mimir.yaml and shared_state.py BAND_PROFILES
+# before next calibration run. Using stale gains will produce unreliable distance
+# matrices and threshold recommendations.
 CALIBRATION_TARGETS: list[dict] = [
     {
         "label": "FM_broadcast",
         "freq_hz": 98_900_000,
         "sample_rate_hz": 2_000_000,
         "num_samples": 256_000,
-        "lna_gain_db": 32,
-        "vga_gain_db": 40,
+        "lna_gain_db": 24,  # calibrated: telescopic whip, Phase 9C-Threshold
+        "vga_gain_db": 26,
         "captures": 2,
     },
     {
@@ -60,7 +65,7 @@ CALIBRATION_TARGETS: list[dict] = [
         "freq_hz": 1_090_000_000,
         "sample_rate_hz": 2_000_000,
         "num_samples": 256_000,
-        "lna_gain_db": 32,
+        "lna_gain_db": 32,  # TODO: revalidate with telescopic whip antenna
         "vga_gain_db": 38,
         "captures": 2,
     },
@@ -69,8 +74,8 @@ CALIBRATION_TARGETS: list[dict] = [
         "freq_hz": 127_000_000,
         "sample_rate_hz": 2_000_000,
         "num_samples": 256_000,
-        "lna_gain_db": 32,
-        "vga_gain_db": 40,
+        "lna_gain_db": 16,  # matches shared_state.py BAND_PROFILES aviation
+        "vga_gain_db": 20,
         "captures": 2,
     },
     {
@@ -78,8 +83,8 @@ CALIBRATION_TARGETS: list[dict] = [
         "freq_hz": 433_000_000,
         "sample_rate_hz": 2_000_000,
         "num_samples": 256_000,
-        "lna_gain_db": 16,
-        "vga_gain_db": 20,
+        "lna_gain_db": 0,   # zero-gain baseline
+        "vga_gain_db": 0,
         "captures": 2,
     },
 ]

@@ -7,11 +7,18 @@ from core.pipeline.capture import capture_iq
 from core.pipeline.fft import compute_psd
 from core.pipeline.features import fingerprint_spectrum
 
+# TODO (Phase 9C-Threshold): Gain values below are stale and do not match
+# calibrated production gains. Update to match config/mimir.yaml and
+# shared_state.py BAND_PROFILES before next run.
+# FM_broadcast: should be lna=24, vga=26 (telescopic whip)
+# ADS_B: needs revalidation with telescopic whip
+# Aviation_VHF: should be lna=16, vga=20
+# noise_floor: should be lna=0, vga=0 (zero-gain baseline)
 TARGETS = [
-    ("FM_broadcast",  98_900_000,    32, 40),
-    ("ADS_B",         1_090_000_000, 32, 38),
-    ("Aviation_VHF",  127_000_000,   32, 40),
-    ("noise_floor",   433_000_000,   16, 20),
+    ("FM_broadcast",  98_900_000,    32, 40),  # STALE gains
+    ("ADS_B",         1_090_000_000, 32, 38),  # STALE gains
+    ("Aviation_VHF",  127_000_000,   32, 40),  # STALE gains
+    ("noise_floor",   433_000_000,   16, 20),  # STALE gains
 ]
 
 for label, freq_hz, lna, vga in TARGETS:
