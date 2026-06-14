@@ -6,7 +6,7 @@ description: >
   AGENTS.md conventions. Read-only — reports findings to the Project Manager,
   does not edit code. Invoked by /build at Step 5b.
 mode: subagent
-model: opencode-go/minimax-m2.7
+model: opencode-go/minimax-m3
 temperature: 0.1
 permission:
   edit: deny
