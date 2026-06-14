@@ -9,14 +9,16 @@
 # Jurisdiction: South Australia. Authority: ACMA.
 
 # ── Hardware ──────────────────────────────────────────────────────────
-# Gain calibrated for strong Adelaide FM signals post-FFT normalisation fix.
+# Gain calibrated for telescopic whip SMA antenna (~1 GHz optimised).
+# Poor coupling at FM wavelengths (~3 m) requires gain to compensate.
+# lna=24 / vga=26 confirmed safe on live hardware (no ADC saturation).
 # Increase if receiving weak signals (APRS, ADS-B, etc.).
 hardware:
   driver: hackrf
   serial: null          # null = use first detected device
   sample_rate_hz: 2000000
-  lna_gain_db: 0
-  vga_gain_db: 0
+  lna_gain_db: 24
+  vga_gain_db: 26
   amp_enable: false
 
 # ── Default frequency ──────────────────────────────────────────────────
@@ -69,7 +71,9 @@ llm:
   max_tokens: 2048
 
 # ── Scanner ───────────────────────────────────────────────────────────
-# Gain calibrated for strong Adelaide FM signals post-FFT normalisation fix.
+# Gain calibrated for telescopic whip SMA antenna (~1 GHz optimised).
+# Poor coupling at FM wavelengths (~3 m) requires gain to compensate.
+# lna=24 / vga=26 confirmed safe on live hardware (no ADC saturation).
 # Increase if receiving weak signals (APRS, ADS-B, etc.).
 scanner:
   frequencies_hz:
@@ -81,8 +85,8 @@ scanner:
     - 1090000000
   dwell_time_sec: 2.0
   num_samples: 2000000
-  lna_gain_db: 0
-  vga_gain_db: 0
+  lna_gain_db: 24
+  vga_gain_db: 26
   amp_enable: false
   queue_maxsize: 20
   # LLM inference server — override with MIMIR_LLM_URL env var

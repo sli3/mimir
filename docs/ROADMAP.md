@@ -29,10 +29,10 @@
 | pre-9C | Latent gain defaults cleanup (housekeeping) | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
 | pre-9C-seed-autowipe | seed_chromadb.py auto-wipe before seeding | ✅ Complete | 279/279 (223 pytest + 56 Vitest) |
 | 9C | ACARS Decoder + Setup Infrastructure | ✅ Complete | 290/290 (223 pytest + 56 Vitest + 11 bash) |
-| 9C-Threshold | Calibrate SIGNAL_THRESHOLD_DB | ⏳ PENDING | — |
+| 9C-Threshold | Calibrate SIGNAL_THRESHOLD_DB | ✅ Complete | 362/362 (306 pytest + 56 Vitest) |
 | 9F | ADS-B Pure-Python Decoder Subscriber | ✅ Complete | 354/354 (298 pytest + 56 Vitest) |
 
-**Total: 354/354 tests passing (298 pytest + 56 Vitest)**
+**Total: 362/362 tests passing (306 pytest + 56 Vitest)**
 
 **BUG-01 status:** Code fixed in 9B-Hotfix. Full calibration deferred to Phase 9C pending telescopic whip antenna (~68 cm SMA) purchase.
 
@@ -337,22 +337,43 @@ and update all legal/reference documentation for ACARS band coverage.
 
 ---
 
-### Phase 9C — Calibrate SIGNAL_THRESHOLD_DB ⏳
+### Phase 9C-Threshold — Calibrate SIGNAL_THRESHOLD_DB ✅
 
-**Goal:** Run `tools/diagnose_threshold.py` on live hardware with proper antenna
-(~68 cm telescopic whip SMA) to derive the final `SIGNAL_THRESHOLD_DB` value.
-Gain defaults already aligned in pre-9C housekeeping.
+**Goal:** Run `tools/diagnose_threshold.py` on live hardware with the new
+telescopic whip antenna (SMA, ~1 GHz optimised) to derive the final
+`SIGNAL_THRESHOLD_DB` value and align all production gain settings.
 
-**Status:** PENDING — awaiting antenna acquisition.
+**Background:** The stock stub antenna nearly saturated the HackRF at FM
+frequencies in Adelaide with lna=0/vga=0. The new telescopic whip has poor
+coupling at FM wavelengths (~3 m), requiring gain to compensate. Calibration
+confirmed lna=24/vga=26 is safe with the new antenna — no saturation observed.
+Result: 24 dB threshold → 196,289 Hz bandwidth ≈ 200 kHz FM channel width.
 
-**Delivered (placeholder):**
-- Code fixed in 9B-Hotfix. Full calibration deferred.
+**Delivered:**
+- `core/pipeline/features.py` — `SIGNAL_THRESHOLD_DB`: 10.0 → 24.0 dB.
+  Calibrated at lna=24/vga=26, FM Adelaide 98.9 MHz. Method:
+  tools/diagnose_threshold.py threshold sweep, target 200 kHz FM channel width.
+- `config/mimir.yaml` — scanner gain: lna=0/vga=0 → lna=24/vga=26
+- `core/config/loader.py` — `MimirConfig` defaults: lna_gain_db 0.0→24.0,
+  vga_gain_db 0.0→26.0
+- `core/device/hackrf_rx.py` — `DEFAULT_LNA_GAIN_DB` 0→24,
+  `DEFAULT_VGA_GAIN_DB` 0→26, docstring updated
+- `dashboard/shared_state.py` — `BAND_PROFILES` fm_broadcast: lna 0→24,
+  vga 0→26. Comment updated to explain antenna mismatch at FM wavelengths.
+- `tools/diagnose_threshold.py` — `LNA_GAIN_DB` 0→24, `VGA_GAIN_DB` 0→26,
+  saturation comment updated to reflect new antenna behaviour
+- ChromaDB re-seeded via `tools/seed_chromadb.py` — reference embeddings
+  regenerated with corrected gain and threshold values
 
-**Known follow-up items (resolved by pre-9C housekeeping):**
-- ~~`MimirConfig` dataclass defaults still at lna=16 / vga=20~~ — fixed pre-9C: now 0/0
-- ~~`hackrf_rx.py` DEFAULT_LNA/DEFAULT_VGA still 16/20~~ — fixed pre-9C: now 0/0
-- ~~`core/pipeline/capture.py` docstring references old "safe defaults (LNA 16 dB, VGA 20 dB)"~~ — fixed pre-9C: now LNA 0 dB / VGA 0 dB
-- ~~`dashboard/shared_state.py` BAND_PROFILES uses inconsistent gain values~~ — fixed pre-9C: gains documented per band
+**Deferred:**
+- `tools/calibrate_thresholds.py` CALIBRATION_TARGETS still uses old gain
+  values (lna=32/vga=40 for FM, etc.) — needs updating in a future phase
+- `tools/diagnose_fingerprints.py` TARGETS still uses old gain values —
+  needs updating in a future phase
+- Other BAND_PROFILES entries (aviation, adsb) need revalidation with the
+  new telescopic whip antenna — gains were set for the stock stub
+
+**Test counts:** 362/362 (306 pytest + 56 Vitest) — no regressions
 
 ---
 

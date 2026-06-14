@@ -104,10 +104,12 @@ def capture_and_save(
     """
     Capture IQ samples and save them to a .npy file in one call.
 
-    Uses default safe gain settings (LNA 0 dB, VGA 0 dB).
-    Adelaide FM broadcast is strong enough to saturate the ADC
-    at higher gain. Increase only if capturing weak signals on
-    bands other than FM.
+    Uses default safe gain settings (LNA 24 dB, VGA 26 dB).
+    These defaults are calibrated for the telescopic whip SMA antenna
+    (~1 GHz optimised). Poor coupling at FM wavelengths requires gain
+    to compensate. Confirmed safe on live hardware with Adelaide FM
+    signals (no ADC saturation). Adjust only if capturing weak signals
+    on bands other than FM.
 
     Args:
         freq_hz: Centre frequency to tune to in Hz.

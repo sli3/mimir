@@ -11,11 +11,18 @@ class ConfigError(Exception):
 
 @dataclass
 class MimirConfig:
+    """Mimir runtime configuration.
+
+    Gain defaults (lna=24.0, vga=26.0) are calibrated for the telescopic
+    whip SMA antenna (~1 GHz optimised). Poor coupling at FM wavelengths
+    requires gain to compensate. Confirmed safe on live hardware with
+    Adelaide FM signals (no ADC saturation).
+    """
     frequencies_hz: list[float] = field(default_factory=lambda: [98_000_000, 145_175_000, 915_000_000, 1_090_000_000])
     dwell_time_sec: float = 2.0
     num_samples: int = 2_000_000
-    lna_gain_db: float = 0.0
-    vga_gain_db: float = 0.0
+    lna_gain_db: float = 24.0
+    vga_gain_db: float = 26.0
     amp_enable: bool = False
     queue_maxsize: int = 20
     llm_url: str = "http://192.168.0.66:8080/v1"

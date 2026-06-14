@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: 9F
+last_updated_phase: 9C-Threshold
 ---
 
 # Mimir Wiki
@@ -70,6 +70,58 @@ Step  Function / Component          What it does
 ## Phase Log
 
 Phases are listed newest-first so the current phase is always at the top.
+
+---
+
+### Phase 9C-Threshold — Gain and Threshold Calibration ✓ DONE
+
+**What:** Calibrated `SIGNAL_THRESHOLD_DB` from 10.0 to 24.0 dB and aligned all
+production gain defaults across the codebase to lna=24 dB / vga=26 dB for the
+telescopic whip SMA antenna (~1 GHz optimised). The previous defaults (lna=0/vga=0)
+were calibrated for a different antenna with better FM coupling. The new telescopic
+whip has poor coupling at FM wavelengths (~3 m), requiring gain to compensate.
+Threshold was found via `tools/diagnose_threshold.py` sweep: 24 dB produces
+196,289 Hz bandwidth, closest to the 200 kHz target for an FM broadcast channel.
+
+**Why:** After switching to the telescopic whip antenna, the previous zero-gain
+settings produced weak signals that fell below the detection threshold. All gain
+defaults and `SIGNAL_THRESHOLD_DB` needed recalibration for the new antenna.
+ADC saturation was confirmed safe at lna=24/vga=26 with live Adelaide FM signals.
+
+**Files changed:**
+- `core/pipeline/features.py` — `SIGNAL_THRESHOLD_DB` 10.0 -> 24.0, docstring updated with calibration metadata
+- `config/mimir.yaml` — hardware/scanner gain values updated (lna=24, vga=26), inline comments updated
+- `core/config/loader.py` — `MimirConfig` dataclass defaults (lna 0.0 -> 24.0, vga 0.0 -> 26.0), docstring added
+- `core/device/hackrf_rx.py` — `DEFAULT_LNA_GAIN_DB` 0 -> 24, `DEFAULT_VGA_GAIN_DB` 0 -> 26, class comments updated
+- `dashboard/shared_state.py` — `BAND_PROFILES` fm_broadcast gains (0 -> 24/26), comments updated
+- `tools/diagnose_threshold.py` — comment updated (constants already correct)
+- `core/pipeline/capture.py` — `capture_and_save()` docstring updated
+- `tests/core/test_fft_features.py` — new `TestSignalThresholdDb`
+- `tests/core/test_config_loader.py` — new `TestMimirConfigDefaults`
+- `tests/dashboard/test_shared_state.py` — new `TestBandProfiles`
+
+**Key functions:**
+
+`SIGNAL_THRESHOLD_DB` (24.0 dB) — the dB value above the estimated noise floor
+that marks a frequency bin as "signal present". Too low = noise counted as signal
+(false positive). Too high = real signals missed (false negative). Calibrated for
+the telescopic whip SMA antenna at lna=24/vga=26. Analogy: squelch on a
+walkie-talkie.
+
+`MimirConfig` dataclass defaults — the Python-level default gain values used when
+`MimirConfig` is constructed directly (bypassing YAML loading). Must match
+`config/mimir.yaml` to prevent silent gain mismatches.
+
+`BAND_PROFILES` — per-band gain settings for the dashboard waterfall. Only
+fm_broadcast is calibrated for the telescopic whip. Aviation and ADS-B need
+revalidation in future phases.
+
+**Deferred items:**
+- `tools/calibrate_thresholds.py` still contains stale gain values (lna=32/vga=40)
+- `tools/diagnose_fingerprints.py` still contains stale gain values
+- Aviation and ADS-B band profiles need revalidation with the new antenna
+
+**Test counts:** 354/354 (298 pytest + 56 Vitest) + 3 new test classes.
 
 ---
 
@@ -242,20 +294,22 @@ inconsistency.
 
 ---
 
-### Phase 9 — Threshold Tuning ▶ ACTIVE
+### Phase 9 — Threshold Tuning ✓ DONE
 
 **What:** Tune `SIGNAL_THRESHOLD_DB` — the dB value that decides which frequency
 bins count as signal vs noise. Too low = noise counted as signal (false positive).
-Too high = real signals missed (false negative).
+Too high = real signals missed (false negative). **Completed in Phase 9C-Threshold:
+calibrated to 24.0 dB for telescopic whip SMA antenna at lna=24/vga=26.**
 
-**How:** A debug script loops through threshold values 3–8 dB and prints
-`occupied_bins` and `bandwidth_hz` at each level. The right value is the one where
-known signals are cleanly captured without the noise floor bleeding in.
+**How:** A debug script loops through threshold values and prints `occupied_bins`
+and `bandwidth_hz` at each level. The right value is the one where known signals
+are cleanly captured without the noise floor bleeding in. Target: 200 kHz for FM
+broadcast. Result: 24 dB -> 196,289 Hz (closest match).
 
 **Analogy:** Squelch on a walkie-talkie. You adjust it until static disappears but
 weak transmissions still come through.
 
-**Key variable:** `SIGNAL_THRESHOLD_DB` in `core/pipeline/features.py`
+**Key variable:** `SIGNAL_THRESHOLD_DB` in `core/pipeline/features.py` (now 24.0 dB)
 
 ---
 

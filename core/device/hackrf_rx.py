@@ -86,10 +86,13 @@ class HackRFReceiver(DeviceBase):
     _SOAPY_TX_DIRECTION: int = 0  # documented here, never passed to hardware
 
     # Default safe receive settings
+    # Calibrated for telescopic whip SMA antenna (~1 GHz optimised).
+    # Poor coupling at FM wavelengths requires gain to compensate.
+    # lna=24 / vga=26 confirmed safe on live hardware (no ADC saturation).
     DEFAULT_CENTER_FREQ_HZ: float = 98_000_000    # 98 MHz — FM broadcast
     DEFAULT_SAMPLE_RATE_HZ: float = 2_000_000     # 2 MHz bandwidth
-    DEFAULT_LNA_GAIN_DB: float = 0                # RF front-end gain (0–40 dB)
-    DEFAULT_VGA_GAIN_DB: float = 0                # Baseband gain (0–62 dB)
+    DEFAULT_LNA_GAIN_DB: float = 24               # RF front-end gain (0–40 dB)
+    DEFAULT_VGA_GAIN_DB: float = 26               # Baseband gain (0–62 dB)
     DEFAULT_AMP_ENABLE: bool = False              # RF amp — leave off by default
 
     def __init__(

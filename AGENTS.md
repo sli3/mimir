@@ -319,6 +319,7 @@ Do not apply this pre-emptively — only if context problems are observed.
 | `config/mimir.yaml` | Runtime configuration |
 | `setup.sh` (build_acarsdec) | Builds acarsdec from source on first run |
 | `docs/au-legal-reference.md` | ACMA legal reference |
+| `docs/ROADMAP.md` | Phase tracker and build history |
 
 ---
 
@@ -382,3 +383,45 @@ Do not apply this pre-emptively — only if context problems are observed.
   Issues r/w, Metadata r/o, Pull requests r/o, Mimir repo only), update
   `GITHUB_PERSONAL_ACCESS_TOKEN` in `~/.config/fish/config.fish`, restart OpenCode,
   verify with `opencode mcp list`.
+
+---
+
+## Session Memos
+
+### 2026-06-14 — Phase 9C-Threshold Calibration
+
+**Type:** Code / Calibration
+
+**What was done:**
+- Calibrated SIGNAL_THRESHOLD_DB from 10.0 to 24.0 dB with live antenna testing
+- Updated production gain settings: LNA 24 dB, VGA 26 dB across config, loader, device, and band profiles
+- Added 8 new tests (306 pytest total, 362 with Vitest)
+
+**Files changed:**
+- `core/pipeline/features.py`: SIGNAL_THRESHOLD_DB 10.0 → 24.0, calibration metadata in docstring
+- `config/mimir.yaml`: lna_gain_db 0 → 24, vga_gain_db 0 → 26
+- `core/config/loader.py`: MimirConfig defaults lna 0.0 → 24.0, vga 0.0 → 26.0
+- `core/device/hackrf_rx.py`: DEFAULT_LNA 0 → 24, DEFAULT_VGA 0 → 26
+- `dashboard/shared_state.py`: BAND_PROFILES fm_broadcast lna 0 → 24, vga 0 → 26
+- `tools/diagnose_threshold.py`: comment updated
+- `core/pipeline/capture.py`: docstring updated
+- `tests/core/test_fft_features.py`: TestSignalThresholdDb (1 test)
+- `tests/core/test_config_loader.py`: TestMimirConfigDefaults (3 tests)
+- `tests/dashboard/test_shared_state.py`: TestBandProfiles (4 tests)
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None — all changes are RX-only gain and threshold settings
+
+**Decisions made:**
+- Gain values (24/26) selected based on live testing with telescopic whip antenna
+- Threshold set to 24 dB as noise floor + 6 dB margin above typical FM broadcast signals
+- Old gain defaults (0/0) replaced with production values (24/26)
+
+**Not finished:**
+- `tools/calibrate_thresholds.py` CALIBRATION_TARGETS still uses old gain values
+- `tools/diagnose_fingerprints.py` TARGETS still uses old gain values
+- Aviation and ADS-B band profiles need revalidation with new antenna
+
+**Next session starter:**
+Update `tools/calibrate_thresholds.py` CALIBRATION_TARGETS to use new gain values (24/26) for FM broadcast band.

@@ -18,6 +18,25 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from core.config.loader import ConfigError, MimirConfig, load_config
 
 
+class TestMimirConfigDefaults:
+    """Tests for MimirConfig dataclass defaults."""
+
+    def test_lna_gain_default_is_calibrated(self):
+        """MimirConfig.lna_gain_db default must be 24.0 after calibration."""
+        cfg = MimirConfig()
+        assert cfg.lna_gain_db == 24.0
+
+    def test_vga_gain_default_is_calibrated(self):
+        """MimirConfig.vga_gain_db default must be 26.0 after calibration."""
+        cfg = MimirConfig()
+        assert cfg.vga_gain_db == 26.0
+
+    def test_amp_enable_default_is_false(self):
+        """MimirConfig.amp_enable default must remain False for safety."""
+        cfg = MimirConfig()
+        assert cfg.amp_enable is False
+
+
 def _valid_config() -> dict:
     return copy.deepcopy({
         "scanner": {

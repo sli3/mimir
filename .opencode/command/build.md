@@ -208,21 +208,21 @@ what you give it. Instruct it to:
   1. Read AGENTS.md in full before writing anything — to see the current
      session-memo section, phase tracker, and tech debt table. It must not
      contradict or silently overwrite existing entries; write as a continuation.
-  2. Read ROADMAP.md before touching it, for the same reason.
+  2. Read docs/ROADMAP.md before touching it, for the same reason.
 
 You must also hand it explicitly:
   - a concise summary of what this build changed (files, functions)
   - the current test counts taken from the Step 5/6 runs (it cannot run pytest)
   - any tech debt or deferred items surfaced during the build
 
-ALWAYS: refresh the test counts in ROADMAP.md. Do NOT add session memo prose blocks 
+ALWAYS: refresh the test counts in docs/ROADMAP.md. Do NOT add session memo prose blocks 
 to AGENTS.md.
 
 PHASE-TRACKER GATE — deterministic, driven solely by the checkpoint flag
 captured in the TASK block above:
   - Checkpoint mode is ON if and ONLY if that flag reads exactly the token
     CHECKPOINT (case-insensitive). When ON, @memo-writer also updates the
-    AGENTS.md phase tracker and may mark a phase complete in ROADMAP.md.
+    AGENTS.md phase tracker and may mark a phase complete in docs/ROADMAP.md.
   - In EVERY other case — the flag is blank, absent, still showing as an
     unsubstituted placeholder, or holds any other value — checkpoint mode is
     OFF: write the session memo only and leave the phase tracker and all

@@ -100,14 +100,16 @@ band_change_event = threading.Event()
 
 # Per-band gain profiles for the live waterfall dashboard.
 # These are independent of the main scan pipeline gain set in
-# config/mimir.yaml (lna=0, vga=0, amp=False) and are tuned for
+# config/mimir.yaml (lna=24, vga=26, amp=False) and are tuned for
 # each band's typical signal strength in Adelaide.
 # All receive-only — AU-legal bands only.
+# NOTE: Only fm_broadcast is calibrated for the new telescopic whip antenna.
+# Other bands (aviation, adsb) need revalidation in future phases.
 BAND_PROFILES: dict = {
     "fm_broadcast": {
         "center_freq_hz": 98_000_000,
-        "lna_gain_db":    0,   # Adelaide FM is extremely strong — min gain
-        "vga_gain_db":    0,
+        "lna_gain_db":    24,  # Telescopic whip has poor FM coupling — gain required
+        "vga_gain_db":    26,
     },
     "aviation": {
         "center_freq_hz": 127_000_000,
@@ -121,7 +123,7 @@ BAND_PROFILES: dict = {
     },
     "noise_floor": {
         "center_freq_hz": 98_000_000,
-        "lna_gain_db":    0,   # Reference measurement — same gain as FM
+        "lna_gain_db":    0,   # Reference measurement — zero gain baseline
         "vga_gain_db":    0,
     },
 }

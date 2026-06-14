@@ -26,9 +26,11 @@ FREQ_HZ = 98_900_000
 SAMPLE_RATE_HZ = 2_000_000
 NUM_SAMPLES = 256_000
 
-# Adelaide FM is extremely strong. Use minimum gain to avoid saturation.
-LNA_GAIN_DB = 0
-VGA_GAIN_DB = 0
+# New telescopic whip antenna (SMA, ~1 GHz optimised) has poor coupling at
+# FM wavelengths (~3 m). Gain required to compensate. lna=24/vga=26 confirmed
+# safe — no saturation observed at these levels with this antenna.
+LNA_GAIN_DB = 24
+VGA_GAIN_DB = 26
 
 THRESHOLD_CANDIDATES = [3, 5, 8, 10, 12, 15, 18, 21, 24, 27]
 

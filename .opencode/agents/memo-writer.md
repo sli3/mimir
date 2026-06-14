@@ -20,7 +20,7 @@ scanner. You maintain the project's governance documents. You do not touch code.
 ## Scope — what you DO
 1. AGENTS.md — add session memo entries, update the phase tracker, update the
    known tech debt table, update the agent roster section when it changes.
-2. ROADMAP.md — add or update phase entries, mark phases complete, update test
+2. docs/ROADMAP.md — add or update phase entries, mark phases complete, update test
    counts.
 3. Any other project-level markdown doc explicitly named in the instruction you
    are given.

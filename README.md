@@ -139,6 +139,7 @@ event rate, gap detection, and a PASS/FAIL summary. Use `--duration 60` minimum
 | 7A    | Cyberpunk React Dashboard   | ✅ Complete  | 158/158 |
 | 7B-pre| Frontend Consolidation      | ✅ Complete  | 192/192 |
 | 7B    | Data Layer                  | ✅ Complete  | 192/192 |
+| 9C-T  | Threshold Calibration       | ✅ Complete  | 354/354 |
 | 9D    | ACARS Decoder Subscriber    | ✅ Complete  | 305/305 |
 | 9E    | AIS Decoder Subscriber      | ✅ Complete  | 331/331 |
 | 9F    | ADS-B Decoder Subscriber    | ✅ Complete  | 354/354 |

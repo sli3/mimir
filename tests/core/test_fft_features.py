@@ -22,7 +22,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from core.pipeline.fft import compute_psd
-from core.pipeline.features import fingerprint_spectrum
+from core.pipeline.features import fingerprint_spectrum, SIGNAL_THRESHOLD_DB
 
 
 class TestComputePsd:
@@ -111,6 +111,14 @@ class TestComputePsd:
         result = compute_psd(tone, sample_rate, center_freq, nfft)
         peak_index = np.argmax(result["psd_db"])
         assert peak_index == nfft // 2 + 10
+
+
+class TestSignalThresholdDb:
+    """Tests for the SIGNAL_THRESHOLD_DB constant."""
+
+    def test_signal_threshold_db_is_calibrated(self):
+        """SIGNAL_THRESHOLD_DB must be 24.0 dB after live hardware calibration."""
+        assert SIGNAL_THRESHOLD_DB == 24.0
 
 
 class TestFingerprintSpectrum:

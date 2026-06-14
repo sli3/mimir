@@ -13,10 +13,12 @@ import numpy as np
 NOISE_FLOOR_PERCENTILE: float = 10.0
 
 # Minimum SNR above the noise floor for a bin to be considered a signal.
-# Provisional value — recalibrate using tools/diagnose_threshold.py
-# after fft.py normalisation fix. Old value of 27 dB was derived from
-# broken /max_power normalisation and is no longer valid.
-SIGNAL_THRESHOLD_DB: float = 10.0
+# Calibrated value. Hardware: HackRF One + telescopic whip SMA antenna
+# (~1 GHz optimised). Gain: lna=24 dB / vga=26 dB. Frequency: 98.9 MHz
+# (FM Adelaide). Method: tools/diagnose_threshold.py sweep, target 200 kHz
+# FM channel width. Result: 24 dB → 196,289 Hz. Must be re-run if antenna
+# or gain settings change.
+SIGNAL_THRESHOLD_DB: float = 24.0
 
 logger = logging.getLogger(__name__)
 
@@ -37,9 +39,10 @@ def fingerprint_spectrum(
     of the background noise level. Signal bins are identified as those
     exceeding the noise floor by at least ``SIGNAL_THRESHOLD_DB``.
 
-    ``SIGNAL_THRESHOLD_DB`` is currently set to a provisional value
-    of 10.0 dB. It must be recalibrated on live hardware after the
-    fft.py normalisation fix is deployed.
+    ``SIGNAL_THRESHOLD_DB`` is calibrated to 24.0 dB for the
+    current hardware and antenna configuration (HackRF One + telescopic
+    whip SMA antenna, lna=24 dB / vga=26 dB). It must be re-run if
+    antenna or gain settings change.
 
     Args:
         psd_result: Dictionary returned by ``compute_psd`` containing
