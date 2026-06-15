@@ -67,11 +67,11 @@ class TestComputeHackrfStatus:
 
 
 class TestFocusFrequencyFilter:
-    def _make_scan_result(self, freq_hz: float) -> ScanResult:
+    def _make_scan_result(self, freq_hz: float, fingerprint: dict | None = None) -> ScanResult:
         return ScanResult(
             center_freq_hz=freq_hz,
             timestamp="2026-06-03T12:00:00",
-            fingerprint={},
+            fingerprint=fingerprint or {},
             classification=ClassificationResult(
                 signal_type="test",
                 confidence="high",
@@ -139,11 +139,18 @@ class TestFocusFrequencyFilter:
 
     def test_filter_passes_matching(self):
         broadcast = self._start_server_with_mocks()
+        fp = {
+            "peak_power_db": -50.0,
+            "snr_db": 12.0,
+            "bandwidth_hz": 200000,
+            "spectral_flatness": 0.45,
+            "chroma_distance": 0.123,
+        }
         with (
             patch("dashboard.server._focused_freq_hz", 100e6),
             patch("dashboard.server.socketio.emit") as mock_emit,
         ):
-            broadcast(self._make_scan_result(100e6))
+            broadcast(self._make_scan_result(100e6, fp))
         mock_emit.assert_called_once_with("scan_result", {
             "timestamp": "2026-06-03T12:00:00",
             "center_freq_hz": 100e6,
@@ -153,6 +160,11 @@ class TestFocusFrequencyFilter:
             "novel": False,
             "au_legal_status": "LEGAL RX",
             "reasoning": "test",
+            "peak_power_db": -50.0,
+            "snr_db": 12.0,
+            "bandwidth_hz": 200000,
+            "spectral_flatness": 0.45,
+            "chroma_distance": 0.123,
         })
 
     def test_passes_all_when_focus_is_none(self):

@@ -25,24 +25,28 @@ describe('WaterfallPanel', () => {
     mockFocusFrequency.mockClear()
   })
 
-  it('renders 8 canvas elements (main + crosshair per band strip)', () => {
+  it('renders 12 canvas elements (main + crosshair per band strip) in default mode', () => {
     render(<WaterfallPanel focusedFreq={null} focusFrequency={mockFocusFrequency} />)
     const canvases = document.querySelectorAll('canvas')
-    expect(canvases.length).toBe(8)
+    expect(canvases.length).toBe(12)
   })
 
-  it('renders 4 band labels with correct frequency text', () => {
+  it('renders 6 band labels with correct frequency text in default mode', () => {
     render(<WaterfallPanel focusedFreq={null} focusFrequency={mockFocusFrequency} />)
     expect(screen.getByText('98.0 MHz')).toBeTruthy()
     expect(screen.getByText('145.175 MHz')).toBeTruthy()
+    expect(screen.getByText('127.0 MHz')).toBeTruthy()
+    expect(screen.getByText('129.125 MHz')).toBeTruthy()
     expect(screen.getByText('915.0 MHz')).toBeTruthy()
     expect(screen.getByText('1090.0 MHz')).toBeTruthy()
   })
 
-  it('renders 4 band names', () => {
+  it('renders 6 band names in default mode', () => {
     render(<WaterfallPanel focusedFreq={null} focusFrequency={mockFocusFrequency} />)
     expect(screen.getByText('FM BROADCAST')).toBeTruthy()
     expect(screen.getByText('APRS')).toBeTruthy()
+    expect(screen.getByText('AVIATION VHF')).toBeTruthy()
+    expect(screen.getByText('ACARS')).toBeTruthy()
     expect(screen.getByText('ISM / LoRa')).toBeTruthy()
     expect(screen.getByText('ADS-B')).toBeTruthy()
   })
@@ -58,6 +62,18 @@ describe('WaterfallPanel', () => {
     render(<WaterfallPanel focusedFreq={null} focusFrequency={mockFocusFrequency} />)
     fireEvent.click(screen.getByText('145.175 MHz'))
     expect(mockFocusFrequency).toHaveBeenCalledWith(145175000)
+  })
+
+  it('clicking Aviation label calls focusFrequency with 127000000', () => {
+    render(<WaterfallPanel focusedFreq={null} focusFrequency={mockFocusFrequency} />)
+    fireEvent.click(screen.getByText('127.0 MHz'))
+    expect(mockFocusFrequency).toHaveBeenCalledWith(127000000)
+  })
+
+  it('clicking ACARS label calls focusFrequency with 129125000', () => {
+    render(<WaterfallPanel focusedFreq={null} focusFrequency={mockFocusFrequency} />)
+    fireEvent.click(screen.getByText('129.125 MHz'))
+    expect(mockFocusFrequency).toHaveBeenCalledWith(129125000)
   })
 
   it('clicking ISM/LoRa label calls focusFrequency with 915000000', () => {
@@ -76,5 +92,45 @@ describe('WaterfallPanel', () => {
     render(<WaterfallPanel focusedFreq={98000000} focusFrequency={mockFocusFrequency} />)
     expect(screen.getByText('98.0 MHz')).toBeTruthy()
     expect(screen.getByText('APRS')).toBeTruthy()
+  })
+
+  it('singleBand=true renders 2 canvases (main + crosshair, one strip only)', () => {
+    render(<WaterfallPanel focusedFreq={98000000} focusFrequency={mockFocusFrequency} singleBand={true} />)
+    const canvases = document.querySelectorAll('canvas')
+    expect(canvases.length).toBe(2)
+  })
+
+  it('singleBand=true hides sidebar and shows only one band', () => {
+    render(<WaterfallPanel focusedFreq={98000000} focusFrequency={mockFocusFrequency} singleBand={true} />)
+    // hideSidebar=true: label text should NOT be present
+    expect(screen.queryByText('98.0 MHz')).toBeNull()
+    expect(screen.queryByText('145.175 MHz')).toBeNull()
+    // Only one band's canvas area should remain
+    const canvases = document.querySelectorAll('canvas')
+    expect(canvases.length).toBe(2)
+  })
+
+  it('singleBand=true with no matching freq falls back to first band and hides sidebar', () => {
+    render(<WaterfallPanel focusedFreq={123456789} focusFrequency={mockFocusFrequency} singleBand={true} />)
+    // hideSidebar=true: label text should NOT be present even on fallback
+    expect(screen.queryByText('98.0 MHz')).toBeNull()
+  })
+
+  it('singleBand=false shows label and uses default font size', () => {
+    render(<WaterfallPanel focusedFreq={98000000} focusFrequency={mockFocusFrequency} singleBand={false} />)
+    const label = screen.getByText('98.0 MHz')
+    expect(label.style.fontSize).toBe('9px')
+    // Other bands should also be visible
+    expect(screen.getByText('145.175 MHz')).toBeTruthy()
+  })
+
+  it('singleBand=true does not render label sidebar (hideSidebar)', () => {
+    render(<WaterfallPanel focusedFreq={98000000} focusFrequency={mockFocusFrequency} singleBand={true} />)
+    // In singleBand mode, hideSidebar=true, so the label div should not be rendered
+    // Only the canvas area should remain
+    const canvases = document.querySelectorAll('canvas')
+    expect(canvases.length).toBe(2)
+    // The label text should NOT be present because hideSidebar=true
+    expect(screen.queryByText('98.0 MHz')).toBeNull()
   })
 })

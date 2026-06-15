@@ -34,7 +34,7 @@ describe('useSocket', () => {
     expect(result.current.scanResults).toEqual([])
     expect(result.current.spectrumUpdates).toEqual([])
     expect(result.current.systemStats).toBeNull()
-    expect(result.current.focusedFreq).toBeNull()
+    expect(result.current.focusedFreq).toBe(98000000)
     expect(result.current.isConnected).toBe(false)
     expect(result.current.aiReasoning).toEqual({
       freq_hz: null,
@@ -44,6 +44,11 @@ describe('useSocket', () => {
       au_legal_status: null,
       reasoning: null,
       timestamp: null,
+      peak_power_db: null,
+      snr_db: null,
+      bandwidth_hz: null,
+      spectral_flatness: null,
+      chroma_distance: null,
     })
   })
 
@@ -117,6 +122,11 @@ describe('useSocket', () => {
       au_legal_status: null,
       reasoning: null,
       timestamp: null,
+      peak_power_db: null,
+      snr_db: null,
+      bandwidth_hz: null,
+      spectral_flatness: null,
+      chroma_distance: null,
     })
   })
 
@@ -150,6 +160,54 @@ describe('useSocket', () => {
       au_legal_status: 'LEGAL RX',
       reasoning: 'Signal matches FM broadcast characteristics',
       timestamp: '2026-06-03T12:00:00.000Z',
+      peak_power_db: null,
+      snr_db: null,
+      bandwidth_hz: null,
+      spectral_flatness: null,
+      chroma_distance: null,
+    })
+  })
+
+  it('scan_result with fingerprint fields populates aiReasoning', () => {
+    const { result } = renderHook(() => useSocket())
+    const handler = eventHandlers['scan_result'][0]
+
+    act(() => {
+      result.current.focusFrequency(98000000)
+    })
+
+    const payload = {
+      center_freq_hz: 98000000,
+      signal_type: 'fm_broadcast',
+      confidence: 'high',
+      confidence_score: 0.95,
+      au_legal_status: 'LEGAL RX',
+      reasoning: 'Strong FM carrier',
+      timestamp: '2026-06-03T12:00:00.000Z',
+      peak_power_db: -72.1,
+      snr_db: 8.4,
+      bandwidth_hz: 0,
+      spectral_flatness: 0.123,
+      chroma_distance: 0.456,
+    }
+
+    act(() => {
+      handler(payload)
+    })
+
+    expect(result.current.aiReasoning).toEqual({
+      freq_hz: 98000000,
+      signal_type: 'fm_broadcast',
+      confidence: 'high',
+      confidence_score: 0.95,
+      au_legal_status: 'LEGAL RX',
+      reasoning: 'Strong FM carrier',
+      timestamp: '2026-06-03T12:00:00.000Z',
+      peak_power_db: -72.1,
+      snr_db: 8.4,
+      bandwidth_hz: 0,
+      spectral_flatness: 0.123,
+      chroma_distance: 0.456,
     })
   })
 

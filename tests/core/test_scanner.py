@@ -179,6 +179,8 @@ class TestScanRunner:
         mock_classifier.classify.assert_called_once()
         call_args = mock_classifier.classify.call_args[0]
         assert call_args[0]["center_freq_hz"] == 98_000_000.0
+        assert "chroma_distance" in call_args[0]
+        assert call_args[0]["chroma_distance"] == 0.01
 
     def test_get_stats_returns_expected_keys(self, scanner):
         stats = scanner.get_stats()

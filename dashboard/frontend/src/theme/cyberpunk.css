@@ -1,17 +1,47 @@
 :root {
-  --bg:            #030310;
-  --panel:         #0a0a1f;
-  --border:        #00ffff44;
-  --border-active: #00ffff;
-  --neon-cyan:     #00ffff;
-  --neon-magenta:  #ff00ff;
-  --neon-white:    #ffffff;
-  --neon-green:    #00ff88;
-  --neon-amber:    #ffaa00;
-  --text-dim:      #4488aa;
-  --text-bright:   #aaddff;
-  --font-display:  'Press Start 2P', monospace;
-  --font-data:     'Share Tech Mono', monospace;
+  /* Background layers */
+  --bg-root:        #080F14;
+  --bg-panel:       #0A1520;
+  --bg-header:      #050C11;
+  --bg-deep:        #030810;
+
+  /* Borders */
+  --border:         #1A3040;
+  --border-active:  #00FFFF;
+  --border-alert:   #FF4444;
+
+  /* Neon accent colours */
+  --neon-cyan:      #00FFFF;
+  --neon-green:     #00FF88;
+  --neon-amber:     #FFCC00;
+  --neon-magenta:   #FF66FF;
+  --neon-red:       #FF4444;
+
+  /* Text */
+  --text-primary:   #C8D8E0;
+  --text-dim:       #4A7A90;
+  --text-bright:    #aaddff;
+
+  /* Waterfall colour ramp stops */
+  --wf-noise:       #030810;
+  --wf-weak:        #003050;
+  --wf-low:         #006080;
+  --wf-mid:         #00A0C0;
+  --wf-signal:      #00E0E0;
+  --wf-strong:      #FFCC00;
+  --wf-peak:        #FF4400;
+  --wf-hot:         #FFFFFF;
+
+  /* Typography */
+  --font-display:   'Share Tech Mono', 'Courier New', monospace;
+  --font-data:      'Share Tech Mono', 'Courier New', monospace;
+
+  /* Legacy aliases — keep for backward compat with existing components */
+  --panel:          var(--bg-panel);
+  --panel-header:   var(--bg-header);
+  --bg:             var(--bg-root);
+  --neon-white:     #ffffff;
+  --text:           var(--text-primary);
 }
 
 * {
@@ -21,9 +51,10 @@
 }
 
 body {
-  background: var(--bg);
-  color: var(--text-bright);
+  background: var(--bg-root);
+  color: var(--text-primary);
   font-family: var(--font-data);
+  font-size: 14px;
   overflow: hidden;
   height: 100vh;
 }
@@ -39,4 +70,9 @@ body::before {
     transparent 0px, transparent 2px,
     rgba(0,0,0,0.08) 2px, rgba(0,0,0,0.08) 4px
   );
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
 }

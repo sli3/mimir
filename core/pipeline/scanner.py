@@ -131,6 +131,8 @@ class ScanRunner:
                     for m, d in zip(neighbours["metadatas"][0],
                                     neighbours["distances"][0])
                 ]
+                chroma_distance = neighbours_list[0]["distance"] if neighbours_list else None
+                item["fingerprint"]["chroma_distance"] = chroma_distance
                 acma_allocations = self._acma_reference.lookup(
                     item["fingerprint"].get("center_freq_hz", 0)
                 )

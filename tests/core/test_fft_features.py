@@ -154,11 +154,11 @@ class TestFingerprintSpectrum:
         )
 
     def test_output_keys_present(self, fm_psd):
-        """Result dict contains all 7 required keys."""
+        """Result dict contains all 8 required keys."""
         result = fingerprint_spectrum(fm_psd)
         expected_keys = {
             "center_freq_hz", "peak_freq_hz", "peak_power_db", "noise_floor_db",
-            "snr_db", "bandwidth_hz", "occupied_bins",
+            "snr_db", "bandwidth_hz", "occupied_bins", "spectral_flatness",
         }
         assert set(result.keys()) == expected_keys
 
@@ -205,6 +205,48 @@ class TestFingerprintSpectrum:
         assert result["snr_db"] == 0.0
         assert result["bandwidth_hz"] == 0.0
         assert result["occupied_bins"] == 0
+        assert result["spectral_flatness"] == 0.0
+
+    def test_spectral_flatness_is_float_between_zero_and_one(self, fm_psd):
+        """spectral_flatness must be a float in [0.0, 1.0]."""
+        result = fingerprint_spectrum(fm_psd)
+        assert isinstance(result["spectral_flatness"], float)
+        assert 0.0 <= result["spectral_flatness"] <= 1.0
+
+    def test_spectral_flatness_tone_is_low(self):
+        """Pure tone input should have spectral_flatness close to 0.0 (very tonal)."""
+        nfft = 2048
+        num_chunks = 4
+        t = np.arange(nfft * num_chunks)
+        tone = np.exp(1j * 2 * np.pi * 10 * t / nfft).astype(np.complex64)
+        noise = (np.random.randn(len(t)) * 0.01).astype(np.float32) + \
+                1j * (np.random.randn(len(t)) * 0.01).astype(np.float32)
+        samples = tone + noise
+        psd = compute_psd(
+            samples,
+            sample_rate_hz=2_000_000,
+            center_freq_hz=98_000_000,
+            nfft=nfft,
+        )
+        result = fingerprint_spectrum(psd)
+        assert result["spectral_flatness"] < 0.1
+
+    def test_spectral_flatness_noise_is_high(self):
+        """White noise input should have spectral_flatness close to 1.0 (noise-like)."""
+        nfft = 2048
+        num_chunks = 4
+        samples = (
+            np.random.randn(nfft * num_chunks).astype(np.float32)
+            + 1j * np.random.randn(nfft * num_chunks).astype(np.float32)
+        )
+        psd = compute_psd(
+            samples,
+            sample_rate_hz=2_000_000,
+            center_freq_hz=98_000_000,
+            nfft=nfft,
+        )
+        result = fingerprint_spectrum(psd)
+        assert result["spectral_flatness"] > 0.8
 
     def test_center_freq_passthrough(self, fm_psd):
         """center_freq_hz in result matches what was passed to compute_psd."""

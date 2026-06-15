@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: 9F-CPR
+last_updated_phase: 10-Fix4
 ---
 
 # Mimir Wiki
@@ -91,6 +91,192 @@ Phases are listed newest-first so the current phase is always at the top.
 `AdsbDecoder.flush()` — manually releases bootstrap-held positions. Intended for unit tests and graceful shutdown.
 
 **Test counts:** 364/364 (308 pytest + 56 Vitest).
+
+---
+
+### Phase 10 — Dashboard UI Redesign ✓ DONE
+
+**What:** Complete redesign of the dashboard frontend from a vanilla JS grid layout to a
+professional React application with cyberpunk styling. The new layout uses a three-row
+structure: header bar, top half (waterfall + signal details), bottom half (system status /
+signal history + AI reasoning / decoded signals). All panels are reorganized for better
+information density and readability.
+
+**Why:** The original grid-based layout was functional but lacked the visual polish and
+information hierarchy needed for a professional RF monitoring tool. The redesign puts
+the most important information (waterfall, signal details) in the top half and supporting
+information (history, decoded signals) in the bottom half.
+
+**Files changed:**
+- `dashboard/frontend/src/App.jsx` — complete rewrite with three-row layout, band navigation,
+  custom frequency input, system status cards, signal history table, AI reasoning panel,
+  and decoded signals sub-panels (ADS-B, ACARS, AIS)
+- `dashboard/frontend/src/theme/cyberpunk.css` — expanded theme with background layers, border
+  colours, waterfall colour ramp stops, and font variables
+- `dashboard/frontend/src/components/WaterfallPanel.jsx` — added `singleBand` prop for
+  focused-mode waterfall display
+- `dashboard/frontend/src/hooks/useSocket.js` — added `aisVessels` alias, `focusFrequency`
+  optimistic update
+- `dashboard/frontend/src/tests/WaterfallPanel.test.jsx` — updated for 6-band configuration
+- `dashboard/frontend/src/tests/App.test.jsx` — updated for new layout
+- `dashboard/frontend/src/tests/SignalDetailsFreeze.test.jsx` — new test for AI reasoning
+  freeze display
+- `dashboard/frontend/src/tests/AdsbTunedState.test.jsx` — new test for ADS-B three-state
+  sub-panel logic
+
+**Test counts:** 395/395 (308 pytest + 87 Vitest).
+
+---
+
+### Phase 10-Hotfix — Dashboard Live Testing Fixes ✓ DONE
+
+**What:** Fixed 5 bugs discovered during live testing of the Phase 10 dashboard:
+
+1. **Waterfall missing bands** — Added Aviation (127 MHz) and ACARS (129.125 MHz) to
+   `STRIP_CONFIGS` in `WaterfallPanel.jsx`. The 6-band configuration now matches all
+   AU-legal passive RX frequencies.
+2. **Stale spectrum display** — Changed `spectrumUpdates.find()` from `[...].reverse().find()`
+   to `find()` because `useSocket.js` prepends new entries (newest-first), so `find()`
+   returns the latest match without copying the array.
+3. **Sub-panel tuned states** — Added three-state logic for ADS-B, ACARS, and AIS sub-panels:
+   (a) tuned + has data → render panel, (b) tuned + no data → "Listening on X...",
+   (c) not tuned → clickable red "▸ TUNE TO X..." prompt.
+4. **Font size too small** — Changed `body { font-size: 14px; }` in `cyberpunk.css` and
+   changed `--font-display` to `'Share Tech Mono', ...` (Press Start 2P is now used only
+   for the MIMIR logo header via inline style).
+5. **Band button tuning** — Verified `focusFrequency()` is optimistic (local `setState`
+   before `socket.emit`), ensuring immediate UI feedback.
+
+**Also fixed during review:**
+- `AisVesselPanel.jsx` — corrected AIS frequency display from 162.000 MHz to 161.975 MHz
+  (AU Channel A primary frequency).
+- `AGENTS.md` — updated font specification to reflect the new design.
+
+**Test counts:** 395/395 (308 pytest + 87 Vitest).
+
+---
+
+### Phase 10-Fix2 — Waterfall Performance + Signal Details Missing Fields ✓ DONE
+
+**What:** Fixed two issues discovered during live testing:
+
+1. **Waterfall canvas performance** — Replaced CPU-based `getImageData` + pixel-shift +
+   `putImageData` scroll with GPU-based `ctx.drawImage(canvas, 0, 1)` for scrolling,
+   plus a single-row `createImageData(width, 1)` for the new top row only. The old
+   approach read ~1.8MB of pixel data into JS every frame, manipulated it in CPU,
+   then wrote it back. The new approach offloads the scroll to the GPU and only
+   computes the 1-pixel top row in JS.
+2. **Signal Details missing fields** — Added fingerprint fields from `scan_result.fingerprint`
+   to the SocketIO `scan_result` payload: `peak_power_db`, `snr_db`, `bandwidth_hz`,
+   `spectral_flatness`. These fields were previously computed by the backend pipeline
+   but never emitted to the frontend, so the Signal Details panel showed "---" for
+   POWER, SNR, BANDWIDTH, and SPECTRAL FLATNESS.
+
+**Files changed:**
+- `dashboard/frontend/src/hooks/useWaterfall.js` — GPU scroll via drawImage, single-row
+  createImageData/putImageData, endBin clamp with Math.min for safety
+- `dashboard/server.py` — extended `broadcast()` data dict with fingerprint fields via
+  `fp.get()` (null-safe, no default)
+- `dashboard/frontend/src/hooks/useSocket.js` — extended `INITIAL_AI_REASONING` and
+  `aiReasoning` builder with `peak_power_db`, `snr_db`, `bandwidth_hz`, `spectral_flatness`
+- `dashboard/frontend/src/App.jsx` — synchronised `INITIAL_AI_REASONING` with useSocket.js
+  (added the four new fingerprint fields)
+- `dashboard/frontend/src/tests/useWaterfall.test.js` — updated for drawImage + createImageData,
+  removed full-canvas getImageData assertion
+- `dashboard/frontend/src/tests/useSocket.test.js` — updated initial state, added fingerprint
+  field propagation test
+- `tests/dashboard/test_server_stats.py` — updated expected broadcast payload to include
+  fingerprint fields
+
+**Test counts:** 396/396 (308 pytest + 88 Vitest).
+
+---
+
+### Phase 10-Fix3 — Band Grouping, ADS-B Threshold, Waterfall Gap, Default Focus ✓ DONE
+
+**What:** Fixed four issues discovered during live testing of the Phase 10 UI redesign:
+
+1. **Band button grouping** — Replaced the flat BANDS array with a three-category
+   `BAND_GROUPS` layout in `App.jsx`. Categories: BROADCAST (FM), AVIATION BAND
+   (AVIATION, ACARS, ADS-B), DATA / IoT (APRS, ISM). Each category shows a 9px
+   uppercase label above its buttons. Vertical dividers separate the groups.
+   Nav bar height increased to 48px to accommodate the two-row layout.
+2. **ADS-B preamble threshold** — Reduced `PREAMBLE_THRESHOLD` from `2.0` to `1.5` in
+   `modules/adsb/constants.py` after live testing showed no ADS-B decodes at 2.0
+   (confirmed aircraft overhead were missed). The 1.5 value is the midpoint of the
+   validated range 1.2–2.0 for HackRF One with telescopic whip antenna.
+3. **Waterfall gap eliminated** — Added `hideSidebar` prop to `WaterfallStrip` in
+   `WaterfallPanel.jsx`. When `singleBand=true` (current mode), the 110px label sidebar
+   is hidden, giving the canvas the full available width. The `WATERFALL_LABEL_WIDTH`
+   export changed from `110` to `0`, and `SpectrometerBar.jsx` uses it for its left
+   spacer, keeping the spectrometer bar aligned with the waterfall canvas.
+4. **Default focus frequency** — Changed `focusedFreq` default from `null` to
+   `98000000` (FM broadcast) in `useSocket.js`. On first page load, the dashboard
+   immediately shows the FM broadcast spectrum instead of waiting for the user to
+   click a band button. This aligns with the single-frequency focus mode.
+
+**Files changed:**
+- `dashboard/frontend/src/App.jsx` — `BAND_GROUPS` constant, grouped nav bar layout
+  (48px height, vertical dividers, 9px category labels), ADS-B badge preserved
+- `modules/adsb/constants.py` — `PREAMBLE_THRESHOLD` 2.0 → 1.5, docstring updated
+  with validated range and live-testing note
+- `dashboard/frontend/src/components/WaterfallPanel.jsx` — `WATERFALL_LABEL_WIDTH` 110 → 0,
+  `hideSidebar` prop on `WaterfallStrip`, conditional label rendering
+- `dashboard/frontend/src/hooks/useSocket.js` — `focusedFreq` default 98000000,
+  `focusedFreqRef` default 98000000
+- `dashboard/frontend/src/tests/App.test.jsx` — updated for grouped nav bar
+- `dashboard/frontend/src/tests/WaterfallPanel.test.jsx` — updated for hideSidebar
+- `dashboard/frontend/src/tests/useSocket.test.js` — updated for 98000000 default
+- `dashboard/frontend/src/tests/SpectrometerBar.test.jsx` — updated for 0px width
+
+**Test counts:** 402/402 (311 pytest + 91 Vitest).
+
+---
+
+### Phase 10-Fix4 — Spectral Flatness, Chroma Distance, Waterfall Alignment ✓ DONE
+
+**What:** Fixed four issues discovered during live testing (and one bonus fix):
+
+1. **Spectral Flatness phantom field** — Added `spectral_flatness` (Wiener entropy)
+   computation to `core/pipeline/features.py fingerprint_spectrum()`. Formula:
+   `geometric_mean(linear_power) / arithmetic_mean(linear_power)`. Clamped to [0.0, 1.0].
+   0.0 = pure tone, 1.0 = white noise. Previously the field was referenced in the
+   LLM classifier but never computed, so it always defaulted to 0.0.
+2. **Chroma Distance not wired to frontend** — Threaded `chroma_distance` from the
+   ChromaDB nearest-neighbour query through the entire pipeline: `scanner.py` adds it
+   to the fingerprint dict, `server.py` broadcasts it, `useSocket.js` surfaces it in
+   `aiReasoning`, and `App.jsx` displays it in the Signal Details panel.
+3. **Waterfall / SpectrometerBar alignment** — Exported `WATERFALL_LABEL_WIDTH` constant
+   from `WaterfallPanel.jsx` and imported it in `SpectrometerBar.jsx`. Added a left spacer
+   div so the spectrometer bar's canvas starts at the same x offset as the waterfall's
+   canvas above it. Fixed click handler to correctly compute frequency from canvas-relative
+   coordinates (no double offset).
+4. **React StrictMode double rendering** — Removed `<React.StrictMode>` wrapper from
+   `main.jsx` to eliminate intentional double-mounting of components, which was causing
+   duplicate socket listener registration and double canvas renders per frame.
+
+**Files changed:**
+- `core/pipeline/features.py` — Wiener entropy computation, clamped to [0.0, 1.0], added
+  to empty-PSD early-return dict, docstring updated
+- `core/pipeline/scanner.py` — `chroma_distance` extracted from `neighbours_list[0]` and
+  added to `item["fingerprint"]` before `ScanResult` construction
+- `dashboard/server.py` — `chroma_distance` added to `broadcast()` payload via `fp.get()`
+- `dashboard/frontend/src/hooks/useSocket.js` — `chroma_distance` added to
+  `INITIAL_AI_REASONING` and `aiReasoning` builder
+- `dashboard/frontend/src/App.jsx` — `chroma_distance` added to `INITIAL_AI_REASONING`
+- `dashboard/frontend/src/components/WaterfallPanel.jsx` — exported `WATERFALL_LABEL_WIDTH = 110`
+- `dashboard/frontend/src/components/SpectrometerBar.jsx` — imported constant, added left
+  spacer, fixed click handler (canvas-relative coordinates only)
+- `dashboard/frontend/src/main.jsx` — removed `<React.StrictMode>` wrapper
+- `tests/core/test_fft_features.py` — 4 new spectral_flatness assertions (key presence, range,
+  tone low, noise high)
+- `tests/core/test_scanner.py` — chroma_distance assertion in AI loop test
+- `tests/dashboard/test_server_stats.py` — chroma_distance in expected broadcast payload
+- `dashboard/frontend/src/tests/useSocket.test.js` — chroma_distance in expected objects
+- `dashboard/frontend/src/tests/SpectrometerBar.test.jsx` — spacer width, canvas flex, and
+  click handler frequency tests
+
+**Test counts:** 402/402 (311 pytest + 91 Vitest).
 
 ---
 

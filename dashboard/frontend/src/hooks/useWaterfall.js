@@ -15,35 +15,34 @@ export function useWaterfall({ canvasRef, psdDb, sampleRateHz }) {
     const height = canvas.height
     if (width === 0 || height === 0) return
 
-    const imageData = ctx.getImageData(0, 0, width, height)
-    const data = imageData.data
+    // GPU scroll: draw entire canvas shifted down by 1 pixel
+    ctx.drawImage(canvas, 0, 1)
 
-    for (let y = height - 2; y >= 0; y--) {
-      const srcStart = y * width * 4
-      const dstStart = (y + 1) * width * 4
-      data.set(data.subarray(srcStart, srcStart + width * 4), dstStart)
-    }
-
+    // Build new top row only (1px)
+    const rowData = ctx.createImageData(width, 1)
+    const data = rowData.data
     const groupSize = NUM_PSD_BINS / width
 
     for (let x = 0; x < width; x++) {
-      let sum = 0
       const startBin = Math.floor(x * groupSize)
-      const endBin = Math.floor((x + 1) * groupSize)
-      const count = endBin - startBin
+      const endBin = Math.min(Math.floor((x + 1) * groupSize), NUM_PSD_BINS)
+      let sum = 0
+      let count = 0
       for (let i = startBin; i < endBin; i++) {
         sum += psdDb[i]
+        count++
       }
-      const avg = sum / count
+      const avg = count > 0 ? sum / count : psdDb[startBin] ?? -100
       const norm = normalisePsd(avg)
       const [r, g, b] = psdToRgb(norm)
       const idx = x * 4
-      data[idx] = r
+      data[idx]     = r
       data[idx + 1] = g
       data[idx + 2] = b
       data[idx + 3] = 255
     }
 
-    ctx.putImageData(imageData, 0, 0)
+    // Write only the new top row
+    ctx.putImageData(rowData, 0, 0)
   }, [psdDb])
 }

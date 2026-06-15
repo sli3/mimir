@@ -58,6 +58,7 @@ def fingerprint_spectrum(
           - snr_db: Signal-to-noise ratio (peak_power_db - noise_floor_db)
           - bandwidth_hz: Occupied bandwidth above noise floor + SIGNAL_THRESHOLD_DB
           - occupied_bins: Number of bins above noise floor + SIGNAL_THRESHOLD_DB
+          - spectral_flatness: Wiener entropy (0.0 = pure tone, 1.0 = white noise)
     """
     psd_db = psd_result["psd_db"]
 
@@ -72,6 +73,7 @@ def fingerprint_spectrum(
             "snr_db": 0.0,
             "bandwidth_hz": 0.0,
             "occupied_bins": 0,
+            "spectral_flatness": 0.0,
         }
 
     frequencies_hz = psd_result["frequencies_hz"]
@@ -98,12 +100,22 @@ def fingerprint_spectrum(
     hz_per_bin = sample_rate_hz / nfft
     bandwidth_hz = float(occupied_bins * hz_per_bin)
 
+    # Spectral flatness — Wiener entropy (geometric mean / arithmetic mean)
+    # Measures how tone-like vs noise-like a signal is.
+    # 0.0 = pure tone, 1.0 = white noise.
+    linear_power = np.power(10.0, psd_db / 10.0)
+    geometric_mean = np.exp(np.mean(np.log(linear_power + 1e-12)))
+    arithmetic_mean = np.mean(linear_power)
+    spectral_flatness = float(geometric_mean / (arithmetic_mean + 1e-12))
+    spectral_flatness = float(np.clip(spectral_flatness, 0.0, 1.0))
+
     logger.info(
-        "Spectral fingerprint: peak=%.1f Hz, SNR=%.1f dB, BW=%.0f Hz, bins=%d",
+        "Spectral fingerprint: peak=%.1f Hz, SNR=%.1f dB, BW=%.0f Hz, bins=%d, flatness=%.3f",
         peak_freq_hz,
         snr_db,
         bandwidth_hz,
         occupied_bins,
+        spectral_flatness,
     )
 
     return {
@@ -114,4 +126,5 @@ def fingerprint_spectrum(
         "snr_db": snr_db,
         "bandwidth_hz": bandwidth_hz,
         "occupied_bins": occupied_bins,
+        "spectral_flatness": spectral_flatness,
     }

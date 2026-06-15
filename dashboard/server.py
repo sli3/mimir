@@ -155,6 +155,7 @@ def start_server(host: str, port: int, device=None, scanner=None):
         if focused is not None and scan_result.center_freq_hz != focused:
             return
         cls = scan_result.classification
+        fp = scan_result.fingerprint or {}  # fingerprint dict, may be None
         data = {
             "timestamp": scan_result.timestamp,
             "center_freq_hz": scan_result.center_freq_hz,
@@ -164,6 +165,12 @@ def start_server(host: str, port: int, device=None, scanner=None):
             "novel": cls.novel,
             "au_legal_status": cls.au_legal_status,
             "reasoning": cls.reasoning,
+            # Fingerprint fields — added in Phase 10-Fix2
+            "peak_power_db": fp.get("peak_power_db"),
+            "snr_db": fp.get("snr_db"),
+            "bandwidth_hz": fp.get("bandwidth_hz"),
+            "spectral_flatness": fp.get("spectral_flatness"),
+            "chroma_distance": fp.get("chroma_distance"),
         }
         socketio.emit("scan_result", data)
 

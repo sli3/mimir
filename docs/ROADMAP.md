@@ -32,8 +32,10 @@
 | 9C-Threshold | Calibrate SIGNAL_THRESHOLD_DB | ✅ Complete | 362/362 (306 pytest + 56 Vitest) |
 | 9F | ADS-B Pure-Python Decoder Subscriber | ✅ Complete | 354/354 (298 pytest + 56 Vitest) |
 | 9F-CPR | ADS-B CPR Pair Accumulator | ✅ Complete | 364/364 (308 pytest + 56 Vitest) |
+| 10 | Dashboard UI Redesign | ✅ Complete | 392/392 (308 pytest + 84 Vitest) |
+| 10-Hotfix | Dashboard Live Testing Fixes | ✅ Complete | 395/395 (308 pytest + 87 Vitest) |
 
-**Total: 364/364 tests passing (308 pytest + 56 Vitest)**
+**Total: 402/402 tests passing (311 pytest + 91 Vitest)**
 
 **BUG-01 status:** Code fixed in 9B-Hotfix. Full calibration deferred to Phase 9C pending telescopic whip antenna (~68 cm SMA) purchase.
 

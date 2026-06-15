@@ -11,13 +11,18 @@ const INITIAL_AI_REASONING = {
   au_legal_status: null,
   reasoning: null,
   timestamp: null,
+  peak_power_db: null,
+  snr_db: null,
+  bandwidth_hz: null,
+  spectral_flatness: null,
+  chroma_distance: null,
 }
 
 export function useSocket() {
   const [scanResults, setScanResults] = useState([])
   const [spectrumUpdates, setSpectrumUpdates] = useState([])
   const [systemStats, setSystemStats] = useState(null)
-  const [focusedFreq, setFocusedFreq] = useState(null)
+  const [focusedFreq, setFocusedFreq] = useState(98000000)
   const [isConnected, setIsConnected] = useState(false)
   const [aiReasoning, setAiReasoning] = useState(INITIAL_AI_REASONING)
   const [acarsMessages, setAcarsMessages] = useState([])
@@ -25,7 +30,7 @@ export function useSocket() {
   const [adsbAircraft, setAdsbAircraft] = useState({})
   const socketRef = useRef(null)
   const psdMapRef = useRef({})
-  const focusedFreqRef = useRef(null)
+  const focusedFreqRef = useRef(98000000)
 
   useEffect(() => {
     const socket = io(SOCKET_URL)
@@ -53,6 +58,11 @@ export function useSocket() {
           au_legal_status: data.au_legal_status || null,
           reasoning: data.reasoning || null,
           timestamp: data.timestamp || null,
+          peak_power_db: data.peak_power_db ?? null,
+          snr_db: data.snr_db ?? null,
+          bandwidth_hz: data.bandwidth_hz ?? null,
+          spectral_flatness: data.spectral_flatness ?? null,
+          chroma_distance: data.chroma_distance ?? null,
         })
       }
     })
@@ -137,6 +147,7 @@ export function useSocket() {
     aiReasoning,
     acarsMessages,
     aisMessages,
+    aisVessels: aisMessages,
     adsbAircraft,
   }
 }

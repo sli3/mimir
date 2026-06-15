@@ -22,14 +22,13 @@ ADELAIDE_LON: float = 138.60
 MAX_AIRCRAFT: int = 30
 AIRCRAFT_EXPIRY_SEC: float = 90.0
 
-# Preamble detection threshold ratio: mean(high samples) / mean(low samples)
-# Must exceed this to be considered a valid preamble candidate.
-# DEFERRED: This value (2.0) is provisional.  It requires live field testing
-# with real ADS-B traffic from Adelaide airports to confirm it reliably
-# distinguishes genuine preambles from noise.  If too many false positives or
-# missed frames are observed, recalibrate with tools/diagnose_threshold.py
-# or a dedicated ADS-B threshold sweep.
-PREAMBLE_THRESHOLD: float = 2.0
+# Preamble detection threshold — ratio of pulse amplitude to noise floor.
+# Higher = fewer false positives but misses weak signals.
+# Lower = more sensitive but may produce garbage frames.
+# Validated range for HackRF One with telescopic whip: 1.2-2.0.
+# Current value: 1.5 (reduced from 2.0 after live testing showed no decodes
+# with confirmed aircraft overhead. Reduce to 1.2 if still no decodes.)
+PREAMBLE_THRESHOLD: float = 1.5
 
 # Preamble sample positions at 2 MSa/s (0.5 us per sample)
 # ADS-B preamble is 8 us = 16 samples at 2 MSa/s
