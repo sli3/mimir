@@ -1,6 +1,7 @@
 """ADS-B decoder — Mode S extended squitter validation and field extraction.
 
-Uses pyModeS v3 decode-only API.  No transmit or encode symbols are imported.
+Uses pyModeS v3 PipeDecoder for stateful CPR pair accumulation.  No transmit or
+encode symbols are imported.
 
 Legal: passive receive only.  Radiocommunications Act 1992 (Cth).
 Jurisdiction: AU / SA.  Authority: ACMA.
@@ -12,40 +13,62 @@ TX-Safety Note:
 """
 
 import logging
+import time
 
-from pyModeS import decode as pms_decode
+from pyModeS import PipeDecoder
 
-from modules.adsb.constants import ADELAIDE_LAT, ADELAIDE_LON
 from modules.adsb.message import AdsbMessage
 
 logger = logging.getLogger(__name__)
+
+FLUSH_INTERVAL_SEC: float = 5.0
 
 
 class AdsbDecoder:
     """Validate and decode ADS-B hex strings into ``AdsbMessage`` objects.
 
-    Limitations:
-        - CPR decoding uses a fixed reference position (Adelaide) via
-          ``pyModeS.decode(msg, reference=(lat, lon))``.  This resolves
-          airborne position (typecodes 9-18) only.  Surface position
-          messages (typecodes 5-8) are not decoded because ``surface_ref``
-          is not passed to pyModeS.  See Deferred Items below.
-        - Without a CPR even/odd frame pair accumulator, position accuracy
-          degrades beyond ~180 NM from the reference point.  All aircraft
-          receivable at 1090 MHz from Adelaide are within this range.
+    This decoder uses pyModeS ``PipeDecoder`` to accumulate per-ICAO state
+    and resolve CPR (Compact Position Reporting) even/odd frame pairs globally.
+    No fixed reference position is required — positions are decoded by pairing
+    alternating even (F=0) and odd (F=1) CPR frames from the same aircraft.
 
-    Deferred Items:
-        - CPR pair accumulator: future enhancement to decode positions
-          without a fixed reference by pairing even and odd CPR frames.
-          Currently deferred because single-reference decoding is sufficient
-          for Adelaide reception range.
+    Parameters:
+        pair_window (10.0 s): maximum time between even and odd frames in a
+            pair.  Frames outside this window are discarded.
+        eviction_ttl (300.0 s): per-ICAO state is dropped after this many
+            seconds of silence, preventing unbounded memory growth.
+
+    Bootstrap / flush mechanism:
+        PipeDecoder holds the first few position pairs in a bootstrap buffer to
+        avoid false positives from noise.  By default an aircraft needs ~5
+        position pairs (~10 frames, ~5 s at typical 2 Hz) before positions are
+        released.  ``flush()`` is called automatically every
+        ``FLUSH_INTERVAL_SEC`` seconds during ``decode()`` to release
+        bootstrap-held positions for aircraft that have generated at least 2
+        candidate pairs.  This means positions typically appear within ~5 s of
+        the first pair for any aircraft.
+
+    Limitations:
+        - Surface position messages (typecodes 5-8) are not decoded because
+          ``surface_ref`` is not passed to PipeDecoder.  Only airborne
+          position messages (typecodes 9-18) are resolved.
     """
 
-    def decode(self, raw_hex: str) -> AdsbMessage | None:
+    def __init__(self) -> None:
+        self._pipe: PipeDecoder = PipeDecoder(
+            pair_window=10.0,
+            eviction_ttl=300.0,
+        )
+        self._last_flush_ts: float = time.monotonic()
+
+    def decode(self, raw_hex: str, timestamp: float | None = None) -> AdsbMessage | None:
         """Decode a single ADS-B hex string.
 
         Args:
             raw_hex: 28-character hex string (14 bytes) from the demodulator.
+            timestamp: Unix epoch timestamp for the frame.  Used by
+                PipeDecoder for pair matching and stale-state eviction.
+                Defaults to ``time.time()`` when not provided.
 
         Returns:
             ``AdsbMessage`` on success, or ``None`` if the frame is not a
@@ -54,19 +77,17 @@ class AdsbDecoder:
         if not raw_hex or len(raw_hex) != 28:
             return None
 
-        # DEFERRED (surface position): pyModeS decode() with reference=
-        # resolves airborne CPR (typecodes 9-18) only.  Surface position
-        # messages (typecodes 5-8) require a separate surface_ref= kwarg
-        # which is not passed here.  This means surface positions will not
-        # be decoded.  When surface tracking is needed, pass
-        # surface_ref=(ADELAIDE_LAT, ADELAIDE_LON) as well.
+        now = time.monotonic()
+        if now - self._last_flush_ts >= FLUSH_INTERVAL_SEC:
+            self._pipe.flush()
+            self._last_flush_ts = now
+
+        ts = timestamp if timestamp is not None else time.time()
+
         try:
-            result = pms_decode(
-                raw_hex,
-                reference=(ADELAIDE_LAT, ADELAIDE_LON),
-            )
+            result = self._pipe.decode(raw_hex, timestamp=ts)
         except Exception:
-            logger.debug("ADS-B pyModeS decode failed for %s", raw_hex, exc_info=True)
+            logger.debug("ADS-B PipeDecoder failed for %s", raw_hex, exc_info=True)
             return None
 
         if not isinstance(result, dict):
@@ -126,3 +147,16 @@ class AdsbDecoder:
             vertical_rate=vertical_rate,
             raw_hex=raw_hex,
         )
+
+    def flush(self) -> None:
+        """Release any bootstrap-held positions immediately.
+
+        Calls the underlying PipeDecoder.flush(), which accepts per-ICAO
+        positions held in the bootstrap buffer as long as >= 2 candidate
+        pairs exist.  After flush(), subsequent decode() calls for
+        previously bootstrapping ICAOs will return positions.
+
+        Intended for use in unit tests and graceful shutdown.
+        """
+        self._pipe.flush()
+        self._last_flush_ts = time.monotonic()

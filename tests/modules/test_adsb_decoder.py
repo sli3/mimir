@@ -1,4 +1,4 @@
-"""Tests for AdsbDecoder — pyModeS integration and validation gates."""
+"""Tests for AdsbDecoder — pyModeS PipeDecoder integration and validation gates."""
 
 from modules.adsb.decoder import AdsbDecoder
 from modules.adsb.message import AdsbMessage
@@ -26,17 +26,45 @@ class TestAdsbDecoder:
         assert isinstance(msg, AdsbMessage)
         assert msg.groundspeed == 159
 
-    def test_decode_position_message_with_ref(self):
-        """POS_EVEN_MSG decoded with Adelaide reference yields valid lat/lon."""
+    def test_single_position_frame_yields_no_position(self):
+        """A single CPR frame gives no position before a pair is formed."""
         decoder = AdsbDecoder()
-        msg = decoder.decode(POS_EVEN_MSG)
-        assert isinstance(msg, AdsbMessage)
-        assert isinstance(msg.latitude, float)
-        assert isinstance(msg.longitude, float)
-        # European aircraft with Adelaide ref will produce a mathematically
-        # valid but geographically shifted position; just check hemisphere-ish.
-        assert -90 <= msg.latitude <= 0
-        assert 0 <= msg.longitude <= 180
+        msg = decoder.decode(POS_EVEN_MSG, timestamp=1000.0)
+        # May be None (if ICAO has no non-position fields) or an
+        # AdsbMessage with latitude=None. Either is acceptable.
+        if msg is not None:
+            assert msg.latitude is None
+            assert msg.longitude is None
+
+    def test_position_after_pair_and_flush(self):
+        """Even+odd pair followed by flush() yields a valid global position."""
+        decoder = AdsbDecoder()
+        t = 1000.0
+        decoder.decode(POS_EVEN_MSG, timestamp=t)
+        decoder.decode(POS_ODD_MSG, timestamp=t + 0.5)
+        decoder.flush()
+        # Second pair — ICAO is now locked, position should resolve
+        msg_even = decoder.decode(POS_EVEN_MSG, timestamp=t + 2.0)
+        msg_odd = decoder.decode(POS_ODD_MSG, timestamp=t + 2.5)
+        positioned = next(
+            (m for m in (msg_even, msg_odd) if m is not None and m.latitude is not None),
+            None,
+        )
+        assert positioned is not None, (
+            "Expected a position after pair+flush, but neither frame resolved one"
+        )
+        assert -90.0 <= positioned.latitude <= 90.0
+        assert -180.0 <= positioned.longitude <= 180.0
+
+    def test_non_position_fields_unaffected_by_accumulator(self):
+        """Callsign, altitude, and groundspeed decode without needing a pair."""
+        decoder = AdsbDecoder()
+        ident_msg = decoder.decode(IDENT_MSG, timestamp=2000.0)
+        assert isinstance(ident_msg, AdsbMessage)
+        assert ident_msg.callsign == "EZY85MH"
+        vel_msg = decoder.decode(VELOCITY_MSG, timestamp=2001.0)
+        assert isinstance(vel_msg, AdsbMessage)
+        assert vel_msg.groundspeed == 159
 
     def test_invalid_crc_returns_none(self):
         """Corrupting the last byte of a valid message causes rejection."""

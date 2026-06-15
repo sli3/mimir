@@ -31,8 +31,9 @@
 | 9C | ACARS Decoder + Setup Infrastructure | ✅ Complete | 290/290 (223 pytest + 56 Vitest + 11 bash) |
 | 9C-Threshold | Calibrate SIGNAL_THRESHOLD_DB | ✅ Complete | 362/362 (306 pytest + 56 Vitest) |
 | 9F | ADS-B Pure-Python Decoder Subscriber | ✅ Complete | 354/354 (298 pytest + 56 Vitest) |
+| 9F-CPR | ADS-B CPR Pair Accumulator | ✅ Complete | 364/364 (308 pytest + 56 Vitest) |
 
-**Total: 362/362 tests passing (306 pytest + 56 Vitest)**
+**Total: 364/364 tests passing (308 pytest + 56 Vitest)**
 
 **BUG-01 status:** Code fixed in 9B-Hotfix. Full calibration deferred to Phase 9C pending telescopic whip antenna (~68 cm SMA) purchase.
 
@@ -411,6 +412,50 @@ the established ACARS (9C/9D) and AIS (9E) subscriber pattern.
 - CPR pair accumulator (even/odd frames without fixed reference) deferred.
 
 **Complete when:** `uv run pytest` → 354/354 (298 pytest + 56 Vitest)
+
+---
+
+### Phase 9F-CPR — ADS-B CPR Pair Accumulator ✅
+
+**Goal:** Upgrade the ADS-B decoder from single-frame CPR position resolution
+(requiring a fixed lat/lon reference) to a stateful per-ICAO CPR pair accumulator
+that pairs even/odd frames and resolves positions globally.
+
+**Background:** Phase 9F used pyModeS `decode()` with a fixed Adelaide reference
+lat/lon. This worked but introduced position error for aircraft far from the
+reference point and could not resolve positions for aircraft whose even and odd
+CPR frames arrive at different times. `pyModeS.PipeDecoder` handles frame pairing
+and global resolution automatically.
+
+**Delivered:**
+- `modules/adsb/decoder.py` — replaced stateless `pms_decode()` with `pyModeS.PipeDecoder`:
+  per-ICAO even/odd frame buffering, 10-second pairing window, global position
+  resolution without fixed reference, 300-second stale state eviction, flush()
+  cycle every 5 seconds (BOOTSTRAP_K=5) to release positions for intermittent aircraft
+- `modules/adsb/decoder.py` — optional `timestamp: float | None = None` param on `decode()`
+  for test determinism (defaults to `time.time()` internally)
+- `modules/adsb/decoder.py` — new `flush()` method exposed for tests and graceful shutdown
+- `modules/adsb/constants.py` — ADELAIDE_LAT/ADELAIDE_LON comments updated (retained for
+  diagnostic/fallback use only, no longer used for primary decoding)
+- `tests/modules/test_adsb_decoder.py` — three position tests rewritten: single frame yields
+  no position; pair + flush yields valid global position; non-position fields unaffected
+  by accumulator change
+- `docs/wiki.md` — Phase 9F-CPR entry, CPR glossary update, pyModeS glossary update
+
+**Key decisions:**
+- PipeDecoder chosen over manual even/odd frame pairing for robustness and upstream maintenance
+- BOOTSTRAP_K=5 to avoid premature position release for aircraft with intermittent reception
+- 300-second stale eviction matches ADS-B transponder reporting rates (typically 0.5-1 Hz)
+
+**Known debt:**
+- `modules/adsb/message.py` stale comments: latitude/longitude field comments still say
+  "from position_with_ref()" — should reference "from PipeDecoder global CPR pair resolution"
+- `AdsbSubscriber.stop()` does not call `decoder.flush()` — bootstrap-held positions
+  silently discarded at shutdown
+- DF11 test path: `test_non_adsb_downlink_format_returns_none` uses a 28-char DF11 string
+  which hits `InvalidLengthError` rather than the DF gate directly
+
+**Test counts:** 364/364 (308 pytest + 56 Vitest)
 
 ---
 

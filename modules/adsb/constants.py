@@ -10,10 +10,11 @@ AU_ADSB_FREQUENCY_HZ: int = 1_090_000_000
 # Accept anything within 2 MHz of the ADS-B centre frequency
 FREQ_TOLERANCE_HZ: int = 2_000_000
 
-# Adelaide receiver reference position for CPR position_with_ref()
-# Used to decode position from a single ADS-B frame without needing
-# a paired even/odd frame.  Valid for aircraft within ~180 NM (~333 km).
-# All aircraft receivable at 1090 MHz from Adelaide are within this range.
+# Adelaide receiver reference position.
+# NOTE: No longer used for primary position decoding.
+# PipeDecoder (modules/adsb/decoder.py) performs global CPR decoding
+# without a reference point and does not import these constants.
+# Kept here for diagnostic tools and optional fallback use.
 ADELAIDE_LAT: float = -34.93
 ADELAIDE_LON: float = 138.60
 

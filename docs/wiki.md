@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: 9C-Threshold
+last_updated_phase: 9F-CPR
 ---
 
 # Mimir Wiki
@@ -70,6 +70,27 @@ Step  Function / Component          What it does
 ## Phase Log
 
 Phases are listed newest-first so the current phase is always at the top.
+
+---
+
+### Phase 9F-CPR — ADS-B CPR Pair Accumulator ✓ DONE
+
+**What:** Upgraded the ADS-B position decoder from single-frame `position_with_ref()` to `pyModeS.PipeDecoder` — a stateful, per-ICAO CPR pair accumulator. PipeDecoder buffers even/odd CPR frames per ICAO, pairs them within a 10-second window, and resolves positions globally (no fixed reference point required). Stale per-ICAO state is evicted after 300 seconds of silence. A flush() cycle every 5 seconds releases bootstrap-held positions for aircraft that generate fewer than _BOOTSTRAP_K=5 pairs.
+
+**Why:** Single-frame CPR decoding via `position_with_ref()` gives accurate positions only within ~180 NM of the reference point (Adelaide). Beyond that, positions are mathematically valid but geographically wrong. CPR pair accumulation decodes positions globally, matching how production ADS-B receivers (dump1090, FlightAware, etc.) operate. For Adelaide reception, all receivable aircraft are within 180 NM, but pair accumulation also eliminates reference bias and is more accurate.
+
+**Files changed:**
+- `modules/adsb/decoder.py` — PipeDecoder replaces stateless pms_decode; FLUSH_INTERVAL_SEC=5.0; optional timestamp param; flush() method
+- `modules/adsb/constants.py` — ADELAIDE_LAT/ADELAIDE_LON comments updated
+- `tests/modules/test_adsb_decoder.py` — position tests rewritten for pair-based accumulation
+
+**Key functions:**
+
+`AdsbDecoder.decode(raw_hex, timestamp=None)` — validates a 28-char hex string via PipeDecoder (CRC, DF17/DF18 check, typecode range), then extracts structured fields (ICAO, callsign, altitude, position, groundspeed, track, vertical_rate). Uses stateful CPR pair accumulation for global position decoding without a fixed reference. Automatically flushes the pipe every 5 seconds to release bootstrap-held positions. Analogy: instead of guessing your exact location from a single GPS ping relative to a known landmark, the CPR accumulator waits for two pings and triangulates your position precisely — anywhere on Earth.
+
+`AdsbDecoder.flush()` — manually releases bootstrap-held positions. Intended for unit tests and graceful shutdown.
+
+**Test counts:** 364/364 (308 pytest + 56 Vitest).
 
 ---
 
@@ -146,7 +167,7 @@ constraint — the same architecture as ACARS (9D) and AIS (9E).
 - `modules/adsb/constants.py` — AU ADS-B frequency (1090 MHz), Adelaide reference position for CPR decoding, preamble detection parameters, message length constants
 - `modules/adsb/message.py` — `AdsbMessage` dataclass (icao, callsign, altitude, lat/lon, groundspeed, track, vertical_rate, raw_hex, timestamp)
 - `modules/adsb/demodulator.py` — `AdsbDemodulator` (vectorised preamble detection via amplitude ratio, PPM bit extraction at 2 MSa/s, hex string packing)
-- `modules/adsb/decoder.py` — `AdsbDecoder` (pyModeS decode with Adelaide reference position, CRC validation, field extraction into AdsbMessage)
+- `modules/adsb/decoder.py` — `AdsbDecoder` (pyModeS decode with CPR pair accumulation via PipeDecoder, CRC validation, field extraction into AdsbMessage)
 - `modules/adsb/subscriber.py` — `AdsbSubscriber` (queue + daemon thread, frequency filter at 1090 MHz +/- 2 MHz, demodulate-decode-broadcast pipeline)
 
 **Key functions:**
@@ -158,9 +179,8 @@ Analogy: a barcode scanner looking for the right pattern of wide and narrow bars
 
 `AdsbDecoder.decode(raw_hex)` — validates a 28-char hex string via pyModeS (CRC,
 DF17/DF18 check, typecode range), then extracts structured fields (ICAO, callsign,
-altitude, position, groundspeed, track, vertical_rate). Uses a fixed Adelaide
-reference position for CPR single-frame position decoding. Analogy: translating
-a shorthand code into a full aircraft report.
+altitude, position, groundspeed, track, vertical_rate). Uses stateful CPR pair
+accumulation via PipeDecoder for global position decoding. **Upgraded in Phase 9F-CPR.**
 
 **Test counts:** 354/354 (298 pytest + 56 Vitest).
 
@@ -590,7 +610,7 @@ This is a strong sign the connected antenna is too short for that frequency.
 | asyncio | Asynchronous I/O | Python's way of doing multiple things concurrently without threads. `capture_loop` runs as an asyncio background task. |
 | Canvas | HTML Canvas | Browser element that JavaScript draws on pixel by pixel. The waterfall is drawn here — one row of pixels per PSD frame. |
 | colourmap | Colour Map | Lookup table: power (dB) → colour. Weak signals = dark blue. Strong signals = yellow/white. Produces the heat-map look. |
-| CPR | Compact Position Reporting | ADS-B position encoding scheme. Aircraft transmit latitude/longitude as compressed even/odd frame pairs. A receiver needs both frames (or a known reference position) to resolve the full position. Mimir uses a fixed Adelaide reference for single-frame decoding. |
+| CPR | Compact Position Reporting | ADS-B position encoding scheme. Aircraft transmit latitude/longitude as compressed even/odd frame pairs. A receiver needs both frames (or a known reference position) to resolve the full position. Mimir uses pyModeS.PipeDecoder to accumulate even/odd frame pairs per ICAO and resolve positions globally — no fixed reference point required. Positions appear within ~5 seconds of the first pair. |
 | dB | Decibel | Unit of signal strength. Logarithmic scale. Values in Mimir are negative (e.g. -50 dB). Closer to 0 = stronger signal. Noise floor ≈ -50 to -60 dB. |
 | DOM | Document Object Model | Browser's internal model of the HTML page. `waterfall.js` uses it to find the canvas element and draw on it. |
 | FastAPI | FastAPI | Python web framework. Handles HTTP and WebSocket connections. The engine behind the dashboard server. |
@@ -606,7 +626,7 @@ This is a strong sign the connected antenna is too short for that frequency.
 | PSD | Power Spectral Density | Output of the FFT. A bar chart of frequency vs signal strength. One dB value per frequency bin. |
 | PPM | Pulse Position Modulation | Modulation scheme used by ADS-B. Each bit is transmitted as a pulse in one of two time slots within a bit period. The slot with the larger pulse determines whether the bit is 1 or 0. Mimir demodulates PPM at 2 MSa/s (2 samples per bit). |
 | PYTHONPATH | Python Path | Environment variable telling Python where to find modules. `PYTHONPATH=.` means "look from current directory" — needed for debug scripts to find Mimir's own modules. |
-| pyModeS | Python Mode S | Python library for decoding Mode S / ADS-B hex strings. Used by `AdsbDecoder` to validate CRC and extract structured fields (ICAO, callsign, altitude, position). Decode-only — no transmit capability. |
+| pyModeS | Python Mode S | Python library for decoding Mode S / ADS-B hex strings. Used by `AdsbDecoder`. The stateless `decode()` function validates single frames; `PipeDecoder` (v3+) accumulates per-ICAO state and resolves CPR position pairs globally. Decode-only — no transmit capability. |
 | SDR | Software-Defined Radio | A radio where processing is done in software, not hardware circuits. The HackRF is an SDR. |
 | shared_state | Shared State Module | `dashboard/shared_state.py`. Holds variables used across the whole server. Because Python caches imports, every file gets the same object. |
 | spiral antenna | Spiral Antenna | A compact fixed-length antenna optimised for high frequencies (800 MHz+). Cannot be extended. Poor performance at FM and other low-frequency bands. |
