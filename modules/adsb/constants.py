@@ -22,13 +22,12 @@ ADELAIDE_LON: float = 138.60
 MAX_AIRCRAFT: int = 30
 AIRCRAFT_EXPIRY_SEC: float = 90.0
 
-# Preamble detection threshold — ratio of pulse amplitude to noise floor.
-# Higher = fewer false positives but misses weak signals.
-# Lower = more sensitive but may produce garbage frames.
-# Validated range for HackRF One with telescopic whip: 1.2-2.0.
-# Current value: 1.5 (reduced from 2.0 after live testing showed no decodes
-# with confirmed aircraft overhead. Reduce to 1.2 if still no decodes.)
-PREAMBLE_THRESHOLD: float = 1.5
+# Validated range for HackRF One with spiral discone at 1090 MHz: 3.0-6.0.
+# Lower values (< 2.0) produce hundreds of noise candidates per chunk with
+# zero valid decodes — noise easily satisfies a 1.5 ratio by chance.
+# Current value: 8.0 (validated live — HackRF One + spiral discone, Adelaide)
+# decrease toward 3.0 only if candidate count drops to zero).
+PREAMBLE_THRESHOLD: float = 8.0
 
 # Preamble sample positions at 2 MSa/s (0.5 us per sample)
 # ADS-B preamble is 8 us = 16 samples at 2 MSa/s
