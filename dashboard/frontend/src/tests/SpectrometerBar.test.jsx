@@ -82,7 +82,7 @@ describe('SpectrometerBar', () => {
     expect(canvas.style.flex).toBe('1 1 0%')
   })
 
-  it('click handler calls focusFrequency with correct frequency', () => {
+  it('click handler does NOT call focusFrequency (cursor is display-only)', () => {
     const { container } = render(
       <SpectrometerBar
         spectrumUpdates={[
@@ -101,14 +101,56 @@ describe('SpectrometerBar', () => {
     canvas.height = 64
     canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1000, height: 64 })
 
-    // Click at the center of the canvas (x=500)
-    // relativeX = 500/1000 = 0.5
-    // freq = 98000000 + (0.5 - 0.5) * 2000000 = 98000000
+    // Click at the center of the canvas — cursor should draw but frequency should NOT change
     mockFocusFrequency.mockClear()
     fireEvent.click(canvas, {
       clientX: 500,
       bubbles: true,
     })
-    expect(mockFocusFrequency).toHaveBeenCalledWith(98000000)
+    expect(mockFocusFrequency).not.toHaveBeenCalled()
+  })
+
+  it('clicking SpectrometerBar does NOT call focusFrequency', () => {
+    mockFocusFrequency.mockClear()
+    const { container } = render(
+      <SpectrometerBar
+        spectrumUpdates={[]}
+        focusedFreq={98000000}
+        focusFrequency={mockFocusFrequency}
+      />
+    )
+    const wrapper = container.firstChild
+    const canvas = wrapper.querySelector('canvas')
+    expect(canvas).toBeInTheDocument()
+
+    canvas.width = 300
+    canvas.height = 64
+    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 300, height: 64 })
+
+    fireEvent.click(canvas, { clientX: 75, clientY: 32, bubbles: true })
+    expect(mockFocusFrequency).not.toHaveBeenCalled()
+  })
+
+  it('clicking SpectrometerBar at different positions never calls focusFrequency', () => {
+    mockFocusFrequency.mockClear()
+    const { container } = render(
+      <SpectrometerBar
+        spectrumUpdates={[]}
+        focusedFreq={98000000}
+        focusFrequency={mockFocusFrequency}
+      />
+    )
+    const wrapper = container.firstChild
+    const canvas = wrapper.querySelector('canvas')
+    expect(canvas).toBeInTheDocument()
+
+    canvas.width = 300
+    canvas.height = 64
+    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 300, height: 64 })
+
+    fireEvent.click(canvas, { clientX: 10, clientY: 32, bubbles: true })
+    fireEvent.click(canvas, { clientX: 150, clientY: 32, bubbles: true })
+    fireEvent.click(canvas, { clientX: 290, clientY: 32, bubbles: true })
+    expect(mockFocusFrequency).not.toHaveBeenCalled()
   })
 })

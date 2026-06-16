@@ -133,4 +133,34 @@ describe('WaterfallPanel', () => {
     // The label text should NOT be present because hideSidebar=true
     expect(screen.queryByText('98.0 MHz')).toBeNull()
   })
+
+  it('singleBand=true: clicking the canvas does NOT call focusFrequency', () => {
+    render(
+      <WaterfallPanel
+        focusedFreq={98000000}
+        focusFrequency={mockFocusFrequency}
+        singleBand={true}
+      />
+    )
+    const canvases = document.querySelectorAll('canvas')
+    // First canvas is the waterfall canvas (not the crosshair overlay)
+    fireEvent.click(canvases[0], { clientX: 123, clientY: 50 })
+    expect(mockFocusFrequency).not.toHaveBeenCalled()
+  })
+
+  it('singleBand=false: clicking the canvas calls focusFrequency with a computed frequency', () => {
+    render(
+      <WaterfallPanel
+        focusedFreq={98000000}
+        focusFrequency={mockFocusFrequency}
+        singleBand={false}
+      />
+    )
+    const canvases = document.querySelectorAll('canvas')
+    fireEvent.click(canvases[0], { clientX: 0, clientY: 50 })
+    // focusFrequency should be called with some computed frequency
+    expect(mockFocusFrequency).toHaveBeenCalled()
+    const calledWith = mockFocusFrequency.mock.calls[0][0]
+    expect(typeof calledWith).toBe('number')
+  })
 })

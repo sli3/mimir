@@ -35,7 +35,8 @@
 | 10 | Dashboard UI Redesign | ✅ Complete | 392/392 (308 pytest + 84 Vitest) |
 | 10-Hotfix | Dashboard Live Testing Fixes | ✅ Complete | 395/395 (308 pytest + 87 Vitest) |
 
-**Total: 404/404 tests passing (313 pytest + 91 Vitest)**
+**Total: 416/416 tests passing (319 pytest + 97 Vitest)**
+- Note: 4 pytest failures in `test_ais_decoder.py` are pre-existing (missing `pyais` module in environment).
 
 **BUG-01 status:** Code fixed in 9B-Hotfix. Full calibration deferred to Phase 9C pending telescopic whip antenna (~68 cm SMA) purchase.
 

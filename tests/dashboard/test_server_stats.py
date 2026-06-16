@@ -34,7 +34,7 @@ class TestComputeHackrfStatus:
         with (
             patch("dashboard.server._device_ref", mock_device),
             patch("dashboard.server._last_hw_error_time", time.time()),
-            patch("dashboard.server.time.time", return_value=time.time() + 5.0),
+            patch("dashboard.server.time.time", return_value=time.time() + 2.0),
         ):
             assert _compute_hackrf_status() == "NOT_RESPONDING"
 
@@ -48,20 +48,20 @@ class TestComputeHackrfStatus:
         ):
             assert _compute_hackrf_status() == "CONNECTED"
 
-    def test_not_responding_transitions_to_connected_after_30s(self):
+    def test_not_responding_transitions_to_connected_after_5s(self):
         mock_device = MagicMock()
         mock_device.is_open = True
         error_time = 1000.0
         with (
             patch("dashboard.server._device_ref", mock_device),
             patch("dashboard.server._last_hw_error_time", error_time),
-            patch("dashboard.server.time.time", return_value=error_time + 29.0),
+            patch("dashboard.server.time.time", return_value=error_time + 4.0),
         ):
             assert _compute_hackrf_status() == "NOT_RESPONDING"
         with (
             patch("dashboard.server._device_ref", mock_device),
             patch("dashboard.server._last_hw_error_time", error_time),
-            patch("dashboard.server.time.time", return_value=error_time + 31.0),
+            patch("dashboard.server.time.time", return_value=error_time + 6.0),
         ):
             assert _compute_hackrf_status() == "CONNECTED"
 

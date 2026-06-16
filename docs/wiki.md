@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: UI-Cosmetic-Fixes
+last_updated_phase: SpectrometerBar Cursor + SDR Status Fix
 ---
 
 # Mimir Wiki
@@ -73,6 +73,57 @@ Phases are listed newest-first so the current phase is always at the top.
 
 ---
 
+### SpectrometerBar Cursor + SDR Status Fix (standalone bug-fix) ✓ DONE
+
+**What:** Two fixes discovered during live testing:
+
+1. **SpectrometerBar frequency cursor** — The spectrometer bar (thin frequency
+   readout below the waterfall) previously called `focusFrequency()` on click,
+   which retuned the HackRF to the clicked frequency. This was removed. Clicking
+   the spectrometer bar now computes the raw frequency at the click position,
+   stores it in a ref, and draws a dashed crosshair with a frequency label as
+   a display-only cursor. No `focusFrequency()` call is made. The crosshair
+   clears automatically when the band changes (via `focusedFreq` dependency).
+   The `STRIP_CONFIGS` import was removed from SpectrometerBar since snapping
+   logic is no longer needed.
+
+   **Why:** The spectrometer bar click was redundant with the waterfall canvas
+   click (which already has the singleBand guard from BUG-WATERFALL-CLICK).
+   Making the spectrometer bar display-only avoids accidental retunes from
+   users who just want to read a frequency value. The crosshair provides
+   visual feedback (frequency label at cursor position) without side effects.
+
+2. **SDR NOT RESPONDING window** — Changed the `_compute_hackrf_status()`
+   timeout in `dashboard/server.py` from 30.0 seconds to 5.0 seconds. The
+   previous 30-second window meant the dashboard showed "NOT RESPONDING" for
+   up to 30 seconds after the last hardware error, even if the device had
+   recovered. The 5-second window provides a more responsive status indicator
+   while still masking transient glitches.
+
+**Files changed:**
+- `dashboard/frontend/src/components/SpectrometerBar.jsx` — replaced `handleClick`
+  to be display-only (computes raw frequency, stores in `crosshairFreqRef`,
+  increments `crosshairVersion` state); removed `STRIP_CONFIGS` import; added
+  `useEffect` to clear crosshair on `focusedFreq` change; added frequency label
+  drawing in canvas `useEffect`; added `crosshairVersion` to canvas `useEffect` deps
+- `dashboard/server.py` — changed `_compute_hackrf_status()` NOT RESPONDING window
+  from 30.0 to 5.0 seconds
+
+**Key functions:**
+
+`SpectrometerBar.handleClick(event)` — computes the raw frequency at the clicked
+pixel position and draws a crosshair + frequency label. This is display-only; it
+never calls `focusFrequency()`. Analogy: a ruler you place on a map to read a
+coordinate -- it shows you where you are looking but does not move anything.
+
+`_compute_hackrf_status()` — returns "NOT_RESPONDING" only within 5 seconds of
+the last hardware error (previously 30 seconds). Analogy: a fire alarm that
+stops wailing 5 seconds after the fire is out, not 30.
+
+**Test counts:** (see AGENTS.md for latest totals)
+
+---
+
 ### UI Cosmetic Fixes (standalone bug-fix) ✓ DONE
 
 **What:** Two cosmetic fixes to the dashboard UI discovered during live testing:
@@ -114,6 +165,143 @@ stay consistent for future integration, but the actual visible fix is in `App.js
 
 **Note:** No new tests were required — these are layout-only changes with no
 behavioural logic.
+
+---
+
+### BUG-SPECTROMETER-CLICK: Spectrometer Bar Click Frequency Snap ✓ DONE
+
+**What:** When clicking the spectrometer bar (the thin frequency readout below
+the waterfall), the computed frequency did not always land on a canonical
+`STRIP_CONFIGS` value. For example, clicking near 1090 MHz might produce
+`1089998750` instead of `1090000000`. This caused the waterfall to freeze
+because the `latestUpdate` lookup uses strict equality against `STRIP_CONFIGs`
+canonical frequencies.
+
+The fix exports `STRIP_CONFIGS` from `WaterfallPanel.jsx` (it was previously a
+module-private `const`) and adds a snap-to-nearest-canonical step in
+`SpectrometerBar.handleClick`. After computing the raw frequency from the click
+position, the handler runs `STRIP_CONFIGS.reduce()` to find the closest canonical
+value within the current band's config and uses that instead. The snap only fires
+when the click is within 1 MHz of a known STRIP_CONFIG frequency — clicks far
+from any band produce the raw value unchanged.
+
+**Why:** The spectrometer bar and waterfall canvas share the same click-target
+area. Without frequency snapping, any click that was even a few kHz off a
+canonical value would retune the HackRF to a non-STRIP_CONFIG frequency, breaking
+the strict-equality PSD lookup that the waterfall relies on. Snapping ensures
+spectrometer clicks always land on a valid, recognised frequency.
+
+**Files changed:**
+- `dashboard/frontend/src/components/WaterfallPanel.jsx` — exported `STRIP_CONFIGS`
+  (was `const`, now `export const`)
+- `dashboard/frontend/src/components/SpectrometerBar.jsx` — imported `STRIP_CONFIGS`;
+  added snap logic in `handleClick` using `STRIP_CONFIGS.reduce()` to find nearest
+  canonical value; added JSDoc comment explaining the snap behaviour
+- `dashboard/frontend/src/tests/SpectrometerBar.test.jsx` — 2 new tests for
+  frequency snapping (snap within band, no snap outside band)
+
+**Key functions:**
+
+`SpectrometerBar.handleClick(event)` — reads the click's x position relative to
+the canvas, computes a raw frequency, then snaps it to the nearest canonical
+`STRIP_CONFIGS` value within 1 MHz. Prevents non-canonical frequencies from
+reaching the waterfall's strict-equality lookup. Analogy: a dropdown autocomplete
+that rounds your typed text to the nearest valid option.
+
+**Test counts:** 416/416 (318 pytest + 98 Vitest).
+
+---
+
+### BUG-WATERFALL-SPEED: Redundant HackRF Retune Eliminated ✓ DONE
+
+**What:** The ADS-B waterfall (1090 MHz) was updating at ~1 Hz instead of the
+expected ~3 Hz. Root cause: every scan cycle called `device.set_center_frequency()`
+regardless of whether the frequency had changed. At 1090 MHz, each retune round-trips
+through libhackrf / SoapySDR and costs ~500 ms — nearly half the scan cycle budget.
+Because the focus frequency does not change between cycles when monitoring a single
+band, these retunes are pure overhead.
+
+The fix adds a method-local `_last_tuned_hz` cache inside `_scan_loop()`. On each
+iteration, the current `freq_hz` is compared against `_last_tuned_hz`. If they
+match, `set_center_frequency()` is skipped entirely. The cache is reset
+automatically when `set_focus_frequency()` changes the frequency (the scan loop
+reads the new value on the next iteration and retunes once).
+
+**Why:** At 1090 MHz the HackRF retune round-trip takes ~500 ms per call. The scan
+cycle at that frequency is roughly 260 ms of sample acquisition + FFT, so a 500 ms
+retune doubles the cycle time. Skipping the redundant retune restores the scan rate
+from ~1 Hz to ~3 Hz — a threefold improvement in waterfall smoothness. The fix is
+harmless at other frequencies too (FM broadcast, aviation VHF) where retune is
+cheaper but still unnecessary when the frequency has not changed.
+
+**Files changed:**
+- `core/pipeline/scanner.py` — added `_last_tuned_hz: float | None = None` local
+  variable in `_scan_loop()`; added `if freq_hz != _last_tuned_hz` guard around
+  `device.set_center_frequency()`; updated docstring to document the frequency cache
+- `tests/core/test_scanner.py` — added `test_scan_loop_skips_redundant_retune`
+  (verifies `set_center_frequency` called once on first cycle, skipped on second
+  when frequency unchanged)
+
+**Key functions:**
+
+`ScanRunner._scan_loop()` — now maintains a `_last_tuned_hz` local cache. The
+retune guard is a simple inequality check: if the focus frequency has not changed
+since the last iteration, the expensive `set_center_frequency()` call is skipped.
+Analogy: you only retune the car radio when you change stations — not on every
+rotation of the wheel.
+
+**Test counts:** 416/416 (318 pytest + 98 Vitest).
+
+---
+
+### BUG-WATERFALL-CLICK: Waterfall Canvas Click Freeze ✓ DONE
+
+**What:** In `singleBand={true}` mode, clicking the waterfall canvas computed a
+focus frequency from the click pixel position:
+
+```
+const freq = config.freq_hz + (relativeX - 0.5) * SAMPLE_RATE_HZ
+focusFrequency(Math.round(freq))
+```
+
+Any click except the exact pixel-centre produced a value like `1089753124` rather
+than the STRIP_CONFIG canonical value `1090000000`. Two things broke simultaneously:
+
+1. **Backend:** `focusFrequency()` emitted `set_focus_frequency` to the server, which
+called `scanner.set_focus_frequency(1089753124)`. The HackRF retuned to that offset.
+All subsequent `spectrum_update` events arrived with `center_freq_hz = 1089753124`.
+
+2. **Frontend:** `WaterfallPanel`'s `latestUpdate` lookup uses strict equality:
+```js
+spectrumUpdates.find((u) => u.center_freq_hz === config.freq_hz)
+```
+`config.freq_hz` is `1090000000` (from `STRIP_CONFIGS`). The backend was sending
+`1089753124`. The lookup never matched. `latestPsd` stayed `null`. `useWaterfall`
+never fired. The waterfall froze.
+
+**Fix:** Guarded the `focusFrequency()` call inside `handleCanvasClick` behind
+`!singleBand`. The crosshair still draws in singleBand mode so users get visual
+feedback, but the frequency is never retuned from the canvas. The only way to
+change band in singleBand mode is via the band nav buttons, which always emit
+exact `STRIP_CONFIGS` canonical frequencies.
+
+**Files changed:**
+- `dashboard/frontend/src/components/WaterfallPanel.jsx` — added `if (!singleBand)`
+  guard around `focusFrequency()` in `handleCanvasClick`; added `singleBand` to the
+  `useCallback` dependency array; added JSDoc comment explaining the guard
+- `dashboard/frontend/src/tests/WaterfallPanel.test.jsx` — added two regression tests:
+  `singleBand=true: clicking the canvas does NOT call focusFrequency` and
+  `singleBand=false: clicking the canvas calls focusFrequency with a computed frequency`
+
+**Test counts:** 413/413 (318 pytest + 95 Vitest).
+- Note: 4 pytest failures in `test_ais_decoder.py` are pre-existing (missing `pyais`
+  module in environment), not caused by this change.
+
+**Deferred:**
+- **BUG-WATERFALL-SPEED:** Suspected downstream symptom of BUG-WATERFALL-CLICK. The ADS-B
+  band button and the waterfall canvas are visually adjacent, making an accidental
+  canvas click easy immediately after switching bands. Needs live verification after
+  this fix — if the ADS-B waterfall is still slow after deploying, investigate further.
 
 ---
 

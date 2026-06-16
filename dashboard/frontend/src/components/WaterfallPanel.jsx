@@ -7,7 +7,7 @@ export const WATERFALL_LABEL_WIDTH = 0
 
 const SAMPLE_RATE_HZ = 2_000_000
 
-const STRIP_CONFIGS = [
+export const STRIP_CONFIGS = [
   { freq_hz: 98000000,   label: '98.0 MHz',    name: 'FM BROADCAST', colourVar: '--neon-cyan'    },
   { freq_hz: 145175000,  label: '145.175 MHz',  name: 'APRS',         colourVar: '--neon-green'  },
   { freq_hz: 127000000,  label: '127.0 MHz',   name: 'AVIATION VHF', colourVar: '--neon-cyan'   },
@@ -28,17 +28,36 @@ function WaterfallStrip({ config, latestPsd, focusedFreq, focusFrequency, single
     sampleRateHz: SAMPLE_RATE_HZ,
   })
 
+  /**
+   * Handle a click on the waterfall canvas.
+   *
+   * The crosshair is drawn in every mode.  In multi-band overview mode
+   * (singleBand=false) the click position is mapped to a frequency and
+   * emitted via focusFrequency.  In singleBand mode the mapping is
+   * suppressed because an off-centre click would compute a non-STRIP_CONFIG
+   * value (e.g. 1089753124 instead of 1090000000).  The latestUpdate lookup
+   * in WaterfallPanel uses strict equality against config.freq_hz, so any
+   * deviation freezes the waterfall.
+   */
   const handleCanvasClick = useCallback((e) => {
     const canvas = canvasRef.current
     if (!canvas) return
     const rect = canvas.getBoundingClientRect()
     const x = e.clientX - rect.left
-    const width = canvas.width
-    const relativeX = x / width
-    const freq = config.freq_hz + (relativeX - 0.5) * SAMPLE_RATE_HZ
+    // Draw the crosshair cursor regardless of mode.
     setCrosshairX(x)
-    focusFrequency(Math.round(freq))
-  }, [config.freq_hz, focusFrequency])
+    // In singleBand mode, do NOT change the focus frequency.
+    // An off-centre click computes a non-STRIP_CONFIG value (e.g. 1089753124
+    // instead of 1090000000). The latestUpdate lookup uses strict equality
+    // against config.freq_hz, so any deviation freezes the waterfall.
+    // In multi-band overview mode (singleBand=false), preserve original behaviour.
+    if (!singleBand) {
+      const width = canvas.width
+      const relativeX = x / width
+      const freq = config.freq_hz + (relativeX - 0.5) * SAMPLE_RATE_HZ
+      focusFrequency(Math.round(freq))
+    }
+  }, [config.freq_hz, focusFrequency, singleBand])
 
   useEffect(() => {
     const canvas = crosshairRef.current

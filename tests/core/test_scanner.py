@@ -158,6 +158,26 @@ class TestScanRunner:
         for call in calls:
             assert call[0][0] == 98_000_000.0
 
+    def test_scan_loop_skips_redundant_retune(self, scanner, mock_device):
+        """set_center_frequency must be called once, not on every iteration.
+
+        With the frequency cache, a steady-state scan loop running N cycles
+        at the same focus frequency should call set_center_frequency exactly
+        once (the initial tune), not N times.
+        """
+        t = threading.Thread(target=scanner.run, daemon=True)
+        t.start()
+        time.sleep(0.5)  # allow several scan cycles at dwell_time=0.01s
+        scanner.stop()
+        t.join(timeout=3)
+
+        calls = mock_device.set_center_frequency.call_args_list
+        # Must be called at least once (initial tune) but NOT once per cycle.
+        # With 0.01s dwell and 0.5s run time, uncached code would call ~40x.
+        # Cached code must call exactly once for a single focus frequency.
+        assert len(calls) == 1
+        assert calls[0][0][0] == 98_000_000.0
+
     def test_set_focus_frequency_flushes_queue(self, scanner):
         for i in range(3):
             scanner._queue.put_nowait({"freq_hz": i, "fingerprint": {}, "vector": [0] * 6})

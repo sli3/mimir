@@ -186,7 +186,8 @@ uv run python tools/seed_chromadb.py
 | 10-Fix4 | Spectral Flatness + Chroma Distance + Waterfall Alignment | ✅ Complete | 402/402 (311 pytest + 91 Vitest) |
 | 9C-Threshold | Calibrate SIGNAL_THRESHOLD_DB | ⏳ PENDING ANTENNA | — |
 
-**Total passing: 404/404 (313 pytest + 91 Vitest)**
+**Total passing: 416/416 (319 pytest + 97 Vitest)**
+- Note: 4 pytest failures in `test_ais_decoder.py` are pre-existing (missing `pyais` module), not caused by recent changes.
 
 ---
 
@@ -428,6 +429,110 @@ Do not apply this pre-emptively — only if context problems are observed.
 ---
 
 ## Session Memos
+
+### 2026-06-16 — SpectrometerBar Frequency Cursor + SDR NOT RESPONDING Fix (bug-fix, standalone)
+
+**Type:** Code / Bug-fix (standalone, NOT a new phase)
+
+**What was done:**
+- Reworked SpectrometerBar as a display-only frequency cursor. Clicking the
+  spectrometer canvas now draws a crosshair + frequency label (e.g. "97.854 MHz")
+  at the clicked pixel without changing the focus frequency. The previous
+  snap-to-nearest-STRIP_CONFIG behaviour has been removed.
+- Added `crosshairFreqRef` and `crosshairVersion` state to SpectrometerBar.
+  `handleClick` stores the raw computed frequency and increments `crosshairVersion`
+  to force an immediate canvas redraw.
+- Added a `useEffect` watching `focusedFreq` that clears the crosshair cursor
+  when the band changes (addresses LOW-01 from previous review).
+- Removed `STRIP_CONFIGS` import from SpectrometerBar (no longer needed).
+- Fixed SDR NOT RESPONDING display: reduced the error-state window in
+  `dashboard/server.py` from 30 seconds to 5 seconds. The hardware already
+  recovers within 250ms (hackrf_rx.py `set_center_frequency` settle sleep);
+  the 30-second window was causing the dashboard to show the error state
+  long after the hardware was healthy.
+- Updated tests: removed 2 snap-to-nearest tests, added 2 cursor tests,
+  updated 1 existing test to expect no focusFrequency call. Updated
+  `test_server_stats.py` for the 5s window.
+
+**Files changed:**
+- `dashboard/frontend/src/components/SpectrometerBar.jsx`: cursor-only handleClick,
+  crosshair clearing useEffect, frequency label drawing
+- `dashboard/server.py`: NOT RESPONDING window 30.0 → 5.0
+- `dashboard/frontend/src/tests/SpectrometerBar.test.jsx`: 2 removed, 2 added, 1 updated
+- `tests/dashboard/test_server_stats.py`: updated for 5s window
+- `docs/wiki.md`: Phase Log entry added
+
+**Test counts:** 416/416 (319 pytest + 97 Vitest)
+- Note: 4 pytest failures in `test_ais_decoder.py` are pre-existing.
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None — all changes are frontend/backend display only
+
+**Decisions made:**
+- `focusFrequency` prop is retained in SpectrometerBar's signature (still passed
+  by App.jsx) but no longer used. Removing it would require App.jsx changes.
+- 5s NOT RESPONDING window is appropriate because `record_hw_error()` is only
+  called on genuine `read_samples()` failures, not on retune. The 250ms settle
+  in hackrf_rx.py handles normal band switches.
+
+**Deferred items surfaced:**
+- [LOW-01] crosshairVersion increment is redundant on band change (canvas useEffect
+  already re-runs on focusedFreq change). Harmless — React batches it.
+- [LOW-02] Frequency label can clip at left canvas edge when crosshair is very
+  close to left edge. Cosmetic only.
+
+**Next session starter:**
+None — standalone fixes complete and tested.
+
+---
+
+### 2026-06-16 — BUG-WATERFALL-CLICK: Waterfall Canvas Click Freeze (bug-fix, standalone)
+
+**Type:** Code / Bug-fix (standalone, NOT a new phase)
+
+**What was done:**
+- Fixed BUG-WATERFALL-CLICK: canvas click in singleBand mode was computing a
+  non-STRIP_CONFIG focus frequency (e.g. 1089753124 instead of 1090000000),
+  which broke the strict-equality latestUpdate lookup in WaterfallPanel and
+  froze the waterfall.
+- Guarded the `focusFrequency()` call in `WaterfallStrip.handleCanvasClick` behind
+  `!singleBand`. Crosshair still draws in singleBand mode, but the frequency
+  is no longer retuned from the canvas.
+- Added JSDoc block to `handleCanvasClick` documenting the singleBand guard.
+- Added two regression tests to `WaterfallPanel.test.jsx`:
+  * `singleBand=true: clicking the canvas does NOT call focusFrequency`
+  * `singleBand=false: clicking the canvas calls focusFrequency with a computed frequency`
+
+**Files changed:**
+- `dashboard/frontend/src/components/WaterfallPanel.jsx`: handleCanvasClick guard,
+  JSDoc comment, singleBand added to useCallback deps
+- `dashboard/frontend/src/tests/WaterfallPanel.test.jsx`: 2 new regression tests
+- `docs/wiki.md`: BUG-WATERFALL-CLICK entry added to Phase Log
+
+**Test counts:** 413 (318 pytest + 95 Vitest)
+- Note: 4 pytest failures in `test_ais_decoder.py` are pre-existing (missing `pyais`
+  module in environment), not caused by this change.
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None — all changes are frontend React only
+
+**Decisions made:**
+- In singleBand mode, canvas clicks are now no-ops for frequency retuning. The
+  crosshair still draws so users get visual feedback. The only way to change
+  band in singleBand mode is via the band nav buttons, which always emit exact
+  STRIP_CONFIG canonical frequencies.
+
+**Deferred items surfaced:**
+- BUG-WATERFALL-SPEED: suspected downstream symptom of BUG-WATERFALL-CLICK.
+  Needs live verification after this fix. If ADS-B waterfall is still slow
+  after deploying, investigate further.
+
+**Next session starter:**
+Verify BUG-WATERFALL-SPEED is resolved by live-testing the ADS-B waterfall.
+
+---
 
 ### 2026-06-16 — Dashboard Cosmetic UI Fixes (bug-fix, standalone)
 

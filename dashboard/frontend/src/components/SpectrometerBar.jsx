@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useCallback } from 'react'
+import React, { useRef, useEffect, useCallback, useState } from 'react'
 import { useCanvasSize } from '../hooks/useCanvasSize.js'
 import { WATERFALL_LABEL_WIDTH } from './WaterfallPanel.jsx'
 
@@ -20,8 +20,17 @@ export default function SpectrometerBar({ spectrumUpdates, focusedFreq, focusFre
   const containerRef = useRef(null)
   const canvasRef = useRef(null)
   const crosshairXRef = useRef(null)
+  const crosshairFreqRef = useRef(null)
+  const [crosshairVersion, setCrosshairVersion] = useState(0)
   const canvasSize = useCanvasSize(canvasRef)
 
+  /**
+   * Handle a click on the spectrometer canvas.
+   *
+   * The click computes the raw frequency at the clicked pixel position and
+   * draws a crosshair + frequency label as a display-only cursor.  Clicking
+   * NEVER changes the focus frequency — the crosshair is a read tool only.
+   */
   const handleClick = useCallback((e) => {
     const canvas = canvasRef.current
     if (!canvas || focusedFreq == null) return
@@ -29,11 +38,21 @@ export default function SpectrometerBar({ spectrumUpdates, focusedFreq, focusFre
     const x = e.clientX - rect.left
     const width = canvas.width
     if (x < 0 || x > width) return
+    // Compute frequency at clicked pixel without snapping or tuning.
+    // This is a display-only frequency cursor — no focusFrequency() call.
     const relativeX = x / width
-    const freq = focusedFreq + (relativeX - 0.5) * SAMPLE_RATE_HZ
+    const rawFreq = focusedFreq + (relativeX - 0.5) * SAMPLE_RATE_HZ
     crosshairXRef.current = x
-    focusFrequency(Math.round(freq))
-  }, [focusedFreq, focusFrequency])
+    crosshairFreqRef.current = rawFreq
+    setCrosshairVersion((v) => v + 1)   // force immediate canvas redraw
+  }, [focusedFreq])
+
+  // Clear the crosshair cursor when the band changes.
+  useEffect(() => {
+    crosshairXRef.current = null
+    crosshairFreqRef.current = null
+    setCrosshairVersion((v) => v + 1)
+  }, [focusedFreq])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -97,6 +116,16 @@ export default function SpectrometerBar({ spectrumUpdates, focusedFreq, focusFre
       ctx.lineWidth = 1
       ctx.stroke()
       ctx.setLineDash([])
+      // Frequency label
+      if (crosshairFreqRef.current !== null) {
+        const freqLabel = (crosshairFreqRef.current / 1e6).toFixed(3) + ' MHz'
+        ctx.font = '11px monospace'
+        const labelWidth = ctx.measureText(freqLabel).width
+        // Keep label inside canvas: right of line unless too close to right edge
+        const labelX = cx + labelWidth + 8 < width ? cx + 4 : cx - labelWidth - 4
+        ctx.fillStyle = 'rgba(0,255,255,0.9)'
+        ctx.fillText(freqLabel, labelX, 24)
+      }
     }
 
     const bandStart = focusedFreq != null ? (focusedFreq - SAMPLE_RATE_HZ / 2) / 1e6 : null
@@ -119,7 +148,7 @@ export default function SpectrometerBar({ spectrumUpdates, focusedFreq, focusFre
       const centerWidth = ctx.measureText(center).width
       ctx.fillText(center, (width - centerWidth) / 2, 14)
     }
-  }, [spectrumUpdates, focusedFreq, canvasSize])
+  }, [spectrumUpdates, focusedFreq, canvasSize, crosshairVersion])
 
   return (
     <div

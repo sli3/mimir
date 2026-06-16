@@ -89,7 +89,7 @@ def record_hw_error() -> None:
 def _compute_hackrf_status() -> str:
     if _device_ref is None or not _device_ref.is_open:
         return "DISCONNECTED"
-    if time.time() - _last_hw_error_time < 30.0:
+    if time.time() - _last_hw_error_time < 5.0:
         return "NOT_RESPONDING"
     return "CONNECTED"
 

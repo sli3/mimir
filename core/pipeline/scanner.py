@@ -104,7 +104,8 @@ class ScanRunner:
         """Capture IQ samples, compute PSD, and broadcast spectrum to the dashboard.
 
         Runs continuously while ``_running`` is True. Each iteration:
-          1. Tunes the SDR to the current focus frequency.
+          1. Tunes the SDR to the current focus frequency (skipped if unchanged —
+             see frequency cache note below).
           2. Reads raw IQ samples from the device.
           3. Passes samples to any registered IQ subscribers (e.g. ACARS, AIS, ADS-B decoders).
           4. Runs FFT to produce a PSD.
@@ -112,6 +113,15 @@ class ScanRunner:
              immediately after FFT, independent of the AI classification loop, so the
              waterfall updates at the full scan rate regardless of LLM latency.
           6. Computes a fingerprint vector and queues it for the AI loop.
+
+        Frequency cache:
+        A method-local ``_last_tuned_hz`` tracks the most recently tuned frequency.
+        When the focus frequency has not changed since the last iteration,
+        ``device.set_center_frequency()`` is skipped entirely. This avoids redundant
+        libhackrf / SoapySDR retune calls that cost ~500 ms each — significant at
+        1090 MHz (ADS-B) where the same frequency is scanned repeatedly. The cache
+        is reset automatically when ``set_focus_frequency()`` is called (the queue
+        flush there is unrelated to this cache).
 
         The spectrum broadcast (step 5) is wrapped in its own try/except so that a
         broadcast failure (e.g. no connected dashboard) does not prevent the scan
@@ -129,6 +139,7 @@ class ScanRunner:
         device = self._device
         embedder = self._embedder
         q = self._queue
+        _last_tuned_hz: float | None = None
 
         while self._running:
             if not self._running:
@@ -136,7 +147,9 @@ class ScanRunner:
             try:
                 with self._focus_lock:
                     freq_hz = self._focus_freq_hz
-                device.set_center_frequency(freq_hz)
+                if freq_hz != _last_tuned_hz:
+                    device.set_center_frequency(freq_hz)
+                    _last_tuned_hz = freq_hz
                 self._active_freq_hz = freq_hz
                 try:
                     samples = device.read_samples(config.num_samples)
