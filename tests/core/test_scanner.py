@@ -206,7 +206,7 @@ class TestScanRunner:
     def test_get_stats_returns_expected_keys(self, scanner):
         stats = scanner.get_stats()
         assert set(stats.keys()) == {
-            "active_frequency_hz", "scan_count", "queue_depth", "last_backlog", "last_llm_ms"
+            "active_frequency_hz", "scan_count", "queue_depth", "last_backlog", "llm_call_count", "last_llm_ms"
         }
 
     def test_get_stats_includes_last_backlog_key(self, scanner):
@@ -231,6 +231,25 @@ class TestScanRunner:
 
         assert scanner.get_stats()["last_backlog"] >= 0
         assert scanner._scan_count_since_llm >= 0
+
+    def test_llm_call_count_zero_before_ai_loop(self, scanner):
+        """
+        Verify llm_call_count is 0 before any AI loop cycles run.
+        """
+        assert scanner.get_stats()["llm_call_count"] == 0
+
+    def test_llm_call_count_increments_after_classify(self, scanner):
+        """
+        Verify llm_call_count increments after the AI loop successfully classifies.
+        """
+        scanner._broadcast_fn = lambda sr: None
+        t = threading.Thread(target=scanner.run, daemon=True)
+        t.start()
+        time.sleep(1.0)
+        scanner.stop()
+        t.join(timeout=3)
+
+        assert scanner.get_stats()["llm_call_count"] >= 1
 
     def test_scan_count_increments_after_run(self, scanner):
         scanner._broadcast_fn = lambda sr: None

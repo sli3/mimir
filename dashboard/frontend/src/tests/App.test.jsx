@@ -178,4 +178,9 @@ describe('App', () => {
     expect(screen.getByText('BACKLOG')).toBeInTheDocument()
     expect(screen.getByText('IN QUEUE')).toBeInTheDocument()
   })
+
+  it('renders CLASSIFIED label', () => {
+    render(<App />)
+    expect(screen.getByText('CLASSIFIED')).toBeInTheDocument()
+  })
 })

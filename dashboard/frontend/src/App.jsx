@@ -731,24 +731,51 @@ export default function App() {
                   padding: '6px 8px',
                 }}>
                   <div style={{
-                    fontSize: '11px',
-                    color: 'var(--text-dim)',
-                    letterSpacing: '1px',
-                    textTransform: 'uppercase',
-                    fontFamily: 'var(--font-data)',
-                    marginBottom: '2px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
                   }}>
-                    LLM INFERENCE
-                  </div>
-                  <div style={{
-                    fontSize: '15px',
-                    fontWeight: 'bold',
-                    color: 'var(--neon-magenta)',
-                    fontFamily: 'var(--font-data)',
-                  }}>
-                    {systemStats?.llm_last_inference_ms != null
-                      ? Math.round(systemStats.llm_last_inference_ms) + ' ms'
-                      : '--- ms'}
+                    <div>
+                      <div style={{
+                        fontSize: '11px',
+                        color: 'var(--text-dim)',
+                        letterSpacing: '1px',
+                        textTransform: 'uppercase',
+                        fontFamily: 'var(--font-data)',
+                        marginBottom: '2px',
+                      }}>
+                        LLM INFERENCE
+                      </div>
+                      <div style={{
+                        fontSize: '15px',
+                        fontWeight: 'bold',
+                        color: 'var(--neon-magenta)',
+                        fontFamily: 'var(--font-data)',
+                      }}>
+                        {systemStats?.llm_last_inference_ms != null
+                          ? Math.round(systemStats.llm_last_inference_ms) + ' ms'
+                          : '--- ms'}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{
+                        fontSize: '11px',
+                        color: 'var(--text-dim)',
+                        letterSpacing: '1px',
+                        textTransform: 'uppercase',
+                        fontFamily: 'var(--font-data)',
+                        marginBottom: '2px',
+                      }}>
+                        CLASSIFIED
+                      </div>
+                      <div style={{
+                        fontSize: '15px',
+                        fontWeight: 'bold',
+                        color: 'var(--neon-cyan)',
+                        fontFamily: 'var(--font-data)',
+                      }}>
+                        {String(systemStats?.llm_call_count ?? 0).padStart(5, '0')}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>

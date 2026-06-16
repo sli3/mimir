@@ -45,6 +45,7 @@ class ScanRunner:
         self._scan_count: int = 0
         self._scan_count_since_llm: int = 0
         self._last_backlog: int = 0
+        self._llm_call_count: int = 0
         self._active_freq_hz: float = 0.0
         self._last_llm_ms: float = 0.0
         self._focus_freq_hz: float = config.frequencies_hz[0]
@@ -71,6 +72,7 @@ class ScanRunner:
             scan_count          : int    — total scan cycles completed
             queue_depth         : int    — current AI queue depth (0–1)
             last_backlog        : int    — scan cycles since last LLM pickup
+            llm_call_count      : int    — total successful LLM classifications
             last_llm_ms         : float  — milliseconds of last LLM inference
         """
         return {
@@ -78,6 +80,7 @@ class ScanRunner:
             "scan_count": self._scan_count,
             "queue_depth": self._queue.qsize(),
             "last_backlog": self._last_backlog,
+            "llm_call_count": self._llm_call_count,
             "last_llm_ms": self._last_llm_ms,
         }
 
@@ -215,6 +218,7 @@ class ScanRunner:
                     neighbours_list,
                     acma_allocations=acma_allocations,
                 )
+                self._llm_call_count += 1
                 self._last_llm_ms = (time.time() - t0) * 1000.0
                 scan_result = ScanResult(
                     timestamp=datetime.now().isoformat(),

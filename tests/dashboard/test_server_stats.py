@@ -183,6 +183,7 @@ class TestFocusFrequencyFilter:
             "scan_count": 42,
             "queue_depth": 3,
             "last_backlog": 7,
+            "llm_call_count": 12,
             "last_llm_ms": 1250.5,
         }
         stats = mock_scanner.get_stats()
@@ -202,10 +203,12 @@ class TestFocusFrequencyFilter:
                 "scan_count": 0,
                 "queue_depth": 0,
                 "last_backlog": 0,
+                "llm_call_count": 0,
                 "last_llm_ms": 0.0,
             }
         assert stats["scan_count"] == 0
         assert stats["active_frequency_hz"] == 0.0
+        assert stats["llm_call_count"] == 0
         assert stats["last_backlog"] == 0
 
     def test_thread_safety_no_deadlock(self):

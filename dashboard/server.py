@@ -132,12 +132,14 @@ def start_server(host: str, port: int, device=None, scanner=None):
                 scan_count = stats["scan_count"]
                 queue_depth = stats["queue_depth"]
                 last_backlog = stats["last_backlog"]
+                llm_call_count = stats["llm_call_count"]
                 llm_ms = stats["last_llm_ms"]
             else:
                 active_freq = 0.0
                 scan_count = 0
                 queue_depth = 0
                 last_backlog = 0
+                llm_call_count = 0
                 llm_ms = 0.0
             data = {
                 "hackrf_status": _compute_hackrf_status(),
@@ -145,6 +147,7 @@ def start_server(host: str, port: int, device=None, scanner=None):
                 "scan_count": scan_count,
                 "queue_depth": queue_depth,
                 "last_backlog": last_backlog,
+                "llm_call_count": llm_call_count,
                 "llm_last_inference_ms": llm_ms,
             }
             socketio.emit("system_stats", data)
