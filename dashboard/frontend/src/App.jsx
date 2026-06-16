@@ -596,186 +596,171 @@ export default function App() {
                 SYSTEM STATUS
               </span>
             </div>
-            <div style={{ padding: '8px 10px' }}>
+            <div style={{ padding: '4px 8px' }}>
               <div style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr 1fr',
-                gap: '6px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0px',
               }}>
+                {/* Row 1 — SDR STATUS | ACTIVE FREQ */}
                 <div style={{
-                  background: 'var(--bg-header)',
-                  border: '1px solid var(--border)',
-                  padding: '6px 8px',
+                  display: 'flex',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '3px 0',
+                  borderBottom: '1px solid var(--border)',
                 }}>
-                  <div style={{
-                    fontSize: '11px',
-                    color: 'var(--text-dim)',
-                    letterSpacing: '1px',
-                    textTransform: 'uppercase',
-                    fontFamily: 'var(--font-data)',
-                    marginBottom: '2px',
-                  }}>
-                    SDR STATUS
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
+                    <span style={{
+                      fontFamily: 'var(--font-display)',
+                      fontSize: '9px',
+                      color: 'var(--text-dim)',
+                      letterSpacing: '1px',
+                      textTransform: 'uppercase',
+                    }}>
+                      SDR STATUS
+                    </span>
+                    <span style={{
+                      fontFamily: 'var(--font-data)',
+                      fontSize: '11px',
+                      color: getSdrColour(systemStats?.hackrf_status),
+                    }}>
+                      {systemStats?.hackrf_status?.replace(/_/g, ' ') || 'DISCONNECTED'}
+                    </span>
                   </div>
-                  <div style={{
-                    fontSize: '15px',
-                    fontWeight: 'bold',
-                    color: getSdrColour(systemStats?.hackrf_status),
-                    fontFamily: 'var(--font-data)',
-                  }}>
-                    {systemStats?.hackrf_status?.replace(/_/g, ' ') || 'DISCONNECTED'}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', textAlign: 'right' }}>
+                    <span style={{
+                      fontFamily: 'var(--font-display)',
+                      fontSize: '9px',
+                      color: 'var(--text-dim)',
+                      letterSpacing: '1px',
+                      textTransform: 'uppercase',
+                    }}>
+                      ACTIVE FREQ
+                    </span>
+                    <span style={{
+                      fontFamily: 'var(--font-data)',
+                      fontSize: '11px',
+                      color: 'var(--neon-cyan)',
+                    }}>
+                      {systemStats?.active_frequency_hz
+                        ? (systemStats.active_frequency_hz / 1e6).toFixed(3) + ' MHz'
+                        : '---'}
+                    </span>
                   </div>
                 </div>
+
+                {/* Row 2 — SCAN COUNT | BACKLOG | IN QUEUE */}
                 <div style={{
-                  background: 'var(--bg-header)',
-                  border: '1px solid var(--border)',
-                  padding: '6px 8px',
+                  display: 'flex',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '3px 0',
+                  borderBottom: '1px solid var(--border)',
                 }}>
-                  <div style={{
-                    fontSize: '11px',
-                    color: 'var(--text-dim)',
-                    letterSpacing: '1px',
-                    textTransform: 'uppercase',
-                    fontFamily: 'var(--font-data)',
-                    marginBottom: '2px',
-                  }}>
-                    ACTIVE FREQ
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
+                    <span style={{
+                      fontFamily: 'var(--font-display)',
+                      fontSize: '9px',
+                      color: 'var(--text-dim)',
+                      letterSpacing: '1px',
+                      textTransform: 'uppercase',
+                    }}>
+                      SCAN COUNT
+                    </span>
+                    <span style={{
+                      fontFamily: 'var(--font-data)',
+                      fontSize: '11px',
+                      color: 'var(--neon-amber)',
+                    }}>
+                      {String(systemStats?.scan_count ?? 0).padStart(5, '0')}
+                    </span>
                   </div>
-                  <div style={{
-                    fontSize: '15px',
-                    fontWeight: 'bold',
-                    color: 'var(--neon-cyan)',
-                    fontFamily: 'var(--font-data)',
-                  }}>
-                    {systemStats?.active_frequency_hz
-                      ? (systemStats.active_frequency_hz / 1e6).toFixed(3) + ' MHz'
-                      : '---'}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', textAlign: 'right' }}>
+                    <span style={{
+                      fontFamily: 'var(--font-display)',
+                      fontSize: '9px',
+                      color: 'var(--text-dim)',
+                      letterSpacing: '1px',
+                      textTransform: 'uppercase',
+                    }}>
+                      BACKLOG
+                    </span>
+                    <span style={{
+                      fontFamily: 'var(--font-data)',
+                      fontSize: '11px',
+                      color: 'var(--neon-amber)',
+                    }}>
+                      {String(systemStats?.last_backlog ?? 0).padStart(3, '0')}
+                    </span>
                   </div>
-                </div>
-                <div style={{
-                  background: 'var(--bg-header)',
-                  border: '1px solid var(--border)',
-                  padding: '6px 8px',
-                }}>
-                  <div style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                  }}>
-                    <div>
-                      <div style={{
-                        fontSize: '11px',
-                        color: 'var(--text-dim)',
-                        letterSpacing: '1px',
-                        textTransform: 'uppercase',
-                        fontFamily: 'var(--font-data)',
-                        marginBottom: '2px',
-                      }}>
-                        SCAN COUNT
-                      </div>
-                      <div style={{
-                        fontSize: '15px',
-                        fontWeight: 'bold',
-                        color: 'var(--neon-amber)',
-                        fontFamily: 'var(--font-data)',
-                      }}>
-                        {String(systemStats?.scan_count ?? 0).padStart(5, '0')}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <div>
-                        <div style={{
-                          fontSize: '11px',
-                          color: 'var(--text-dim)',
-                          letterSpacing: '1px',
-                          textTransform: 'uppercase',
-                          fontFamily: 'var(--font-data)',
-                          marginBottom: '2px',
-                        }}>
-                          BACKLOG
-                        </div>
-                        <div style={{
-                          fontSize: '15px',
-                          fontWeight: 'bold',
-                          color: 'var(--neon-amber)',
-                          fontFamily: 'var(--font-data)',
-                        }}>
-                          {String(systemStats?.last_backlog ?? 0).padStart(3, '0')}
-                        </div>
-                      </div>
-                      <div>
-                        <div style={{
-                          fontSize: '11px',
-                          color: 'var(--text-dim)',
-                          letterSpacing: '1px',
-                          textTransform: 'uppercase',
-                          fontFamily: 'var(--font-data)',
-                          marginBottom: '2px',
-                        }}>
-                          IN QUEUE
-                        </div>
-                        <div style={{
-                          fontSize: '15px',
-                          fontWeight: 'bold',
-                          color: 'var(--neon-amber)',
-                          fontFamily: 'var(--font-data)',
-                        }}>
-                          {String(systemStats?.queue_depth ?? 0).padStart(3, '0')}
-                        </div>
-                      </div>
-                    </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', textAlign: 'right' }}>
+                    <span style={{
+                      fontFamily: 'var(--font-display)',
+                      fontSize: '9px',
+                      color: 'var(--text-dim)',
+                      letterSpacing: '1px',
+                      textTransform: 'uppercase',
+                    }}>
+                      IN QUEUE
+                    </span>
+                    <span style={{
+                      fontFamily: 'var(--font-data)',
+                      fontSize: '11px',
+                      color: 'var(--neon-amber)',
+                    }}>
+                      {String(systemStats?.queue_depth ?? 0).padStart(3, '0')}
+                    </span>
                   </div>
                 </div>
+
+                {/* Row 3 — LLM INFERENCE | CLASSIFIED */}
                 <div style={{
-                  background: 'var(--bg-header)',
-                  border: '1px solid var(--border)',
-                  padding: '6px 8px',
+                  display: 'flex',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '3px 0',
                 }}>
-                  <div style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                  }}>
-                    <div>
-                      <div style={{
-                        fontSize: '11px',
-                        color: 'var(--text-dim)',
-                        letterSpacing: '1px',
-                        textTransform: 'uppercase',
-                        fontFamily: 'var(--font-data)',
-                        marginBottom: '2px',
-                      }}>
-                        LLM INFERENCE
-                      </div>
-                      <div style={{
-                        fontSize: '15px',
-                        fontWeight: 'bold',
-                        color: 'var(--neon-magenta)',
-                        fontFamily: 'var(--font-data)',
-                      }}>
-                        {systemStats?.llm_last_inference_ms != null
-                          ? Math.round(systemStats.llm_last_inference_ms) + ' ms'
-                          : '--- ms'}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{
-                        fontSize: '11px',
-                        color: 'var(--text-dim)',
-                        letterSpacing: '1px',
-                        textTransform: 'uppercase',
-                        fontFamily: 'var(--font-data)',
-                        marginBottom: '2px',
-                      }}>
-                        CLASSIFIED
-                      </div>
-                      <div style={{
-                        fontSize: '15px',
-                        fontWeight: 'bold',
-                        color: 'var(--neon-cyan)',
-                        fontFamily: 'var(--font-data)',
-                      }}>
-                        {String(systemStats?.llm_call_count ?? 0).padStart(5, '0')}
-                      </div>
-                    </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
+                    <span style={{
+                      fontFamily: 'var(--font-display)',
+                      fontSize: '9px',
+                      color: 'var(--text-dim)',
+                      letterSpacing: '1px',
+                      textTransform: 'uppercase',
+                    }}>
+                      LLM INFERENCE
+                    </span>
+                    <span style={{
+                      fontFamily: 'var(--font-data)',
+                      fontSize: '11px',
+                      color: 'var(--neon-magenta)',
+                    }}>
+                      {systemStats?.llm_last_inference_ms != null
+                        ? Math.round(systemStats.llm_last_inference_ms) + ' ms'
+                        : '--- ms'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', textAlign: 'right' }}>
+                    <span style={{
+                      fontFamily: 'var(--font-display)',
+                      fontSize: '9px',
+                      color: 'var(--text-dim)',
+                      letterSpacing: '1px',
+                      textTransform: 'uppercase',
+                    }}>
+                      CLASSIFIED
+                    </span>
+                    <span style={{
+                      fontFamily: 'var(--font-data)',
+                      fontSize: '11px',
+                      color: 'var(--neon-magenta)',
+                    }}>
+                      {String(systemStats?.llm_call_count ?? 0).padStart(5, '0')}
+                    </span>
                   </div>
                 </div>
               </div>
