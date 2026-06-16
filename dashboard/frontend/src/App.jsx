@@ -218,7 +218,7 @@ export default function App() {
       }}>
         {/* Left column */}
         <div style={{
-          flex: 9,
+          flex: 1,
           display: 'flex',
           flexDirection: 'column',
           borderRight: '1px solid var(--border)',
@@ -424,7 +424,8 @@ export default function App() {
 
         {/* Right column — Signal Details panel */}
         <div style={{
-          flex: 11,
+          width: '380px',
+          flexShrink: 0,
           display: 'flex',
           flexDirection: 'column',
           background: 'var(--bg-panel)',
@@ -591,7 +592,7 @@ export default function App() {
       }}>
         {/* Bottom-left — System & Signal */}
         <div style={{
-          flex: 9,
+          flex: 2,
           display: 'flex',
           flexDirection: 'column',
           borderRight: '1px solid var(--border)',
@@ -1020,7 +1021,7 @@ export default function App() {
 
         {/* Bottom-right — AI Reasoning & Decoded Signals */}
         <div style={{
-          flex: 11,
+          flex: 3,
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
