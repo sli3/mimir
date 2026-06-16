@@ -220,3 +220,52 @@ class TestScanRunner:
         scanner.stop()
         t.join(timeout=3)
         assert scanner.get_stats()["last_llm_ms"] >= 0.0
+
+    def test_scan_loop_broadcasts_spectrum(self, scanner, config):
+        """_broadcast_spectrum_fn must be called from _scan_loop, not _ai_loop."""
+        emitted = []
+        scanner._broadcast_spectrum_fn = lambda *args: emitted.append(args)
+        scanner._running = True
+        t = threading.Thread(target=scanner._scan_loop, daemon=True)
+        t.start()
+        time.sleep(0.15)
+        scanner.stop()
+        t.join(timeout=3)
+
+        assert len(emitted) >= 1
+        psd_db, center, freq_min, freq_max = emitted[0]
+        assert center == config.frequencies_hz[0]
+        # Bounds are derived from the actual PSD frequency axis, not hardcoded ±1 MHz
+        assert freq_min < center
+        assert freq_max > center
+        assert freq_max - freq_min == pytest.approx(2_000_000, abs=2_000)
+        assert len(psd_db) == 2048
+
+    def test_emit_result_does_not_broadcast_spectrum(self, scanner):
+        """_emit_result must NOT call _broadcast_spectrum_fn after decoupling."""
+        scan_results = []
+        spectrum_calls = []
+        scanner._broadcast_fn = lambda sr: scan_results.append(sr)
+        scanner._broadcast_spectrum_fn = lambda *args: spectrum_calls.append(args)
+
+        scan_result = ScanResult(
+            timestamp="2026-06-16T12:00:00",
+            center_freq_hz=98_000_000.0,
+            fingerprint={},
+            classification=ClassificationResult(
+                signal_type="fm_broadcast",
+                confidence="high",
+                confidence_score=0.95,
+                novel=False,
+                reasoning="Strong match",
+                au_legal_status="legal_rx",
+                frequency_band="fm_broadcast_band",
+                raw_response='{}',
+            ),
+            psd_db=[-50.0] * 2048,
+        )
+        scanner._emit_result(scan_result)
+
+        assert len(scan_results) == 1
+        assert scan_results[0] is scan_result
+        assert len(spectrum_calls) == 0

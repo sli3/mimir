@@ -75,6 +75,22 @@ class ScanRunner:
         self._iq_subscribers.append(subscriber)
 
     def _scan_loop(self) -> None:
+        """Capture IQ samples, compute PSD, and broadcast spectrum to the dashboard.
+
+        Runs continuously while ``_running`` is True. Each iteration:
+          1. Tunes the SDR to the current focus frequency.
+          2. Reads raw IQ samples from the device.
+          3. Passes samples to any registered IQ subscribers (e.g. ACARS, AIS, ADS-B decoders).
+          4. Runs FFT to produce a PSD.
+          5. Broadcasts the PSD to the dashboard for the waterfall display — this happens
+             immediately after FFT, independent of the AI classification loop, so the
+             waterfall updates at the full scan rate regardless of LLM latency.
+          6. Computes a fingerprint vector and queues it for the AI loop.
+
+        The spectrum broadcast (step 5) is wrapped in its own try/except so that a
+        broadcast failure (e.g. no connected dashboard) does not prevent the scan
+        loop from continuing or the fingerprint from reaching the AI pipeline.
+        """
         config = self._config
         device = self._device
         embedder = self._embedder
@@ -96,6 +112,21 @@ class ScanRunner:
                 for subscriber in self._iq_subscribers:
                     subscriber.receive(samples, freq_hz, _SAMPLE_RATE_HZ)
                 psd = compute_psd(samples, _SAMPLE_RATE_HZ, freq_hz)
+                if self._broadcast_spectrum_fn is not None:
+                    # Isolate spectrum broadcast failures so they never block the
+                    # scan loop or prevent fingerprints reaching the AI pipeline.
+                    try:
+                        self._broadcast_spectrum_fn(
+                            psd["psd_db"],
+                            freq_hz,
+                            float(psd["frequencies_hz"][0]),
+                            float(psd["frequencies_hz"][-1]),
+                        )
+                    except Exception:
+                        logger.exception(
+                            "Spectrum broadcast failed at %.3f MHz",
+                            freq_hz / 1e6,
+                        )
                 fingerprint = fingerprint_spectrum(psd)
                 vector = embedder.embed(fingerprint)
                 try:
@@ -155,6 +186,15 @@ class ScanRunner:
                 logger.exception("AI loop error")
 
     def _emit_result(self, scan_result: ScanResult) -> None:
+        """Print the classification result to the terminal and broadcast ``scan_result`` to the dashboard.
+
+        Called by the AI loop after the LLM classifier produces a result. Emits
+        the ``scan_result`` SocketIO event (which carries classification data,
+        fingerprint fields, and PSD) to all connected browsers. The spectrum
+        waterfall broadcast is NOT done here — it is done in ``_scan_loop``
+        immediately after FFT so that waterfall updates are not gated by LLM
+        inference time.
+        """
         ts = scan_result.timestamp[11:19]
         freq_mhz = scan_result.center_freq_hz / 1e6
         cls = scan_result.classification
@@ -179,11 +219,3 @@ class ScanRunner:
 
         if self._broadcast_fn is not None:
             self._broadcast_fn(scan_result)
-
-        if self._broadcast_spectrum_fn is not None:
-            self._broadcast_spectrum_fn(
-                scan_result.psd_db,
-                scan_result.center_freq_hz,
-                scan_result.center_freq_hz - 1_000_000,
-                scan_result.center_freq_hz + 1_000_000,
-            )

@@ -35,7 +35,7 @@
 | 10 | Dashboard UI Redesign | ✅ Complete | 392/392 (308 pytest + 84 Vitest) |
 | 10-Hotfix | Dashboard Live Testing Fixes | ✅ Complete | 395/395 (308 pytest + 87 Vitest) |
 
-**Total: 402/402 tests passing (311 pytest + 91 Vitest)**
+**Total: 404/404 tests passing (313 pytest + 91 Vitest)**
 
 **BUG-01 status:** Code fixed in 9B-Hotfix. Full calibration deferred to Phase 9C pending telescopic whip antenna (~68 cm SMA) purchase.
 

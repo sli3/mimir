@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: 10-Fix4
+last_updated_phase: Spectrum-Broadcast-Decouple
 ---
 
 # Mimir Wiki
@@ -70,6 +70,56 @@ Step  Function / Component          What it does
 ## Phase Log
 
 Phases are listed newest-first so the current phase is always at the top.
+
+---
+
+### Spectrum Broadcast Decoupling ✓ DONE
+
+**What:** Decoupled the `spectrum_update` SocketIO event from the AI classification
+loop. Previously, `spectrum_update` was emitted inside `_emit_result()`, which only
+ran after the LLM classifier finished — meaning the waterfall was gated by LLM
+inference time (typically 1-2 seconds per scan). The waterfall update rate was
+effectively bottlenecked at ~0.4 Hz instead of the full scan rate (~0.125 Hz per
+frequency dwell, but without LLM stall it now updates every cycle).
+
+The fix moves `_broadcast_spectrum_fn()` from `_emit_result()` (AI loop) into
+`_scan_loop()`, immediately after `compute_psd()`. This means the waterfall
+receives a new row as soon as the FFT completes, completely independent of the
+AI pipeline. The LLM can take as long as it needs without affecting the waterfall.
+
+A secondary fix: frequency bounds passed to `_broadcast_spectrum_fn` are now
+derived from `psd["frequencies_hz"]` (the actual FFT frequency axis) instead of
+a hardcoded `freq_hz +/- 1_000_000`. This ensures the waterfall's frequency
+range always matches the real FFT output regardless of sample rate or FFT size.
+
+**Why:** During live testing the waterfall was visibly stuttering — updates arrived
+only after LLM inference completed, producing an uneven, jerky scroll. Decoupling
+the two data paths (waterfall vs classification) restores smooth waterfall rendering
+at the full scan rate.
+
+**Files changed:**
+- `core/pipeline/scanner.py` — moved `_broadcast_spectrum_fn` call from `_emit_result`
+  to `_scan_loop` (immediately after `compute_psd`); wrapped in isolated try/except
+  so broadcast failures never block the AI pipeline; frequency bounds now use actual
+  FFT axis (`psd["frequencies_hz"]`) instead of hardcoded +/- 1 MHz
+- `tests/core/test_scanner.py` — added `test_scan_loop_broadcasts_spectrum` (verifies
+  `_broadcast_spectrum_fn` called from `_scan_loop` with correct args) and
+  `test_emit_result_does_not_broadcast_spectrum` (verifies `_broadcast_spectrum_fn`
+  NOT called from `_emit_result`)
+
+**Key functions:**
+
+`ScanRunner._scan_loop()` — the capture-and-broadcast thread. Now owns both IQ
+capture and spectrum broadcast. The broadcast is isolated via its own try/except
+so that a failure (e.g. no connected dashboard) does not prevent fingerprint
+queuing for the AI pipeline. Analogy: the waterfall is now a direct pipe from
+the FFT to your screen, rather than waiting for the LLM to finish thinking first.
+
+`ScanRunner._emit_result()` — now only prints the classification to the terminal
+and emits `scan_result` (classification data) to the dashboard. No longer involved
+in spectrum waterfall updates.
+
+**Test counts:** 404/404 (313 pytest + 91 Vitest).
 
 ---
 

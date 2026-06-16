@@ -83,8 +83,8 @@ scanner:
     - 162000000
     - 915000000
     - 1090000000
-  dwell_time_sec: 2.0
-  num_samples: 2000000
+  dwell_time_sec: 0.0
+  num_samples: 131072
   lna_gain_db: 24
   vga_gain_db: 26
   amp_enable: false

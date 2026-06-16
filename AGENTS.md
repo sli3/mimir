@@ -186,7 +186,7 @@ uv run python tools/seed_chromadb.py
 | 10-Fix4 | Spectral Flatness + Chroma Distance + Waterfall Alignment | ✅ Complete | 402/402 (311 pytest + 91 Vitest) |
 | 9C-Threshold | Calibrate SIGNAL_THRESHOLD_DB | ⏳ PENDING ANTENNA | — |
 
-**Total passing: 402/402 (311 pytest + 91 Vitest)**
+**Total passing: 404/404 (313 pytest + 91 Vitest)**
 
 ---
 
@@ -270,7 +270,7 @@ Do not apply this pre-emptively — only if context problems are observed.
 - `async_mode='threading'` in `server.py` — never change to eventlet/gevent
 - `broadcast_spectrum` is defined inside `start_server()` — not importable directly
 - Retrieve via `start_server._broadcast_spectrum_fn` after calling `start_server()`
-- `_emit_result` in `scanner.py` calls both `_broadcast_fn` and `_broadcast_spectrum_fn`
+- `_emit_result` in `scanner.py` calls `_broadcast_fn` only; `_broadcast_spectrum_fn` is called in `_scan_loop()` immediately after `compute_psd()`, decoupled from the AI loop (~4-5 Hz vs ~0.4 Hz)
 
 ---
 
@@ -333,7 +333,7 @@ Do not apply this pre-emptively — only if context problems are observed.
 
 | Item | Detail | Fix in |
 |---|---|---|
-| Waterfall scroll rate slow | One row per dwell cycle (~8–10s). High-rate streaming requires separate FFT loop decoupled from classification | Post 7B |
+| ~~Waterfall scroll rate slow~~ | ~~One row per dwell cycle (~8–10s)~~ — decoupled from AI loop in spectrum broadcast fix (~4-5 Hz from scan loop). Resolved. | ~~Post 7B~~ ✅ |
 | `FrequencyList.jsx:67` | `confidence_score` lacks null guard | Phase 7B polish |
 | CORS wildcard | `cors_allowed_origins="*"` in server.py — fine for dev | Pre-prod |
 | Queue max hard-coded | `020` in SystemStatsPanel — should read from systemStats | Phase 7B |
@@ -426,6 +426,56 @@ Do not apply this pre-emptively — only if context problems are observed.
 ---
 
 ## Session Memos
+
+### 2026-06-16 — Spectrum Broadcast Decoupling (bug-fix, standalone)
+
+**Type:** Code / Bug-fix (standalone, NOT a new phase)
+
+**What was done:**
+- Decoupled `spectrum_update` from the AI loop in `core/pipeline/scanner.py`.
+  The waterfall socket event now fires from `_scan_loop()` immediately after
+  `compute_psd()` at ~4-5 Hz, instead of from `_emit_result()` / `_ai_loop()`
+  at ~0.4 Hz. This resolves the stuttering waterfall caused by slow LLM inference.
+- Added `_broadcast_spectrum_fn` call in `_scan_loop()` with isolated try/except
+  so broadcast failures cannot abort the AI pipeline.
+- Removed `_broadcast_spectrum_fn` call from `_emit_result()`.
+- Frequency bounds for the broadcast now derive from the actual FFT frequency
+  axis (`psd["frequencies_hz"]`) instead of hardcoded plus/minus 1 MHz.
+- Added two new tests: `test_scan_loop_broadcasts_spectrum` (verifies broadcast
+  from scan loop) and `test_emit_result_does_not_broadcast_spectrum` (verifies
+  no broadcast from AI loop).
+
+**Files changed:**
+- `core/pipeline/scanner.py`: spectrum broadcast moved from `_emit_result()` to `_scan_loop()`; frequency bounds from FFT axis; isolated try/except
+- `tests/core/test_scanner.py`: 2 new tests (scan loop broadcasts, AI loop does not)
+- `docs/wiki.md`: Spectrum Broadcast Decoupling entry added to Phase Log
+
+**Test counts:** 404/404 (313 pytest + 91 Vitest)
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None — all changes are RX-only broadcast path refactoring
+
+**Decisions made:**
+- Broadcast call placed immediately after `compute_psd()` in scan loop, before the
+  AI pipeline runs, so the waterfall receives data at scan rate (~4-5 Hz) independent
+  of LLM inference latency
+- Frequency bounds derived from FFT axis instead of hardcoded to support any NFFT or
+  center frequency without manual range calculation
+- Isolated try/except around broadcast prevents transient SocketIO errors from
+  aborting the scan loop
+
+**Deferred items surfaced:**
+- `dashboard/capture_loop.py` is a second consumer of `_broadcast_spectrum_fn` that
+  could fire simultaneously if activated — potential for duplicate `spectrum_update`
+  events. Not currently active (not imported by `scan.py`)
+- `ScanResult.psd_db` field is now unused by any broadcast path — could be removed
+  as a future optimisation
+
+**Next session starter:**
+None — standalone bug-fix complete and tested. 404/404 tests passing.
+
+---
 
 ### 2026-06-15 — Phase 10-Fix3: Band Grouping, ADS-B Threshold, Waterfall Gap, Default Focus
 
