@@ -103,19 +103,40 @@ class TestScanRunner:
         assert len(emitted) >= 1
         assert isinstance(emitted[0], ScanResult)
 
-    def test_queue_full_logs_warning_and_continues(self, scanner, config, caplog):
-        config.queue_maxsize = 1
-        scanner._queue.put_nowait({"freq_hz": 0, "fingerprint": {}, "vector": [0]*6})
+    def test_latest_wins_drains_stale_items(self, scanner):
+        """
+        Verify that when the queue is pre-filled with stale items, running the scan
+        loop for one cycle results in queue depth of exactly 1 (the fresh item),
+        not the pre-filled stale count.
+        """
+        maxsize = scanner._queue.maxsize
+        for i in range(maxsize):
+            scanner._queue.put_nowait({"freq_hz": i, "fingerprint": {}, "vector": [0] * 6})
+        assert scanner._queue.qsize() == maxsize
+
         scanner._running = True
+        t = threading.Thread(target=scanner._scan_loop, daemon=True)
+        t.start()
+        time.sleep(0.4)
+        scanner.stop()
+        t.join(timeout=3)
 
-        with caplog.at_level(logging.WARNING, logger="core.pipeline.scanner"):
-            t = threading.Thread(target=scanner._scan_loop, daemon=True)
-            t.start()
-            time.sleep(0.5)
-            scanner.stop()
-            t.join(timeout=3)
+        assert scanner._queue.qsize() <= 1
 
-        assert any("Queue full" in msg for msg in caplog.messages)
+    def test_latest_wins_queue_never_saturates(self, scanner):
+        """
+        Verify that after running the scanner for a sustained period (1 second),
+        the queue depth never reaches maxsize — the drain-before-insert prevents
+        permanent saturation.
+        """
+        scanner._broadcast_fn = lambda sr: None
+        t = threading.Thread(target=scanner.run, daemon=True)
+        t.start()
+        time.sleep(1.0)
+        scanner.stop()
+        t.join(timeout=3)
+
+        assert scanner._queue.qsize() <= 1
 
     def test_stop_joins_both_threads(self, scanner):
         t = threading.Thread(target=scanner.run, daemon=True)

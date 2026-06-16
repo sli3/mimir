@@ -90,7 +90,15 @@ class ScanRunner:
         The spectrum broadcast (step 5) is wrapped in its own try/except so that a
         broadcast failure (e.g. no connected dashboard) does not prevent the scan
         loop from continuing or the fingerprint from reaching the AI pipeline.
+
+        "Latest wins" queue behaviour:
+        Before inserting a fingerprint, the queue is drained completely. Because LLM
+        inference (~2500 ms) is slower than the scan rate (~260 ms), a FIFO queue would
+        saturate permanently and the AI loop would classify scans that are tens of
+        seconds old. The drain ensures the AI loop always sees the freshest sample.
+        At steady state the queue holds 0–1 items (the most recent scan).
         """
+    
         config = self._config
         device = self._device
         embedder = self._embedder
@@ -129,19 +137,23 @@ class ScanRunner:
                         )
                 fingerprint = fingerprint_spectrum(psd)
                 vector = embedder.embed(fingerprint)
-                try:
-                    q.put_nowait({
-                        "freq_hz": freq_hz,
-                        "fingerprint": fingerprint,
-                        "vector": vector,
-                        "psd_db": psd["psd_db"],
-                    })
-                except queue.Full:
-                    logger.warning(
-                        "Queue full — fingerprint dropped (AI loop busy) "
-                        "at %.3f MHz",
-                        freq_hz / 1e6,
-                    )
+                # "Latest wins" — drain stale items before inserting so the AI loop
+                # always classifies the freshest scan, not a backlog seconds old.
+                # Safe: _scan_loop is the only producer; after drain, queue is empty,
+                # so put_nowait always succeeds without raising queue.Full.
+                # Note: set_focus_frequency() also drains this queue (consumer-only),
+                # which is safe because both paths only remove items.
+                while True:
+                    try:
+                        q.get_nowait()
+                    except queue.Empty:
+                        break
+                q.put_nowait({
+                    "freq_hz": freq_hz,
+                    "fingerprint": fingerprint,
+                    "vector": vector,
+                    "psd_db": psd["psd_db"],
+                })
                 time.sleep(config.dwell_time_sec)
                 self._scan_count += 1
             except Exception:

@@ -338,6 +338,7 @@ Do not apply this pre-emptively — only if context problems are observed.
 | CORS wildcard | `cors_allowed_origins="*"` in server.py — fine for dev | Pre-prod |
 | Queue max hard-coded | `020` in SystemStatsPanel — should read from systemStats | Phase 7B |
 | `sampleRateHz` dead param | Accepted by `useWaterfall.js` but unused | Post 7B |
+| Queue drain pattern | `_scan_loop()` drains queue before every insert ('latest wins'). AI loop always classifies freshest scan. Queue depth at steady state: 0–1 items. Introduced: 2026-06-16. | — |
 | ~~`psd_db` uncalibrated~~ | ~~FFT missing nfft normalisation~~ — fixed in Phase 9B-Hotfix (true dBFS) | ~~Post 7B~~ ✅ 9B-Hotfix |
 | scan.py startup message | "Scanning N frequencies" is misleading now that single-freq focus mode is active | Post 8C cosmetic |
 | Orphaned dashboard components | `SystemStatsPanel.jsx` and `AIReasoningPanel.jsx` are not imported by `App.jsx` -- live dashboard renders stats and AI reasoning inline. Components exist only as standalone test targets. | Pre-prod integration |
