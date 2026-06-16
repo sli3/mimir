@@ -62,6 +62,6 @@ describe('Signal Details freeze', () => {
     })
     render(<App />)
     await new Promise((resolve) => setTimeout(resolve, 100))
-    expect(screen.getByText('● IDLE')).toBeInTheDocument()
+    expect(screen.getByText('IDLE')).toBeInTheDocument()
   })
 })
