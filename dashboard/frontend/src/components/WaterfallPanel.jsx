@@ -77,6 +77,20 @@ function WaterfallStrip({ config, latestPsd, focusedFreq, focusFrequency, single
       ctx.moveTo(crosshairX, 0)
       ctx.lineTo(crosshairX, canvas.height)
       ctx.stroke()
+      // Frequency label at crosshair
+      const relativeX = crosshairX / canvas.width
+      const freq = config.freq_hz + (relativeX - 0.5) * SAMPLE_RATE_HZ
+      const label = (freq / 1e6).toFixed(3) + ' MHz'
+      ctx.font = '11px monospace'
+      const labelWidth = ctx.measureText(label).width
+      const labelX = Math.max(
+        4,
+        crosshairX + labelWidth + 8 < canvas.width
+          ? crosshairX + 4
+          : crosshairX - labelWidth - 4
+      )
+      ctx.fillStyle = 'rgba(0,255,255,0.9)'
+      ctx.fillText(label, labelX, 24)
     }
   }, [crosshairX, canvasSize])
 

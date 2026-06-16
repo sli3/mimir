@@ -186,7 +186,7 @@ uv run python tools/seed_chromadb.py
 | 10-Fix4 | Spectral Flatness + Chroma Distance + Waterfall Alignment | ✅ Complete | 402/402 (311 pytest + 91 Vitest) |
 | 9C-Threshold | Calibrate SIGNAL_THRESHOLD_DB | ⏳ PENDING ANTENNA | — |
 
-**Total passing: 416/416 (319 pytest + 97 Vitest)**
+**Total passing: 418/418 (321 pytest + 97 Vitest)**
 - Note: 4 pytest failures in `test_ais_decoder.py` are pre-existing (missing `pyais` module), not caused by recent changes.
 
 ---
@@ -429,6 +429,53 @@ Do not apply this pre-emptively — only if context problems are observed.
 ---
 
 ## Session Memos
+
+### 2026-06-16 — HackRF Stream Reset + Crosshair Frequency Labels (bug-fix, standalone)
+
+**Type:** Code / Bug-fix (standalone, NOT a new phase)
+
+**What was done:**
+- Replaced bare `time.sleep` retry in `hackrf_rx.py` `read_samples()` with a proper
+  stream reset (deactivateStream + activateStream) on SoapySDR timeout error (-4).\  Added `logger.warning` with frequency for diagnostic visibility. This fixes
+  intermittent hangs where the HackRF stream stalled after retune.
+- Added frequency label (e.g. "1090.125 MHz") next to the dashed crosshair line
+  in WaterfallPanel.jsx crosshair overlay useEffect.
+- Added `Math.max(4, ...)` clamp to the SpectrometerBar.jsx frequency label `labelX`
+  calculation to prevent left-edge clipping.
+- Added new test file `tests/core/test_hackrf_rx.py` with 2 tests covering the
+  stream reset retry path.
+
+**Files changed:**
+- `core/device/hackrf_rx.py`: stream reset retry replacing bare sleep; logger.warning
+- `dashboard/frontend/src/components/WaterfallPanel.jsx`: crosshair frequency label
+- `dashboard/frontend/src/components/SpectrometerBar.jsx`: labelX left-edge clamp
+- `tests/core/test_hackrf_rx.py`: 2 new tests (stream reset on timeout, retry succeeds)
+
+**Test counts:** 418/418 (321 pytest + 97 Vitest)
+- Note: 4 pytest failures in `test_ais_decoder.py` are pre-existing (missing `pyais` module).
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None — all changes are RX-only device driver and frontend display
+
+**Decisions made:**
+- Stream reset chosen over extended sleep because it re-initialises the SoapySDR
+  stream cleanly and recovers from genuine stalls, whereas a longer sleep only
+  delays the same failure
+- `logger.warning` with frequency aids live debugging without flooding logs at INFO
+  level
+
+**Deferred items surfaced:**
+- LOW-01: crosshair label can overlap crosshair line at extreme left edge (cosmetic,
+  both WaterfallPanel and SpectrometerBar)
+- Advisory: `time.sleep` in tests not mocked (0.15s per test, acceptable for CI)
+- Advisory: `config.freq_hz` not in WaterfallPanel useEffect deps (React remounts
+  on band change via key prop, correct but implicit)
+
+**Next session starter:**
+None — standalone fixes complete and tested. 418/418 tests passing.
+
+---
 
 ### 2026-06-16 — SpectrometerBar Frequency Cursor + SDR NOT RESPONDING Fix (bug-fix, standalone)
 

@@ -310,7 +310,19 @@ class HackRFReceiver(DeviceBase):
             numpy.ndarray of shape (num_samples,) and dtype complex64.
 
         Raises:
-            RuntimeError: If the device is not open or capture fails.
+            RuntimeError: If the device is not open or capture fails after
+                one stream-reset retry.
+
+        Timeout retry behaviour:
+            SoapySDR error code -4 means the hardware did not deliver samples
+            within the 10-second deadline. This can occur during band switches,
+            when USB bandwidth is saturated, or when the HackRF firmware is
+            temporarily unresponsive. When a timeout is detected, the method
+            deactivates and reactivates the SoapySDR stream (with a 50 ms gap
+            and 100 ms settle) to reset the USB transfer pipeline, then retries
+            the capture once. If the retry also fails, a RuntimeError is raised.
+            A warning is logged with the current centre frequency so operators
+            can see when the hardware is struggling.
         """
         if not self._is_open:
             raise RuntimeError("Device is not open. Call open() first.")
@@ -326,10 +338,15 @@ class HackRFReceiver(DeviceBase):
             )
             if sr.ret < 0:
                 if sr.ret == -4 and retry_count < 1:
-                    logger.debug(
-                        "Stream timeout on read — retrying after post-retune flush"
+                    logger.warning(
+                        "readStream timeout at %.3f MHz — resetting stream before retry",
+                        self._center_freq_hz / 1e6,
                     )
-                    time.sleep(0.1)
+                    if self._stream is not None:
+                        self._device.deactivateStream(self._stream)
+                        time.sleep(0.05)
+                        self._device.activateStream(self._stream)
+                        time.sleep(0.1)
                     retry_count += 1
                     total = 0
                     output = np.zeros(num_samples, dtype=np.complex64)

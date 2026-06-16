@@ -121,8 +121,9 @@ export default function SpectrometerBar({ spectrumUpdates, focusedFreq, focusFre
         const freqLabel = (crosshairFreqRef.current / 1e6).toFixed(3) + ' MHz'
         ctx.font = '11px monospace'
         const labelWidth = ctx.measureText(freqLabel).width
-        // Keep label inside canvas: right of line unless too close to right edge
-        const labelX = cx + labelWidth + 8 < width ? cx + 4 : cx - labelWidth - 4
+        // Keep label inside canvas: right of line unless too close to right edge,
+        // clamped so it never clips at the left edge either.
+        const labelX = Math.max(4, cx + labelWidth + 8 < width ? cx + 4 : cx - labelWidth - 4)
         ctx.fillStyle = 'rgba(0,255,255,0.9)'
         ctx.fillText(freqLabel, labelX, 24)
       }

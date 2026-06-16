@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: SpectrometerBar Cursor + SDR Status Fix
+last_updated_phase: Stream Reset Retry + Crosshair Labels
 ---
 
 # Mimir Wiki
@@ -70,6 +70,82 @@ Step  Function / Component          What it does
 ## Phase Log
 
 Phases are listed newest-first so the current phase is always at the top.
+
+---
+
+### Stream Reset Retry + Crosshair Labels (standalone bug-fix) ✓ DONE
+
+**What:** Three fixes discovered during live testing:
+
+1. **HackRF readSamples stream reset on timeout** -- When `readStream()` returns
+   SoapySDR error code -4 (timeout), the previous code performed a bare `time.sleep`
+   retry with no stream reset. This left the SoapySDR stream in a stale state, and
+   the retry would hit the same timeout again. The fix deactivates and reactivates
+   the stream (`deactivateStream` + `activateStream`) before retrying, which resets
+   the USB transfer pipeline. A `logger.warning` with the current frequency is
+   emitted so operators can see when the hardware is struggling. The retry is
+   limited to one attempt -- if the reset also fails, a `RuntimeError` is raised.
+
+   **Why:** SoapySDR timeout (-4) means the HackRF did not deliver samples within
+   the 10-second deadline. This can happen when switching bands, when USB bandwidth
+   is saturated, or when the HackRF firmware is temporarily unresponsive. A stream
+   reset clears the stale transfer state. A bare sleep retry does not.
+
+2. **WaterfallPanel crosshair frequency label** -- The waterfall canvas crosshair
+   (drawn by `WaterfallStrip` when `singleBand` is true) now renders a frequency
+   label (e.g. "1090.125 MHz") next to the dashed line. Previously the crosshair
+   was a plain dashed line with no indication of what frequency it pointed at.
+
+   **Why:** Users clicking the waterfall canvas in singleBand mode see a crosshair
+   but had no way to read the exact frequency without looking at the spectrometer
+   bar. The label provides at-a-glance frequency context.
+
+3. **SpectrometerBar frequency label left-edge clamp** -- The `labelX` calculation
+   in the SpectrometerBar canvas `useEffect` now uses `Math.max(4, ...)` to clamp
+   the horizontal position of the frequency label. Previously, labels at the far
+   left edge of the canvas could clip off the left side of the visible area.
+
+   **Why:** When the crosshair is within a few pixels of the left edge, the label
+   text extends past `x = 0` and becomes partially invisible. Clamping to a minimum
+   of 4 pixels keeps the label readable.
+
+**Files changed:**
+- `core/device/hackrf_rx.py` -- `read_samples()` stream-reset retry: deactivate,
+  50 ms sleep, reactivate, 100 ms settle; `logger.warning` with frequency; retry
+  limited to one attempt; docstring updated with timeout retry paragraph
+- `dashboard/frontend/src/components/WaterfallPanel.jsx` -- added frequency label
+  rendering in the crosshair `useEffect` (format: `{freq.toFixed(3)} MHz`)
+- `dashboard/frontend/src/components/SpectrometerBar.jsx` -- `Math.max(4, ...)`
+  clamp on `labelX` in canvas drawing `useEffect`
+- `tests/core/test_hackrf_rx.py` -- new test file with 2 tests: stream-reset on
+  timeout, RuntimeError after failed retry
+
+**Key functions:**
+
+`HackRFReceiver.read_samples(num_samples)` -- captures IQ samples from the HackRF.
+If SoapySDR returns a timeout (-4), it resets the stream (deactivate + reactivate)
+and retries once. Analogy: unplugging and replugging a USB device that stopped
+responding, rather than just waiting longer.
+
+`WaterfallStrip` crosshair `useEffect` -- draws a dashed vertical line and a
+frequency label on the waterfall canvas when `singleBand` is true. The label is
+formatted to 3 decimal places (e.g. "1090.125 MHz").
+
+**Deferred items:**
+- LOW-01: Crosshair label can still overlap the crosshair line at extreme left
+  edge when `labelX` is clamped to 4. Cosmetic only, both WaterfallPanel and
+  SpectrometerBar affected.
+- Advisory: `config.freq_hz` is not in the WaterfallPanel useEffect dependency
+  array. React remounts the component on band change via `key` prop, so this is
+  correct but implicit.
+- Advisory: `time.sleep` in `test_hackrf_rx.py` is not mocked (0.15 s per test).
+  Acceptable for CI; could slow the suite if more stream-reset tests are added.
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None -- stream reset and crosshair labels are RX-only / display-only
+
+**Test counts:** (see AGENTS.md for latest totals)
 
 ---
 
