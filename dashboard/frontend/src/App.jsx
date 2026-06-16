@@ -218,7 +218,7 @@ export default function App() {
       }}>
         {/* Left column */}
         <div style={{
-          flex: 1,
+          flex: 9,
           display: 'flex',
           flexDirection: 'column',
           borderRight: '1px solid var(--border)',
@@ -424,8 +424,7 @@ export default function App() {
 
         {/* Right column — Signal Details panel */}
         <div style={{
-          width: '380px',
-          flexShrink: 0,
+          flex: 11,
           display: 'flex',
           flexDirection: 'column',
           background: 'var(--bg-panel)',
@@ -592,7 +591,7 @@ export default function App() {
       }}>
         {/* Bottom-left — System & Signal */}
         <div style={{
-          flex: 2,
+          flex: 9,
           display: 'flex',
           flexDirection: 'column',
           borderRight: '1px solid var(--border)',
@@ -617,12 +616,14 @@ export default function App() {
                 SYSTEM STATUS
               </span>
             </div>
-            <div style={{ padding: '6px' }}>
+            <div style={{ padding: '4px' }}>
               <div style={{
                 display: 'grid',
                 gridTemplateRows: 'auto auto auto',
-                gap: '4px',
+                gap: '2px',
                 alignContent: 'start',
+                overflow: 'hidden',
+                height: '115px',
               }}>
                 {/* Row 1 — SDR STATUS | ACTIVE FREQ */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px' }}>
@@ -630,10 +631,10 @@ export default function App() {
                     border: '1px solid var(--border)',
                     background: 'rgba(0,255,255,0.03)',
                     borderRadius: '2px',
-                    padding: '4px 8px',
+                    padding: '2px 6px',
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: '2px',
+                    gap: '1px',
                   }}>
                     <span style={{
                       fontFamily: 'var(--font-display)',
@@ -646,7 +647,7 @@ export default function App() {
                     </span>
                     <span style={{
                       fontFamily: 'var(--font-data)',
-                      fontSize: '12px',
+                      fontSize: '11px',
                       color: getSdrColour(systemStats?.hackrf_status),
                     }}>
                       {systemStats?.hackrf_status?.replace(/_/g, ' ') || 'DISCONNECTED'}
@@ -656,10 +657,10 @@ export default function App() {
                     border: '1px solid var(--border)',
                     background: 'rgba(0,255,255,0.03)',
                     borderRadius: '2px',
-                    padding: '4px 8px',
+                    padding: '2px 6px',
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: '2px',
+                    gap: '1px',
                   }}>
                     <span style={{
                       fontFamily: 'var(--font-display)',
@@ -672,7 +673,7 @@ export default function App() {
                     </span>
                     <span style={{
                       fontFamily: 'var(--font-data)',
-                      fontSize: '12px',
+                      fontSize: '11px',
                       color: 'var(--neon-cyan)',
                     }}>
                       {systemStats?.active_frequency_hz
@@ -688,10 +689,10 @@ export default function App() {
                     border: '1px solid var(--border)',
                     background: 'rgba(0,255,255,0.03)',
                     borderRadius: '2px',
-                    padding: '4px 8px',
+                    padding: '2px 6px',
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: '2px',
+                    gap: '1px',
                   }}>
                     <span style={{
                       fontFamily: 'var(--font-display)',
@@ -704,8 +705,8 @@ export default function App() {
                     </span>
                     <span style={{
                       fontFamily: 'var(--font-data)',
-                      fontSize: '12px',
-                      color: 'var(--neon-green)',
+                      fontSize: '11px',
+                      color: 'var(--neon-amber)',
                     }}>
                       {String(systemStats?.scan_count ?? 0).padStart(5, '0')}
                     </span>
@@ -714,10 +715,10 @@ export default function App() {
                     border: '1px solid var(--border)',
                     background: 'rgba(0,255,255,0.03)',
                     borderRadius: '2px',
-                    padding: '4px 8px',
+                    padding: '2px 6px',
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: '2px',
+                    gap: '1px',
                   }}>
                     <span style={{
                       fontFamily: 'var(--font-display)',
@@ -730,7 +731,7 @@ export default function App() {
                     </span>
                     <span style={{
                       fontFamily: 'var(--font-data)',
-                      fontSize: '12px',
+                      fontSize: '11px',
                       color: 'var(--neon-amber)',
                     }}>
                       {String(systemStats?.last_backlog ?? 0).padStart(3, '0')}
@@ -740,10 +741,10 @@ export default function App() {
                     border: '1px solid var(--border)',
                     background: 'rgba(0,255,255,0.03)',
                     borderRadius: '2px',
-                    padding: '4px 8px',
+                    padding: '2px 6px',
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: '2px',
+                    gap: '1px',
                   }}>
                     <span style={{
                       fontFamily: 'var(--font-display)',
@@ -756,7 +757,7 @@ export default function App() {
                     </span>
                     <span style={{
                       fontFamily: 'var(--font-data)',
-                      fontSize: '12px',
+                      fontSize: '11px',
                       color: 'var(--neon-amber)',
                     }}>
                       {String(systemStats?.queue_depth ?? 0).padStart(3, '0')}
@@ -770,10 +771,10 @@ export default function App() {
                     border: '1px solid var(--border)',
                     background: 'rgba(0,255,255,0.03)',
                     borderRadius: '2px',
-                    padding: '4px 8px',
+                    padding: '2px 6px',
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: '2px',
+                    gap: '1px',
                   }}>
                     <span style={{
                       fontFamily: 'var(--font-display)',
@@ -786,7 +787,7 @@ export default function App() {
                     </span>
                     <span style={{
                       fontFamily: 'var(--font-data)',
-                      fontSize: '12px',
+                      fontSize: '11px',
                       color: 'var(--neon-magenta)',
                     }}>
                       {systemStats?.llm_last_inference_ms != null
@@ -798,10 +799,10 @@ export default function App() {
                     border: '1px solid var(--border)',
                     background: 'rgba(0,255,255,0.03)',
                     borderRadius: '2px',
-                    padding: '4px 8px',
+                    padding: '2px 6px',
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: '2px',
+                    gap: '1px',
                   }}>
                     <span style={{
                       fontFamily: 'var(--font-display)',
@@ -814,7 +815,7 @@ export default function App() {
                     </span>
                     <span style={{
                       fontFamily: 'var(--font-data)',
-                      fontSize: '12px',
+                      fontSize: '11px',
                       color: 'var(--neon-magenta)',
                     }}>
                       {String(systemStats?.llm_call_count ?? 0).padStart(5, '0')}
@@ -1019,7 +1020,7 @@ export default function App() {
 
         {/* Bottom-right — AI Reasoning & Decoded Signals */}
         <div style={{
-          flex: 3,
+          flex: 11,
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
