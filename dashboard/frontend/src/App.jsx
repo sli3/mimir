@@ -684,22 +684,51 @@ export default function App() {
                   padding: '6px 8px',
                 }}>
                   <div style={{
-                    fontSize: '11px',
-                    color: 'var(--text-dim)',
-                    letterSpacing: '1px',
-                    textTransform: 'uppercase',
-                    fontFamily: 'var(--font-data)',
-                    marginBottom: '2px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
                   }}>
-                    SCAN COUNT
-                  </div>
-                  <div style={{
-                    fontSize: '15px',
-                    fontWeight: 'bold',
-                    color: 'var(--neon-amber)',
-                    fontFamily: 'var(--font-data)',
-                  }}>
-                    {String(systemStats?.scan_count ?? 0).padStart(5, '0')}
+                    <div>
+                      <div style={{
+                        fontSize: '11px',
+                        color: 'var(--text-dim)',
+                        letterSpacing: '1px',
+                        textTransform: 'uppercase',
+                        fontFamily: 'var(--font-data)',
+                        marginBottom: '2px',
+                      }}>
+                        SCAN COUNT
+                      </div>
+                      <div style={{
+                        fontSize: '15px',
+                        fontWeight: 'bold',
+                        color: 'var(--neon-amber)',
+                        fontFamily: 'var(--font-data)',
+                      }}>
+                        {String(systemStats?.scan_count ?? 0).padStart(5, '0')}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{
+                        fontSize: '11px',
+                        color: 'var(--text-dim)',
+                        letterSpacing: '1px',
+                        textTransform: 'uppercase',
+                        fontFamily: 'var(--font-data)',
+                        marginBottom: '2px',
+                      }}>
+                        QUEUE
+                      </div>
+                      <div style={{
+                        fontSize: '15px',
+                        fontWeight: 'bold',
+                        color: 'var(--neon-amber)',
+                        fontFamily: 'var(--font-data)',
+                      }}>
+                        {systemStats?.queue_depth != null
+                          ? `${String(systemStats.queue_depth).padStart(3, '0')} / 020`
+                          : '--- / ---'}
+                      </div>
+                    </div>
                   </div>
                 </div>
                 <div style={{
@@ -724,7 +753,7 @@ export default function App() {
                     fontFamily: 'var(--font-data)',
                   }}>
                     {systemStats?.llm_last_inference_ms != null
-                      ? systemStats.llm_last_inference_ms + ' ms'
+                      ? Math.round(systemStats.llm_last_inference_ms) + ' ms'
                       : '--- ms'}
                   </div>
                 </div>
@@ -969,18 +998,16 @@ export default function App() {
                 maxHeight: '100px',
                 overflowY: 'auto',
               }}>
-                <span style={{
-                  position: 'absolute',
-                  top: '4px',
-                  right: '6px',
+                <div style={{
                   fontSize: '11px',
                   color: 'var(--text-dim)',
                   fontFamily: 'var(--font-data)',
+                  marginBottom: '4px',
                 }}>
                   {displayed.timestamp
                     ? new Date(displayed.timestamp).toLocaleTimeString('en-AU', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
                     : ''}
-                </span>
+                </div>
                 <div style={{
                   fontSize: '13px',
                   lineHeight: 1.6,

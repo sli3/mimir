@@ -124,6 +124,16 @@ export default function AIReasoningPanel({ aiReasoning }) {
 
           <div style={{
             fontFamily: 'var(--font-data)',
+            fontSize: 9,
+            color: 'var(--text-dim)',
+            opacity: 0.5,
+            marginBottom: 4,
+          }}>
+            {formatTimestamp(displayData.timestamp)}
+          </div>
+
+          <div style={{
+            fontFamily: 'var(--font-data)',
             fontSize: 10,
             color: displayData.signal_type === 'unavailable'
               ? 'var(--neon-amber)'
@@ -135,15 +145,6 @@ export default function AIReasoningPanel({ aiReasoning }) {
             {displayData.signal_type === 'unavailable'
               ? 'LLM TIMEOUT — ChromaDB match only'
               : (displayData.reasoning || '')}
-          </div>
-
-          <div style={{
-            fontFamily: 'var(--font-data)',
-            fontSize: 9,
-            color: 'var(--text-dim)',
-            opacity: 0.5,
-          }}>
-            {formatTimestamp(displayData.timestamp)}
           </div>
         </div>
       )}

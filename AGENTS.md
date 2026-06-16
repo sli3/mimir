@@ -340,6 +340,7 @@ Do not apply this pre-emptively — only if context problems are observed.
 | `sampleRateHz` dead param | Accepted by `useWaterfall.js` but unused | Post 7B |
 | ~~`psd_db` uncalibrated~~ | ~~FFT missing nfft normalisation~~ — fixed in Phase 9B-Hotfix (true dBFS) | ~~Post 7B~~ ✅ 9B-Hotfix |
 | scan.py startup message | "Scanning N frequencies" is misleading now that single-freq focus mode is active | Post 8C cosmetic |
+| Orphaned dashboard components | `SystemStatsPanel.jsx` and `AIReasoningPanel.jsx` are not imported by `App.jsx` -- live dashboard renders stats and AI reasoning inline. Components exist only as standalone test targets. | Pre-prod integration |
 
 ---
 
@@ -426,6 +427,50 @@ Do not apply this pre-emptively — only if context problems are observed.
 ---
 
 ## Session Memos
+
+### 2026-06-16 — Dashboard Cosmetic UI Fixes (bug-fix, standalone)
+
+**Type:** Code / Bug-fix (standalone, NOT a new phase)
+
+**What was done:**
+- **SystemStatsPanel.jsx**: Combined SCAN COUNT and QUEUE DEPTH into a single
+  row with side-by-side sub-columns. Added `Math.round()` to LLM inference ms
+  display to eliminate fractional millisecond rendering.
+- **AIReasoningPanel.jsx**: Moved timestamp from bottom of flex column to above
+  the reasoning text, with `marginBottom: 4` gap for visual separation.
+- **App.jsx** (live UI): Applied the same fixes to the inline rendering that the
+  live dashboard actually uses. In the SYSTEM STATUS grid, merged SCAN COUNT and
+  QUEUE into one cell (side-by-side layout within the cell). Added `Math.round()`
+  to the LLM INFERENCE cell. In the AI REASONING section, moved timestamp from
+  absolute-positioned top-right to above the reasoning text with left alignment.
+
+**Files changed:**
+- `dashboard/frontend/src/components/SystemStatsPanel.jsx`: merged stats row, Math.round()
+- `dashboard/frontend/src/components/AIReasoningPanel.jsx`: timestamp repositioned
+- `dashboard/frontend/src/App.jsx`: same fixes applied to live inline rendering
+- `docs/wiki.md`: cosmetic UI fixes entry added to Phase Log
+
+**Test counts:** 404/404 (313 pytest + 91 Vitest)
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None -- all changes are frontend layout only
+
+**Decisions made:**
+- Fixes applied to both orphaned component files AND App.jsx live inline code to
+  keep them consistent if components are ever integrated
+- `Math.round()` chosen over `toFixed()` to avoid string conversion edge cases
+
+**Deferred items surfaced:**
+- `SystemStatsPanel.jsx` and `AIReasoningPanel.jsx` are orphaned components -- not
+  imported by `App.jsx`. They exist only as standalone components consumed by their
+  test files. Live dashboard renders system stats and AI reasoning inline. Documented
+  as tech debt in Known Tech Debt table.
+
+**Next session starter:**
+None -- standalone cosmetic fix complete and tested. 404/404 tests passing.
+
+---
 
 ### 2026-06-16 — Spectrum Broadcast Decoupling (bug-fix, standalone)
 

@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: Spectrum-Broadcast-Decouple
+last_updated_phase: UI-Cosmetic-Fixes
 ---
 
 # Mimir Wiki
@@ -70,6 +70,50 @@ Step  Function / Component          What it does
 ## Phase Log
 
 Phases are listed newest-first so the current phase is always at the top.
+
+---
+
+### UI Cosmetic Fixes (standalone bug-fix) ✓ DONE
+
+**What:** Two cosmetic fixes to the dashboard UI discovered during live testing:
+
+1. **System Status grid — merged scan count and queue depth** — In `App.jsx`, the
+   SYSTEM STATUS grid previously had SCAN COUNT and QUEUE DEPTH as separate grid
+   cells. They have been merged into a single grid cell with two sub-columns displayed
+   side by side. The queue depth value was also previously missing from the live UI
+   (the data was emitted by the server but never rendered). Both values are now visible.
+   The orphan `SystemStatsPanel.jsx` component was updated in parallel to stay in sync.
+
+2. **AI Reasoning — timestamp repositioned** — The timestamp in the AI REASONING
+   section was previously positioned via absolute positioning in the top-right corner
+   of the panel, which could overlap with reasoning text on short messages. It has
+   been moved above the reasoning text (left-aligned) with a 4px bottom margin gap.
+   Both `AIReasoningPanel.jsx` (orphan component) and the inline code in `App.jsx`
+   were updated so the fix is visible in the live UI.
+
+3. **LLM inference time — Math.round()** — `llm_last_inference_ms` is now rounded
+   via `Math.round()` before display, eliminating fractional millisecond display
+   in the SYSTEM STATUS panel.
+
+**Why:** The orphan components (`SystemStatsPanel.jsx`, `AIReasoningPanel.jsx`) were
+already out of sync with the live `App.jsx` inline code. Both were updated so they
+stay consistent for future integration, but the actual visible fix is in `App.jsx`.
+
+**Files changed:**
+- `dashboard/frontend/src/App.jsx` — merged scan count + queue depth into one grid
+  cell with side-by-side sub-columns; added queue depth display (was missing);
+  `Math.round()` on LLM INFERENCE; moved AI reasoning timestamp above text with
+  `marginBottom: 4`
+- `dashboard/frontend/src/components/SystemStatsPanel.jsx` — merged scan count +
+  queue depth row; `Math.round()` on `llm_last_inference_ms` (kept in sync with
+  App.jsx for future integration)
+- `dashboard/frontend/src/components/AIReasoningPanel.jsx` — moved timestamp div
+  above reasoning text with `marginBottom: 4` (kept in sync with App.jsx)
+
+**Test counts:** 404/404 (313 pytest + 91 Vitest).
+
+**Note:** No new tests were required — these are layout-only changes with no
+behavioural logic.
 
 ---
 

@@ -41,7 +41,7 @@ export default function SystemStatsPanel({ systemStats }) {
     : '--- / ---'
 
   const llmInference = systemStats?.llm_last_inference_ms != null
-    ? `${systemStats.llm_last_inference_ms} ms`
+    ? `${Math.round(systemStats.llm_last_inference_ms)} ms`
     : '--- ms'
 
   return (
@@ -56,13 +56,15 @@ export default function SystemStatsPanel({ systemStats }) {
         <span style={labelStyle}>ACTIVE FREQ</span>
         <span style={{ ...valueStyle, color: 'var(--neon-cyan)' }}>{activeFreq}</span>
       </div>
-      <div style={rowStyle}>
-        <span style={labelStyle}>SCAN COUNT</span>
-        <span style={{ ...valueStyle, color: 'var(--neon-green)' }}>{scanCount}</span>
-      </div>
-      <div style={rowStyle}>
-        <span style={labelStyle}>QUEUE DEPTH</span>
-        <span style={{ ...valueStyle, color: 'var(--neon-amber)' }}>{queueDepth}</span>
+      <div style={{ ...rowStyle, justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          <span style={labelStyle}>SCAN COUNT</span>
+          <span style={{ ...valueStyle, color: 'var(--neon-green)' }}>{scanCount}</span>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+          <span style={labelStyle}>QUEUE</span>
+          <span style={{ ...valueStyle, color: 'var(--neon-amber)' }}>{queueDepth}</span>
+        </div>
       </div>
       <div style={rowStyle}>
         <span style={labelStyle}>LLM INFERENCE</span>
