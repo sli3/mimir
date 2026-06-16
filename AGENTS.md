@@ -244,7 +244,7 @@ Do not apply this pre-emptively — only if context problems are observed.
 |---|---|---|
 | `scan_result` | server → browser | timestamp, center_freq_hz, signal_type, confidence, confidence_score, novel, au_legal_status, reasoning |
 | `spectrum_update` | server → browser | center_freq_hz, psd_db (2048 floats dBFS) |
-| `system_stats` | server → browser | hackrf_status, active_frequency_hz, scan_count, queue_depth, llm_last_inference_ms |
+| `system_stats` | server → browser | hackrf_status, active_frequency_hz, scan_count, queue_depth, **last_backlog**, llm_last_inference_ms |
 | `set_focus_frequency` | browser → server | freq_hz |
 | `acars_message` | server → browser | timestamp, freq_hz, registration, label, block_id, text, crc_ok |
 | `ais_message` | server → browser | timestamp, mmsi, vessel_name, lat, lon, speed, course, channel |

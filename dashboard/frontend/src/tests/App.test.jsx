@@ -172,4 +172,10 @@ describe('App', () => {
     render(<App />)
     expect(screen.getByText('0 ENTRIES')).toBeInTheDocument()
   })
+
+  it('renders BACKLOG and IN QUEUE labels', () => {
+    render(<App />)
+    expect(screen.getByText('BACKLOG')).toBeInTheDocument()
+    expect(screen.getByText('IN QUEUE')).toBeInTheDocument()
+  })
 })

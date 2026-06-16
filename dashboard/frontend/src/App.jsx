@@ -103,12 +103,6 @@ function getSdrColour(status) {
   return 'var(--neon-red)'
 }
 
-function getSdrText(status) {
-  if (status === 'CONNECTED') return 'CONNECTED'
-  if (status === 'NOT_RESPONDING') return 'NOT RESPONDING'
-  return 'DISCONNECTED'
-}
-
 function isTuned(freq, target, margin = 2_000_000) {
   return freq != null && Math.abs(freq - target) <= margin
 }
@@ -134,7 +128,6 @@ export default function App() {
     systemStats,
     focusedFreq,
     focusFrequency,
-    isConnected,
     aiReasoning,
     acarsMessages,
     aisVessels,
@@ -205,25 +198,6 @@ export default function App() {
           alignItems: 'center',
           gap: '16px',
         }}>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-          }}>
-            <div style={{
-              width: '8px',
-              height: '8px',
-              borderRadius: '50%',
-              background: getSdrColour(systemStats?.hackrf_status),
-            }} />
-            <span style={{
-              fontSize: '11px',
-              color: getSdrColour(systemStats?.hackrf_status),
-              fontFamily: 'var(--font-data)',
-            }}>
-              {getSdrText(systemStats?.hackrf_status)}
-            </span>
-          </div>
           <span style={{
             fontSize: '11px',
             color: 'var(--text-dim)',
@@ -707,26 +681,46 @@ export default function App() {
                         {String(systemStats?.scan_count ?? 0).padStart(5, '0')}
                       </div>
                     </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{
-                        fontSize: '11px',
-                        color: 'var(--text-dim)',
-                        letterSpacing: '1px',
-                        textTransform: 'uppercase',
-                        fontFamily: 'var(--font-data)',
-                        marginBottom: '2px',
-                      }}>
-                        QUEUE
+                    <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <div>
+                        <div style={{
+                          fontSize: '11px',
+                          color: 'var(--text-dim)',
+                          letterSpacing: '1px',
+                          textTransform: 'uppercase',
+                          fontFamily: 'var(--font-data)',
+                          marginBottom: '2px',
+                        }}>
+                          BACKLOG
+                        </div>
+                        <div style={{
+                          fontSize: '15px',
+                          fontWeight: 'bold',
+                          color: 'var(--neon-amber)',
+                          fontFamily: 'var(--font-data)',
+                        }}>
+                          {String(systemStats?.last_backlog ?? 0).padStart(3, '0')}
+                        </div>
                       </div>
-                      <div style={{
-                        fontSize: '15px',
-                        fontWeight: 'bold',
-                        color: 'var(--neon-amber)',
-                        fontFamily: 'var(--font-data)',
-                      }}>
-                        {systemStats?.queue_depth != null
-                          ? `${String(systemStats.queue_depth).padStart(3, '0')} / 020`
-                          : '--- / ---'}
+                      <div>
+                        <div style={{
+                          fontSize: '11px',
+                          color: 'var(--text-dim)',
+                          letterSpacing: '1px',
+                          textTransform: 'uppercase',
+                          fontFamily: 'var(--font-data)',
+                          marginBottom: '2px',
+                        }}>
+                          IN QUEUE
+                        </div>
+                        <div style={{
+                          fontSize: '15px',
+                          fontWeight: 'bold',
+                          color: 'var(--neon-amber)',
+                          fontFamily: 'var(--font-data)',
+                        }}>
+                          {String(systemStats?.queue_depth ?? 0).padStart(3, '0')}
+                        </div>
                       </div>
                     </div>
                   </div>
