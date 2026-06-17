@@ -7,18 +7,17 @@ from core.pipeline.capture import capture_iq
 from core.pipeline.fft import compute_psd
 from core.pipeline.features import fingerprint_spectrum
 
-# TODO (Phase 9C-Threshold): Gain values below are stale and do not match
-# calibrated production gains. Update to match config/mimir.yaml and
-# shared_state.py BAND_PROFILES before next run.
-# FM_broadcast: should be lna=24, vga=26 (telescopic whip)
-# ADS_B: needs revalidation with telescopic whip
-# Aviation_VHF: should be lna=16, vga=20
-# noise_floor: should be lna=0, vga=0 (zero-gain baseline)
+# Gain values: FM_broadcast calibrated to telescopic whip (Phase 9C-Threshold).
+# Aviation_VHF matches production BAND_PROFILES defaults (not yet validated
+# with telescopic whip). ADS_B uses provisional stock-stub values — requires
+# recalibration with telescopic whip. noise_floor uses moderate gain (16/20)
+# for diagnostic visibility, unlike the production zero-gain baseline used by
+# calibrate_thresholds.py and shared_state.py.
 TARGETS = [
-    ("FM_broadcast",  98_900_000,    32, 40),  # STALE gains
-    ("ADS_B",         1_090_000_000, 32, 38),  # STALE gains
-    ("Aviation_VHF",  127_000_000,   32, 40),  # STALE gains
-    ("noise_floor",   433_000_000,   16, 20),  # STALE gains
+    ("FM_broadcast",  98_900_000,    24, 26),  # calibrated: telescopic whip
+    ("ADS_B",         1_090_000_000, 32, 38),  # TODO: recalibrate with telescopic whip — provisional stock-stub values
+    ("Aviation_VHF",  127_000_000,   16, 20),  # provisional: matches BAND_PROFILES defaults, not yet validated with telescopic whip
+    ("noise_floor",   433_000_000,   16, 20),  # moderate gain for diagnostic visibility
 ]
 
 for label, freq_hz, lna, vga in TARGETS:

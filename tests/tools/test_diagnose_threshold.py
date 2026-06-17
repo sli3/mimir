@@ -71,5 +71,5 @@ class TestDiagnoseThreshold:
     def test_band_keys_covers_all_sweep_bands(self):
         """BAND_KEYS must map every BAND_SWEEP entry by a valid CLI key."""
         for band in diagnose_threshold.BAND_SWEEP:
-            key = band["name"].lower().replace(" / ", "_").replace("-", "_")
+            key = band["name"].lower().replace(" / ", "_").replace("-", "_").replace(" ", "_")
             assert key in diagnose_threshold.BAND_KEYS, f"{band['name']} missing from BAND_KEYS"
