@@ -81,7 +81,7 @@ BAND_SWEEP = [
     },
 ]
 
-BAND_KEYS = {b["name"].lower().replace(" / ", "_").replace("-", "_"): b for b in BAND_SWEEP}
+BAND_KEYS = {b["name"].lower().replace(" / ", "_").replace("-", "_").replace(" ", "_"): b for b in BAND_SWEEP}
 
 
 def sweep_band(band: dict) -> dict:
