@@ -6,7 +6,7 @@ description: >
   Invoked by /build at Step 3 (pre-code gate) and available on demand. Raises a
   hard stop on any transmit capability or legal concern.
 mode: subagent
-model: opencode-go/qwen3.7-plus
+model: zai-coding-plan/glm-5.2
 temperature: 0.1
 permission:
   edit: deny

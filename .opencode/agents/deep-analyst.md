@@ -7,7 +7,7 @@ description: >
   NOT part of the standard auto-trigger workflow — reserved for deep dives.
   Read-only — never modifies files.
 mode: subagent
-model: opencode-go/glm-5.1
+model: zai-coding-plan/glm-5.2
 temperature: 0.1
 tools:
   write: false
