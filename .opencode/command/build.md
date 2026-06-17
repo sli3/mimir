@@ -205,17 +205,20 @@ governance doc — those belong to @memo-writer in Step 9.
 Call @memo-writer as Project Records to record this build in the governance
 docs. @memo-writer cannot run bash, search, or fetch — it edits docs only from
 what you give it. Instruct it to:
-  1. Read AGENTS.md in full before writing anything — to see the current
+   1. Read AGENTS.md in full before writing anything — to see the current
      session-memo section, phase tracker, and tech debt table. It must not
      contradict or silently overwrite existing entries; write as a continuation.
-  2. Read docs/ROADMAP.md before touching it, for the same reason.
+   2. Read docs/ROADMAP.md before touching it, for the same reason.
+   3. Read README.md and update its phase tracker table to match
+      docs/ROADMAP.md. Use only the test counts handed to you by the PM — do
+      not run pytest or infer counts from context.
 
 You must also hand it explicitly:
   - a concise summary of what this build changed (files, functions)
   - the current test counts taken from the Step 5/6 runs (it cannot run pytest)
   - any tech debt or deferred items surfaced during the build
 
-ALWAYS: refresh the test counts in docs/ROADMAP.md. Do NOT add session memo prose blocks 
+ALWAYS: refresh the test counts in docs/ROADMAP.md and README.md. Do NOT add session memo prose blocks 
 to AGENTS.md.
 
 PHASE-TRACKER GATE — deterministic, driven solely by the checkpoint flag

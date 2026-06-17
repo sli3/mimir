@@ -156,7 +156,8 @@ event rate, gap detection, and a PASS/FAIL summary. Use `--duration 60` minimum
 | 11 | Per-band signal thresholds | ✅ Complete | — |
 | 11-Hotfix | Broadcast fields + FM threshold + scan.py guard | ✅ Complete | 427/427 |
 
-**Total: 427/427 tests passing (330 pytest + 97 Vitest)**
+**Total: 423 passing (326 pytest + 97 Vitest), 5 pre-existing failures**
+- Note: 5 pre-existing failures (4x AIS/pyais not installed, 1x ADS-B preamble synthetic).
 
 ---
 
@@ -196,7 +197,7 @@ PYTHONPATH=. python tools/diagnose_threshold.py
 PYTHONPATH=. python tools/diagnose_threshold.py --band adsb
 ```
 
-Valid `--band` values: `fm`, `aviation`, `acars`, `aprs`, `ism`, `adsb`.
+Valid `--band` values: `fm_broadcast`, `aviation_vhf`, `acars`, `aprs`, `ism_lora`, `ads_b`.
 
 Output: per-band tables of threshold → bandwidth → bins, a recommended value for each band, and a summary table. Take the recommended values and update `signal_threshold_db` in `BAND_PROFILES` (dashboard/shared_state.py).
 

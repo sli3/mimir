@@ -1074,3 +1074,36 @@ Update `tools/calibrate_thresholds.py` CALIBRATION_TARGETS to use new gain value
 
 **Next session starter:**
 Update `modules/adsb/message.py` field comments to reference PipeDecoder CPR pair resolution instead of `position_with_ref()`.
+
+---
+
+### 2026-06-17 — Memo-Writer Scope Expansion: README.md phase tracker (config-only)
+
+**Type:** Code
+
+**What was done:**
+- A config-only build adding README.md to the memo-writer agent's scope so the
+  phase tracker table in README.md stays in sync after every build. Two files
+  changed: `.opencode/agents/memo-writer.md` (YAML scope item 3 updated to
+  README.md phase tracker refresh rule, scope item 4 added as catch-all) and
+  `.opencode/command/build.md` (Step 9 instruction item 3 added, ALWAYS line
+  updated to "ROADMAP.md and README.md").
+
+**Files changed:**
+- `.opencode/agents/memo-writer.md`: scope items 3 and 4 updated
+- `.opencode/command/build.md`: Step 9 item 3 added, ALWAYS line updated
+
+**Test counts:** 330 pytest passed, 1 pre-existing failure (test_adsb_demodulator::test_preamble_detection_synthetic)
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None — no code, no RF interaction
+
+**Decisions made:**
+- None — config-only build, no design decisions required.
+
+**Deferred items surfaced:**
+- None — config-only build with no code or test implications.
+
+**Next session starter:**
+None — config-only build complete.
