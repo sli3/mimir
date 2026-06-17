@@ -28,8 +28,8 @@ BAND_SWEEP = [
     {
         "name": "FM Broadcast",
         "freq_hz": 98_900_000,
-        "lna_gain_db": 0,
-        "vga_gain_db": 0,
+        "lna_gain_db": 24,
+        "vga_gain_db": 26,
         "target_bw_hz": 200_000,
         "sample_rate_hz": 2_000_000,
         "num_samples": 256_000,
