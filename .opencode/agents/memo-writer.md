@@ -5,7 +5,7 @@ description: >
   tracker, and maintains AGENTS.md and ROADMAP.md. Invoked by the opencode-memo
   workflow. Does NOT touch any Python source files, test files, or opencode.json.
 mode: subagent
-model: opencode-go/mimo-v2.5
+model: opencode/deepseek-v4-flash-free
 temperature: 0.2
 permission:
   edit: allow
