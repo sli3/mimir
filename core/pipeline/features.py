@@ -16,8 +16,11 @@ NOISE_FLOOR_PERCENTILE: float = 10.0
 # Calibrated value. Hardware: HackRF One + telescopic whip SMA antenna
 # (~1 GHz optimised). Gain: lna=24 dB / vga=26 dB. Frequency: 98.9 MHz
 # (FM Adelaide). Method: tools/diagnose_threshold.py sweep, target 200 kHz
-# FM channel width. Result: 24 dB → 196,289 Hz. Must be re-run if antenna
+# FM channel width. Result: 24 dB -> 196,289 Hz. Must be re-run if antenna
 # or gain settings change.
+# NOTE: This is now a conservative fallback. Per-band thresholds live in
+# BAND_PROFILES (dashboard/shared_state.py) and are passed via the optional
+# signal_threshold_db parameter to fingerprint_spectrum() (Phase 11).
 SIGNAL_THRESHOLD_DB: float = 24.0
 
 logger = logging.getLogger(__name__)
@@ -25,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 def fingerprint_spectrum(
     psd_result: dict,
+    signal_threshold_db: float | None = None,
 ) -> dict[str, float | int]:
     """
     Extract spectral fingerprint features from a PSD result dictionary.
@@ -37,17 +41,15 @@ def fingerprint_spectrum(
     The noise floor is estimated using the 10th percentile of all PSD
     values, which ignores strong signals and gives a stable estimate
     of the background noise level. Signal bins are identified as those
-    exceeding the noise floor by at least ``SIGNAL_THRESHOLD_DB``.
-
-    ``SIGNAL_THRESHOLD_DB`` is calibrated to 24.0 dB for the
-    current hardware and antenna configuration (HackRF One + telescopic
-    whip SMA antenna, lna=24 dB / vga=26 dB). It must be re-run if
-    antenna or gain settings change.
+    exceeding the noise floor by at least the effective threshold.
 
     Args:
         psd_result: Dictionary returned by ``compute_psd`` containing
                     at minimum the keys ``frequencies_hz``, ``psd_db``,
                     ``center_freq_hz``, ``sample_rate_hz``, and ``nfft``.
+        signal_threshold_db: Per-band threshold override. If ``None``,
+                             the module-level ``SIGNAL_THRESHOLD_DB``
+                             (24.0 dB) is used as the fallback.
 
     Returns:
         Dictionary containing:
@@ -56,11 +58,20 @@ def fingerprint_spectrum(
           - peak_power_db: Power at the peak bin (dBFS)
           - noise_floor_db: Estimated noise floor (10th percentile of psd_db)
           - snr_db: Signal-to-noise ratio (peak_power_db - noise_floor_db)
-          - bandwidth_hz: Occupied bandwidth above noise floor + SIGNAL_THRESHOLD_DB
-          - occupied_bins: Number of bins above noise floor + SIGNAL_THRESHOLD_DB
+          - bandwidth_hz: Occupied bandwidth above noise floor + effective threshold
+          - occupied_bins: Number of bins above noise floor + effective threshold
           - spectral_flatness: Wiener entropy (0.0 = pure tone, 1.0 = white noise)
+          - signal_threshold_db: The effective threshold used for this fingerprint
+          - snr_margin_db: SNR minus the effective threshold (positive = above threshold)
     """
     psd_db = psd_result["psd_db"]
+
+    # Resolve the effective threshold — per-band override or global fallback
+    effective_threshold = (
+        signal_threshold_db
+        if signal_threshold_db is not None
+        else SIGNAL_THRESHOLD_DB
+    )
 
     # Edge case: empty PSD — not enough samples were captured
     if len(psd_db) == 0:
@@ -74,6 +85,8 @@ def fingerprint_spectrum(
             "bandwidth_hz": 0.0,
             "occupied_bins": 0,
             "spectral_flatness": 0.0,
+            "signal_threshold_db": float(effective_threshold),
+            "snr_margin_db": 0.0,
         }
 
     frequencies_hz = psd_result["frequencies_hz"]
@@ -93,8 +106,8 @@ def fingerprint_spectrum(
     snr_db = float(peak_power_db - noise_floor_db)
 
     # Bandwidth and occupied bin count
-    # Bins are "occupied" when their power exceeds noise floor + SIGNAL_THRESHOLD_DB dB
-    threshold = noise_floor_db + SIGNAL_THRESHOLD_DB
+    # Bins are "occupied" when their power exceeds noise floor + effective_threshold dB
+    threshold = noise_floor_db + effective_threshold
     occupied_mask = psd_db > threshold
     occupied_bins = int(np.sum(occupied_mask))
     hz_per_bin = sample_rate_hz / nfft
@@ -109,13 +122,16 @@ def fingerprint_spectrum(
     spectral_flatness = float(geometric_mean / (arithmetic_mean + 1e-12))
     spectral_flatness = float(np.clip(spectral_flatness, 0.0, 1.0))
 
+    snr_margin_db = float(snr_db - effective_threshold)
+
     logger.info(
-        "Spectral fingerprint: peak=%.1f Hz, SNR=%.1f dB, BW=%.0f Hz, bins=%d, flatness=%.3f",
+        "Spectral fingerprint: peak=%.1f Hz, SNR=%.1f dB, BW=%.0f Hz, bins=%d, flatness=%.3f, threshold=%.1f dB",
         peak_freq_hz,
         snr_db,
         bandwidth_hz,
         occupied_bins,
         spectral_flatness,
+        effective_threshold,
     )
 
     return {
@@ -127,4 +143,6 @@ def fingerprint_spectrum(
         "bandwidth_hz": bandwidth_hz,
         "occupied_bins": occupied_bins,
         "spectral_flatness": spectral_flatness,
+        "signal_threshold_db": float(effective_threshold),
+        "snr_margin_db": snr_margin_db,
     }

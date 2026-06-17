@@ -143,8 +143,9 @@ event rate, gap detection, and a PASS/FAIL summary. Use `--duration 60` minimum
 | 9D    | ACARS Decoder Subscriber    | ✅ Complete  | 305/305 |
 | 9E    | AIS Decoder Subscriber      | ✅ Complete  | 331/331 |
 | 9F    | ADS-B Decoder Subscriber    | ✅ Complete  | 354/354 |
+| 11    | Per-Band Signal Thresholds  | ✅ Complete  | 425/425 |
 
-**Total: 354/354 tests passing (298 pytest + 56 Vitest)**
+**Total: 425/425 tests passing (328 pytest + 97 Vitest)**
 
 ---
 
@@ -172,15 +173,21 @@ Output: a table of feature values printed to stdout for each band — FM broadca
 
 ### `tools/diagnose_threshold.py`
 
-**What it does:** Captures a live FM broadcast signal at 98.9 MHz (Adelaide) and sweeps through a range of `SIGNAL_THRESHOLD_DB` values (the dB level above the noise floor that counts as "a signal is present"). For each threshold value it prints the resulting occupied bandwidth and bin count. At the end it recommends the threshold value that produces a bandwidth closest to 200 kHz — the expected width of an FM broadcast signal.
+**What it does:** Captures live IQ samples from each AU-legal Mimir band and sweeps through a range of `SIGNAL_THRESHOLD_DB` values (the dB level above the noise floor that counts as "a signal is present"). For each band and each threshold value it prints the resulting occupied bandwidth and bin count. At the end it recommends the per-band threshold value that produces a bandwidth closest to the expected width for that signal type.
 
-**When to use it:** When bandwidth and occupied_bins readings look wrong, or after any changes to `core/pipeline/features.py`. This tool was built specifically to diagnose BUG-01 (the `psd_db` calibration issue) and to find the correct threshold for your specific hardware and gain settings.
+**When to use it:** When bandwidth and occupied_bins readings look wrong on any band, or after any changes to `core/pipeline/features.py` or hardware configuration. This tool was built specifically to diagnose BUG-01 (the `psd_db` calibration issue) and to find the correct per-band threshold for your specific hardware and gain settings.
 
 ```bash
+# Sweep all six bands
 PYTHONPATH=. python tools/diagnose_threshold.py
+
+# Sweep a single band
+PYTHONPATH=. python tools/diagnose_threshold.py --band adsb
 ```
 
-Output: a table of threshold → bandwidth → bins, followed by a recommended `SIGNAL_THRESHOLD_DB` value. Take the recommended value and update `SIGNAL_THRESHOLD_DB` in `core/pipeline/features.py`.
+Valid `--band` values: `fm`, `aviation`, `acars`, `aprs`, `ism`, `adsb`.
+
+Output: per-band tables of threshold → bandwidth → bins, a recommended value for each band, and a summary table. Take the recommended values and update `signal_threshold_db` in `BAND_PROFILES` (dashboard/shared_state.py).
 
 ---
 

@@ -33,3 +33,10 @@ class TestBandProfiles:
         """adsb gains must remain at their pre-calibration values."""
         assert BAND_PROFILES["adsb"]["lna_gain_db"] == 24
         assert BAND_PROFILES["adsb"]["vga_gain_db"] == 24
+
+    def test_all_entries_have_signal_threshold_db(self):
+        """Every BAND_PROFILES entry must have a positive signal_threshold_db key."""
+        for name, profile in BAND_PROFILES.items():
+            assert "signal_threshold_db" in profile, f"{name} missing signal_threshold_db"
+            assert isinstance(profile["signal_threshold_db"], (int, float)), f"{name} signal_threshold_db not numeric"
+            assert profile["signal_threshold_db"] > 0, f"{name} signal_threshold_db not positive"

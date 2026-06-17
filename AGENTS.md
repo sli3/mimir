@@ -184,9 +184,10 @@ uv run python tools/seed_chromadb.py
 | 10-Fix2 | Waterfall GPU Scroll + Signal Details Missing Fields | ✅ Complete | 396/396 (308 pytest + 88 Vitest) |
 | 10-Fix3 | Band Grouping + ADS-B Threshold + Waterfall Gap + Default Focus | ✅ Complete | 402/402 (311 pytest + 91 Vitest) |
 | 10-Fix4 | Spectral Flatness + Chroma Distance + Waterfall Alignment | ✅ Complete | 402/402 (311 pytest + 91 Vitest) |
+| 11 | Per-Band Signal Thresholds + All-Bands Sweep | ✅ Complete | 425/425 (328 pytest + 97 Vitest) |
 | 9C-Threshold | Calibrate SIGNAL_THRESHOLD_DB | ⏳ PENDING ANTENNA | — |
 
-**Total passing: 418/418 (321 pytest + 97 Vitest)**
+**Total passing: 425/425 (328 pytest + 97 Vitest)**
 - Note: 4 pytest failures in `test_ais_decoder.py` are pre-existing (missing `pyais` module), not caused by recent changes.
 
 ---

@@ -154,11 +154,12 @@ class TestFingerprintSpectrum:
         )
 
     def test_output_keys_present(self, fm_psd):
-        """Result dict contains all 8 required keys."""
+        """Result dict contains all 10 required keys."""
         result = fingerprint_spectrum(fm_psd)
         expected_keys = {
             "center_freq_hz", "peak_freq_hz", "peak_power_db", "noise_floor_db",
             "snr_db", "bandwidth_hz", "occupied_bins", "spectral_flatness",
+            "signal_threshold_db", "snr_margin_db",
         }
         assert set(result.keys()) == expected_keys
 
@@ -206,6 +207,8 @@ class TestFingerprintSpectrum:
         assert result["bandwidth_hz"] == 0.0
         assert result["occupied_bins"] == 0
         assert result["spectral_flatness"] == 0.0
+        assert result["signal_threshold_db"] == SIGNAL_THRESHOLD_DB
+        assert result["snr_margin_db"] == 0.0
 
     def test_spectral_flatness_is_float_between_zero_and_one(self, fm_psd):
         """spectral_flatness must be a float in [0.0, 1.0]."""
@@ -280,3 +283,53 @@ class TestFingerprintSpectrum:
         """bandwidth_hz must be between 100_000 and 300_000 Hz for wideband FM-like signal."""
         result = fingerprint_spectrum(fm_psd)
         assert 100_000 <= result["bandwidth_hz"] <= 300_000
+
+    def test_fallback_threshold_used_when_none_passed(self, fm_psd):
+        """When signal_threshold_db is NOT passed, the fallback SIGNAL_THRESHOLD_DB is used."""
+        result = fingerprint_spectrum(fm_psd)
+        assert result["signal_threshold_db"] == SIGNAL_THRESHOLD_DB
+
+    def test_custom_threshold_overrides_fallback(self, fm_psd):
+        """When signal_threshold_db=4.0 is passed, it is used instead of the fallback."""
+        result = fingerprint_spectrum(fm_psd, signal_threshold_db=4.0)
+        assert result["signal_threshold_db"] == 4.0
+
+    def test_snr_margin_is_positive_when_above_threshold(self):
+        """Synthetic tone with known SNR > threshold produces positive snr_margin_db."""
+        nfft = 2048
+        num_chunks = 4
+        t = np.arange(nfft * num_chunks)
+        tone = np.exp(1j * 2 * np.pi * 10 * t / nfft).astype(np.complex64)
+        noise = (np.random.randn(len(t)) * 0.01).astype(np.float32) + \
+                1j * (np.random.randn(len(t)) * 0.01).astype(np.float32)
+        samples = tone + noise
+        psd = compute_psd(
+            samples,
+            sample_rate_hz=2_000_000,
+            center_freq_hz=98_000_000,
+            nfft=nfft,
+        )
+        result = fingerprint_spectrum(psd, signal_threshold_db=5.0)
+        assert result["snr_margin_db"] > 0.0
+        assert result["snr_margin_db"] == result["snr_db"] - 5.0
+
+    def test_snr_margin_is_negative_when_below_threshold(self):
+        """Synthetic tone with threshold above SNR produces negative snr_margin_db."""
+        nfft = 2048
+        num_chunks = 4
+        t = np.arange(nfft * num_chunks)
+        tone = np.exp(1j * 2 * np.pi * 10 * t / nfft).astype(np.complex64)
+        noise = (np.random.randn(len(t)) * 0.5).astype(np.float32) + \
+                1j * (np.random.randn(len(t)) * 0.5).astype(np.float32)
+        samples = tone + noise
+        psd = compute_psd(
+            samples,
+            sample_rate_hz=2_000_000,
+            center_freq_hz=98_000_000,
+            nfft=nfft,
+        )
+        # Use a very high threshold so the signal is definitely below it
+        result = fingerprint_spectrum(psd, signal_threshold_db=50.0)
+        assert result["snr_margin_db"] < 0.0
+        assert result["snr_margin_db"] == result["snr_db"] - 50.0
+

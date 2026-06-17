@@ -49,6 +49,8 @@ describe('useSocket', () => {
       bandwidth_hz: null,
       spectral_flatness: null,
       chroma_distance: null,
+      signal_threshold_db: null,
+      snr_margin_db: null,
     })
   })
 
@@ -127,6 +129,8 @@ describe('useSocket', () => {
       bandwidth_hz: null,
       spectral_flatness: null,
       chroma_distance: null,
+      signal_threshold_db: null,
+      snr_margin_db: null,
     })
   })
 
@@ -165,6 +169,8 @@ describe('useSocket', () => {
       bandwidth_hz: null,
       spectral_flatness: null,
       chroma_distance: null,
+      signal_threshold_db: null,
+      snr_margin_db: null,
     })
   })
 
@@ -208,6 +214,8 @@ describe('useSocket', () => {
       bandwidth_hz: 0,
       spectral_flatness: 0.123,
       chroma_distance: 0.456,
+      signal_threshold_db: null,
+      snr_margin_db: null,
     })
   })
 

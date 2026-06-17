@@ -19,6 +19,8 @@ const INITIAL_AI_REASONING = {
   bandwidth_hz: null,
   spectral_flatness: null,
   chroma_distance: null,
+  signal_threshold_db: null,
+  snr_margin_db: null,
 }
 
 const BAND_GROUPS = [
@@ -525,6 +527,8 @@ export default function App() {
               { label: 'CONFIDENCE', value: displayed.confidence_score != null ? (displayed.confidence_score * 100).toFixed(0) + '%' : '---', color: 'var(--neon-green)' },
               { label: 'POWER', value: displayed.peak_power_db != null ? displayed.peak_power_db.toFixed(1) + ' dBFS' : '---', color: 'var(--neon-amber)' },
               { label: 'SNR', value: displayed.snr_db != null ? displayed.snr_db.toFixed(1) + ' dB' : '---', color: 'var(--neon-green)' },
+              { label: 'THRESHOLD', value: displayed.signal_threshold_db != null ? displayed.signal_threshold_db.toFixed(1) + ' dB' : '---', color: 'var(--text-dim)' },
+              { label: 'SNR MARGIN', value: displayed.snr_margin_db != null ? `${displayed.snr_margin_db >= 0 ? '+' : ''}${displayed.snr_margin_db.toFixed(1)} dB` : '---', color: displayed.snr_margin_db != null && displayed.snr_margin_db >= 0 ? 'var(--neon-green)' : 'var(--neon-amber)' },
               { label: 'BANDWIDTH', value: displayed.bandwidth_hz != null && displayed.bandwidth_hz > 0 ? (displayed.bandwidth_hz / 1e6).toFixed(3) + ' MHz' : '---', color: 'var(--text-primary)' },
               { label: 'SPECTRAL FLATNESS', value: displayed.spectral_flatness != null ? displayed.spectral_flatness.toFixed(3) : '---', color: 'var(--text-primary)' },
               { label: 'CHROMA DISTANCE', value: displayed.chroma_distance != null ? displayed.chroma_distance.toFixed(3) : '---', color: 'var(--neon-magenta)' },

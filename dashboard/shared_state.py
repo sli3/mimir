@@ -98,33 +98,58 @@ spectrum_clients_lock = threading.Lock()
 # The capture loop checks this every frame and restarts on the new band.
 band_change_event = threading.Event()
 
-# Per-band gain profiles for the live waterfall dashboard.
+# Per-band gain and threshold profiles for the live waterfall dashboard.
 # These are independent of the main scan pipeline gain set in
 # config/mimir.yaml (lna=24, vga=26, amp=False) and are tuned for
 # each band's typical signal strength in Adelaide.
+# signal_threshold_db: per-band detection threshold (dB above noise floor).
+#   Read live by the scan loop (Phase 11) so switching bands applies the
+#   correct threshold without restart.
 # All receive-only — AU-legal bands only.
 # NOTE: Only fm_broadcast is calibrated for the new telescopic whip antenna.
 # Other bands (aviation, adsb) need revalidation in future phases.
 BAND_PROFILES: dict = {
     "fm_broadcast": {
-        "center_freq_hz": 98_000_000,
-        "lna_gain_db":    24,  # Telescopic whip has poor FM coupling — gain required
-        "vga_gain_db":    26,
+        "center_freq_hz":      98_000_000,
+        "lna_gain_db":         24,  # Telescopic whip has poor FM coupling — gain required
+        "vga_gain_db":         26,
+        "signal_threshold_db": 10.0,   # Adelaide FM is extremely strong
     },
     "aviation": {
-        "center_freq_hz": 127_000_000,
-        "lna_gain_db":    16,  # VHF aviation weaker than FM; moderate gain
-        "vga_gain_db":    20,
+        "center_freq_hz":      127_000_000,
+        "lna_gain_db":         16,  # VHF aviation weaker than FM; moderate gain
+        "vga_gain_db":         20,
+        "signal_threshold_db": 6.0,    # VHF aviation weaker than FM
+    },
+    "acars": {
+        "center_freq_hz":      129_125_000,
+        "lna_gain_db":         16,
+        "vga_gain_db":         20,
+        "signal_threshold_db": 6.0,
+    },
+    "aprs": {
+        "center_freq_hz":      145_175_000,
+        "lna_gain_db":         24,
+        "vga_gain_db":         26,
+        "signal_threshold_db": 5.0,
+    },
+    "ism": {
+        "center_freq_hz":      915_000_000,
+        "lna_gain_db":         24,
+        "vga_gain_db":         26,
+        "signal_threshold_db": 5.0,
     },
     "adsb": {
-        "center_freq_hz": 1_090_000_000,
-        "lna_gain_db":    24,  # 1090 MHz ADS-B moderate strength
-        "vga_gain_db":    24,
+        "center_freq_hz":      1_090_000_000,
+        "lna_gain_db":         24,  # 1090 MHz ADS-B moderate strength
+        "vga_gain_db":         24,
+        "signal_threshold_db": 4.0,    # 1090 MHz live SNR 4–6 dB
     },
     "noise_floor": {
-        "center_freq_hz": 98_000_000,
-        "lna_gain_db":    0,   # Reference measurement — zero gain baseline
-        "vga_gain_db":    0,
+        "center_freq_hz":      98_000_000,
+        "lna_gain_db":         0,   # Reference measurement — zero gain baseline
+        "vga_gain_db":         0,
+        "signal_threshold_db": 10.0,   # reference — same as FM
     },
 }
 

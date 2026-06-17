@@ -5,10 +5,11 @@ import time
 from datetime import datetime
 
 from core.config.loader import MimirConfig
-from core.pipeline.features import fingerprint_spectrum
+import core.pipeline.features as features
 from core.pipeline.fft import compute_psd
 from core.pipeline.scan_result import ScanResult
 from dashboard.server import record_hw_error
+import dashboard.shared_state as shared_state
 from llm.acma_reference import AcmaReference
 
 logger = logging.getLogger(__name__)
@@ -112,7 +113,10 @@ class ScanRunner:
           5. Broadcasts the PSD to the dashboard for the waterfall display — this happens
              immediately after FFT, independent of the AI classification loop, so the
              waterfall updates at the full scan rate regardless of LLM latency.
-          6. Computes a fingerprint vector and queues it for the AI loop.
+          6. Reads the per-band ``signal_threshold_db`` from ``shared_state.current_band``
+             and passes it to ``fingerprint_spectrum()`` so each band uses its own
+             detection threshold (Phase 11). Computes a fingerprint vector and queues
+             it for the AI loop.
 
         Frequency cache:
         A method-local ``_last_tuned_hz`` tracks the most recently tuned frequency.
@@ -174,7 +178,13 @@ class ScanRunner:
                             "Spectrum broadcast failed at %.3f MHz",
                             freq_hz / 1e6,
                         )
-                fingerprint = fingerprint_spectrum(psd)
+                with shared_state.current_band_lock:
+                    band = dict(shared_state.current_band)
+                threshold = band.get(
+                    "signal_threshold_db",
+                    features.SIGNAL_THRESHOLD_DB,
+                )
+                fingerprint = features.fingerprint_spectrum(psd, signal_threshold_db=threshold)
                 vector = embedder.embed(fingerprint)
                 # "Latest wins" — drain stale items before inserting so the AI loop
                 # always classifies the freshest scan, not a backlog seconds old.

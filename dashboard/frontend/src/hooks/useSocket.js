@@ -16,6 +16,8 @@ const INITIAL_AI_REASONING = {
   bandwidth_hz: null,
   spectral_flatness: null,
   chroma_distance: null,
+  signal_threshold_db: null,
+  snr_margin_db: null,
 }
 
 export function useSocket() {
@@ -63,6 +65,8 @@ export function useSocket() {
           bandwidth_hz: data.bandwidth_hz ?? null,
           spectral_flatness: data.spectral_flatness ?? null,
           chroma_distance: data.chroma_distance ?? null,
+          signal_threshold_db: data.signal_threshold_db ?? null,
+          snr_margin_db: data.snr_margin_db ?? null,
         })
       }
     })

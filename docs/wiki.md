@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: Stream Reset Retry + Crosshair Labels
+last_updated_phase: "11"
 ---
 
 # Mimir Wiki
@@ -70,6 +70,94 @@ Step  Function / Component          What it does
 ## Phase Log
 
 Phases are listed newest-first so the current phase is always at the top.
+
+---
+
+### Phase 11 — Per-Band Signal Thresholds + All-Bands Sweep ✓ DONE
+
+**What:** Replaced the single global `SIGNAL_THRESHOLD_DB` (24.0 dB fallback) with
+per-band thresholds stored in `BAND_PROFILES` and read live by the scan loop. Each
+band now has its own threshold tuned to its typical signal strength in Adelaide.
+The `diagnose_threshold.py` tool was rewritten from a single-FM-band script into a
+permanent all-bands sweep tool with a `--band` flag for targeted runs.
+
+**Why:** A single threshold cannot work well across all bands. FM broadcast at 98 MHz
+is extremely strong (SNR 40+ dB), while ADS-B at 1090 MHz with a telescopic whip
+antenna may only produce SNR 4-6 dB. A 24 dB threshold calibrated for FM misses
+ADS-B entirely. Per-band thresholds ensure every band detects signals at its own
+noise floor level.
+
+The scan loop now reads `signal_threshold_db` from `shared_state.current_band`
+before each fingerprint call, so switching bands via the dashboard automatically
+applies the correct threshold -- no restart needed.
+
+**Files changed:**
+- `dashboard/shared_state.py` -- added `signal_threshold_db` key to every entry in
+  `BAND_PROFILES`: fm_broadcast 10.0, aviation 6.0, acars 6.0, aprs 5.0, ism 5.0,
+  adsb 4.0, noise_floor 10.0. Comments explain per-band rationale.
+- `core/pipeline/features.py` -- `fingerprint_spectrum()` gains optional
+  `signal_threshold_db: float | None = None` parameter; falls back to module-level
+  `SIGNAL_THRESHOLD_DB` (24.0 dB) when not provided; returns two new keys:
+  `signal_threshold_db` (the effective threshold used) and `snr_margin_db`
+  (snr_db minus effective threshold).
+- `core/pipeline/scanner.py` -- `_scan_loop()` reads `signal_threshold_db` from
+  `shared_state.current_band` and passes it to `fingerprint_spectrum()`.
+- `dashboard/server.py` -- `broadcast()` includes `signal_threshold_db` and
+  `snr_margin_db` in the `scan_result` payload.
+- `dashboard/frontend/src/hooks/useSocket.js` -- added `signal_threshold_db` and
+  `snr_margin_db` to `INITIAL_AI_REASONING` and `scan_result` handler.
+- `dashboard/frontend/src/App.jsx` -- Signal Details panel shows two new rows:
+  THRESHOLD (effective threshold in dB) and SNR MARGIN (green when >= 0 dB,
+  amber when < 0 dB).
+- `tools/diagnose_threshold.py` -- complete rewrite: now sweeps all 6 AU-legal
+  bands with `BAND_SWEEP` list; `--band` flag for single-band sweep; prints
+  per-band recommendations and a summary table; no longer a "delete after use"
+  tool.
+- `tests/core/test_fft_features.py` -- 4 new tests for optional threshold param
+  (fallback, override, positive margin, negative margin).
+- `tests/dashboard/test_shared_state.py` -- 1 new test asserting
+  `signal_threshold_db` presence in every BAND_PROFILES entry.
+- `tests/tools/test_diagnose_threshold.py` -- new file with 2 smoke tests
+  (sweep_band recommendation, BAND_KEYS coverage).
+- `dashboard/frontend/src/tests/useSocket.test.js` -- updated for new fields.
+
+**Key functions:**
+
+`fingerprint_spectrum(psd_result, signal_threshold_db=None)` -- extracts spectral
+features from a PSD. The optional `signal_threshold_db` override lets the scan loop
+pass a per-band threshold; when omitted, the module-level 24.0 dB fallback applies.
+Returns `signal_threshold_db` (effective threshold) and `snr_margin_db` (SNR minus
+threshold -- positive means the peak SNR exceeds the detection threshold).
+Analogy: a hearing test where each ear is tested at its own comfortable volume,
+rather than blasting both ears at the same level.
+
+`ScanRunner._scan_loop()` -- now reads `signal_threshold_db` from
+`shared_state.current_band` before each fingerprint call. The threshold is
+snapshot-locked (via `current_band_lock`) to avoid races with band-switch commands.
+Analogy: the scanner adjusts its sensitivity dial automatically when you switch
+bands on the dashboard.
+
+`diagnose_threshold.sweep_band(band)` -- captures IQ samples at a band's frequency
+and gain settings, then sweeps 10 threshold candidates (3-27 dB). For each
+candidate it computes `fingerprint_spectrum()` and records the resulting bandwidth.
+Returns the threshold whose bandwidth is closest to the band's expected signal
+width. Analogy: a TV repairman adjusting the contrast dial until the picture
+is clearest -- but doing it systematically across every channel.
+
+**Deferred items:**
+- Per-band thresholds are provisional values from the `diagnose_threshold.py` sweep.
+  Live testing with `--band` on each frequency is needed to confirm they produce
+  correct occupied_bins and bandwidth_hz readings.
+- `SIGNAL_THRESHOLD_DB` (24.0 dB) module-level fallback is retained for any
+  code path that calls `fingerprint_spectrum()` without a threshold override.
+  This fallback is intentionally conservative (high) -- it prevents false positives
+  in edge cases but may miss weak signals.
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None -- all changes are RX-only threshold tuning and display
+
+**Test counts:** (see AGENTS.md for latest totals)
 
 ---
 
@@ -863,7 +951,8 @@ inconsistency.
 **What:** Tune `SIGNAL_THRESHOLD_DB` — the dB value that decides which frequency
 bins count as signal vs noise. Too low = noise counted as signal (false positive).
 Too high = real signals missed (false negative). **Completed in Phase 9C-Threshold:
-calibrated to 24.0 dB for telescopic whip SMA antenna at lna=24/vga=26.**
+calibrated to 24.0 dB for telescopic whip SMA antenna at lna=24/vga=26.
+Expanded in Phase 11: per-band thresholds now override this global value.**
 
 **How:** A debug script loops through threshold values and prints `occupied_bins`
 and `bandwidth_hz` at each level. The right value is the one where known signals
@@ -873,7 +962,9 @@ broadcast. Result: 24 dB -> 196,289 Hz (closest match).
 **Analogy:** Squelch on a walkie-talkie. You adjust it until static disappears but
 weak transmissions still come through.
 
-**Key variable:** `SIGNAL_THRESHOLD_DB` in `core/pipeline/features.py` (now 24.0 dB)
+**Key variable:** `SIGNAL_THRESHOLD_DB` in `core/pipeline/features.py` (now 24.0 dB).
+**Expanded in Phase 11:** per-band thresholds now live in `BAND_PROFILES` (shared_state.py)
+and are read live by the scan loop, overriding this global fallback.
 
 ---
 
@@ -957,8 +1048,11 @@ peak power. This is the signal's "fingerprint" — what gets passed to the class
 
 **Key function:**
 
-`fingerprint_spectrum(psd)` — counts bins above `SIGNAL_THRESHOLD_DB`, measures
-bandwidth they span, finds peak power. Returns a fingerprint dict.
+`fingerprint_spectrum(psd_result, signal_threshold_db=None)` — counts bins above
+the noise floor plus the effective threshold (per-band override or global fallback),
+measures bandwidth they span, finds peak power. Returns a fingerprint dict including
+`signal_threshold_db` (the threshold used) and `snr_margin_db` (SNR minus threshold).
+Updated in Phase 11 to accept an optional per-band threshold.
 
 **Analogy:** If the PSD is a photo, fingerprint_spectrum measures it — how wide is
 the bright area? How many pixels are lit? What's the brightest?
