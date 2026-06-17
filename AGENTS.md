@@ -188,8 +188,8 @@ uv run python tools/seed_chromadb.py
 | 9C-Threshold | Calibrate SIGNAL_THRESHOLD_DB | ⏳ PENDING ANTENNA | — |
 | 11-Hotfix | Broadcast Defaults + FM Threshold + Startup Guard | ✅ Complete | 427/427 (330 pytest + 97 Vitest) |
 
-**Total passing: 427/427 (330 pytest + 97 Vitest)**
-- Note: 1 pre-existing pytest failure in `test_adsb_demodulator.py::test_preamble_detection_synthetic`.
+**Total passing: 422 passing (325 pytest + 97 Vitest), 6 pre-existing pytest failures (428 total)**
+- Note: 6 pre-existing pytest failures — test environment changes after Phase 11-Hotfix delivery increased the count from 1 to 6. All pre-date PHASE-TOOLS-CLEANUP work.
 
 ---
 
@@ -427,6 +427,19 @@ Do not apply this pre-emptively — only if context problems are observed.
   covers the three-state logic for ADS-B only. The equivalent logic for ACARS (lines 1089–1125)
   and AIS (lines 1159–1195) in `App.jsx` has no test coverage. A regression in `isTuned()`
   margin values or the three-state conditional would go undetected.
+
+- **MED-01: scan.py fatal error exit path lacks test coverage (open):** `scan.py` `main()` sets
+  `fatal_error = True` in the `except Exception` handler and exits with code 1, but there is
+  no test verifying the exit code 1 path. The existing `test_scan.py` only covers startup
+  failure (RuntimeError/OSError) and KeyboardInterrupt. A test for `except Exception` would
+  require mocking `ScanRunner.run()` to raise a generic exception. Deferred because this build
+  explicitly forbade test file changes.
+
+- **ADS-B gain divergence (open — tools vs production):** `tools/calibrate_thresholds.py` and
+  `tools/diagnose_fingerprints.py` use (32/38) for ADS-B gain (lna/vga) while
+  `dashboard/shared_state.py` BAND_PROFILES uses (24/24). Both tool files correctly label
+  their values as provisional/stock-stub. Documented in inline TODOs. Will resolve when ADS-B
+  is live-tested with the telescopic whip antenna.
 
 ---
 

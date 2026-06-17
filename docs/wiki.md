@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: "11-Hotfix"
+last_updated_phase: "PHASE-TOOLS-CLEANUP"
 ---
 
 # Mimir Wiki
@@ -70,6 +70,92 @@ Step  Function / Component          What it does
 ## Phase Log
 
 Phases are listed newest-first so the current phase is always at the top.
+
+---
+
+### PHASE-TOOLS-CLEANUP — Gain Value Consistency + Exit Code Fix ✓ DONE
+
+**What:** Housekeeping and cleanup across four files to fix stale gain
+comments, correct a misleading band profile comment, and distinguish
+intentional stops from unexpected failures in the scan exit code.
+
+1. **`tools/calibrate_thresholds.py`** — Updated the `CALIBRATION_TARGETS`
+   header comment block (lines 48–52) to explain the current gain state for
+   each target band: FM_broadcast (24/26) calibrated to telescopic whip
+   (Phase 9C-Threshold), Aviation_VHF (16/20) matches production defaults
+   but not yet validated, ADS_B (32/38) uses provisional stock-stub values
+   requiring recalibration, noise_floor (0/0) zero-gain baseline. The ADS_B
+   inline TODO was updated from "revalidate with telescopic whip antenna"
+   to "recalibrate with telescopic whip — provisional stock-stub values"
+   to be more precise about the scope of work.
+
+2. **`tools/diagnose_fingerprints.py`** — Added a multi-line header comment
+   explaining the TARGETS gain rationale: why FM_broadcast uses calibrated
+   gains, why Aviation_VHF matches production defaults, why ADS_B uses
+   provisional stock-stub values, and crucially why noise_floor uses
+   moderate gain (16/20) for diagnostic visibility instead of the production
+   zero-gain baseline from `calibrate_thresholds.py` and `shared_state.py`.
+   All four inline comments were updated to reflect the current calibration
+   status.
+
+3. **`dashboard/shared_state.py`** — Updated the `noise_floor` entry in
+   `BAND_PROFILES` (line 152). The comment changed from `# reference — same
+   as FM` to `# noise floor baseline dB — not a signal threshold`. The old
+   comment was stale (FM is now 12.0 dB, noise_floor remains 10.0 dB) and
+   incorrectly implied a relationship between the two values. The new
+   comment correctly describes noise_floor as an independent baseline
+   measurement.
+
+4. **`scan.py`** — Added a `fatal_error` tracking flag in `main()`. On
+   `KeyboardInterrupt` the process exits with code 0 (clean stop). On any
+   other `Exception` from `scanner.run()`, the flag is set to `True` and
+   the `finally` block exits with code 1. Previously, only the HackRF
+   startup guard exited with code 1 — unexpected scan-loop failures
+   silently exited 0, making it impossible to distinguish "user stopped
+   cleanly" from "something broke".
+
+**Why:** The gain comments in both calibration tools had not been updated
+since Phase 9C-Threshold, which replaced the old zero-gain defaults with
+production values (24/26 for FM). Developers reading the stale comments
+would be confused about which gains are settled and which are provisional.
+The `noise_floor` comment was misleading because it claimed "same as FM"
+when FM's `signal_threshold_db` had already diverged. The exit code fix
+addresses a pre-existing monitoring gap — scripts and supervisors that
+check exit codes could not distinguish a clean stop from a crash.
+
+**Files changed:**
+- `tools/calibrate_thresholds.py` — CALIBRATION_TARGETS header comment block
+  rewritten; ADS_B inline TODO updated
+- `tools/diagnose_fingerprints.py` — TARGETS header comment added; all four
+  inline comments updated
+- `dashboard/shared_state.py` — noise_floor BAND_PROFILES comment updated
+- `scan.py` — `fatal_error` flag added; `finally` block exits code 1 on
+  unhandled Exception; docstring updated
+
+**Key functions:**
+
+`main()` in `scan.py` — the CLI entry point. Now tracks `fatal_error` to
+distinguish `KeyboardInterrupt` (exit 0, clean stop) from unhandled
+`Exception` (exit 1, unexpected failure). Previously all non-startup paths
+exited 0. Analogy: a server that sends a different error code when it
+crashes vs when you press the off button.
+
+**Deferred items:**
+- MED-01: `scan.py` `except Exception → fatal_error=True` path has no test
+  coverage. Adding a test would require a test file change. Deferred to a
+  future build.
+- ADS-B gain divergence: `calibrate_thresholds.py` / `diagnose_fingerprints.py`
+  use (32/38) for ADS-B while `shared_state.py BAND_PROFILES` uses (24/24).
+  Both are intentional — the tools use provisional stock-stub values until
+  recalibrated with the telescopic whip. Documented in inline TODOs.
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None — all changes are comments, gain documentation, and
+  exit code logic. No RF interaction.
+
+**Test counts:** 422/428 (325 pytest + 97 Vitest). 6 pre-existing pytest
+failures (not caused by this build).
 
 ---
 

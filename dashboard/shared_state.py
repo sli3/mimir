@@ -149,7 +149,7 @@ BAND_PROFILES: dict = {
         "center_freq_hz":      98_000_000,
         "lna_gain_db":         0,   # Reference measurement — zero gain baseline
         "vga_gain_db":         0,
-        "signal_threshold_db": 10.0,   # reference — same as FM
+        "signal_threshold_db": 10.0,   # noise floor baseline dB — not a signal threshold
     },
 }
 

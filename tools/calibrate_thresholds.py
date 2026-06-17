@@ -45,11 +45,11 @@ def _colour(text: str, code: str) -> str:
 # =============================================================================
 # SECTION 1 — CALIBRATION_TARGETS config block
 # =============================================================================
-# TODO (Phase 9C-Threshold): Gain values below are stale (lna=32/vga=40 for
-# FM, etc.) and do not match the calibrated production gains (lna=24/vga=26).
-# Update all entries to match config/mimir.yaml and shared_state.py BAND_PROFILES
-# before next calibration run. Using stale gains will produce unreliable distance
-# matrices and threshold recommendations.
+# Gain values: FM_broadcast (24/26) calibrated to telescopic whip (Phase 9C-
+# Threshold). Aviation_VHF (16/20) matches production BAND_PROFILES defaults
+# (not yet validated with telescopic whip). ADS_B uses provisional stock-stub
+# values (32/38) — requires recalibration with telescopic whip. noise_floor
+# (0/0) uses zero-gain baseline for reference measurement.
 CALIBRATION_TARGETS: list[dict] = [
     {
         "label": "FM_broadcast",
@@ -65,7 +65,7 @@ CALIBRATION_TARGETS: list[dict] = [
         "freq_hz": 1_090_000_000,
         "sample_rate_hz": 2_000_000,
         "num_samples": 256_000,
-        "lna_gain_db": 32,  # TODO: revalidate with telescopic whip antenna
+        "lna_gain_db": 32,  # TODO: recalibrate with telescopic whip — provisional stock-stub values
         "vga_gain_db": 38,
         "captures": 2,
     },

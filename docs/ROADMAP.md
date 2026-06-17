@@ -14,7 +14,7 @@
 | 2     | FFT + Feature Extraction          | ✅ Complete    | 21/21    |
 | 3     | Embedding + Vector Store          | ✅ Complete    | 24/24    |
 | 4     | LLM Classification                | ✅ Complete    | 24/24    |
-| 5     | Live Dashboard                    | ✅ Complete    | —        |
+| 5     | Calibration & Thresholds          | ✅ Complete    | —        |
 | 6     | Live AI Classification + Dashboard| ✅ Complete    | 108/108  |
 | 7A    | Cyberpunk Dashboard — Scaffold    | ✅ Complete    | 108 pytest + 50 Vitest = 158   |
 | Data Layer | ACMA frequency reference + RTL-ML ChromaDB seeding | ✅ Complete | 188/188 (165 pytest + 23 new, 50 Vitest) |
@@ -24,16 +24,23 @@
 | 8B | Wire real ScanRunner values into system_stats; fix AGENTS.md event table | ✅ Complete | 259/259 |
 | 8C | Single-frequency focus mode + LLM tuning | ✅ Complete | 260/260 |
 | 9A | ACMA Ref Expansion + /api/frequencies | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
-| 9B | BUG-01 fix: bandwidth_hz/occupied_bins zero | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
+| 9B | BUG-01 fix: bandwidth_hz/occupied_bins zero (gain red herring) | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
 | 9B-Hotfix | BUG-01 true root cause: fft.py normalisation | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
 | pre-9C | Latent gain defaults cleanup (housekeeping) | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
 | pre-9C-seed-autowipe | seed_chromadb.py auto-wipe before seeding | ✅ Complete | 279/279 (223 pytest + 56 Vitest) |
 | 9C | ACARS Decoder + Setup Infrastructure | ✅ Complete | 290/290 (223 pytest + 56 Vitest + 11 bash) |
-| 9C-Threshold | Calibrate SIGNAL_THRESHOLD_DB | ✅ Complete | 362/362 (306 pytest + 56 Vitest) |
+| 9D | ACARS Pure-Python Decoder Subscriber | ✅ Complete | 305/305 (249 pytest + 56 Vitest) |
+| 9E | AIS Pure-Python Decoder Subscriber | ✅ Complete | 331/331 (275 pytest + 56 Vitest) |
 | 9F | ADS-B Pure-Python Decoder Subscriber | ✅ Complete | 354/354 (298 pytest + 56 Vitest) |
 | 9F-CPR | ADS-B CPR Pair Accumulator | ✅ Complete | 364/364 (308 pytest + 56 Vitest) |
 | 10 | Dashboard UI Redesign | ✅ Complete | 392/392 (308 pytest + 84 Vitest) |
 | 10-Hotfix | Dashboard Live Testing Fixes | ✅ Complete | 395/395 (308 pytest + 87 Vitest) |
+| 10-Fix2 | Waterfall GPU Scroll + Signal Details Missing Fields | ✅ Complete | 396/396 (308 pytest + 88 Vitest) |
+| 10-Fix3 | Band Grouping + ADS-B Threshold + Waterfall Gap + Default Focus | ✅ Complete | 402/402 (311 pytest + 91 Vitest) |
+| 10-Fix4 | Spectral Flatness + Chroma Distance + Waterfall Alignment | ✅ Complete | 402/402 (311 pytest + 91 Vitest) |
+| 11 | Per-Band Signal Thresholds + All-Bands Sweep | ✅ Complete | 425/425 (328 pytest + 97 Vitest) |
+| 9C-Threshold | Calibrate SIGNAL_THRESHOLD_DB | ⏳ PENDING ANTENNA | — |
+| 11-Hotfix | Broadcast Defaults + FM Threshold + Startup Guard | ✅ Complete | 427/427 (330 pytest + 97 Vitest) |
 
 ### Phase 11 Hotfix — Broadcast Defaults + FM Threshold + Startup Guard ✅
 
@@ -53,10 +60,10 @@ startup exception when HackRF is disconnected.
   success + KeyboardInterrupt -> exit 0
 - `tests/dashboard/test_server_stats.py` — updated expected dict ordering
 
-**Test counts:** 427/427 (330 pytest + 97 Vitest)
+**Test counts:** 427/427 (330 pytest + 97 Vitest) at delivery. Current: 422 passing (325 pytest + 97 Vitest), 6 pre-existing pytest failures.
 
-**Total: 427/427 tests passing (330 pytest + 97 Vitest)**
-- Note: 1 pre-existing pytest failure in `test_adsb_demodulator.py::test_preamble_detection_synthetic`.
+**Current totals: 422 tests passing (325 pytest + 97 Vitest)**
+- Note: 6 pre-existing pytest failures — test environment changes after delivery increased the count from 1 to 6. All pre-date this build.
 
 **BUG-01 status:** Code fixed in 9B-Hotfix. Full calibration deferred to Phase 9C pending telescopic whip antenna (~68 cm SMA) purchase.
 
@@ -361,7 +368,7 @@ and update all legal/reference documentation for ACARS band coverage.
 
 ---
 
-### Phase 9C-Threshold — Calibrate SIGNAL_THRESHOLD_DB ✅
+### Phase 9C-Threshold — Calibrate SIGNAL_THRESHOLD_DB ⏳ PENDING ANTENNA
 
 **Goal:** Run `tools/diagnose_threshold.py` on live hardware with the new
 telescopic whip antenna (SMA, ~1 GHz optimised) to derive the final
@@ -369,9 +376,9 @@ telescopic whip antenna (SMA, ~1 GHz optimised) to derive the final
 
 **Background:** The stock stub antenna nearly saturated the HackRF at FM
 frequencies in Adelaide with lna=0/vga=0. The new telescopic whip has poor
-coupling at FM wavelengths (~3 m), requiring gain to compensate. Calibration
-confirmed lna=24/vga=26 is safe with the new antenna — no saturation observed.
-Result: 24 dB threshold → 196,289 Hz bandwidth ≈ 200 kHz FM channel width.
+coupling at FM wavelengths (~3 m), requiring gain to compensate. Initial
+calibration produced lna=24/vga=26 and threshold 24 dB but requires live
+re-validation with the antenna before final sign-off.
 
 **Delivered:**
 - `core/pipeline/features.py` — `SIGNAL_THRESHOLD_DB`: 10.0 → 24.0 dB.
@@ -397,7 +404,7 @@ Result: 24 dB threshold → 196,289 Hz bandwidth ≈ 200 kHz FM channel width.
 - Other BAND_PROFILES entries (aviation, adsb) need revalidation with the
   new telescopic whip antenna — gains were set for the stock stub
 
-**Test counts:** 362/362 (306 pytest + 56 Vitest) — no regressions
+**Test counts:** 362/362 (306 pytest + 56 Vitest) at calibration time. Current: 422 passing (325 pytest + 97 Vitest), 6 pre-existing pytest failures.
 
 ---
 
@@ -488,3 +495,5 @@ and global resolution automatically.
 |---|---|---|
 | `config/mimir.yaml` not loaded | Runtime config loading not yet implemented | Phase 2+ |
 | `scan.py` startup message | Misleading "Scanning N frequencies" in single-freq mode | Post 8C |
+| MED-01: scan.py fatal error exit | `except Exception` sets fatal_error=True but no test verifies exit code 1 | Follow-up build |
+| ADS-B gain divergence | tools use (32/38) for ADS-B gain, shared_state.py uses (24/24). Both tool values labelled provisional. | Live ADS-B test |

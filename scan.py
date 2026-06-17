@@ -40,6 +40,11 @@ def main() -> None:
 
     If the HackRF cannot be opened (not connected, USB error), logs an error
     and exits with code 1 instead of crashing with a traceback.
+
+    If the scan loop encounters an unexpected error, the process exits with
+    code 1 (via a ``fatal_error`` flag in the ``finally`` block) to
+    distinguish intentional stops from failures. Previously all non-startup
+    paths exited 0.
     """
     config = load_config("config/mimir.yaml")
 
@@ -89,12 +94,14 @@ def main() -> None:
     print(f"Scanning {len(config.frequencies_hz)} frequencies, "
           f"{config.dwell_time_sec}s dwell, queue depth {config.queue_maxsize}")
 
+    fatal_error = False
     try:
         scanner.run()
     except KeyboardInterrupt:
         print("\nScan stopped by user.")
     except Exception as e:
         logger.error("Fatal error in scan loop: %s", e)
+        fatal_error = True
     finally:
         scanner.stop()
         acars_subscriber.stop()
@@ -103,7 +110,7 @@ def main() -> None:
         device.close()
         time.sleep(1.0)   # give SoapySDR time to release USB before exit
         print("HackRF closed cleanly.")
-        sys.exit(0)
+        sys.exit(1 if fatal_error else 0)
 
 
 if __name__ == "__main__":
