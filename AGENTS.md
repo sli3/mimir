@@ -186,9 +186,10 @@ uv run python tools/seed_chromadb.py
 | 10-Fix4 | Spectral Flatness + Chroma Distance + Waterfall Alignment | ✅ Complete | 402/402 (311 pytest + 91 Vitest) |
 | 11 | Per-Band Signal Thresholds + All-Bands Sweep | ✅ Complete | 425/425 (328 pytest + 97 Vitest) |
 | 9C-Threshold | Calibrate SIGNAL_THRESHOLD_DB | ⏳ PENDING ANTENNA | — |
+| 11-Hotfix | Broadcast Defaults + FM Threshold + Startup Guard | ✅ Complete | 427/427 (330 pytest + 97 Vitest) |
 
-**Total passing: 425/425 (328 pytest + 97 Vitest)**
-- Note: 4 pytest failures in `test_ais_decoder.py` are pre-existing (missing `pyais` module), not caused by recent changes.
+**Total passing: 427/427 (330 pytest + 97 Vitest)**
+- Note: 1 pre-existing pytest failure in `test_adsb_demodulator.py::test_preamble_detection_synthetic`.
 
 ---
 
@@ -430,6 +431,102 @@ Do not apply this pre-emptively — only if context problems are observed.
 ---
 
 ## Session Memos
+
+### 2026-06-17 — README Phase Tracker Sync (documentation-only)
+
+**Type:** Documentation
+
+**What was done:**
+- Synced the Phase Tracker table in `README.md` with the canonical table
+  from `docs/ROADMAP.md` and `AGENTS.md`. The README table had not been
+  updated since Phase 7B and was significantly out of date. Replaced it
+  entirely with the full phase list (0 through 11-Hotfix) including correct
+  names, statuses, and test counts.
+- Updated the total test count line from `425/425 (328 pytest + 97 Vitest)`
+  to `427/427 (330 pytest + 97 Vitest)`.
+- In Quick Start (Option B — UV-based), changed `uv run python scan.py` to
+  `python scan.py` and added a comment explaining that `uv run` fails because
+  SoapySDR is a system package not in the uv venv.
+
+**Files changed:**
+- `README.md`: Phase Tracker table replaced, test count line updated, Quick Start command corrected
+
+**Test counts:** 330 pytest + 97 Vitest = 427/427 passing (unchanged). 1 pre-existing pytest failure in `test_adsb_demodulator.py::test_preamble_detection_synthetic` remains.
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None — documentation only, no code or RF interaction
+
+**Decisions made:**
+- Phase Tracker replaced wholesale rather than patching individual rows — the old table was missing 12+ phases and had stale names/statuses
+- `python scan.py` chosen over `uv run python scan.py` because SoapySDR is installed as a system package (dnf) and not available inside the uv virtualenv
+
+**Deferred items surfaced:**
+- None — this is a pure documentation sync with no code implications
+
+**Next session starter:**
+None — documentation sync complete. No code changes, no tests run.
+
+---
+
+### 2026-06-16 — Phase 11 Hotfix: Broadcast Defaults, FM Threshold, Startup Guard (bug-fix, standalone)
+
+**Type:** Code / Bug-fix (standalone, NOT a new phase)
+
+**What was done:**
+- Added `0.0` defaults to `signal_threshold_db` and `snr_margin_db` broadcast
+  fields in `dashboard/server.py` `broadcast()` to prevent KeyError when these
+  keys are absent from the fingerprint dict. Moved these keys to immediately after
+  `snr_db` in the emit dict (was after `chroma_distance`).
+- Raised `signal_threshold_db` in `BAND_PROFILES["fm_broadcast"]` from `10.0` to
+  `12.0` based on live FM Adelaide testing. Updated inline comment with calibration
+  basis.
+- Added startup error guard in `scan.py` `main()`: wrapped `HackRFReceiver(...)`
+  construction and `device.open()` in `try/except (RuntimeError, OSError)` that
+  logs `Startup failed: %s. Is the HackRF connected?` at ERROR level and calls
+  `sys.exit(1)`. `load_config()` remains outside try/except; existing `finally`
+  teardown block unchanged.
+- Added new test file `tests/test_scan.py` with 3 tests: RuntimeError startup
+  failure, OSError startup failure, and successful startup followed by
+  KeyboardInterrupt yielding exit 0.
+- Updated `tests/dashboard/test_server_stats.py` expected dict ordering for
+  `test_filter_passes_matching`.
+
+**Files changed:**
+- `dashboard/server.py`: `signal_threshold_db` and `snr_margin_db` defaults 0.0, reordered keys
+- `dashboard/shared_state.py`: `BAND_PROFILES["fm_broadcast"]["signal_threshold_db"]` 10.0 -> 12.0
+- `scan.py`: startup try/except guard around HackRFReceiver and device.open()
+- `tests/test_scan.py`: 3 new tests (RuntimeError, OSError, success + KeyboardInterrupt)
+- `tests/dashboard/test_server_stats.py`: updated expected dict ordering
+
+**Test counts:** 427/427 (330 pytest + 97 Vitest)
+- Note: 1 pre-existing pytest failure in `test_adsb_demodulator.py::test_preamble_detection_synthetic`.
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None — all changes are RX-only backend threshold, broadcast defaults, and startup error handling
+
+**Decisions made:**
+- `signal_threshold_db` and `snr_margin_db` defaults set to `0.0` (not None) to
+  match the float broadcast semantics and avoid downstream type errors in the frontend
+- FM threshold raised to 12.0 dB based on live testing with Adelaide FM signals at
+  lna=24/vga=26 gain settings
+- Startup guard catches both RuntimeError and OSError — HackRF can raise either
+  depending on whether the device is absent, busy, or has a permissions problem
+- `load_config()` intentionally left outside try/except — config failures should
+  surface as unhandled exceptions (programming errors), not silent exits
+
+**Deferred items surfaced:**
+- `dashboard/shared_state.py` `noise_floor` profile comment is stale (says "same as FM"
+  but FM is now 12.0 while noise_floor remains 10.0). Pre-existing.
+- `scan.py` `except Exception` in scanner.run() path exits with code 0 — pre-existing,
+  no test coverage
+- `test_server_stats.py` strict dict equality fragility — pre-existing
+
+**Next session starter:**
+None — standalone fixes complete and tested. 427/427 tests passing.
+
+---
 
 ### 2026-06-16 — HackRF Stream Reset + Crosshair Frequency Labels (bug-fix, standalone)
 

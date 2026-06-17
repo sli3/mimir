@@ -174,12 +174,12 @@ def start_server(host: str, port: int, device=None, scanner=None):
             # Fingerprint fields — added in Phase 10-Fix2
             "peak_power_db": fp.get("peak_power_db"),
             "snr_db": fp.get("snr_db"),
+            # Per-band threshold fields — added in Phase 11
+            "signal_threshold_db": fp.get("signal_threshold_db", 0.0),
+            "snr_margin_db": fp.get("snr_margin_db", 0.0),
             "bandwidth_hz": fp.get("bandwidth_hz"),
             "spectral_flatness": fp.get("spectral_flatness"),
             "chroma_distance": fp.get("chroma_distance"),
-            # Per-band threshold fields — added in Phase 11
-            "signal_threshold_db": fp.get("signal_threshold_db"),
-            "snr_margin_db": fp.get("snr_margin_db"),
         }
         socketio.emit("scan_result", data)
 

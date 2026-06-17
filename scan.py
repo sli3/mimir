@@ -31,14 +31,28 @@ logger = logging.getLogger("scan")
 
 
 def main() -> None:
+    """Start the Mimir live scanner and dashboard.
+
+    Loads config, opens the HackRF, initialises the AI pipeline (embeddings,
+    ChromaDB store, LLM classifier), registers decoder subscribers (ACARS,
+    AIS, ADS-B), starts the Flask-SocketIO dashboard, and enters the scan
+    loop.  Ctrl+C stops the scan gracefully.
+
+    If the HackRF cannot be opened (not connected, USB error), logs an error
+    and exits with code 1 instead of crashing with a traceback.
+    """
     config = load_config("config/mimir.yaml")
 
-    device = HackRFReceiver(
-        lna_gain_db=config.lna_gain_db,
-        vga_gain_db=config.vga_gain_db,
-        amp_enable=config.amp_enable,
-    )
-    device.open()
+    try:
+        device = HackRFReceiver(
+            lna_gain_db=config.lna_gain_db,
+            vga_gain_db=config.vga_gain_db,
+            amp_enable=config.amp_enable,
+        )
+        device.open()
+    except (RuntimeError, OSError) as exc:
+        logger.error("Startup failed: %s. Is the HackRF connected?", exc)
+        sys.exit(1)
 
     embedder = SpectrumEmbedder()
     store = SignalStore(path="data/vectorstore")

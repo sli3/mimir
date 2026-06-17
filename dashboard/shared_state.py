@@ -113,7 +113,7 @@ BAND_PROFILES: dict = {
         "center_freq_hz":      98_000_000,
         "lna_gain_db":         24,  # Telescopic whip has poor FM coupling — gain required
         "vga_gain_db":         26,
-        "signal_threshold_db": 10.0,   # Adelaide FM is extremely strong
+        "signal_threshold_db": 12.0,   # Calibrated live FM Adelaide, telescopic whip, lna=24/vga=26
     },
     "aviation": {
         "center_freq_hz":      127_000_000,

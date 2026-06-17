@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: "11"
+last_updated_phase: "11-Hotfix"
 ---
 
 # Mimir Wiki
@@ -70,6 +70,79 @@ Step  Function / Component          What it does
 ## Phase Log
 
 Phases are listed newest-first so the current phase is always at the top.
+
+---
+
+### Phase 11 Hotfix — Startup Guard + Broadcast Field Order + FM Threshold ✓ DONE
+
+**What:** Three fixes discovered during live testing of Phase 11:
+
+1. **Clean startup failure** — `scan.py` `main()` now catches `RuntimeError` and
+   `OSError` from `HackRFReceiver()` construction and `device.open()`. If the HackRF
+   is not connected or USB fails, the user sees a clear ERROR log message
+   (`"Startup failed: %s. Is the HackRF connected?"`) and the process exits with
+   code 1. Previously, a missing HackRF produced an unhandled exception traceback.
+   `load_config()` was also moved outside the try/except block so config errors
+   are reported separately from hardware errors.
+
+2. **Broadcast field ordering** — In `dashboard/server.py` `broadcast()`,
+   `signal_threshold_db` and `snr_margin_db` were moved to immediately after
+   `snr_db` in the SocketIO emit dict. Both fields now default to `0.0` via
+   `fp.get(..., 0.0)` instead of `fp.get(...)` (which returned `None` when
+   the fingerprint dict was missing the key). This is a defensive change — the
+   pipeline always populates these fields, but the `0.0` default prevents
+   `null` reaching the frontend if a scan result arrives without a fingerprint.
+
+3. **FM broadcast threshold recalibrated** — The `fm_broadcast` entry in
+   `BAND_PROFILES` (`dashboard/shared_state.py`) had its `signal_threshold_db`
+   changed from `10.0` to `12.0`. The new value is calibrated from live FM
+   reception in Adelaide with the telescopic whip antenna at lna=24/vga=26.
+   The inline comment was updated to note the calibration basis.
+
+**Why:** Fix 1 prevents confusing tracebacks when starting Mimir without the
+HackRF plugged in — a common scenario during development. Fix 2 ensures the
+frontend never receives `null` for threshold fields. Fix 3 corrects the FM
+threshold after live testing showed 10.0 dB was slightly too permissive.
+
+**Files changed:**
+- `scan.py` — `main()` docstring updated with startup guard description;
+  `load_config()` moved before try/except; `HackRFReceiver` + `device.open()`
+  wrapped in `try/except (RuntimeError, OSError)` with ERROR log and `sys.exit(1)`
+- `dashboard/server.py` — `broadcast()` emit dict reordered: `signal_threshold_db`
+  and `snr_margin_db` moved after `snr_db`; both default to `0.0`
+- `dashboard/shared_state.py` — `BAND_PROFILES["fm_broadcast"]["signal_threshold_db"]`
+  changed from `10.0` to `12.0`; inline comment updated
+- `tests/dashboard/test_server_stats.py` — expected broadcast payload key ordering
+  updated to match the reorder
+- `tests/test_scan.py` — new file with 3 tests: RuntimeError exit, OSError exit,
+  successful startup with KeyboardInterrupt
+
+**Key functions:**
+
+`main()` — the CLI entry point. Now documents the full startup sequence and
+the HackRF availability guard. Analogy: a car that checks the engine is
+connected before turning the key, rather than dumping a error code on the
+dashboard.
+
+`broadcast()` inside `start_server()` — the SocketIO `scan_result` emitter.
+The `fp.get(..., 0.0)` defaults mean the frontend always receives a number,
+never null, for `signal_threshold_db` and `snr_margin_db`. Analogy: a safety
+net that catches missing values before they reach the display.
+
+**Deferred items:**
+- `noise_floor` profile `signal_threshold_db` is still `10.0` while FM is now
+  `12.0`. The comment says "reference -- same as FM" which is stale. Cosmetic.
+- `except Exception` in `scanner.run()` exits with code 0 (pre-existing, no
+  test coverage).
+- `test_server_stats.py` strict dict equality is fragile -- future field
+  additions will break it (pre-existing).
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None -- all changes are startup guard, field defaults, and
+  threshold tuning. All RX-only.
+
+**Test counts:** (see AGENTS.md for latest totals)
 
 ---
 

@@ -106,7 +106,8 @@ uv run pytest tests/core/test_rx_only_lock.py -v
 uv run pytest
 
 # 6. Start the scanner
-uv run python scan.py
+python scan.py
+# Note: uv run python scan.py will fail — SoapySDR is a system package
 ```
 
 ---
@@ -127,25 +128,35 @@ event rate, gap detection, and a PASS/FAIL summary. Use `--duration 60` minimum
 
 ## Phase Tracker
 
-| Phase | Name                        | Status       | Tests   |
-|-------|-----------------------------|--------------|---------|
-| 0     | Hardware Safety Gate        | ✅ Complete  | 25/25   |
-| 1     | IQ Capture Pipeline         | ✅ Complete  | 5/5     |
-| 2     | FFT + Feature Extraction    | ✅ Complete  | 21/21   |
-| 3     | Embedding + Vector Store    | ✅ Complete  | 24/24   |
-| 4     | LLM Classification          | ✅ Complete  | 24/24   |
-| 5     | Live Scanner + Dashboard    | ✅ Complete  | 9/9     |
-| 6     | Socket.IO + Scan Pipeline   | ✅ Complete  | 14/14   |
-| 7A    | Cyberpunk React Dashboard   | ✅ Complete  | 158/158 |
-| 7B-pre| Frontend Consolidation      | ✅ Complete  | 192/192 |
-| 7B    | Data Layer                  | ✅ Complete  | 192/192 |
-| 9C-T  | Threshold Calibration       | ✅ Complete  | 354/354 |
-| 9D    | ACARS Decoder Subscriber    | ✅ Complete  | 305/305 |
-| 9E    | AIS Decoder Subscriber      | ✅ Complete  | 331/331 |
-| 9F    | ADS-B Decoder Subscriber    | ✅ Complete  | 354/354 |
-| 11    | Per-Band Signal Thresholds  | ✅ Complete  | 425/425 |
+| Phase | Name | Status | Tests |
+|---|---|---|---|
+| 0 | Hardware Safety Gate | ✅ Complete | 25/25 |
+| 1 | IQ Capture Pipeline | ✅ Complete | 5/5 |
+| 2 | FFT + Feature Extraction | ✅ Complete | 21/21 |
+| 3 | Embedding + Vector Store | ✅ Complete | 24/24 |
+| 4 | LLM Classification | ✅ Complete | 24/24 |
+| 5 | Live Dashboard | ✅ Complete | — |
+| 6 | Live AI Classification + Dashboard | ✅ Complete | 108/108 |
+| 7A | Cyberpunk Dashboard — Scaffold | ✅ Complete | 158/158 |
+| Data Layer | ACMA frequency reference + RTL-ML ChromaDB seeding | ✅ Complete | 188/188 |
+| — | UV migration (pip to pyproject.toml + uv.lock) | ✅ Complete | — |
+| 7B | Cyberpunk Dashboard — AI + Polish | ✅ Complete | 233/233 |
+| 8A | ACMA reference wiring into LLM classifier | ✅ Complete | 251/251 |
+| 8B | Live system_stats + event table fix | ✅ Complete | 259/259 |
+| 8C | Single-frequency focus mode + LLM tuning | ✅ Complete | 260/260 |
+| 9A | ACMA Ref Expansion + /api/frequencies | ✅ Complete | 278/278 |
+| 9B | BUG-01 fix: bandwidth_hz/occupied_bins zero | ✅ Complete | 278/278 |
+| 9B-Hotfix | BUG-01 true root cause: fft.py normalisation | ✅ Complete | 278/278 |
+| pre-9C | Latent gain defaults cleanup (housekeeping) | ✅ Complete | 278/278 |
+| pre-9C-seed-autowipe | seed_chromadb.py auto-wipe before seeding | ✅ Complete | 279/279 |
+| 9C | ACARS Decoder + Setup Infrastructure | ✅ Complete | 290/290 |
+| 9D | ACARS Pure-Python Decoder Subscriber | ✅ Complete | 305/305 |
+| 9C-Threshold | Calibrate SIGNAL_THRESHOLD_DB | ⏳ Pending | — |
+| 10 | Dashboard UI Redesign | ✅ Complete | — |
+| 11 | Per-band signal thresholds | ✅ Complete | — |
+| 11-Hotfix | Broadcast fields + FM threshold + scan.py guard | ✅ Complete | 427/427 |
 
-**Total: 425/425 tests passing (328 pytest + 97 Vitest)**
+**Total: 427/427 tests passing (330 pytest + 97 Vitest)**
 
 ---
 
@@ -241,6 +252,8 @@ Then open your browser at `http://localhost:5000`. The cyberpunk dashboard will 
 - **AIS Messages** — decoded vessel identification data (MMSI, vessel name, position, speed)
 
 The scanner starts automatically when the server starts. It cycles through the configured frequency bands continuously.
+
+If the HackRF is not connected, `scan.py` logs a clear error message and exits with code 1 (no traceback).
 
 ---
 

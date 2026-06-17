@@ -164,11 +164,11 @@ class TestFocusFrequencyFilter:
             "reasoning": "test",
             "peak_power_db": -50.0,
             "snr_db": 12.0,
+            "signal_threshold_db": 10.0,
+            "snr_margin_db": 2.0,
             "bandwidth_hz": 200000,
             "spectral_flatness": 0.45,
             "chroma_distance": 0.123,
-            "signal_threshold_db": 10.0,
-            "snr_margin_db": 2.0,
         })
 
     def test_passes_all_when_focus_is_none(self):

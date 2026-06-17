@@ -35,8 +35,28 @@
 | 10 | Dashboard UI Redesign | ✅ Complete | 392/392 (308 pytest + 84 Vitest) |
 | 10-Hotfix | Dashboard Live Testing Fixes | ✅ Complete | 395/395 (308 pytest + 87 Vitest) |
 
-**Total: 416/416 tests passing (319 pytest + 97 Vitest)**
-- Note: 4 pytest failures in `test_ais_decoder.py` are pre-existing (missing `pyais` module in environment).
+### Phase 11 Hotfix — Broadcast Defaults + FM Threshold + Startup Guard ✅
+
+**Goal:** Fix three issues discovered during live testing of Phase 11:
+KeyError on missing broadcast fields, FM threshold too low, and unhandled
+startup exception when HackRF is disconnected.
+
+**Delivered:**
+- `dashboard/server.py` — `signal_threshold_db` and `snr_margin_db` broadcast
+  defaults set to `0.0`; keys reordered after `snr_db`
+- `dashboard/shared_state.py` — `fm_broadcast` `signal_threshold_db` 10.0 -> 12.0,
+  calibrated against live FM Adelaide at lna=24/vga=26
+- `scan.py` — startup guard: `HackRFReceiver()` + `device.open()` wrapped in
+  `try/except (RuntimeError, OSError)` with ERROR log and `sys.exit(1)`;
+  `load_config()` intentionally left outside try/except
+- `tests/test_scan.py` — 3 new tests: RuntimeError failure, OSError failure,
+  success + KeyboardInterrupt -> exit 0
+- `tests/dashboard/test_server_stats.py` — updated expected dict ordering
+
+**Test counts:** 427/427 (330 pytest + 97 Vitest)
+
+**Total: 427/427 tests passing (330 pytest + 97 Vitest)**
+- Note: 1 pre-existing pytest failure in `test_adsb_demodulator.py::test_preamble_detection_synthetic`.
 
 **BUG-01 status:** Code fixed in 9B-Hotfix. Full calibration deferred to Phase 9C pending telescopic whip antenna (~68 cm SMA) purchase.
 
