@@ -13,3 +13,4 @@ opencode.json
 .session-memos/
 dashboard/static/
 !data/frequency_reference.json
+node_modules/

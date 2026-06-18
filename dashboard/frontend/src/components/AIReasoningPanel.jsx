@@ -128,7 +128,7 @@ export default function AIReasoningPanel({ aiReasoning, isPinned = false }) {
             <div style={{ marginBottom: 4 }}>
               <span style={{
                 fontFamily: 'var(--font-display)',
-                fontSize: 10,
+                fontSize: 13,
                 color: 'var(--text-bright)',
               }}>
                 {formatTimestamp(displayData.timestamp)}
@@ -147,7 +147,7 @@ export default function AIReasoningPanel({ aiReasoning, isPinned = false }) {
                 ? 'TIMEOUT'
                 : (displayData.signal_type || '').toUpperCase()}
             </span>
-            <span style={{ color: 'var(--text-dim)' }}> : </span>
+            <span style={{ color: 'var(--text-dim)' }}>: </span>
             <span style={{ color: 'var(--neon-cyan)' }}>
               {displayData.freq_hz
                 ? `${(displayData.freq_hz / 1e6).toFixed(3)} MHz`
@@ -170,7 +170,7 @@ export default function AIReasoningPanel({ aiReasoning, isPinned = false }) {
               fontSize: 13,
               marginTop: 4,
             }}>
-              <span style={{ color: 'var(--text-dim)' }}>CONFIDENCE: </span>
+              <span style={{ color: 'var(--neon-cyan)' }}>CONFIDENCE: </span>
               <span style={{
                 color: confidenceColour(displayData.confidence),
               }}>
@@ -185,11 +185,11 @@ export default function AIReasoningPanel({ aiReasoning, isPinned = false }) {
           {/* CLASSIFICATION LOG heading */}
           <div style={{
             fontFamily: 'var(--font-display)',
-            fontSize: 11,
-            color: 'var(--text-dim)',
-            marginBottom: 4,
+            fontSize: 13,
+            color: 'var(--neon-cyan)',
+            marginTop: 12,
           }}>
-            CLASSIFICATION LOG
+            CLASSIFICATION LOG:
           </div>
 
           {/* Reasoning body */}
@@ -202,7 +202,7 @@ export default function AIReasoningPanel({ aiReasoning, isPinned = false }) {
             lineHeight: 1.5,
             flex: 1,
             overflowY: 'auto',
-            marginTop: 8,
+            marginTop: 4,
           }}>
             {displayData.signal_type === 'unavailable'
               ? 'LLM TIMEOUT — ChromaDB match only'
