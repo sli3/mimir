@@ -12,7 +12,22 @@ function confidenceColour(confidence) {
   return 'var(--neon-magenta)'
 }
 
-export default function AIReasoningPanel({ aiReasoning }) {
+/** Displays the current (or pinned) AI reasoning: frequency, signal type,
+ *  confidence, AU legal status, timestamp, and the LLM's reasoning text.
+ *  When `isPinned` is true and a valid signal_type is present, renders a
+ *  ◆ PINNED badge between the frequency and signal type lines.
+ *
+ *  The component fades out (opacity 0→1 transition) when the reasoning
+ *  entry changes, unless a pin override supresses the transition.
+ *
+ *  @param {{ aiReasoning: object, isPinned?: boolean }} props
+ *  @param {object} props.aiReasoning — the reasoning data object (keys:
+ *    freq_hz, signal_type, confidence, confidence_score, au_legal_status,
+ *    reasoning, timestamp)
+ *  @param {boolean} [props.isPinned=false] — if true and signal_type is set,
+ *    renders ◆ PINNED badge and the component key in App.jsx forces remount
+ *    on pin toggle */
+export default function AIReasoningPanel({ aiReasoning, isPinned = false }) {
   const [opacity, setOpacity] = useState(1)
   const [displayData, setDisplayData] = useState(null)
   const prevReasoningRef = useRef(null)
@@ -86,6 +101,18 @@ export default function AIReasoningPanel({ aiReasoning }) {
               ? `${(displayData.freq_hz / 1e6).toFixed(3)} MHz`
               : '—'}
           </div>
+
+          {isPinned && displayData.signal_type && (
+            <div style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: 8,
+              color: 'var(--neon-amber)',
+              letterSpacing: 1,
+              opacity: 0.9,
+            }}>
+              ◆ PINNED
+            </div>
+          )}
 
           <div style={{
             fontFamily: 'var(--font-data)',

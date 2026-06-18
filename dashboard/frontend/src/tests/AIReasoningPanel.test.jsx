@@ -69,4 +69,19 @@ describe('AIReasoningPanel', () => {
     expect(screen.getByText('TIMEOUT')).toBeInTheDocument()
     expect(screen.getByText('LLM TIMEOUT — ChromaDB match only')).toBeInTheDocument()
   })
+
+  it('renders PINNED badge when isPinned=true and signal_type is set', () => {
+    render(<AIReasoningPanel aiReasoning={SAMPLE_REASONING} isPinned={true} />)
+    expect(screen.getByText(/PINNED/)).toBeInTheDocument()
+  })
+
+  it('does not render PINNED badge when isPinned=false', () => {
+    render(<AIReasoningPanel aiReasoning={SAMPLE_REASONING} isPinned={false} />)
+    expect(screen.queryByText(/PINNED/)).not.toBeInTheDocument()
+  })
+
+  it('does not render PINNED badge when isPinned=true but signal_type is null', () => {
+    render(<AIReasoningPanel aiReasoning={EMPTY_REASONING} isPinned={true} />)
+    expect(screen.queryByText(/PINNED/)).not.toBeInTheDocument()
+  })
 })

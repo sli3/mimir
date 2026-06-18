@@ -1107,3 +1107,67 @@ Update `modules/adsb/message.py` field comments to reference PipeDecoder CPR pai
 
 **Next session starter:**
 None — config-only build complete.
+
+---
+
+### 2026-06-17 — Click-History-to-Pin-Reasoning (frontend-only feature)
+
+**Type:** Code
+
+**What was done:**
+- Added click-to-pin AI reasoning from SignalHistoryLog rows. Clicking a signal
+  history row pins that entry's AI reasoning text to the AIReasoningPanel for
+  close inspection. Clicking the same row again unpins and returns to live mode.
+- Wired `pinnedReasoning` state and `handlePinReasoning` callback in `App.jsx`,
+  connecting the previously orphaned `SignalHistoryLog` and `AIReasoningPanel`
+  components into the live dashboard. Added `key` prop to `AIReasoningPanel` for
+  clean remount on pin toggle (resets any internal animation state).
+- `SignalHistoryLog.jsx`: added `onPinReasoning` and `pinnedTimestamp` props,
+  onClick handler per row, `data-pinned` attribute, amber highlight styling for
+  the pinned row.
+- `AIReasoningPanel.jsx`: added `isPinned` prop, displays a `◆ PINNED` badge
+  between the `freq_hz` and `signal_type` lines when active.
+- Added 8 new Vitest tests across 3 test files: 4 in SignalHistoryLog, 3 in
+  AIReasoningPanel, 1 integration test in SignalDetailsFreeze.
+- Fixed existing `SignalDetailsFreeze.test.jsx`: `getByText` changed to
+  `getAllByText` to handle duplicate string matches.
+
+**Files changed:**
+- `dashboard/frontend/src/App.jsx`: pinnedReasoning state, handlePinReasoning callback, wired SignalHistoryLog and AIReasoningPanel components, key prop on AIReasoningPanel
+- `dashboard/frontend/src/components/SignalHistoryLog.jsx`: onPinReasoning/pinnedTimestamp props, onClick handler, data-pinned attribute, pinned amber styling
+- `dashboard/frontend/src/components/AIReasoningPanel.jsx`: isPinned prop, ◆ PINNED badge
+- `dashboard/frontend/src/tests/SignalHistoryLog.test.jsx`: +4 tests
+- `dashboard/frontend/src/tests/AIReasoningPanel.test.jsx`: +3 tests
+- `dashboard/frontend/src/tests/SignalDetailsFreeze.test.jsx`: +1 integration test, getByText→getAllByText fix
+
+**Test counts:** 435 total (330 pytest + 105 Vitest)
+- Pytest: 330 passing, 1 pre-existing failure (test_adsb_demodulator::test_preamble_detection_synthetic)
+- Vitest: 105 passing (97 existing + 8 new)
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None — all changes are frontend React only, no RF interaction
+
+**Decisions made:**
+- `key` prop on `AIReasoningPanel` used for clean remount on pin toggle — avoids stale
+  animation/transition state when swapping between live and pinned content
+- Amber highlight chosen for pinned rows to contrast with the cyberpunk theme's default
+  cyan/green palette
+- `data-pinned` attribute added for test selectors and future CSS theming — follows
+  existing pattern in the codebase for test-friendly markup
+
+**Deferred items surfaced:**
+- `SignalHistoryLog` and `AIReasoningPanel` components are now wired into `App.jsx` and
+  no longer orphaned — they were previously listed in Known Tech Debt as orphaned.
+  The Known Tech Debt table entry should be struck through in a future build.
+- `SignalHistoryLog` row onClick uses `stopPropagation()` — if the component is ever
+  nested inside a parent clickable element, the pin-toggle will not propagate. Pre-existing
+  concern, not introduced here.
+- Pin state is lost on page refresh (component state, not persisted). This is intentional —
+  pinning is a transient UX affordance, not a persistent feature.
+- `SignalDetailsFreeze.test.jsx` `getByText` → `getAllByText` change exposes a potential
+  fragility: any future duplicate text in the render tree will silently match the first
+  element. Consider `getAllByText` with index-based assertions in future builds.
+
+**Next session starter:**
+None — standalone frontend feature complete and tested. 435/435 tests passing (330 pytest + 105 Vitest).

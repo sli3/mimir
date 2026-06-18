@@ -1,5 +1,10 @@
 import React from 'react'
 
+/** Colour mapping for the 4 primary AU band frequencies.
+ *  Aviation (127 MHz), ACARS (129.125 MHz), and AIS (161.975 MHz)
+ *  fall through to '--neon-white' generic.
+ *  TODO: Add aviation, ACARS, and AIS entries to FREQ_COLOUR_MAP and
+ *  freqLabel() so they get dedicated colours instead of generic white. */
 const FREQ_COLOUR_MAP = {
   98000000: '--neon-cyan',
   145175000: '--neon-green',
@@ -21,7 +26,19 @@ function freqLabel(freqHz) {
   return `${(freqHz / 1e6).toFixed(3)} MHz`
 }
 
-export default function SignalHistoryLog({ scanResults }) {
+/** Scrolling log of all scan results. Each row shows timestamp, frequency,
+ *  signal type, and confidence percentage. Supports pin-to-AIReasoningPanel
+ *  via onPinReasoning + pinnedTimestamp props.
+ *
+ *  @param {{ scanResults: Array, onPinReasoning?: function, pinnedTimestamp?: string|null }} props
+ *  @param {Array} props.scanResults — ordered newest-first from useSocket
+ *  @param {function} [props.onPinReasoning] — called with entry on click; toggles pin
+ *  @param {string|null} [props.pinnedTimestamp] — currently pinned entry's timestamp for visual highlight
+ *
+ *  TODO: Wrap with React.memo to avoid re-render on every spectrum_update
+ *  (~4-5 Hz). scanResults reference changes each time even if content is
+ *  unchanged because useSocket prepends new entries. */
+export default function SignalHistoryLog({ scanResults, onPinReasoning, pinnedTimestamp }) {
   return (
     <div style={{
       overflowY: 'auto',
@@ -38,13 +55,20 @@ export default function SignalHistoryLog({ scanResults }) {
         scanResults.map((entry, idx) => {
           const colourVar = FREQ_COLOUR_MAP[entry.center_freq_hz] || '--neon-white'
           const colour = `var(${colourVar})`
+          const isPinned = entry.timestamp === pinnedTimestamp
 
           return (
             <div
               key={`${entry.timestamp}-${entry.center_freq_hz}-${idx}`}
+              onClick={onPinReasoning ? () => onPinReasoning(entry) : undefined}
+              data-pinned={isPinned ? true : undefined}
               style={{
                 opacity: idx > 4 ? 0.5 : 1,
                 lineHeight: 1.6,
+                borderLeft: isPinned ? '2px solid var(--neon-amber)' : '2px solid transparent',
+                background: isPinned ? 'rgba(255, 170, 0, 0.07)' : 'transparent',
+                cursor: onPinReasoning ? 'pointer' : 'default',
+                paddingLeft: 4,
               }}
             >
               <span style={{ color: 'var(--text-dim)' }}>

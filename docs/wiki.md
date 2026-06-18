@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: "PHASE-TOOLS-CLEANUP"
+last_updated_phase: "CLICK-HISTORY-TO-PIN-REASONING"
 ---
 
 # Mimir Wiki
@@ -70,6 +70,88 @@ Step  Function / Component          What it does
 ## Phase Log
 
 Phases are listed newest-first so the current phase is always at the top.
+
+---
+
+### CLICK-HISTORY-TO-PIN-REASONING — Click a signal history row to pin AI reasoning ✓ DONE
+
+**What:** Frontend-only feature. Clicking a row in the Signal History Log pins
+that entry's AI reasoning to the AI Reasoning panel, freezing it so it does
+not get overwritten by subsequent scans. Clicking the same row again unpins.
+The pin uses composite identity (timestamp + center_freq_hz) so the user must
+click the exact same row to unpin.
+
+**Why:** When the LLM classifies a signal, the AI Reasoning panel shows the
+result for 8 seconds (via `useFrozenDisplay`), then updates on the next new
+signal type. Users wanted to keep a particular classification visible for
+longer reference — comparing it against newly arriving signals, or reading
+the LLM's reasoning text at leisure. The pin feature provides a manual
+hold-to-freeze override.
+
+**How it works:**
+- `App.jsx` owns a `pinnedReasoning` state. `handlePinReasoning(entry)` toggles
+  it by comparing `prev.timestamp + prev.freq_hz` against `entry.timestamp +
+  entry.center_freq_hz`.
+- `SignalHistoryLog` receives `onPinReasoning` and `pinnedTimestamp` props.
+  Each row calls `onPinReasoning(entry)` on click. A `data-pinned` attribute
+  marks the pinned row, and amber styling (left border + tinted background)
+  visually identifies it.
+- `AIReasoningPanel` receives `isPinned` prop and displays a ◆ PINNED badge
+  between the frequency and signal type lines when active.
+- `App.jsx` uses `key={pinnedTimestamp || 'live'}` on `AIReasoningPanel` to
+  force a React remount, clearing any stale fade/transition state.
+
+**Files changed:**
+- `dashboard/frontend/src/App.jsx` — `pinnedReasoning` state,
+  `handlePinReasoning` callback, replaced inline Signal History and AI Reasoning
+  rendering with `<SignalHistoryLog>` and `<AIReasoningPanel>` components,
+  `key` prop on `AIReasoningPanel`, AI reasoning section height 154px
+- `dashboard/frontend/src/components/SignalHistoryLog.jsx` — new `onPinReasoning`
+  and `pinnedTimestamp` props, `data-pinned` attribute, amber pin styling,
+  `onClick` handler on each row
+- `dashboard/frontend/src/components/AIReasoningPanel.jsx` — new `isPinned` prop
+  (default false), ◆ PINNED badge conditional rendering
+
+**Key functions:**
+
+`handlePinReasoning(entry)` in `App.jsx` — toggles the pinned reasoning entry.
+Uses composite identity (timestamp + center_freq_hz) to distinguish rows.
+Returns `null` (unpin) when the same entry is clicked again. Spreads
+`INITIAL_AI_REASONING` then overlays entry fields so all display keys are
+present. Analogy: a sticky note you can stick to a whiteboard by clicking,
+and peel off by clicking again.
+
+`<SignalHistoryLog onClick>` — each row in the log is clickable. The `onClick`
+handler passes the entry up to `App.jsx`, which toggles the pin. The row sets
+`data-pinned` to true when its timestamp matches `pinnedTimestamp`, and gets
+amber left border + amber-tinted background styling.
+
+`<AIReasoningPanel isPinned>` — when `isPinned` is true and `displayData.signal_type`
+is set, renders ◆ PINNED badge. The `key` prop in `App.jsx` remounts the component
+on pin toggle, resetting any fade transition.
+
+**Deferred items:**
+1. **Pin eviction** — Pin state persists after the pinned entry scrolls out of
+   scanResults (capped at 200). The row becomes invisible and the user cannot
+   unpin. An unpin button inside AIReasoningPanel or a pin timeout would fix
+   this. Scope decision: not implemented.
+2. **Pin survives frequency change** — FocusFrequency clears aiReasoning but not
+   pinnedReasoning. Signal Details shows new band while AI Reasoning shows old
+   pinned data. Intentional per spec but a UX gap. Consider clearing the pin on
+   band change or adding a visual indicator.
+3. **SignalHistoryLog not memoised** — Re-renders on every spectrum_update (~4-5 Hz).
+   `React.memo` recommended as optimisation.
+4. **FREQ_COLOUR_MAP / freqLabel incomplete** — Only 4 of 6 AU frequencies have
+   dedicated colours and labels. Aviation, ACARS, AIS fall through to generic
+   white text and computed labels. Pre-existing, not introduced by this build.
+5. **confidence_score || vs ?? inconsistency** — `useSocket.js` uses `||` (corrupts
+   0.0 to null) while pin handler correctly uses `??`. Pre-existing bug.
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None — all changes are frontend React only, no RF interaction
+
+**Test counts:** (see AGENTS.md for latest totals)
 
 ---
 
@@ -1343,12 +1425,29 @@ User clicks [ADS-B] button in browser
 
 | File | Layer | Role |
 |---|---|---|
-| `dashboard/server.py` | Python | Entry point. Starts FastAPI + uvicorn, registers routes, kicks off `capture_loop`. |
-| `dashboard/shared_state.py` | Python | Shared memory. Holds `spectrum_clients`, `current_band`, `shutdown_event`, `BAND_PROFILES`. |
-| `dashboard/capture_loop.py` | Python | Pipeline engine. Runs capture → PSD → JSON → broadcast in an asyncio loop. |
-| `dashboard/static/index.html` | Browser | Page skeleton. Defines canvas, band buttons, annotation div. |
-| `dashboard/static/waterfall.js` | Browser | Browser brain. WebSocket client, colourmap, canvas drawing, band switch commands. |
-| `dashboard/static/style.css` | Browser | Visual styling. Dark theme, band button styles. |
+| `dashboard/server.py` | Python | Entry point. Starts Flask-SocketIO server, registers routes, kicks off `scan.py` loop. |
+| `dashboard/shared_state.py` | Python | Shared memory. Holds `BAND_PROFILES`, `current_band`, shutdown event, and band-switch lock. |
+| `dashboard/static/` | Static | Vite build output (generated). Served by Flask. |
+| `dashboard/frontend/src/App.jsx` | React | Root component. Three-row layout: waterfall + signal details (top), system status + signal history + AI reasoning + decoded signals (bottom). Owns `pinnedReasoning` state for pin-to-reasoning feature. |
+| `dashboard/frontend/src/components/SignalHistoryLog.jsx` | React | Scrolling log of scan results. Each row clickable: toggles pin on AIReasoningPanel. Amber highlight on pinned row. |
+| `dashboard/frontend/src/components/AIReasoningPanel.jsx` | React | Displays LLM classification output. Shows ◆ PINNED badge when `isPinned` prop is true. Fade transition on new reasoning data. |
+
+### Pin-to-Reasoning Data Flow
+
+The user clicks a row in SignalHistoryLog:
+
+1. `SignalHistoryLog` fires `onPinReasoning(entry)` via its `onClick` handler
+2. `App.jsx` `handlePinReasoning(entry)` compares identity: if the same row
+   (same timestamp + same center_freq_hz) is clicked again, pin is cleared
+   (`setPinnedReasoning(null)`). Otherwise, a new pin object is created from
+   the entry fields overlaid on `INITIAL_AI_REASONING`.
+3. `AIReasoningPanel` receives `aiReasoning={pinnedReasoning || aiReasoning}`
+   and `isPinned={!!pinnedReasoning}`. The `key={pinnedTimestamp || 'live'}`
+   prop forces a React remount, clearing any stale fade transition.
+4. `AIReasoningPanel` renders the ◆ PINNED badge between the frequency and
+   signal type lines when `isPinned=true` and `displayData.signal_type` is set.
+5. `SignalHistoryLog` sets `data-pinned` attribute and applies amber border +
+   background styling on the pinned row for visual feedback.
 
 ---
 

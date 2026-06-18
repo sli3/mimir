@@ -5,6 +5,8 @@ import SpectrometerBar from './components/SpectrometerBar.jsx'
 import AcarsMessagePanel from './components/AcarsMessagePanel.jsx'
 import AisVesselPanel from './components/AisVesselPanel.jsx'
 import AdsbAircraftPanel from './components/AdsbAircraftPanel.jsx'
+import SignalHistoryLog from './components/SignalHistoryLog.jsx'
+import AIReasoningPanel from './components/AIReasoningPanel.jsx'
 
 const INITIAL_AI_REASONING = {
   freq_hz: null,
@@ -139,6 +141,47 @@ export default function App() {
   const clock = useClock()
   const displayed = useFrozenDisplay(aiReasoning)
   const [customInput, setCustomInput] = useState('')
+  /** Pinned AI reasoning entry — set by clicking a row in SignalHistoryLog.
+   *  Toggles on/off: clicking the same row unpins, clicking a different row
+   *  replaces the pin. Composite identity uses (timestamp + center_freq_hz)
+   *  because timestamps alone are not guaranteed unique across frequencies
+   *  at scan rate (~4-5 Hz).
+   *
+   *  TODO: Pin eviction — if the pinned entry scrolls out of scanResults
+   *  (capped at 200), the row becomes invisible and the user cannot unpin.
+   *  Consider adding an unpin button inside AIReasoningPanel or a timeout.
+   *
+   *  TODO: Pin survives frequency change — FocusFrequency clears aiReasoning
+   *  but not pinnedReasoning. Signal Details shows new band while AI Reasoning
+   *  shows old pinned data. Intentional per spec but a UX gap — consider
+   *  clearing pin on band change or adding a visual indicator.
+   *  @type {{ freq_hz, signal_type, confidence, confidence_score, au_legal_status, reasoning, timestamp } | null} */
+  const [pinnedReasoning, setPinnedReasoning] = useState(null)
+  /** @type {string|null} — derived pin timestamp for data-pinned attribute matching */
+  const pinnedTimestamp = pinnedReasoning ? pinnedReasoning.timestamp : null
+
+  /** Click handler for SignalHistoryLog rows. Toggles pin on/off.
+   *  Uses composite identity (timestamp + center_freq_hz) so the user must
+   *  click the exact same row to unpin. Spreads INITIAL_AI_REASONING then
+   *  overlays entry fields to ensure every display key is present.
+   *  @param {{ timestamp: string, center_freq_hz: number, signal_type: string, confidence: string, confidence_score: number, au_legal_status: string, reasoning: string }} entry */
+  const handlePinReasoning = useCallback((entry) => {
+    setPinnedReasoning((prev) => {
+      if (prev && prev.timestamp === entry.timestamp && prev.freq_hz === entry.center_freq_hz) {
+        return null
+      }
+      return {
+        ...INITIAL_AI_REASONING,
+        freq_hz: entry.center_freq_hz,
+        signal_type: entry.signal_type || null,
+        confidence: entry.confidence || null,
+        confidence_score: entry.confidence_score ?? null,
+        au_legal_status: entry.au_legal_status || null,
+        reasoning: entry.reasoning || null,
+        timestamp: entry.timestamp || null,
+      }
+    })
+  }, [])
 
   const handleTune = useCallback(() => {
     const val = parseFloat(customInput)
@@ -911,114 +954,12 @@ export default function App() {
               display: 'flex',
               flexDirection: 'column',
             }}>
-              {/* Header row */}
-              <div style={{
-                display: 'flex',
-                flexDirection: 'row',
-                padding: '3px 10px',
-                borderBottom: '1px solid var(--border)',
-              }}>
-                <span style={{
-                  fontSize: '11px',
-                  color: 'var(--text-dim)',
-                  letterSpacing: '1px',
-                  textTransform: 'uppercase',
-                  fontFamily: 'var(--font-data)',
-                  width: '52px',
-                  flexShrink: 0,
-                }}>
-                  TIME
-                </span>
-                <span style={{
-                  fontSize: '11px',
-                  color: 'var(--text-dim)',
-                  letterSpacing: '1px',
-                  textTransform: 'uppercase',
-                  fontFamily: 'var(--font-data)',
-                  width: '96px',
-                  flexShrink: 0,
-                }}>
-                  FREQUENCY
-                </span>
-                <span style={{
-                  fontSize: '11px',
-                  color: 'var(--text-dim)',
-                  letterSpacing: '1px',
-                  textTransform: 'uppercase',
-                  fontFamily: 'var(--font-data)',
-                  flex: 1,
-                }}>
-                  CLASS
-                </span>
-                <span style={{
-                  fontSize: '11px',
-                  color: 'var(--text-dim)',
-                  letterSpacing: '1px',
-                  textTransform: 'uppercase',
-                  fontFamily: 'var(--font-data)',
-                  width: '36px',
-                  textAlign: 'right',
-                  flexShrink: 0,
-                }}>
-                  CONF
-                </span>
-              </div>
               {/* Data rows */}
-              {scanResults.slice(0, 30).map((entry, i) => (
-                <div
-                  key={i}
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'row',
-                    gap: '8px',
-                    padding: '4px 10px',
-                    borderBottom: '1px solid #0F2030',
-                  }}
-                >
-                  <span style={{
-                    fontSize: '12px',
-                    color: 'var(--text-dim)',
-                    fontFamily: 'var(--font-data)',
-                    width: '52px',
-                    flexShrink: 0,
-                  }}>
-                    {entry.timestamp
-                      ? new Date(entry.timestamp).toLocaleTimeString('en-AU', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
-                      : '--:--:--'}
-                  </span>
-                  <span style={{
-                    fontSize: '12px',
-                    color: 'var(--neon-cyan)',
-                    fontFamily: 'var(--font-data)',
-                    width: '96px',
-                    flexShrink: 0,
-                  }}>
-                    {entry.center_freq_hz
-                      ? (entry.center_freq_hz / 1e6).toFixed(3) + ' MHz'
-                      : '---'}
-                  </span>
-                  <span style={{
-                    fontSize: '12px',
-                    color: 'var(--neon-green)',
-                    fontFamily: 'var(--font-data)',
-                    flex: 1,
-                  }}>
-                    {entry.signal_type || '---'}
-                  </span>
-                  <span style={{
-                    fontSize: '12px',
-                    color: 'var(--neon-amber)',
-                    fontFamily: 'var(--font-data)',
-                    width: '36px',
-                    textAlign: 'right',
-                    flexShrink: 0,
-                  }}>
-                    {entry.confidence_score != null
-                      ? (entry.confidence_score * 100).toFixed(0) + '%'
-                      : '---'}
-                  </span>
-                </div>
-              ))}
+              <SignalHistoryLog
+                scanResults={scanResults}
+                onPinReasoning={handlePinReasoning}
+                pinnedTimestamp={pinnedTimestamp}
+              />
             </div>
           </div>
         </div>
@@ -1031,9 +972,10 @@ export default function App() {
           overflow: 'hidden',
         }}>
           {/* Section A — AI Reasoning */}
-          <div style={{ flexShrink: 0 }}>
+          <div style={{ height: '154px', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
             <div style={{
               height: '28px',
+              flexShrink: 0,
               background: 'var(--bg-header)',
               borderBottom: '1px solid var(--border)',
               display: 'flex',
@@ -1059,38 +1001,12 @@ export default function App() {
                 HOLDS 8s · UPDATES ON NEW SIGNAL
               </span>
             </div>
-            <div style={{ padding: '8px 10px' }}>
-              <div style={{
-                background: 'var(--bg-header)',
-                borderLeft: '2px solid var(--neon-magenta)',
-                padding: '8px',
-                position: 'relative',
-                maxHeight: '100px',
-                overflowY: 'auto',
-              }}>
-                <div style={{
-                  fontSize: '11px',
-                  color: 'var(--text-dim)',
-                  fontFamily: 'var(--font-data)',
-                  marginBottom: '4px',
-                }}>
-                  {displayed.timestamp
-                    ? new Date(displayed.timestamp).toLocaleTimeString('en-AU', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
-                    : ''}
-                </div>
-                <div style={{
-                  fontSize: '13px',
-                  lineHeight: 1.6,
-                  color: '#9AB8C8',
-                  fontFamily: 'var(--font-data)',
-                }}>
-                  {displayed.reasoning || (
-                    <span style={{ color: 'var(--text-dim)' }}>
-                      Awaiting signal classification...
-                    </span>
-                  )}
-                </div>
-              </div>
+            <div style={{ flex: 1, overflow: 'hidden' }}>
+              <AIReasoningPanel
+                key={pinnedTimestamp || 'live'}
+                aiReasoning={pinnedReasoning || aiReasoning}
+                isPinned={!!pinnedReasoning}
+              />
             </div>
           </div>
 
