@@ -16,7 +16,7 @@ function confidenceColour(confidence) {
  *  confidence, AU legal status, timestamp, and the LLM's reasoning text.
  *  When `isPinned` is true and a valid signal_type is present, renders a
  *  boxed ◆ PINNED badge (amber border + glow) beside the timestamp at the
- *  top of the panel. A "CLASSIFICATION LOG" heading sits above the badge row.
+ *  top of the panel. A "CLASSIFICATION LOG" heading sits above the reasoning body.
  *
  *  Shows "AWAITING SIGNAL..." when no reasoning data is available (placeholder).
  *
@@ -94,16 +94,6 @@ export default function AIReasoningPanel({ aiReasoning, isPinned = false }) {
           flexDirection: 'column',
           height: '100%',
         }}>
-          {/* CLASSIFICATION LOG heading */}
-          <div style={{
-            fontFamily: 'var(--font-display)',
-            fontSize: 10,
-            color: 'var(--text-dim)',
-            marginBottom: 4,
-          }}>
-            CLASSIFICATION LOG
-          </div>
-
           {/* Line 1 — Status / timestamp row */}
           {isPinned && displayData.signal_type ? (
             <div style={{
@@ -191,6 +181,16 @@ export default function AIReasoningPanel({ aiReasoning, isPinned = false }) {
               </span>
             </div>
           )}
+
+          {/* CLASSIFICATION LOG heading */}
+          <div style={{
+            fontFamily: 'var(--font-display)',
+            fontSize: 11,
+            color: 'var(--text-dim)',
+            marginBottom: 4,
+          }}>
+            CLASSIFICATION LOG
+          </div>
 
           {/* Reasoning body */}
           <div style={{

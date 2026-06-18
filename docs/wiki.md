@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: "AI-PANEL-BADGE-REDESIGN"
+last_updated_phase: "AI-PANEL-CLASSIFICATION-LOG-FIX"
 ---
 
 # Mimir Wiki
@@ -129,6 +129,33 @@ a corkboard, now with a thick border so you cannot miss it.
 - LOW-02 (advisory): App.jsx ACTIVE/IDLE badge conditional indentation is off by
   2 spaces from the surrounding JSX. Cosmetic only — the code compiles and
   renders correctly. Fix when touching the surrounding lines next.
+
+### 2026-06-18 update — CLASSIFICATION LOG heading repositioned
+
+The CLASSIFICATION LOG heading was moved from between the status/timestamp row
+and the identity row (Line 1 position) to immediately above the reasoning body
+(Line 4 position). The heading now sits between the conditional confidence row
+and the reasoning text. Font size increased from `10` to `11`.
+
+**Why:** The heading was originally placed at the top of the non-placeholder
+content, which looked correct but cluttered the status area. Moving it directly
+above the reasoning body puts the heading closer to the content it labels,
+matching the visual convention of data-panel headers elsewhere in the dashboard.
+
+**JSDoc updated:** Line 19 now reads "A 'CLASSIFICATION LOG' heading sits above
+the reasoning body" (was "above the badge row").
+
+**New deferred item:**
+- LOW-03 (advisory): CLASSIFICATION LOG heading has `marginBottom: 4` but no
+  `marginTop`. When the conditional confidence row is present (Line 3), the gap
+  between the confidence text and the heading is 0px, creating a tight visual
+  stack. Cosmetic only — the confidence row appears only when `displayData.confidence`
+  is set, which is the common case. Add `marginTop: 4` or `marginTop: 8` to the
+  heading's style object if breathing room is desired.
+
+**Files changed:**
+- `dashboard/frontend/src/components/AIReasoningPanel.jsx` — CLASSIFICATION LOG
+  heading moved from above Line 1 to above Line 5; fontSize 10→11; JSDoc updated
 
 **RF/Legal Notes:**
 - TX safety incidents: None

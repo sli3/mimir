@@ -1265,3 +1265,43 @@ test_adsb_demodulator). Unchanged from previous build.
 
 **Next session starter:**
 None — standalone badge redesign complete and tested. 105/105 Vitest passing.
+
+---
+
+### 2026-06-18 — AI Panel Classification Log Fix (frontend-only)
+
+**Type:** Code
+
+**What was done:**
+Two small fixes to AIReasoningPanel.jsx:
+
+1. **Moved CLASSIFICATION LOG heading** — relocated the heading from above the
+   status/timestamp row (Line 1) to immediately above the reasoning body. Correct
+   element order is now: Line 1 (status/timestamp) → Line 2 (identity) → Line 3
+   (confidence) → CLASSIFICATION LOG heading → Reasoning body.
+
+2. **Increased heading font size** — changed from 10 to 11 for improved readability.
+
+**Files changed:**
+- `dashboard/frontend/src/components/AIReasoningPanel.jsx`: Repositioned CLASSIFICATION
+  LOG heading div; bumped fontSize from 10 to 11; updated JSDoc to reflect new position
+- `docs/wiki.md`: Phase log updated by doc-writer
+
+**Test counts:** 105 Vitest passing (unchanged). 330 pytest passing (1 pre-existing failure
+in test_adsb_demodulator). Unchanged from previous build.
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None — frontend-only React/CSS changes, no RF interaction
+
+**Decisions made:**
+- Heading moved above reasoning body for semantic correctness — the label introduces the
+  reasoning text, not the metadata rows above it
+- fontSize 11 chosen to match the placeholder text size (AWAITING SIGNAL...)
+
+**Deferred items surfaced:**
+- LOW-03 (advisory): CLASSIFICATION LOG heading has marginBottom: 4 but no marginTop.
+  When the conditional confidence row is present the gap is 0px — cosmetic only.
+
+**Next session starter:**
+None — standalone fixes complete. 105/105 Vitest passing.
