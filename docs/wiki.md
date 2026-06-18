@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: "AI-PANEL-CLASSIFICATION-LOG-FIX"
+last_updated_phase: "TEST-SERVER-STATS-REFACTOR"
 ---
 
 # Mimir Wiki
@@ -70,6 +70,50 @@ Step  Function / Component          What it does
 ## Phase Log
 
 Phases are listed newest-first so the current phase is always at the top.
+
+---
+
+### TEST-SERVER-STATS-REFACTOR — Strict Dict Equality Fix ✓ DONE
+
+**What:** Test-quality refactor of `tests/dashboard/test_server_stats.py` to
+eliminate the fragile strict-dict-equality assertions that broke whenever a new
+field was added to the broadcast payload.
+
+**Changes:**
+1. **`test_filter_passes_matching`** — Replaced the old
+   `assert_called_once_with("scan_result", {full_dict_literal})` with individual
+   `assert payload[key] == value` assertions for semantically important fields.
+   Now asserts only the routing fields (`center_freq_hz`, `timestamp`),
+   classification identity (`signal_type`, `confidence`, `confidence_score`,
+   `novel`, `au_legal_status`), and explicitly-provided fingerprint fields
+   (`peak_power_db`, `snr_db`, `signal_threshold_db`, `snr_margin_db`,
+   `bandwidth_hz`, `spectral_flatness`, `chroma_distance`). Uses
+   `pytest.approx` for float fingerprint fields to tolerate minor precision
+   differences.
+
+2. **`test_passes_all_when_focus_is_none`** — Added loose key assertions
+   (`event_name`, `center_freq_hz`, `signal_type`) to complement the existing
+   `assert_called_once()`. Previously the test verified only that `emit()` was
+   called, not *what* was emitted.
+
+**Why:** The strict dict equality pattern was a pre-existing tech debt item in
+AGENTS.md (Known Tech Debt table: "test_server_stats.py strict dict equality
+fragility"). Every prior build that added a broadcast field (chroma_distance in
+Phase 10-Fix4, signal_threshold_db/snr_margin_db in Phase 11-Hotfix) had to
+update this test's literal dict. The new assertions verify the fields that
+matter without coupling to the full payload shape — adding a new broadcast
+field will not break this test.
+
+**Files changed:**
+- `tests/dashboard/test_server_stats.py` — `test_filter_passes_matching` and
+  `test_passes_all_when_focus_is_none` refactored with individual field
+  assertions
+
+**Test counts:** (see AGENTS.md for latest totals)
+
+**Deferred items:**
+- None new surfaced. This build resolves the AGENTS.md Known Tech Debt entry
+  "test_server_stats.py strict dict equality fragility".
 
 ---
 

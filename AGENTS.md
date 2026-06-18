@@ -345,6 +345,7 @@ Do not apply this pre-emptively — only if context problems are observed.
 | ~~`psd_db` uncalibrated~~ | ~~FFT missing nfft normalisation~~ — fixed in Phase 9B-Hotfix (true dBFS) | ~~Post 7B~~ ✅ 9B-Hotfix |
 | scan.py startup message | "Scanning N frequencies" is misleading now that single-freq focus mode is active | Post 8C cosmetic |
 | Orphaned dashboard components | `SystemStatsPanel.jsx` and `AIReasoningPanel.jsx` are not imported by `App.jsx` -- live dashboard renders stats and AI reasoning inline. Components exist only as standalone test targets. | Pre-prod integration |
+| ~~test_server_stats.py strict dict equality~~ | ~~Full-dict equality broke every time broadcast() added a field~~ | ~~Resolved: test-quality refactor~~ ✅ |
 
 ---
 
@@ -1305,3 +1306,36 @@ in test_adsb_demodulator). Unchanged from previous build.
 
 **Next session starter:**
 None — standalone fixes complete. 105/105 Vitest passing.
+
+---
+
+### 2026-06-18 — test_server_stats.py Test-Quality Refactor (test-quality refactor)
+
+**Type:** Code (test-quality refactor)
+
+**What was done:**
+- Refactored `test_filter_passes_matching` in `tests/dashboard/test_server_stats.py` from strict full-dict equality (`assert_called_once_with("scan_result", {full_dict})`) to individual key assertions for semantically important fields. The old pattern enumerated every key in the broadcast payload and broke every time a new field was added to `broadcast()` (broke twice: Phase 10-Fix2, Phase 11). The new pattern only asserts routing fields (center_freq_hz, timestamp), classification identity (signal_type, confidence, confidence_score, novel, au_legal_status), and explicitly-provided fingerprint fields (peak_power_db, snr_db, signal_threshold_db, snr_margin_db, bandwidth_hz, spectral_flatness, chroma_distance). Uses `pytest.approx` for float fingerprint fields.
+- Refactored `test_passes_all_when_focus_is_none` to add loose key assertions (event_name, center_freq_hz, signal_type) — previously only verified emit was called.
+- `test_filter_blocks_non_matching` left untouched (uses `assert_not_called()`, already loose and correct).
+- No production code changes. Single file: `tests/dashboard/test_server_stats.py`.
+
+**Files changed:**
+- `tests/dashboard/test_server_stats.py` — refactored 2 test methods
+- `docs/wiki.md` — phase log entry added by @doc-writer
+
+**Test counts:** 423 passing (326 pytest + 97 Vitest), 5 pre-existing pytest failures (1 ADS-B demod + 4 AIS decoder pyais missing)
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None — all changes are test quality refactoring, no RF or production code interaction
+
+**Decisions made:**
+- Individual key assertions chosen over full-dict equality to eliminate the recurring breakage pattern when broadcast() payload fields are added or reordered
+- `pytest.approx` used for float fingerprint fields to tolerate minor numerical variation from feature extraction
+- Routing fields (center_freq_hz, timestamp) and classification identity fields asserted with strict equality — these are the API contract between server and frontend
+
+**Deferred items surfaced:**
+- None — clean refactor, no new tech debt
+
+**Next session starter:**
+None — standalone test quality refactor complete and tested. 423/423 tests passing.
