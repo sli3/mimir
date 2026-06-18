@@ -1171,3 +1171,43 @@ None — config-only build complete.
 
 **Next session starter:**
 None — standalone frontend feature complete and tested. 435/435 tests passing (330 pytest + 105 Vitest).
+
+---
+
+### 2026-06-17 — Frontend UI Readability Fixes (AIReasoningPanel + SignalHistoryLog)
+
+**Type:** Code / Frontend (standalone, NOT a checkpoint)
+
+**What was done:**
+- Increased AI Reasoning container height from 154px to 210px in `App.jsx` (line 975)
+  to resolve vertical overflow of reasoning text at the new font sizes — fix driven
+  by @deep-analyst code review finding.
+- Increased 7 font-size values and flex gap (6 → 8) in `AIReasoningPanel.jsx` for
+  improved readability of the live AI reasoning display.
+- Removed opacity conditional from row `div` style in `SignalHistoryLog.jsx` — rows
+  below index 4 were dimmed, making them harder to read in the signal history log.
+
+**Files changed:**
+- `dashboard/frontend/src/App.jsx`: container height 154px → 210px
+- `dashboard/frontend/src/components/AIReasoningPanel.jsx`: 7 font-size increases, gap 6 → 8
+- `dashboard/frontend/src/components/SignalHistoryLog.jsx`: removed opacity conditional
+
+**Test counts:** 105 Vitest passing (unchanged from previous session). Pytest not run (frontend-only build).
+
+**PM Audit Result:** Clean — all findings actioned, conflict (reviewer vs deep-analyst on container height) adjudicated in favour of @deep-analyst, no constraint violations.
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None — all changes are frontend React only, no RF interaction
+
+**Decisions made:**
+- 210px chosen as the new container height after testing confirmed it accommodates the
+  largest rendered reasoning text block at the increased font sizes without clipping
+- Opacity conditional removed entirely (rather than adjusting threshold) because dimming
+  a subset of history rows provides no functional benefit and reduces readability
+
+**Deferred items surfaced:**
+- None — clean build, no new tech debt
+
+**Next session starter:**
+None — standalone frontend fixes complete and tested. 105/105 Vitest passing.

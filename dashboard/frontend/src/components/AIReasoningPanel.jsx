@@ -77,7 +77,7 @@ export default function AIReasoningPanel({ aiReasoning, isPinned = false }) {
           justifyContent: 'center',
           height: '100%',
           fontFamily: 'var(--font-display)',
-          fontSize: 9,
+          fontSize: 11,
           color: 'var(--text-dim)',
           textAlign: 'center',
         }}>
@@ -89,12 +89,12 @@ export default function AIReasoningPanel({ aiReasoning, isPinned = false }) {
           transition: 'opacity 300ms ease-in-out',
           display: 'flex',
           flexDirection: 'column',
-          gap: 6,
+          gap: 8,
           height: '100%',
         }}>
           <div style={{
             fontFamily: 'var(--font-display)',
-            fontSize: 9,
+            fontSize: 11,
             color: 'var(--neon-cyan)',
           }}>
             {displayData.freq_hz
@@ -105,7 +105,7 @@ export default function AIReasoningPanel({ aiReasoning, isPinned = false }) {
           {isPinned && displayData.signal_type && (
             <div style={{
               fontFamily: 'var(--font-display)',
-              fontSize: 8,
+              fontSize: 10,
               color: 'var(--neon-amber)',
               letterSpacing: 1,
               opacity: 0.9,
@@ -116,7 +116,7 @@ export default function AIReasoningPanel({ aiReasoning, isPinned = false }) {
 
           <div style={{
             fontFamily: 'var(--font-data)',
-            fontSize: 14,
+            fontSize: 20,
             color: 'var(--neon-cyan)',
             letterSpacing: 2,
           }}>
@@ -128,7 +128,7 @@ export default function AIReasoningPanel({ aiReasoning, isPinned = false }) {
           {displayData.confidence && (
             <div style={{
               fontFamily: 'var(--font-data)',
-              fontSize: 11,
+              fontSize: 14,
               color: confidenceColour(displayData.confidence),
             }}>
               {displayData.confidence.toUpperCase()}{'  '}
@@ -141,7 +141,7 @@ export default function AIReasoningPanel({ aiReasoning, isPinned = false }) {
           {displayData.au_legal_status && (
             <div style={{
               fontFamily: 'var(--font-data)',
-              fontSize: 10,
+              fontSize: 13,
               color: 'var(--neon-green)',
               opacity: 0.7,
             }}>
@@ -151,7 +151,7 @@ export default function AIReasoningPanel({ aiReasoning, isPinned = false }) {
 
           <div style={{
             fontFamily: 'var(--font-data)',
-            fontSize: 9,
+            fontSize: 11,
             color: 'var(--text-dim)',
             opacity: 0.5,
             marginBottom: 4,
@@ -161,7 +161,7 @@ export default function AIReasoningPanel({ aiReasoning, isPinned = false }) {
 
           <div style={{
             fontFamily: 'var(--font-data)',
-            fontSize: 10,
+            fontSize: 13,
             color: displayData.signal_type === 'unavailable'
               ? 'var(--neon-amber)'
               : 'var(--text-dim)',

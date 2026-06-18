@@ -63,7 +63,6 @@ export default function SignalHistoryLog({ scanResults, onPinReasoning, pinnedTi
               onClick={onPinReasoning ? () => onPinReasoning(entry) : undefined}
               data-pinned={isPinned ? true : undefined}
               style={{
-                opacity: idx > 4 ? 0.5 : 1,
                 lineHeight: 1.6,
                 borderLeft: isPinned ? '2px solid var(--neon-amber)' : '2px solid transparent',
                 background: isPinned ? 'rgba(255, 170, 0, 0.07)' : 'transparent',

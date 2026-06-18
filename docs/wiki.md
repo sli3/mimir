@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: "CLICK-HISTORY-TO-PIN-REASONING"
+last_updated_phase: "UI-READABILITY-FIX"
 ---
 
 # Mimir Wiki
@@ -73,7 +73,45 @@ Phases are listed newest-first so the current phase is always at the top.
 
 ---
 
-### CLICK-HISTORY-TO-PIN-REASONING — Click a signal history row to pin AI reasoning ✓ DONE
+### UI-READABILITY-FIX — AI Reasoning Panel Font Size + Container Height + Signal History Opacity ✓ DONE
+
+**What:** Frontend-only UX improvement making the dashboard text easier to read
+at desktop resolutions.
+
+**Why:** During live testing, the AI reasoning text was too small to read
+comfortably at 1920×1080. All font sizes in `AIReasoningPanel.jsx` were 2-6
+pixels too small, and the container height (154px) clipped the enlarged text.
+Signal history rows had a dimming effect from a stale opacity conditional that
+made older entries harder to read than newer ones.
+
+**Changes:**
+1. **AIReasoningPanel font sizes increased** — Seven font-size values bumped up
+   (9→11, 8→10, 14→20, 11→14, 10→13, 10→13, 9→11 pixels). The gap between
+   elements increased from 6px to 8px for breathing room. The reasoning text
+   (previously 9px) is now 11px and the signal_type heading (previously 14px)
+   is now 20px — doubling the visual emphasis on the classification result.
+2. **AIReasoningPanel container height increased** — The parent container in
+   `App.jsx` grew from 154px to 210px (+54 pixels) to accommodate the larger
+   font sizes without clipping.
+3. **SignalHistoryLog opacity conditional removed** — The row `<div>` had a
+   `style={{ opacity: index === scanResults.length - 1 ? 1 : 0.15 }}` that
+   made all but the newest entry dim. Removing this conditional means every
+   entry in the log renders at full opacity, making earlier entries as readable
+   as the latest one.
+
+**Files changed:**
+- `dashboard/frontend/src/App.jsx` — AI reasoning container height 154px → 210px
+- `dashboard/frontend/src/components/AIReasoningPanel.jsx` — 7 font-size values
+  and gap increased across signal_type, freq_hz, confidence badge, timestamp,
+  reasoning text, and detailed stats rows
+- `dashboard/frontend/src/components/SignalHistoryLog.jsx` — removed opacity
+  conditional from row div style
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None — all changes are frontend CSS/sizing only, no RF interaction
+
+**Test counts:** 105 Vitest (unchanged — no new tests required).
 
 **What:** Frontend-only feature. Clicking a row in the Signal History Log pins
 that entry's AI reasoning to the AI Reasoning panel, freezing it so it does
