@@ -15,7 +15,10 @@ function confidenceColour(confidence) {
 /** Displays the current (or pinned) AI reasoning: frequency, signal type,
  *  confidence, AU legal status, timestamp, and the LLM's reasoning text.
  *  When `isPinned` is true and a valid signal_type is present, renders a
- *  ◆ PINNED badge between the frequency and signal type lines.
+ *  boxed ◆ PINNED badge (amber border + glow) beside the timestamp at the
+ *  top of the panel. A "CLASSIFICATION LOG" heading sits above the badge row.
+ *
+ *  Shows "AWAITING SIGNAL..." when no reasoning data is available (placeholder).
  *
  *  The component fades out (opacity 0→1 transition) when the reasoning
  *  entry changes, unless a pin override supresses the transition.
@@ -25,8 +28,8 @@ function confidenceColour(confidence) {
  *    freq_hz, signal_type, confidence, confidence_score, au_legal_status,
  *    reasoning, timestamp)
  *  @param {boolean} [props.isPinned=false] — if true and signal_type is set,
- *    renders ◆ PINNED badge and the component key in App.jsx forces remount
- *    on pin toggle */
+ *    renders a boxed ◆ PINNED badge with timestamp in amber, and the component
+ *    key in App.jsx forces remount on pin toggle */
 export default function AIReasoningPanel({ aiReasoning, isPinned = false }) {
   const [opacity, setOpacity] = useState(1)
   const [displayData, setDisplayData] = useState(null)
@@ -89,76 +92,107 @@ export default function AIReasoningPanel({ aiReasoning, isPinned = false }) {
           transition: 'opacity 300ms ease-in-out',
           display: 'flex',
           flexDirection: 'column',
-          gap: 8,
           height: '100%',
         }}>
+          {/* CLASSIFICATION LOG heading */}
           <div style={{
             fontFamily: 'var(--font-display)',
-            fontSize: 11,
-            color: 'var(--neon-cyan)',
+            fontSize: 10,
+            color: 'var(--text-dim)',
+            marginBottom: 4,
           }}>
-            {displayData.freq_hz
-              ? `${(displayData.freq_hz / 1e6).toFixed(3)} MHz`
-              : '—'}
+            CLASSIFICATION LOG
           </div>
 
-          {isPinned && displayData.signal_type && (
+          {/* Line 1 — Status / timestamp row */}
+          {isPinned && displayData.signal_type ? (
             <div style={{
-              fontFamily: 'var(--font-display)',
-              fontSize: 10,
-              color: 'var(--neon-amber)',
-              letterSpacing: 1,
-              opacity: 0.9,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              marginBottom: 4,
             }}>
-              ◆ PINNED
+              <div style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                border: '1px solid var(--neon-amber)',
+                background: 'rgba(255, 170, 0, 0.14)',
+                boxShadow: '0 0 6px rgba(255, 170, 0, 0.35)',
+                padding: '2px 8px',
+                fontFamily: 'var(--font-display)',
+                fontSize: 10,
+                color: 'var(--neon-amber)',
+                letterSpacing: 1,
+              }}>
+                ◆ PINNED
+              </div>
+              <span style={{
+                fontFamily: 'var(--font-display)',
+                fontSize: 10,
+                color: 'var(--neon-amber)',
+              }}>
+                {formatTimestamp(displayData.timestamp)}
+              </span>
+            </div>
+          ) : (
+            <div style={{ marginBottom: 4 }}>
+              <span style={{
+                fontFamily: 'var(--font-display)',
+                fontSize: 10,
+                color: 'var(--text-bright)',
+              }}>
+                {formatTimestamp(displayData.timestamp)}
+              </span>
             </div>
           )}
 
+          {/* Line 2 — Identity row */}
           <div style={{
             fontFamily: 'var(--font-data)',
-            fontSize: 20,
-            color: 'var(--neon-cyan)',
-            letterSpacing: 2,
+            fontSize: 13,
+            marginTop: 4,
           }}>
-            {displayData.signal_type === 'unavailable'
-              ? 'TIMEOUT'
-              : (displayData.signal_type || '').toUpperCase()}
+            <span style={{ color: 'var(--neon-cyan)' }}>
+              {displayData.signal_type === 'unavailable'
+                ? 'TIMEOUT'
+                : (displayData.signal_type || '').toUpperCase()}
+            </span>
+            <span style={{ color: 'var(--text-dim)' }}> : </span>
+            <span style={{ color: 'var(--neon-cyan)' }}>
+              {displayData.freq_hz
+                ? `${(displayData.freq_hz / 1e6).toFixed(3)} MHz`
+                : '—'}
+            </span>
+            {displayData.au_legal_status && (
+              <>
+                <span style={{ color: 'var(--text-dim)' }}> | </span>
+                <span style={{ color: 'var(--neon-green)' }}>
+                  {displayData.au_legal_status}
+                </span>
+              </>
+            )}
           </div>
 
+          {/* Line 3 — Confidence row (conditional) */}
           {displayData.confidence && (
             <div style={{
               fontFamily: 'var(--font-data)',
-              fontSize: 14,
-              color: confidenceColour(displayData.confidence),
-            }}>
-              {displayData.confidence.toUpperCase()}{'  '}
-              {displayData.confidence_score != null
-                ? displayData.confidence_score.toFixed(2)
-                : ''}
-            </div>
-          )}
-
-          {displayData.au_legal_status && (
-            <div style={{
-              fontFamily: 'var(--font-data)',
               fontSize: 13,
-              color: 'var(--neon-green)',
-              opacity: 0.7,
+              marginTop: 4,
             }}>
-              {displayData.au_legal_status}
+              <span style={{ color: 'var(--text-dim)' }}>CONFIDENCE: </span>
+              <span style={{
+                color: confidenceColour(displayData.confidence),
+              }}>
+                {displayData.confidence.toUpperCase()}{' '}
+                {displayData.confidence_score != null
+                  ? displayData.confidence_score.toFixed(2)
+                  : ''}
+              </span>
             </div>
           )}
 
-          <div style={{
-            fontFamily: 'var(--font-data)',
-            fontSize: 11,
-            color: 'var(--text-dim)',
-            opacity: 0.5,
-            marginBottom: 4,
-          }}>
-            {formatTimestamp(displayData.timestamp)}
-          </div>
-
+          {/* Reasoning body */}
           <div style={{
             fontFamily: 'var(--font-data)',
             fontSize: 13,
@@ -168,6 +202,7 @@ export default function AIReasoningPanel({ aiReasoning, isPinned = false }) {
             lineHeight: 1.5,
             flex: 1,
             overflowY: 'auto',
+            marginTop: 8,
           }}>
             {displayData.signal_type === 'unavailable'
               ? 'LLM TIMEOUT — ChromaDB match only'

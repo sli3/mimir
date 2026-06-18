@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: "UI-READABILITY-FIX"
+last_updated_phase: "AI-PANEL-BADGE-REDESIGN"
 ---
 
 # Mimir Wiki
@@ -70,6 +70,71 @@ Step  Function / Component          What it does
 ## Phase Log
 
 Phases are listed newest-first so the current phase is always at the top.
+
+---
+
+### AI-PANEL-BADGE-REDESIGN — Boxed Pin/Status Badges + Classification Log Heading ✓ DONE
+
+**What:** Three cosmetic badge changes to the frontend dashboard:
+
+1. **AIReasoningPanel CLASSIFICATION LOG heading** — Added a "CLASSIFICATION LOG"
+   heading div at the top of the non-placeholder content, above the status/timestamp
+   row. Uses `var(--font-display)`, 10px, `var(--text-dim)` colour to match the
+   dashboard's data-panel header conventions.
+
+2. **Boxed ◆ PINNED badge** — Replaced the previous inline PINNED badge (rendered
+   between the frequency and signal type lines) with a styled boxed badge at the top
+   of the panel, beside the timestamp. The badge uses an amber border
+   (`1px solid var(--neon-amber)`), amber-tinted background (`rgba(255,170,0,0.14)`),
+   a glow `box-shadow`, and `2px 8px` padding. When `isPinned` is false, only the
+   timestamp (in `var(--text-bright)`) is displayed.
+
+3. **App.jsx ACTIVE/IDLE badges redesigned** — Replaced the wrapping flex div with
+   dot/text spans (● ACTIVE / ● IDLE) with direct boxed badges using the `◆` prefix:
+   - ACTIVE: inline-flex badge, red border (`1px solid #ff4444`), red-tinted
+     background (`rgba(255,68,68,0.14)`), glow box-shadow, ◆ ACTIVE text
+   - IDLE: inline-flex badge, dim border (`1px solid var(--text-dim)`), transparent
+     background, ◆ IDLE text
+
+**Why:** The original inline badge styling (plain text between frequency and signal
+type lines) was visually subtle and easily overlooked. The boxed badge design gives
+the pinned state more visual weight — the amber border and glow make it immediately
+obvious that the displayed reasoning is frozen. Similarly, the ACTIVE/IDLE badges
+were previously plain text with a coloured dot that blended into the surrounding UI;
+the boxed red badge makes the scanning state unmistakable at a glance.
+
+**Files changed:**
+- `dashboard/frontend/src/components/AIReasoningPanel.jsx` — added CLASSIFICATION
+  LOG heading div; conditional render for isPinned: boxed ◆ PINNED badge + amber
+  timestamp vs timestamp only in var(--text-bright)
+- `dashboard/frontend/src/App.jsx` — replaced dot/text ACTIVE/IDLE indicators with
+  boxed ◆ ACTIVE / ◆ IDLE badges using inline-flex layout, coloured borders,
+  tinted backgrounds, and glow box-shadow
+
+**Key functions:**
+
+`AIReasoningPanel` — now renders a CLASSIFICATION LOG heading above the
+status/timestamp row when showing live or pinned reasoning data. The `isPinned`
+prop controls whether the row shows a boxed ◆ PINNED badge + amber timestamp
+(pinned) or a plain timestamp in bright text (live). The badge design uses the
+dashboard's `--neon-amber` colour tokens and a subtle glow effect to signal
+"this is frozen — not updating". Analogy: a yellow sticky note you can pin to
+a corkboard, now with a thick border so you cannot miss it.
+
+**Deferred items:**
+- LOW-01 (advisory): App.jsx ACTIVE badge uses hardcoded `#ff4444` instead of
+  `var(--neon-red)`. Both reviewers flagged this during dual review. Spec
+  explicitly required `#ff4444`. Consider switching to `var(--neon-red)` for
+  theme consistency if the colour value is ever revisited.
+- LOW-02 (advisory): App.jsx ACTIVE/IDLE badge conditional indentation is off by
+  2 spaces from the surrounding JSX. Cosmetic only — the code compiles and
+  renders correctly. Fix when touching the surrounding lines next.
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None — all changes are frontend React/CSS only, no RF interaction
+
+**Test counts:** (see AGENTS.md for latest totals)
 
 ---
 

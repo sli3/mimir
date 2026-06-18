@@ -1211,3 +1211,57 @@ None — standalone frontend feature complete and tested. 435/435 tests passing 
 
 **Next session starter:**
 None — standalone frontend fixes complete and tested. 105/105 Vitest passing.
+
+---
+
+### 2026-06-18 — AI Panel Badge Redesign (frontend-only cosmetic)
+
+**Type:** Code
+
+**What was done:**
+Three cosmetic badge changes to the frontend dashboard:
+
+1. **AIReasoningPanel.jsx — CLASSIFICATION LOG heading**: Added a section heading
+   at the top of the non-placeholder content reading "CLASSIFICATION LOG" (font-display,
+   fontSize 10, var(--text-dim)).
+
+2. **AIReasoningPanel.jsx — Boxed ◆ PINNED badge**: Replaced the plain inline
+   "◆ PINNED" text with a boxed badge (border 1px solid var(--neon-amber),
+   background rgba(255,170,0,0.14), box-shadow 0 0 6px rgba(255,170,0,0.35),
+   padding 2px 8px, font-display, fontSize 10, letterSpacing 1). Timestamp moves
+   alongside the badge in amber. When not pinned, shows only the timestamp in
+   var(--text-bright).
+
+3. **App.jsx — Boxed ◆ ACTIVE/◆ IDLE badges**: Replaced the ● ACTIVE/● IDLE
+   dot+text spans with single boxed badge divs. ACTIVE: #ff4444 border/glow with
+   blink animation. IDLE: var(--text-dim) border, transparent background. Uses
+   `◆ <span>IDLE</span>` to preserve exact-match test at SignalDetailsFreeze.test.jsx:65.
+
+**Files changed:**
+- `dashboard/frontend/src/components/AIReasoningPanel.jsx`: Added CLASSIFICATION LOG
+  heading, replaced line 1 with conditional boxed PINNED badge
+- `dashboard/frontend/src/App.jsx`: Replaced ACTIVE/IDLE dot+text spans with boxed badges
+- `docs/wiki.md`: Updated by doc-writer
+
+**Test counts:** 105 Vitest passing (100%), 330 pytest passing (1 pre-existing failure in
+test_adsb_demodulator). Unchanged from previous build.
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None — frontend-only React/CSS changes, no RF interaction
+
+**Decisions made:**
+- Used `◆ <span>IDLE</span>` structure instead of flat text to preserve the existing
+  `getByText('IDLE')` exact-match test without modifying SignalDetailsFreeze.test.jsx
+- Used `#ff4444` for ACTIVE badge per spec (design system caution about --neon-red
+  availability), though both code reviewers noted --neon-red exists in cyberpunk.css
+- No test file changes required
+
+**Deferred items surfaced:**
+- LOW-01: ACTIVE badge uses hardcoded `#ff4444` instead of `var(--neon-red)` —
+  advisory from both code reviewers, spec explicitly required `#ff4444`
+- LOW-02: App.jsx ACTIVE/IDLE badge conditional indentation off by 2 spaces —
+  cosmetic, no functional impact
+
+**Next session starter:**
+None — standalone badge redesign complete and tested. 105/105 Vitest passing.

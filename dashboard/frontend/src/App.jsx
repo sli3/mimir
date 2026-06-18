@@ -497,62 +497,37 @@ export default function App() {
             }}>
               SIGNAL DETAILS
             </span>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-            }}>
               {displayed.signal_type != null ? (
                 <div style={{
-                  display: 'flex',
-                  flexDirection: 'row',
+                  display: 'inline-flex',
                   alignItems: 'center',
-                  gap: '4px',
+                  border: '1px solid #ff4444',
+                  background: 'rgba(255, 68, 68, 0.14)',
+                  boxShadow: '0 0 6px rgba(255, 68, 68, 0.35)',
+                  padding: '2px 8px',
+                  fontFamily: 'var(--font-display)',
+                  fontSize: 10,
+                  color: '#ff4444',
+                  letterSpacing: 1,
+                  animation: 'blink 1.2s infinite',
                 }}>
-                  <span style={{
-                    fontSize: '8px',
-                    color: 'var(--neon-red)',
-                    lineHeight: 1,
-                    fontFamily: 'var(--font-data)',
-                  }}>
-                    ●
-                  </span>
-                  <span style={{
-                    fontSize: '11px',
-                    color: 'var(--neon-red)',
-                    letterSpacing: '1px',
-                    fontFamily: 'var(--font-display)',
-                    animation: 'blink 1.2s infinite',
-                  }}>
-                    ACTIVE
-                  </span>
+                  ◆ <span>ACTIVE</span>
                 </div>
               ) : (
                 <div style={{
-                  display: 'flex',
-                  flexDirection: 'row',
+                  display: 'inline-flex',
                   alignItems: 'center',
-                  gap: '4px',
+                  border: '1px solid var(--text-dim)',
+                  background: 'transparent',
+                  padding: '2px 8px',
+                  fontFamily: 'var(--font-display)',
+                  fontSize: 10,
+                  color: 'var(--text-dim)',
+                  letterSpacing: 1,
                 }}>
-                  <span style={{
-                    fontSize: '8px',
-                    color: 'var(--text-dim)',
-                    lineHeight: 1,
-                    fontFamily: 'var(--font-data)',
-                  }}>
-                    ●
-                  </span>
-                  <span style={{
-                    fontSize: '11px',
-                    color: 'var(--text-dim)',
-                    letterSpacing: '1px',
-                    fontFamily: 'var(--font-display)',
-                  }}>
-                    IDLE
-                  </span>
+                  ◆ <span>IDLE</span>
                 </div>
               )}
-            </div>
           </div>
 
           {/* Body */}
