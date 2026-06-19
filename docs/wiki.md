@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: "PHASE-TECH-DEBT-1"
+last_updated_phase: "PHASE-TECH-DEBT-2"
 ---
 
 # Mimir Wiki
@@ -70,6 +70,100 @@ Step  Function / Component          What it does
 ## Phase Log
 
 Phases are listed newest-first so the current phase is always at the top.
+
+---
+
+### PHASE-TECH-DEBT-2 — Frontend Small Fixes: ??, null guard, colour map, overview bands, test mock ✓ DONE
+
+**What:** Five small frontend fixes across the dashboard — no new features,
+no backend changes:
+
+1. **`||` to `??` in `useSocket.js`** — The `scan_result` handler used `||`
+   for `confidence_score`, which treated `0` (a valid 0% confidence result
+   from the LLM) as falsy and silently replaced it with `null`. The nullish
+   coalescing operator `??` only replaces `null` or `undefined`, preserving
+   `0` as a legitimate confidence value.
+
+2. **Null guard in `FrequencyList.jsx`** — Added `!= null` guard before
+   `Math.round(latest.confidence_score * 100) + '%'`. Without it, a null
+   or undefined `confidence_score` produced `NaN%` in the UI.
+
+3. **FREQ_COLOUR_MAP and `freqLabel()` expansion in `SignalHistoryLog.jsx`**
+   — Added 3 missing AU frequencies: 127 MHz (Aviation VHF → --neon-cyan),
+   129.125 MHz (ACARS → --neon-amber), 161.975 MHz (AIS → --neon-red).
+   Previously these fell through to generic white colour and a computed
+   label format. The colour map now covers all 7 AU bands Mimir monitors.
+   **Resolves deferred item 4 from the Pin-to-Reasoning section**
+   ("FREQ_COLOUR_MAP / freqLabel incomplete — Only 4 of 6 AU frequencies
+   have dedicated colours and labels").
+
+4. **OVERVIEW_BANDS expansion in `App.jsx`** — Added Aviation VHF (127 MHz)
+   and ACARS (129.125 MHz) to the overview strip at the bottom of the
+   waterfall. Previously the overview showed only 4 bands (FM, APRS, ISM,
+   ADS-B), omitting two bands that were already present in the waterfall's
+   STRIP_CONFIGS. The overview strip now matches the waterfall band set.
+
+5. **`createImageData` mock in `tests/setup.js`** — Added a mock for
+   `CanvasRenderingContext2D.createImageData()` to the global canvas
+   `getContext` mock. Previously, tests that called `ctx.createImageData()`
+   (e.g. useWaterfall tests) would fail with a runtime error because the
+   method was not mocked. This fixes broken test execution in the Vitest
+   suite.
+
+**Why:** Fix 1 prevents a valid 0% confidence (the LLM genuinely has no idea)
+from being silently discarded. Fix 2 prevents `NaN%` display in the frequency
+list. Fix 3 makes the signal history log visually consistent across all 7 AU
+bands — new contributors no longer see white text for three of the bands they
+are monitoring. Fix 4 makes the overview strip complete — previously a user
+could toggle between Aviation and ACARS without seeing either in the strip.
+Fix 5 removes a test infrastructure gap that caused false failures.
+
+**Key functions affected:**
+
+`useSocket` `scan_result` handler (line 59) — `confidence_score` now uses `??`
+instead of `||`. The `||` operator treats `0` as falsy because it is falsy in
+JavaScript, so a 0% confidence from the LLM was replaced with `null`.
+`??` only replaces `null` or `undefined`, preserving `0` as a valid numeric
+confidence value. Analogy: a camera flash that correctly captures a black
+object as black instead of pretending it isn't there.
+
+`FrequencyList` render (line 67) — now guards against null/undefined
+`confidence_score` with `!= null` before computing the percentage string.
+Without the guard, `Math.round(null * 100)` produces `NaN`, rendering as
+`NaN%` in the UI. Analogy: a fuel gauge that shows `---` instead of `NaN%`
+when the sensor is disconnected.
+
+`freqLabel(freqHz)` in `SignalHistoryLog.jsx` — handles 7 AU frequencies
+with exact labels: 98.0, 127.0, 129.125, 145.175, 161.975, 915.0, 1090.0
+MHz. Previously only 4 frequencies had dedicated labels — the 3 additions
+(127.0, 129.125, 161.975) had fallen through to a generic `toFixed(3)`
+computed label. Analogy: a map legend that now has entries for every trail
+instead of leaving hikers to guess.
+
+`FREQ_COLOUR_MAP` in `SignalHistoryLog.jsx` — maps 7 centre frequencies to
+CSS colour variables. New entries: 127 MHz → --neon-cyan (same as FM, both
+are aviation/voice), 129.125 MHz → --neon-amber (ACARS data link), 161.975
+MHz → --neon-red (AIS maritime).
+
+`OVERVIEW_BANDS` in `App.jsx` — expanded from 4 to 6 entries. The new
+entries (AVIATION VHF at 127 MHz, ACARS at 129.125 MHz) were already present
+in the waterfall's STRIP_CONFIGS but absent from the overview strip. Now
+both lists are consistent, so the user sees every monitored band in the
+bottom strip.
+
+**Deferred items:**
+- The `NaN` edge case in `FrequencyList.jsx`: `NaN != null` is `true` in
+  JavaScript, so if `confidence_score` were somehow `NaN`, the `!= null`
+  guard would pass and `Math.round(NaN * 100)` would produce `NaN`. This
+  is practically impossible — SocketIO messages are serialised JSON, and
+  `NaN` cannot be serialised — but is noted here as a theoretical edge
+  case for anyone auditing null-safety.
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None — all changes are frontend display code and test mocks
+
+**Test counts:** 439 (334 pytest + 105 Vitest).
 
 ---
 
@@ -1706,8 +1800,8 @@ User clicks [ADS-B] button in browser
 | `dashboard/server.py` | Python | Entry point. Starts Flask-SocketIO server, registers routes, kicks off `scan.py` loop. |
 | `dashboard/shared_state.py` | Python | Shared memory. Holds `BAND_PROFILES`, `current_band`, shutdown event, and band-switch lock. |
 | `dashboard/static/` | Static | Vite build output (generated). Served by Flask. |
-| `dashboard/frontend/src/App.jsx` | React | Root component. Three-row layout: waterfall + signal details (top), system status + signal history + AI reasoning + decoded signals (bottom). Owns `pinnedReasoning` state for pin-to-reasoning feature. |
-| `dashboard/frontend/src/components/SignalHistoryLog.jsx` | React | Scrolling log of scan results. Each row clickable: toggles pin on AIReasoningPanel. Amber highlight on pinned row. |
+| `dashboard/frontend/src/App.jsx` | React | Root component. Three-row layout: waterfall + signal details (top), system status + signal history + AI reasoning + decoded signals (bottom). Owns `pinnedReasoning` state for pin-to-reasoning feature. OVERVIEW_BANDS (6 entries) for bottom strip. BAND_GROUPS (3 categories) for nav bar. |
+| `dashboard/frontend/src/components/SignalHistoryLog.jsx` | React | Scrolling log of scan results. FREQ_COLOUR_MAP colours each row by band (7 AU frequencies). Each row clickable: toggles pin on AIReasoningPanel. Amber highlight on pinned row. |
 | `dashboard/frontend/src/components/AIReasoningPanel.jsx` | React | Displays LLM classification output. Shows ◆ PINNED badge when `isPinned` prop is true. Fade transition on new reasoning data. |
 
 ### Pin-to-Reasoning Data Flow

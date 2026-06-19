@@ -64,7 +64,7 @@ export default function FrequencyList({ scanResults, focusedFreq, focusFrequency
                 textAlign: 'right',
               }}>
                 <div>{latest.signal_type}</div>
-                <div>{Math.round(latest.confidence_score * 100)}%</div>
+                <div>{latest.confidence_score != null ? Math.round(latest.confidence_score * 100) + '%' : '---'}</div>
               </div>
             )}
           </div>

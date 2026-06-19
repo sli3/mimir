@@ -354,7 +354,7 @@ Do not apply this pre-emptively — only if context problems are observed.
 | Item | Detail | Fix in |
 |---|---|---|
 | ~~Waterfall scroll rate slow~~ | ~~One row per dwell cycle (~8–10s)~~ — decoupled from AI loop in spectrum broadcast fix (~4-5 Hz from scan loop). Resolved. | ~~Post 7B~~ ✅ |
-| `FrequencyList.jsx:67` | `confidence_score` lacks null guard | Phase 7B polish |
+| ~~`FrequencyList.jsx:67`~~ | ~~`confidence_score` lacks null guard~~ | ~~Phase 7B polish~~ ✅ RESOLVED in PHASE-TECH-DEBT-2 |
 | CORS wildcard | `cors_allowed_origins="*"` in server.py — fine for dev | Pre-prod |
 | Queue max hard-coded | `020` in SystemStatsPanel — should read from systemStats | Phase 7B |
 | `sampleRateHz` dead param | Accepted by `useWaterfall.js` but unused | Post 7B |
@@ -437,10 +437,12 @@ Do not apply this pre-emptively — only if context problems are observed.
   because no config matches within 2 MHz. The waterfall shows FM data while the user is
   tuned to AIS. Intentional omission (AIS is narrowband, may not render visibly) but UX gap.
 
-- **BANDS vs STRIP_CONFIGS ordering mismatch (open — Phase 10-Hotfix):** `App.jsx` BANDS
-  order: FM → AVIATION → ACARS → APRS → ISM → ADS-B. `WaterfallPanel.jsx` STRIP_CONFIGS
-  order: FM → APRS → AVIATION → ACARS → ISM → ADS-B. APRS and AVIATION/ACARS are swapped.
-  Cosmetic but could confuse users expecting visual consistency between nav bar and waterfall.
+- **BANDS vs STRIP_CONFIGS ordering mismatch (RESOLVED — PHASE-TECH-DEBT-2):** `App.jsx`
+  OVERVIEW_BANDS was genuinely missing AVIATION VHF (127 MHz) and ACARS (129.125 MHz)
+  entirely (not just misordered). Both bands added in PHASE-TECH-DEBT-2, now matching
+  all 6 entries in `WaterfallPanel.jsx` STRIP_CONFIGS. Minor cosmetic ordering difference
+  remains (BANDS: FM→AVIATION→ACARS→APRS→ISM→ADS-B vs STRIP_CONFIGS: FM→APRS→AVIATION→ACARS→ISM→ADS-B)
+  but both lists now contain the same 6 bands.
 
 - **Missing ACARS/AIS tuned-state tests (open — Phase 10-Hotfix):** `AdsbTunedState.test.jsx`
   covers the three-state logic for ADS-B only. The equivalent logic for ACARS (lines 1089–1125)

@@ -56,7 +56,7 @@ export function useSocket() {
           freq_hz: data.center_freq_hz,
           signal_type: data.signal_type || null,
           confidence: data.confidence || null,
-          confidence_score: data.confidence_score || null,
+          confidence_score: data.confidence_score ?? null,   // ?? not || — 0 is a valid confidence score
           au_legal_status: data.au_legal_status || null,
           reasoning: data.reasoning || null,
           timestamp: data.timestamp || null,

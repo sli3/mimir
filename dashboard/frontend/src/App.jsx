@@ -52,6 +52,8 @@ const BAND_GROUPS = [
 const OVERVIEW_BANDS = [
   { name: 'FM BROADCAST', freq_hz: 98000000 },
   { name: 'APRS',         freq_hz: 145175000 },
+  { name: 'AVIATION VHF', freq_hz: 127000000 },
+  { name: 'ACARS',        freq_hz: 129125000 },
   { name: 'ISM / LoRa',   freq_hz: 915000000 },
   { name: 'ADS-B',        freq_hz: 1090000000 },
 ]
