@@ -67,13 +67,14 @@ class AdsbSubscriber:
     def stop(self) -> None:
         """Signal the decode thread to stop and wait for it to exit.
 
-        Calls ``flush()`` on the decoder before stopping to release any
-        bootstrap-held ADS-B CPR positions that have accumulated but not
-        yet been resolved. A full harvest-and-emit pattern would be needed
-        for complete position recovery across shutdown — the flush releases
-        them silently rather than discarding without attempt.
+        Calls ``flush()`` on the decoder to harvest any bootstrap-held
+        ADS-B CPR positions that have accumulated but not yet been
+        emitted, and broadcasts each harvested message before stopping.
         """
-        self._decoder.flush()
+        harvested = self._decoder.flush()
+        for msg in harvested:
+            if self._broadcast_fn is not None:
+                self._broadcast_fn(msg)
         self._running = False
         if self._thread is not None:
             self._thread.join(timeout=2.0)

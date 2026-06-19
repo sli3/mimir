@@ -1,4 +1,4 @@
-"""Tests for AdsbSubscriber — lifecycle, queue, frequency filter, scan loop integration."""
+"""Tests for AdsbSubscriber — lifecycle, queue, frequency filter, scan loop integration, flush harvest."""
 
 import threading
 import time
@@ -9,6 +9,7 @@ from core.config.loader import MimirConfig
 from core.pipeline.scanner import ScanRunner
 from modules.adsb import AdsbSubscriber
 from modules.adsb.constants import AU_ADSB_FREQUENCY_HZ
+from modules.adsb.message import AdsbMessage
 
 
 class MockDevice:
@@ -143,3 +144,31 @@ class TestAdsbSubscriber:
         assert np.array_equal(received[0][0], samples)
         assert received[0][1] == 1_090_000_000.0
         assert received[0][2] == 2_000_000.0
+
+    def test_stop_broadcasts_harvested_messages(self):
+        """When flush() returns messages, stop() broadcasts each."""
+        harvested = []
+        msg1 = AdsbMessage(
+            icao="ABC123", callsign="TEST1", latitude=-34.0, longitude=138.0,
+            altitude_ft=35000, groundspeed=450.0, track=180.0, vertical_rate=0,
+            raw_hex="8D406B902015A678D4D220AA4BDA",
+        )
+        msg2 = AdsbMessage(
+            icao="DEF456", callsign="TEST2", latitude=-35.0, longitude=139.0,
+            altitude_ft=30000, groundspeed=420.0, track=270.0, vertical_rate=-500,
+            raw_hex="8D485020994409940838175B284F",
+        )
+        sub = AdsbSubscriber(broadcast_fn=lambda m: harvested.append(m))
+        sub._decoder.flush = lambda: [msg1, msg2]
+        sub.stop()
+        assert len(harvested) == 2
+        assert harvested[0].icao == "ABC123"
+        assert harvested[1].icao == "DEF456"
+
+    def test_stop_no_broadcast_when_flush_empty(self):
+        """When flush() returns empty list, no broadcast is made."""
+        harvested = []
+        sub = AdsbSubscriber(broadcast_fn=lambda m: harvested.append(m))
+        sub._decoder.flush = lambda: []
+        sub.stop()
+        assert len(harvested) == 0

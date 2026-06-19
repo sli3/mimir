@@ -15,7 +15,7 @@ TX-Safety Note:
 import logging
 import time
 
-from pyModeS import PipeDecoder
+from pyModeS import Decoded, PipeDecoder
 
 from modules.adsb.message import AdsbMessage
 
@@ -60,6 +60,7 @@ class AdsbDecoder:
             eviction_ttl=300.0,
         )
         self._last_flush_ts: float = time.monotonic()
+        self._pending_bootstrap: list[tuple[Decoded, str]] = []
 
     def decode(self, raw_hex: str, timestamp: float | None = None) -> AdsbMessage | None:
         """Decode a single ADS-B hex string.
@@ -104,6 +105,30 @@ class AdsbDecoder:
         if typecode is None or not (1 <= typecode <= 22):
             return None
 
+        icao = str(result.get("icao", ""))
+        if not icao:
+            return None
+
+        msg = self._build_message(result, raw_hex)
+        if msg is not None and msg.latitude is None and result.get("cpr_lat") is not None:
+            self._pending_bootstrap.append((result, raw_hex))
+        return msg
+
+    def _build_message(self, result: Decoded, raw_hex: str) -> AdsbMessage | None:
+        """Construct an ``AdsbMessage`` from a pyModeS ``Decoded`` result dict.
+
+        Args:
+            result: The result dict from ``PipeDecoder.decode()``.
+            raw_hex: The original 28-character hex string.
+
+        Returns:
+            ``AdsbMessage`` on success, or ``None`` if the result dict has
+            no valid ICAO address.
+        """
+        icao = str(result.get("icao", ""))
+        if not icao:
+            return None
+
         callsign = result.get("callsign")
         if callsign:
             callsign = callsign.strip()
@@ -114,20 +139,12 @@ class AdsbDecoder:
         if altitude_ft is not None:
             altitude_ft = int(altitude_ft)
 
-        icao = str(result.get("icao", ""))
-        if not icao:
-            return None
-
-        latitude = result.get("latitude")
-        longitude = result.get("longitude")
-
         groundspeed = result.get("groundspeed")
         if groundspeed is not None:
             groundspeed = float(groundspeed)
 
         track = result.get("track")
         if track is None:
-            # Some pyModeS versions/TCs expose heading instead of track
             track = result.get("heading")
         if track is not None:
             track = float(track)
@@ -140,23 +157,39 @@ class AdsbDecoder:
             icao=icao,
             callsign=callsign,
             altitude_ft=altitude_ft,
-            latitude=latitude,
-            longitude=longitude,
+            latitude=result.get("latitude"),
+            longitude=result.get("longitude"),
             groundspeed=groundspeed,
             track=track,
             vertical_rate=vertical_rate,
             raw_hex=raw_hex,
         )
 
-    def flush(self) -> None:
+    def flush(self) -> list[AdsbMessage]:
         """Release any bootstrap-held positions immediately.
 
-        Calls the underlying PipeDecoder.flush(), which accepts per-ICAO
-        positions held in the bootstrap buffer as long as >= 2 candidate
-        pairs exist.  After flush(), subsequent decode() calls for
-        previously bootstrapping ICAOs will return positions.
+        Calls the underlying ``PipeDecoder.flush()``, which retro-fills
+        latitude/longitude on the ``Decoded`` result dicts that were held
+        in the bootstrap buffer.  This method then collects those newly-
+        resolved positions and returns them as ``AdsbMessage`` objects.
 
-        Intended for use in unit tests and graceful shutdown.
+        After flush(), subsequent ``decode()`` calls for previously
+        bootstrapping ICAOs will return positions immediately.
+
+        Returns:
+            A list of ``AdsbMessage`` objects whose positions were resolved
+            by the flush.  Returns an empty list if no positions were held.
         """
         self._pipe.flush()
         self._last_flush_ts = time.monotonic()
+
+        harvested: list[AdsbMessage] = []
+        for result, raw_hex in self._pending_bootstrap:
+            lat = result.get("latitude")
+            lon = result.get("longitude")
+            if lat is not None and lon is not None:
+                msg = self._build_message(result, raw_hex)
+                if msg is not None:
+                    harvested.append(msg)
+        self._pending_bootstrap.clear()
+        return harvested

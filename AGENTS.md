@@ -418,12 +418,12 @@ Do not apply this pre-emptively — only if context problems are observed.
   was replaced by PipeDecoder in Phase 9F-CPR. Should read "from PipeDecoder global
   CPR pair resolution". Cosmetic but misleading for future contributors.
 
-- **ADS-B subscriber.py flush gap (PARTIALLY ADDRESSED — PHASE-TECH-DEBT-1):** `AdsbSubscriber.stop()`
-  now calls `decoder.flush()` before shutting down the decode thread, but `flush()` only
-  mutates internal PipeDecoder state — it does not return or broadcast harvested messages
-  (deep-analyst MAJOR-01). Aircraft with fewer than BOOTSTRAP_K=5 CPR pairs still have their
-  positions silently discarded at shutdown. Full fix requires extending `AdsbDecoder.flush()`
-  to return `list[AdsbMessage]` and broadcasting them after the thread joins.
+- **ADS-B subscriber.py flush gap (RESOLVED — PHASE-TECH-DEBT-1.5):** `AdsbSubscriber.stop()`
+  now calls `decoder.flush()` before shutting down the decode thread. `AdsbDecoder.flush()`
+  tracks position-bearing result dicts during bootstrap and returns `list[AdsbMessage]` after
+  `PipeDecoder.flush()` retro-fills lat/lon in-place. `stop()` broadcasts each harvested message
+  via the same `self._broadcast_fn` used during normal decode operation before fully stopping.
+  Verified with `test_stop_broadcasts_harvested_messages` and `test_stop_no_broadcast_when_flush_empty`.
 
 - **ACARS sub-panel 130.025 MHz inconsistency (open — Phase 10-Hotfix):** `App.jsx`
   `isTuned(focusedFreq, 129125000, 5000)` only matches 129.125 MHz, but `AcarsMessagePanel`
