@@ -113,6 +113,10 @@ function isTuned(freq, target, margin = 2_000_000) {
   return freq != null && Math.abs(freq - target) <= margin
 }
 
+function isAcarsTuned(freq) {
+  return isTuned(freq, 129125000, 5000) || isTuned(freq, 130025000, 5000)
+}
+
 function getFirstSeen(signalType, scanResults) {
   if (!signalType || !scanResults) return '---'
   for (let i = scanResults.length - 1; i >= 0; i--) {
@@ -1134,7 +1138,7 @@ export default function App() {
                   }}>
                     ACARS MESSAGES
                   </span>
-                  {isTuned(focusedFreq, 129125000, 5000) ? (
+                  {isAcarsTuned(focusedFreq) ? (
                     <div style={{
                       display: 'inline-flex',
                       alignItems: 'center',
@@ -1168,7 +1172,7 @@ export default function App() {
                   )}
                 </div>
                 <div style={{ padding: '0 10px 8px' }}>
-                  {isTuned(focusedFreq, 129125000, 5000) ? (
+                  {isAcarsTuned(focusedFreq) ? (
                     acarsMessages.length > 0 ? (
                       <div style={{ height: '100px', overflow: 'auto' }}>
                         <AcarsMessagePanel

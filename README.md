@@ -157,9 +157,9 @@ event rate, gap detection, and a PASS/FAIL summary. Use `--duration 60` minimum
 | 11-Hotfix | Broadcast fields + FM threshold + scan.py guard | ✅ Complete | 428/428 |
 | PHASE-TECH-DEBT-1 | Housekeeping: startup message, stale comments, test coverage | ✅ Complete | 437/437 |
 | PHASE-TECH-DEBT-2 | Frontend small fixes: ??, null guard, colour map, overview bands, test mock | ✅ Complete | 439/439 |
-| PHASE-BUILD-3 | AIS waterfall config, tuned-state test coverage, SignalHistoryLog memoisation | ✅ Complete | 445/445 (334 pytest + 111 Vitest) |
+| PHASE-BUILD-3 | AIS waterfall config, tuned-state test coverage, SignalHistoryLog memoisation, ACARS dual-frequency fix | ✅ Complete | 446/446 (334 pytest + 112 Vitest) |
 
-**Total: 445 passing (334 pytest + 111 Vitest), 0 pre-existing failures**
+**Total: 446 passing (334 pytest + 112 Vitest), 0 pre-existing failures**
 
 ---
 

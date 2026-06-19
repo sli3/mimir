@@ -43,7 +43,7 @@
 | 11-Hotfix | Broadcast Defaults + FM Threshold + Startup Guard | ✅ Complete | 427/427 (330 pytest + 97 Vitest) |
 | PHASE-TECH-DEBT-1 | Six backend/frontend tech debt fixes | ✅ Complete | 437/437 (332 pytest + 105 Vitest) |
 | PHASE-TECH-DEBT-2 | Five frontend small fixes (tech debt) | ✅ Complete | 439/439 (334 pytest + 105 Vitest) |
-| PHASE-BUILD-3 | AIS waterfall config, tuned-state test coverage, SignalHistoryLog memoisation | ✅ Complete | 445/445 (334 pytest + 111 Vitest) |
+| PHASE-BUILD-3 | AIS waterfall config, tuned-state test coverage, SignalHistoryLog memoisation | ✅ Complete | 446/446 (334 pytest + 112 Vitest) |
 
 ### Phase 11 Hotfix — Broadcast Defaults + FM Threshold + Startup Guard ✅
 
@@ -559,6 +559,8 @@ SignalHistoryLog in React.memo with a custom comparator for re-render optimisati
    test (now 18 tests, up from 11).
 
 **Resolved deferred items:**
+- ACARS sub-panel 130.025 MHz inconsistency (Phase 10-Hotfix) — `isAcarsTuned()` helper
+  added to App.jsx, ORs both 129.125 and 130.025 MHz checks with 5 kHz margins
 - Missing ACARS/AIS tuned-state tests (Phase 10-Hotfix) — test coverage added
 - AIS waterfall STRIP_CONFIGS (Phase 10-Hotfix) — AIS now in STRIP_CONFIGS
 
@@ -571,7 +573,7 @@ SignalHistoryLog in React.memo with a custom comparator for re-render optimisati
   App.jsx OVERVIEW_BANDS and BAND_GROUPS still have 6 entries. Nav bar overview
   waterfall omits AIS. Requires adding AIS to both OVERVIEW_BANDS and BAND_GROUPS.
 
-**Test counts:** 445/445 (334 pytest + 111 Vitest)
+**Test counts:** 446/446 (334 pytest + 112 Vitest)
 
 ---
 

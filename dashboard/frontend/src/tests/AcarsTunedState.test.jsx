@@ -40,6 +40,13 @@ describe('ACARS tuned state', () => {
     expect(screen.getByText('Listening on 129.125 MHz...')).toBeInTheDocument()
   })
 
+  it('does NOT render NOT TUNED prompt when focusedFreq is 130025000', () => {
+    useSocket.mockReturnValue(makeMock(130025000))
+    render(<App />)
+    expect(screen.queryByText(/TUNE TO 129\.125 MHz TO DECODE ACARS/)).toBeNull()
+    expect(screen.getByText('Listening on 129.125 MHz...')).toBeInTheDocument()
+  })
+
   it('renders NOT TUNED prompt when focusedFreq is null', () => {
     useSocket.mockReturnValue(makeMock(null))
     render(<App />)

@@ -426,13 +426,12 @@ Do not apply this pre-emptively — only if context problems are observed.
   via the same `self._broadcast_fn` used during normal decode operation before fully stopping.
   Verified with `test_stop_broadcasts_harvested_messages` and `test_stop_no_broadcast_when_flush_empty`.
 
-- **ACARS sub-panel 130.025 MHz inconsistency (open — Phase 10-Hotfix):** `App.jsx`
-  `isTuned(focusedFreq, 129125000, 5000)` only matches 129.125 MHz, but `AcarsMessagePanel`
-  checks both 129.125 and 130.025 MHz. If user focuses 130.025 MHz, the outer sub-panel
-  shows "NOT TUNED" while the inner panel renders correctly. Fix: align the outer `isTuned`
-  check with the panel's dual-frequency check.
-  (Re-confirmed in PHASE-BUILD-3: `AcarsMessagePanel.jsx:10` references `130_025_000` via JS
-  numeric separator, confirmed in `modules/acars/constants.py:8`.)
+- **ACARS sub-panel 130.025 MHz inconsistency (RESOLVED — PHASE-BUILD-3-fix):** `App.jsx`
+  `isTuned(focusedFreq, 129125000, 5000)` only matched 129.125 MHz, but `AcarsMessagePanel`
+  checked both 129.125 and 130.025 MHz. When focused to 130.025 MHz, the outer header showed
+  "NOT TUNED" while the inner panel rendered correctly. Fixed by adding an `isAcarsTuned()`
+  helper that ORs both frequency checks (with 5 kHz margins) and using it at both `isTuned`
+  call sites in the ACARS sub-panel. Tests added for 130.025 MHz tuned state.
 
 - **AIS missing from OVERVIEW_BANDS (partial — PHASE-BUILD-3):** AIS (161.975 MHz,
   `--neon-red`) was added to `WaterfallPanel.jsx` STRIP_CONFIGS in PHASE-BUILD-3
