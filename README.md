@@ -156,8 +156,9 @@ event rate, gap detection, and a PASS/FAIL summary. Use `--duration 60` minimum
 | 11 | Per-band signal thresholds | ✅ Complete | — |
 | 11-Hotfix | Broadcast fields + FM threshold + scan.py guard | ✅ Complete | 428/428 |
 | PHASE-TECH-DEBT-1 | Housekeeping: startup message, stale comments, test coverage | ✅ Complete | 437/437 |
+| PHASE-TECH-DEBT-2 | Frontend small fixes: ??, null guard, colour map, overview bands, test mock | ✅ Complete | 439/439 |
 
-**Total: 437 passing (332 pytest + 105 Vitest), 0 pre-existing failures**
+**Total: 439 passing (334 pytest + 105 Vitest), 0 pre-existing failures**
 
 ---
 
