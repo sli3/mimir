@@ -106,8 +106,8 @@ band_change_event = threading.Event()
 #   Read live by the scan loop (Phase 11) so switching bands applies the
 #   correct threshold without restart.
 # All receive-only — AU-legal bands only.
-# NOTE: Only fm_broadcast is calibrated for the new telescopic whip antenna.
-# Other bands (aviation, adsb) need revalidation in future phases.
+# NOTE: fm_broadcast and adsb are calibrated for the telescopic whip antenna.
+# Other bands (aviation, acars, aprs, ism) need revalidation in future phases.
 BAND_PROFILES: dict = {
     "fm_broadcast": {
         "center_freq_hz":      98_000_000,
@@ -143,7 +143,7 @@ BAND_PROFILES: dict = {
         "center_freq_hz":      1_090_000_000,
         "lna_gain_db":         24,  # 1090 MHz ADS-B moderate strength
         "vga_gain_db":         24,
-        "signal_threshold_db": 4.0,    # 1090 MHz live SNR 4–6 dB
+        "signal_threshold_db": 3.0,    # Calibrated live ADS-B 1090 MHz, diagnose_threshold.py x3 runs
     },
     "noise_floor": {
         "center_freq_hz":      98_000_000,

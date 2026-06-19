@@ -151,13 +151,13 @@ event rate, gap detection, and a PASS/FAIL summary. Use `--duration 60` minimum
 | pre-9C-seed-autowipe | seed_chromadb.py auto-wipe before seeding | ✅ Complete | 279/279 |
 | 9C | ACARS Decoder + Setup Infrastructure | ✅ Complete | 290/290 |
 | 9D | ACARS Pure-Python Decoder Subscriber | ✅ Complete | 305/305 |
-| 9C-Threshold | Calibrate SIGNAL_THRESHOLD_DB | ⏳ Pending | — |
+| 9C-Threshold | Calibrate SIGNAL_THRESHOLD_DB | ✅ Complete | — |
 | 10 | Dashboard UI Redesign | ✅ Complete | — |
 | 11 | Per-band signal thresholds | ✅ Complete | — |
-| 11-Hotfix | Broadcast fields + FM threshold + scan.py guard | ✅ Complete | 427/427 |
+| 11-Hotfix | Broadcast fields + FM threshold + scan.py guard | ✅ Complete | 428/428 |
 
-**Total: 423 passing (326 pytest + 97 Vitest), 5 pre-existing failures**
-- Note: 5 pre-existing failures (4x AIS/pyais not installed, 1x ADS-B preamble synthetic).
+**Total: 428 passing (331 pytest + 97 Vitest), 0 pre-existing failures**
+- Note: 6 pre-existing failures resolved as of 2026-06-19 — all 331 pytest tests now passing.
 
 ---
 

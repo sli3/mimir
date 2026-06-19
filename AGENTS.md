@@ -188,8 +188,8 @@ uv run python tools/seed_chromadb.py
 | 9C-Threshold | Calibrate SIGNAL_THRESHOLD_DB | ⏳ PENDING ANTENNA | — |
 | 11-Hotfix | Broadcast Defaults + FM Threshold + Startup Guard | ✅ Complete | 427/427 (330 pytest + 97 Vitest) |
 
-**Total passing: 422 passing (325 pytest + 97 Vitest), 6 pre-existing pytest failures (428 total)**
-- Note: 6 pre-existing pytest failures — test environment changes after Phase 11-Hotfix delivery increased the count from 1 to 6. All pre-date PHASE-TOOLS-CLEANUP work.
+**Total passing: 428 passing (331 pytest + 97 Vitest), 0 pre-existing pytest failures (428 total)**
+- Note: 6 pre-existing pytest failures resolved as of 2026-06-19 — all 331 pytest tests now passing.
 
 ---
 

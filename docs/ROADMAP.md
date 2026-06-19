@@ -60,10 +60,9 @@ startup exception when HackRF is disconnected.
   success + KeyboardInterrupt -> exit 0
 - `tests/dashboard/test_server_stats.py` — updated expected dict ordering
 
-**Test counts:** 427/427 (330 pytest + 97 Vitest) at delivery. Current: 427 passing (330 pytest + 97 Vitest), 1 pre-existing pytest failure.
+**Test counts:** 427/427 (330 pytest + 97 Vitest) at delivery. Current: 428 passing (331 pytest + 97 Vitest), 0 pre-existing pytest failures.
 
-**Current totals: 427 tests passing (330 pytest + 97 Vitest)**
-- Note: 1 pre-existing pytest failure (test_adsb_demodulator::test_preamble_detection_synthetic).
+**Current totals: 428 tests passing (331 pytest + 97 Vitest)**
 
 **BUG-01 status:** Code fixed in 9B-Hotfix. Full calibration deferred to Phase 9C pending telescopic whip antenna (~68 cm SMA) purchase.
 

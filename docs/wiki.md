@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: "TEST-SERVER-STATS-REFACTOR"
+last_updated_phase: "9C-Threshold"
 ---
 
 # Mimir Wiki
@@ -70,6 +70,44 @@ Step  Function / Component          What it does
 ## Phase Log
 
 Phases are listed newest-first so the current phase is always at the top.
+
+---
+
+### 9C-Threshold — ADS-B Threshold Calibrated to 3.0 dB ✓ DONE
+
+**What:** Calibrated the ADS-B `signal_threshold_db` in `BAND_PROFILES` from
+4.0 dB to 3.0 dB after running `tools/diagnose_threshold.py` three times with
+live ADS-B captures at 1090 MHz (telescopic whip antenna, lna=24/vga=24).
+The tool consistently recommended 3.0 dB — its lowest candidate — confirming
+that the previous 4.0 dB threshold was unnecessarily conservative for ADS-B
+reception in Adelaide.
+
+**Why:** The 4.0 dB value was set during Phase 11 as a provisional placeholder.
+Live threshold sweeps showed that 3.0 dB produces an occupied bandwidth closest
+to the expected ADS-B signal width. This calibration completes the ADS-B
+threshold tuning that was deferred from Phase 11, moving ADS-B from "needs
+revalidation" to "calibrated" status alongside `fm_broadcast`.
+
+**Files changed:**
+- `dashboard/shared_state.py` — `BAND_PROFILES["adsb"]["signal_threshold_db"]`
+  changed from `4.0` to `3.0`; inline comment updated to document calibration
+  basis (`diagnose_threshold.py x3 runs`); BAND_PROFILES block comment now
+  lists both `fm_broadcast` and `adsb` as calibrated bands
+
+**Deferred items:**
+1. `tools/diagnose_threshold.py` line 25: `THRESHOLD_CANDIDATES` begins at 3 dB.
+   The tool recommended 3 dB — the lowest candidate in the sweep range. A future
+   calibration run should extend candidates downward (e.g. `[1, 2, 3, ...]`) to
+   confirm 3 dB is the true optimum and not a range-floor artefact.
+2. When the existing ChromaDB re-seed (open deferred item) is performed, ensure
+   ADS-B embeddings are generated under the new 3.0 dB threshold so fingerprint
+   distances remain consistent with live captures.
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None — all changes are threshold value tuning, RX-only
+
+**Test counts:** (see AGENTS.md for latest totals)
 
 ---
 
