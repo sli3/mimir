@@ -127,10 +127,11 @@ Without this, the component re-rendered on every `spectrum_update` broadcast
 - BAND_GROUPS in `App.jsx` also lacks an AIS entry — the navigation bar has no
   AIS button. Currently users must enter 161.975 via the custom frequency input
   to focus AIS.
-- ACARS 130.025 MHz dual-frequency check in `AcarsMessagePanel.jsx` confirmed
-  still present (the AGENTS.md deferred item was correct). The outer `isTuned()`
-  check in `App.jsx` at line ~1079 only matches 129.125 MHz, so focusing
-  130.025 MHz shows "NOT TUNED" while the inner panel renders correctly.
+- ACARS 130.025 MHz dual-frequency check — RESOLVED (commit 7c6ff15). Added
+  `isAcarsTuned(freq)` helper in `App.jsx` that matches either 129.125 MHz or
+  130.025 MHz (5000 Hz margin each). Both ACARS sub-panel call sites now use
+  the helper, so the outer header correctly shows TUNED when focused on either
+  ACARS frequency.
 - Resolved deferred item from Pin-to-Reasoning: **SignalHistoryLog not memoised**
   resolved — `React.memo` with custom comparison implemented in this build.
 
