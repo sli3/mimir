@@ -30,11 +30,11 @@ class TestAdsbDemodulator:
         demod = AdsbDemodulator()
 
         # Build a quiet baseline so only the intended preamble fires.
-        chunk = np.full(1024, 0.2, dtype=np.float32)
+        chunk = np.full(1024, 0.1, dtype=np.float32)
 
-        # Preamble: high indices at 1.0, low indices at 0.2.
+        # Preamble: high indices at 1.0, low indices at 0.1.
         chunk[list(PREAMBLE_HIGH_INDICES)] = 1.0
-        chunk[list(PREAMBLE_LOW_INDICES)] = 0.2
+        chunk[list(PREAMBLE_LOW_INDICES)] = 0.1
 
         # Data bits: alternating 1/0 pattern using chip_a/chip_b levels.
         data_start = PREAMBLE_SAMPLES
