@@ -27,6 +27,7 @@ class TestScanStartupErrors:
             patch("scan.AcarsSubscriber"),
             patch("scan.AisSubscriber"),
             patch("scan.AdsbSubscriber"),
+            patch("scan.time.sleep"),
             patch("scan.start_server") as mock_start_server,
         ):
             config = MagicMock()
@@ -77,6 +78,20 @@ class TestScanStartupErrors:
         assert "Startup failed" in caplog.text
         assert "USB device not found" in caplog.text
         assert "Is the HackRF connected?" in caplog.text
+
+    def test_fatal_error_exits_with_code_1(self):
+        """A generic Exception from scanner.run() must cause exit code 1."""
+        device = MagicMock()
+        self.mock_hackrf.return_value = device
+
+        scanner = MagicMock()
+        scanner.run.side_effect = Exception("Unexpected hardware fault")
+
+        with patch("scan.ScanRunner", return_value=scanner):
+            with pytest.raises(SystemExit) as exc_info:
+                scan.main()
+
+        assert exc_info.value.code == 1
 
     def test_successful_startup_exits_zero_on_keyboard_interrupt(self):
         """When device.open() succeeds, main() should enter the scan loop."""

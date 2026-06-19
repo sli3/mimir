@@ -15,8 +15,8 @@ class AdsbMessage:
     icao: str                          # 6-char hex, e.g. "7C4B4C"
     callsign: str | None               # flight code, e.g. "QFA456"
     altitude_ft: int | None            # barometric altitude in feet
-    latitude: float | None             # degrees, from position_with_ref()
-    longitude: float | None            # degrees, from position_with_ref()
+    latitude: float | None             # degrees, from PipeDecoder global CPR pair resolution (no fixed reference)
+    longitude: float | None            # degrees, from PipeDecoder global CPR pair resolution (no fixed reference)
     groundspeed: float | None          # knots
     track: float | None                # degrees true, 0-360
     vertical_rate: int | None          # ft/min, positive = climbing

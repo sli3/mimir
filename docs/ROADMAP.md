@@ -41,6 +41,7 @@
 | 11 | Per-Band Signal Thresholds + All-Bands Sweep | ✅ Complete | 425/425 (328 pytest + 97 Vitest) |
 | 9C-Threshold | Calibrate SIGNAL_THRESHOLD_DB | ⏳ PENDING ANTENNA | — |
 | 11-Hotfix | Broadcast Defaults + FM Threshold + Startup Guard | ✅ Complete | 427/427 (330 pytest + 97 Vitest) |
+| PHASE-TECH-DEBT-1 | Six backend/frontend tech debt fixes | ✅ Complete | 437/437 (332 pytest + 105 Vitest) |
 
 ### Phase 11 Hotfix — Broadcast Defaults + FM Threshold + Startup Guard ✅
 
@@ -62,7 +63,7 @@ startup exception when HackRF is disconnected.
 
 **Test counts:** 427/427 (330 pytest + 97 Vitest) at delivery. Current: 428 passing (331 pytest + 97 Vitest), 0 pre-existing pytest failures.
 
-**Current totals: 428 tests passing (331 pytest + 97 Vitest)**
+**Current totals: 437 tests passing (332 pytest + 105 Vitest)**
 
 **BUG-01 status:** Code fixed in 9B-Hotfix. Full calibration deferred to Phase 9C pending telescopic whip antenna (~68 cm SMA) purchase.
 
@@ -488,11 +489,48 @@ and global resolution automatically.
 
 ---
 
+### Phase PHASE-TECH-DEBT-1 — Six backend/frontend tech debt fixes ✅
+
+**Goal:** Address six accumulated tech debt items across the backend and frontend: misleading startup message, fragile test dict equality, missing fatal-error test coverage, stale ADS-B comments, dead frontend parameter, and the open ADS-B subscriber flush gap.
+
+**Delivered:**
+
+1. **`scan.py` startup message** — `main()` print updated from "Scanning N frequencies" to "Focus mode: cycling through N band(s) one at a time", accurately reflecting single-frequency focus mode. (cosmetic fix for Post-8C item)
+
+2. **`tests/dashboard/test_server_stats.py`** — `TestFocusFrequencyFilter.test_filter_passes_matching` and `.test_passes_all_when_focus_is_none`: replaced strict `payload["key"]` assertions with `payload.get("key")` subset-iteration pattern using an Expected dict, so future broadcast field additions do not break the test. (resolves strict dict equality tech debt)
+
+3. **`tests/test_scan.py`** — Added `TestScanStartupErrors.test_fatal_error_exits_with_code_1` covering the generic-Exception → `sys.exit(1)` path (MED-01). Also patched `scan.time.sleep` in the autouse fixture to remove a ~1s real sleep. (resolves MED-01)
+
+4. **`modules/adsb/message.py`** — `AdsbMessage.latitude`/`longitude` docstrings updated from "from position_with_ref()" (stale pyModeS v2 API) to "from PipeDecoder global CPR pair resolution (no fixed reference)". (resolves Phase 9F-CPR stale comment debt)
+
+5. **`dashboard/frontend/src/hooks/useWaterfall.js`** — Removed unused `sampleRateHz` parameter from hook destructuring, from `WaterfallPanel.jsx` call site, and from 3 test call sites in `useWaterfall.test.js`. (resolves `sampleRateHz` dead param tech debt)
+
+6. **`modules/adsb/subscriber.py`** — `AdsbSubscriber.stop()`: added `self._decoder.flush()` before `self._running = False` to release bootstrap-held ADS-B positions before shutdown. (partial step toward full harvest-and-emit pattern — see below)
+
+**Code review conflict adjudication:**
+- @review-second found zero issues across all 6 changes
+- @deep-analyst found MAJOR-01: `flush()` in `stop()` is functionally inert and introduces thread-safety concerns (decode thread calls `decode()` which calls `pipe.flush()` every 5s internally; flush before `_running=False` may help the last iteration but does not harvest results)
+- PM adjudication: Accepted as an incremental improvement. The harvest gap is recorded as open tech debt.
+
+**Resolved deferred items:**
+- `scan.py` startup message (Post 8C cosmetic) — message now accurate
+- `test_server_stats.py` strict dict equality — using subset-iteration pattern
+- `sampleRateHz` dead param in useWaterfall.js — removed from all call sites
+- `modules/adsb/message.py` stale comments (Phase 9F-CPR) — updated to PipeDecoder reference
+- MED-01: scan.py fatal error exit path — test coverage added
+
+**Partially resolved:**
+- `AdsbSubscriber.stop()` flush gap (Phase 9F-CPR) — flush() added but harvest gap remains open
+
+**Test counts:** 437/437 (332 pytest + 105 Vitest)
+
+---
+
 ## Known Tech Debt
 
 | Item | Detail | Fix in |
 |---|---|---|
 | `config/mimir.yaml` not loaded | Runtime config loading not yet implemented | Phase 2+ |
-| `scan.py` startup message | Misleading "Scanning N frequencies" in single-freq mode | Post 8C |
-| MED-01: scan.py fatal error exit | `except Exception` sets fatal_error=True but no test verifies exit code 1 | Follow-up build |
+| ~~`scan.py` startup message~~ | ~~Misleading "Scanning N frequencies" in single-freq mode~~ | ~~Post 8C~~ ✅ |
+| ~~MED-01: scan.py fatal error exit~~ | ~~`except Exception` sets fatal_error=True but no test verifies exit code 1~~ | ~~PHASE-TECH-DEBT-1~~ ✅ |
 | ADS-B gain divergence | tools use (32/38) for ADS-B gain, shared_state.py uses (24/24). Both tool values labelled provisional. | Live ADS-B test |

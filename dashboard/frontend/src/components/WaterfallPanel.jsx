@@ -25,7 +25,6 @@ function WaterfallStrip({ config, latestPsd, focusedFreq, focusFrequency, single
   useWaterfall({
     canvasRef,
     psdDb: latestPsd,
-    sampleRateHz: SAMPLE_RATE_HZ,
   })
 
   /**

@@ -91,7 +91,7 @@ def main() -> None:
 
     print(f"Mimir — live scan started. Press Ctrl+C to stop.")
     print(f"Dashboard: http://{config.dashboard_host}:{config.dashboard_port}")
-    print(f"Scanning {len(config.frequencies_hz)} frequencies, "
+    print(f"Focus mode: cycling through {len(config.frequencies_hz)} band(s) one at a time, "
           f"{config.dwell_time_sec}s dwell, queue depth {config.queue_maxsize}")
 
     fatal_error = False

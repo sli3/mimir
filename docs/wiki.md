@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: "9C-Threshold"
+last_updated_phase: "PHASE-TECH-DEBT-1"
 ---
 
 # Mimir Wiki
@@ -73,14 +73,80 @@ Phases are listed newest-first so the current phase is always at the top.
 
 ---
 
-### 9C-Threshold — ADS-B Threshold Calibrated to 3.0 dB ✓ DONE
+### PHASE-TECH-DEBT-1 — Housekeeping: Startup Message, Stale Comments, Test Coverage ✓ DONE
 
-**What:** Calibrated the ADS-B `signal_threshold_db` in `BAND_PROFILES` from
-4.0 dB to 3.0 dB after running `tools/diagnose_threshold.py` three times with
-live ADS-B captures at 1090 MHz (telescopic whip antenna, lna=24/vga=24).
-The tool consistently recommended 3.0 dB — its lowest candidate — confirming
-that the previous 4.0 dB threshold was unnecessarily conservative for ADS-B
-reception in Adelaide.
+**What:** Six small housekeeping fixes across the codebase — no new features:
+
+1. **Startup message** (`scan.py:94`) — Changed ``"Scanning N frequencies"`` to
+   ``"Focus mode: cycling through N band(s) one at a time"`` to better describe
+   the single-frequency focus mode introduced in Phase 8C. The old message
+   implied a multi-frequency parallel scan that no longer matches reality.
+
+2. **Fatal error exit path test** (`tests/test_scan.py`) — Added
+   `test_fatal_error_exits_with_code_1` covering the ``except Exception`` path
+   in ``main()`` that sets ``fatal_error = True``. Resolves MED-01 from the
+   PHASE-TOOLS-CLEANUP deferred items list.
+
+3. **Strict dict equality refactor** (`tests/dashboard/test_server_stats.py`) —
+   Replaced ``payload["key"]`` bare access with ``payload.get("key")`` and
+   subset dict iteration so future broadcast field additions no longer break
+   the test. Resolves the pre-existing Known Tech Debt entry "test_server_stats.py
+   strict dict equality fragility".
+
+4. **ADS-B message stale comments** (`modules/adsb/message.py`) — Updated
+   ``latitude``/``longitude`` field docstrings from "from position_with_ref()"
+   to "from PipeDecoder global CPR pair resolution (no fixed reference)".
+   The old reference was stale since Phase 9F-CPR replaced the stateless
+   ``position_with_ref`` with PipeDecoder pair accumulation.
+
+5. **Unused ``sampleRateHz`` parameter** (`useWaterfall.js`) — Removed the
+   dead ``sampleRateHz`` parameter from the hook destructuring and all call
+   sites (``WaterfallPanel.jsx`` + 3 test call sites). The hook never used
+   this value — bin-to-pixel mapping derives solely from the PSD array length.
+
+6. **ADS-B subscriber flush on stop** (`modules/adsb/subscriber.py`) — Added
+   ``self._decoder.flush()`` before ``self._running = False`` in ``stop()`` to
+   release bootstrap-held CPR positions before shutdown. Previously, aircraft
+   with fewer than ``BOOTSTRAP_K=5`` CPR pairs silently lost their positions.
+   A full harvest-and-emit pattern would be needed for complete recovery.
+
+**Why:** The startup message was misleading, the fatal error exit path had no
+test coverage (MED-01), the test_server_stats.py refactor was a pre-existing
+debt item, the ADS-B message comments were stale since 9F-CPR, the dead
+``sampleRateHz`` param was confusing to future developers, and the subscriber
+shutdown path was silently discarding held ADS-B positions.
+
+**Key functions affected:**
+
+`main()` in `scan.py` — the startup print line now reads "Focus mode: cycling
+through N band(s) one at a time" instead of "Scanning N frequencies". The
+docstring already documented the ``fatal_error`` flag and exit code semantics
+(added in PHASE-TOOLS-CLEANUP).
+
+`useWaterfall({ canvasRef, psdDb })` — the hook signature lost its unused
+``sampleRateHz`` parameter. The mapping from 2048 PSD bins to canvas pixels
+uses only the PSD array length and canvas width. Added a JSDoc block
+describing the parameter change.
+
+`AdsbSubscriber.stop()` — now calls ``self._decoder.flush()`` before setting
+``_running = False``, releasing bootstrap-held CPR pairs. A full harvest
+and emit of flushed positions is not implemented — they are silently released
+rather than discarded without attempt.
+
+**Deferred items:**
+- ``AdsbSubscriber.stop()`` flush does not emit flushed positions to the
+  dashboard — they are silently released. A harvest-and-emit pattern would
+  need a pre-shutdown callback that collects released positions and broadcasts
+  them before the thread dies.
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None — all changes are housekeeping (startup text, test
+  coverage, dead param removal, comment fixes, shutdown flush).
+
+**Test counts:** 437 (332 pytest + 105 Vitest).
+
+---
 
 **Why:** The 4.0 dB value was set during Phase 11 as a provisional placeholder.
 Live threshold sweeps showed that 3.0 dB produces an occupied bandwidth closest
@@ -1337,7 +1403,7 @@ same audio and decodes the digital messages hidden in it.
 
 ---
 
-### pre-9C-seed-autowipe — ChromaDB Seed Auto-Wipe ▶ ACTIVE
+### pre-9C-seed-autowipe — ChromaDB Seed Auto-Wipe ✓ DONE
 
 **What:** Replace the interactive `check_duplicates()` function in `tools/seed_chromadb.py`
 with an automatic `wipe_collection()` that unconditionally deletes and recreates the

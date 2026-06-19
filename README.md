@@ -155,9 +155,9 @@ event rate, gap detection, and a PASS/FAIL summary. Use `--duration 60` minimum
 | 10 | Dashboard UI Redesign | ✅ Complete | — |
 | 11 | Per-band signal thresholds | ✅ Complete | — |
 | 11-Hotfix | Broadcast fields + FM threshold + scan.py guard | ✅ Complete | 428/428 |
+| PHASE-TECH-DEBT-1 | Housekeeping: startup message, stale comments, test coverage | ✅ Complete | 437/437 |
 
-**Total: 428 passing (331 pytest + 97 Vitest), 0 pre-existing failures**
-- Note: 6 pre-existing failures resolved as of 2026-06-19 — all 331 pytest tests now passing.
+**Total: 437 passing (332 pytest + 105 Vitest), 0 pre-existing failures**
 
 ---
 

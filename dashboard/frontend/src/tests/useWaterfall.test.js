@@ -145,7 +145,7 @@ describe('useWaterfall hook integration', () => {
     expect(() => {
       function TestComponent() {
         const canvasRef = useRef(canvas)
-        useWaterfall({ canvasRef, psdDb: null, sampleRateHz: 2000000 })
+        useWaterfall({ canvasRef, psdDb: null })
         return null
       }
       render(React.createElement(TestComponent))
@@ -156,7 +156,7 @@ describe('useWaterfall hook integration', () => {
     const { canvas, ctx } = createMockCanvas(100, 100)
     function TestComponent() {
       const canvasRef = useRef(canvas)
-      useWaterfall({ canvasRef, psdDb: null, sampleRateHz: 2000000 })
+      useWaterfall({ canvasRef, psdDb: null })
       return null
     }
     render(React.createElement(TestComponent))
@@ -172,7 +172,7 @@ describe('useWaterfall hook integration', () => {
 
     function TestComponent() {
       const canvasRef = useRef(canvas)
-      useWaterfall({ canvasRef, psdDb, sampleRateHz: 2000000 })
+      useWaterfall({ canvasRef, psdDb })
       return null
     }
     render(React.createElement(TestComponent))

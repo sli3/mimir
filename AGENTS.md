@@ -191,6 +191,23 @@ uv run python tools/seed_chromadb.py
 **Total passing: 428 passing (331 pytest + 97 Vitest), 0 pre-existing pytest failures (428 total)**
 - Note: 6 pre-existing pytest failures resolved as of 2026-06-19 — all 331 pytest tests now passing.
 
+### Session Memo — PHASE-TECH-DEBT-1 (2026-06-19)
+
+**Build:** Six backend/frontend tech debt fixes across the codebase.
+
+| Change | File(s) | Purpose |
+|---|---|---|
+| Startup message accuracy | `scan.py` | "Scanning N frequencies" → "Focus mode: cycling through N band(s) one at a time" |
+| Test dict equality fragility | `tests/dashboard/test_server_stats.py` | `payload["key"]` → `payload.get("key")` subset-iteration with Expected dict |
+| MED-01 test coverage | `tests/test_scan.py` | New `test_fatal_error_exits_with_code_1` + `time.sleep` patching |
+| Stale ADS-B comments | `modules/adsb/message.py` | `position_with_ref()` → `PipeDecoder` CPR reference in docstrings |
+| Dead frontend parameter | `dashboard/frontend/src/hooks/useWaterfall.js`, `WaterfallPanel.jsx`, 3 test files | Removed unused `sampleRateHz` from hook, call site, and tests |
+| Partial flush fix | `modules/adsb/subscriber.py` | `decoder.flush()` in `stop()` before `_running=False` (incremental improvement) |
+
+**Test results:** 332 pytest + 105 Vitest = 437 total (up from 331 + 97 = 428).
+
+**Adjudicated:** @review-second (zero issues), @deep-analyst (MAJOR-01: flush inert + thread-safety). PM accepted flush as incremental step; harvest gap remains open.
+
 ---
 
 ## MCP Servers
@@ -396,16 +413,17 @@ Do not apply this pre-emptively — only if context problems are observed.
   `GITHUB_PERSONAL_ACCESS_TOKEN` in `~/.config/fish/config.fish`, restart OpenCode,
   verify with `opencode mcp list`.
 
-- **ADS-B message.py stale comments (open — Phase 9F-CPR):** `modules/adsb/message.py`
+- **ADS-B message.py stale comments (RESOLVED — PHASE-TECH-DEBT-1):** `modules/adsb/message.py`
   latitude/longitude field comments still reference "from position_with_ref()" which
   was replaced by PipeDecoder in Phase 9F-CPR. Should read "from PipeDecoder global
   CPR pair resolution". Cosmetic but misleading for future contributors.
 
-- **ADS-B subscriber.py flush gap (open — Phase 9F-CPR):** `AdsbSubscriber.stop()` does
-  not call `decoder.flush()` before shutting down the decode thread. Aircraft with fewer
-  than BOOTSTRAP_K=5 CPR pairs accumulate in the PipeDecoder but are never released at
-  shutdown — their positions are silently discarded. A flush() call in stop() would
-  release these bootstrap-held positions to the dashboard before exit.
+- **ADS-B subscriber.py flush gap (PARTIALLY ADDRESSED — PHASE-TECH-DEBT-1):** `AdsbSubscriber.stop()`
+  now calls `decoder.flush()` before shutting down the decode thread, but `flush()` only
+  mutates internal PipeDecoder state — it does not return or broadcast harvested messages
+  (deep-analyst MAJOR-01). Aircraft with fewer than BOOTSTRAP_K=5 CPR pairs still have their
+  positions silently discarded at shutdown. Full fix requires extending `AdsbDecoder.flush()`
+  to return `list[AdsbMessage]` and broadcasting them after the thread joins.
 
 - **ACARS sub-panel 130.025 MHz inconsistency (open — Phase 10-Hotfix):** `App.jsx`
   `isTuned(focusedFreq, 129125000, 5000)` only matches 129.125 MHz, but `AcarsMessagePanel`
@@ -429,7 +447,7 @@ Do not apply this pre-emptively — only if context problems are observed.
   and AIS (lines 1159–1195) in `App.jsx` has no test coverage. A regression in `isTuned()`
   margin values or the three-state conditional would go undetected.
 
-- **MED-01: scan.py fatal error exit path lacks test coverage (open):** `scan.py` `main()` sets
+- **MED-01: scan.py fatal error exit path lacks test coverage (RESOLVED — PHASE-TECH-DEBT-1):** `scan.py` `main()` sets
   `fatal_error = True` in the `except Exception` handler and exits with code 1, but there is
   no test verifying the exit code 1 path. The existing `test_scan.py` only covers startup
   failure (RuntimeError/OSError) and KeyboardInterrupt. A test for `except Exception` would

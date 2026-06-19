@@ -3,7 +3,22 @@ import { psdToRgb, normalisePsd } from '../utils/colourmap.js'
 
 const NUM_PSD_BINS = 2048
 
-export function useWaterfall({ canvasRef, psdDb, sampleRateHz }) {
+/**
+ * Waterfall hook — scrolls PSD data as a GPU-accelerated canvas waterfall.
+ *
+ * Receives an array of PSD power values (``psdDb``) and draws them as a
+ * single new row at the top of the canvas, shifting all existing rows down
+ * by one pixel via ``ctx.drawImage()``. Each PSD bin is averaged into the
+ * available canvas pixel width, normalised, and colour-mapped.
+ *
+ * The ``sampleRateHz`` parameter was removed in PHASE-TECH-DEBT-1 — the
+ * hook relies solely on ``psdDb`` length for bin-to-pixel mapping.
+ *
+ * @param {{ canvasRef: React.RefObject<HTMLCanvasElement>, psdDb: number[] }} props
+ *        ``canvasRef`` — the canvas element to draw onto.
+ *        ``psdDb`` — array of 2048 PSD power values in dBFS.
+ */
+export function useWaterfall({ canvasRef, psdDb }) {
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas || !psdDb || psdDb.length === 0) return

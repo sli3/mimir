@@ -156,21 +156,25 @@ class TestFocusFrequencyFilter:
         mock_emit.assert_called_once()
         event_name, payload = mock_emit.call_args[0]
         assert event_name == "scan_result"
-        assert payload["center_freq_hz"] == 100e6
-        assert payload["signal_type"] == "test"
-        assert payload["confidence"] == "high"
-        assert payload["confidence_score"] == 0.9
-        assert payload["novel"] is False
-        assert payload["au_legal_status"] == "LEGAL RX"
-        assert payload["timestamp"] == "2026-06-03T12:00:00"
-        assert payload["peak_power_db"] == -50.0
-        assert payload["snr_db"] == 12.0
-        assert payload["signal_threshold_db"] == 10.0
-        assert payload["snr_margin_db"] == 2.0
-        assert payload["bandwidth_hz"] == 200000
-        assert payload["spectral_flatness"] == pytest.approx(0.45)
-        assert payload["chroma_distance"] == pytest.approx(0.123)
-        assert payload["reasoning"]
+        expected = {
+            "center_freq_hz": 100e6,
+            "signal_type": "test",
+            "confidence": "high",
+            "confidence_score": 0.9,
+            "novel": False,
+            "au_legal_status": "LEGAL RX",
+            "timestamp": "2026-06-03T12:00:00",
+            "peak_power_db": -50.0,
+            "snr_db": 12.0,
+            "signal_threshold_db": 10.0,
+            "snr_margin_db": 2.0,
+            "bandwidth_hz": 200000,
+            "spectral_flatness": pytest.approx(0.45),
+            "chroma_distance": pytest.approx(0.123),
+        }
+        for key, value in expected.items():
+            assert payload.get(key) == value, f"{key} mismatch"
+        assert isinstance(payload.get("reasoning"), str) and payload.get("reasoning")
 
     def test_passes_all_when_focus_is_none(self):
         broadcast = self._start_server_with_mocks()
@@ -182,8 +186,8 @@ class TestFocusFrequencyFilter:
         mock_emit.assert_called_once()
         event_name, payload = mock_emit.call_args[0]
         assert event_name == "scan_result"
-        assert payload["center_freq_hz"] == 200e6
-        assert payload["signal_type"] == "test"
+        assert payload.get("center_freq_hz") == 200e6
+        assert payload.get("signal_type") == "test"
 
     def test_system_stats_uses_scanner_values(self):
         mock_scanner = MagicMock()
