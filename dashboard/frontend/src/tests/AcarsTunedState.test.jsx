@@ -11,7 +11,7 @@ import App from '../App.jsx'
 
 const mockFocusFrequency = vi.fn()
 
-describe('ADS-B tuned state', () => {
+describe('ACARS tuned state', () => {
   const makeMock = (focusedFreq) => ({
     scanResults: [],
     spectrumUpdates: [],
@@ -33,17 +33,17 @@ describe('ADS-B tuned state', () => {
     adsbAircraft: {},
   })
 
-  it('does NOT render NOT TUNED prompt when focusedFreq is 1090000000', () => {
-    useSocket.mockReturnValue(makeMock(1090000000))
+  it('does NOT render NOT TUNED prompt when focusedFreq is 129125000', () => {
+    useSocket.mockReturnValue(makeMock(129125000))
     render(<App />)
-    expect(screen.queryByText(/TUNE TO 1090\.000 MHz TO DECODE ADS-B/)).toBeNull()
-    expect(screen.getByText('Listening on 1090.000 MHz...')).toBeInTheDocument()
+    expect(screen.queryByText(/TUNE TO 129\.125 MHz TO DECODE ACARS/)).toBeNull()
+    expect(screen.getByText('Listening on 129.125 MHz...')).toBeInTheDocument()
   })
 
   it('renders NOT TUNED prompt when focusedFreq is null', () => {
     useSocket.mockReturnValue(makeMock(null))
     render(<App />)
-    expect(screen.getByText(/TUNE TO 1090\.000 MHz TO DECODE ADS-B/)).toBeInTheDocument()
-    expect(screen.queryByText('Listening on 1090.000 MHz...')).toBeNull()
+    expect(screen.getByText(/TUNE TO 129\.125 MHz TO DECODE ACARS/)).toBeInTheDocument()
+    expect(screen.queryByText('Listening on 129.125 MHz...')).toBeNull()
   })
 })

@@ -43,6 +43,7 @@
 | 11-Hotfix | Broadcast Defaults + FM Threshold + Startup Guard | ✅ Complete | 427/427 (330 pytest + 97 Vitest) |
 | PHASE-TECH-DEBT-1 | Six backend/frontend tech debt fixes | ✅ Complete | 437/437 (332 pytest + 105 Vitest) |
 | PHASE-TECH-DEBT-2 | Five frontend small fixes (tech debt) | ✅ Complete | 439/439 (334 pytest + 105 Vitest) |
+| PHASE-BUILD-3 | AIS waterfall config, tuned-state test coverage, SignalHistoryLog memoisation | ✅ Complete | 445/445 (334 pytest + 111 Vitest) |
 
 ### Phase 11 Hotfix — Broadcast Defaults + FM Threshold + Startup Guard ✅
 
@@ -524,6 +525,53 @@ and global resolution automatically.
 - `AdsbSubscriber.stop()` flush gap (Phase 9F-CPR) — flush() added but harvest gap remains open
 
 **Test counts:** 437/437 (332 pytest + 105 Vitest)
+
+---
+
+### Phase PHASE-BUILD-3 — AIS waterfall config, tuned-state test coverage, SignalHistoryLog memoisation ✅
+
+**Goal:** Add AIS (161.975 MHz) to the waterfall STRIP_CONFIGS so the single-band
+waterfall renders correctly when tuned to AIS; add ACARS/AIS tuned-state test
+coverage for the three-state logic (NOT TUNED / TUNED / TUNED+EMPTY); wrap
+SignalHistoryLog in React.memo with a custom comparator for re-render optimisation.
+
+**Delivered:**
+1. **`dashboard/frontend/src/components/WaterfallPanel.jsx`** — Added AIS
+   (161.975 MHz, `--neon-red`) to STRIP_CONFIGS, bringing total to 7 entries.
+   The singleBand waterfall now renders AIS data correctly when tuned to AIS.
+
+2. **`dashboard/frontend/src/components/SignalHistoryLog.jsx`** — Wrapped in
+   `React.memo` with a custom comparator that checks `pinnedTimestamp` identity
+   and `scanResults` content equality (shallow item comparison), preventing
+   unnecessary re-renders when unrelated state changes.
+
+3. **`dashboard/frontend/src/tests/AdsbTunedState.test.jsx`** — Refactored with
+   `makeMock` helper. Added ADS-B NOT TUNED test (now 2 tests for ADS-B).
+
+4. **`dashboard/frontend/src/tests/AcarsTunedState.test.jsx`** (NEW) — 2 tests
+   covering ACARS NOT TUNED and TUNED+EMPTY three-state logic.
+
+5. **`dashboard/frontend/src/tests/AisTunedState.test.jsx`** (NEW) — 2 tests
+   covering AIS NOT TUNED and TUNED+EMPTY three-state logic.
+
+6. **`dashboard/frontend/src/tests/WaterfallPanel.test.jsx`** — Updated canvas
+   count assertion (12→14), added AIS label and name assertions, added AIS click
+   test (now 18 tests, up from 11).
+
+**Resolved deferred items:**
+- Missing ACARS/AIS tuned-state tests (Phase 10-Hotfix) — test coverage added
+- AIS waterfall STRIP_CONFIGS (Phase 10-Hotfix) — AIS now in STRIP_CONFIGS
+
+**Partially resolved:**
+- AIS missing from OVERVIEW_BANDS — STRIP_CONFIGS resolved, but App.jsx
+  OVERVIEW_BANDS and BAND_GROUPS still list only 6 bands (AIS absent from nav bar)
+
+**Open deferred items surfaced:**
+- AIS missing from OVERVIEW_BANDS — after adding AIS to STRIP_CONFIGS (now 7),
+  App.jsx OVERVIEW_BANDS and BAND_GROUPS still have 6 entries. Nav bar overview
+  waterfall omits AIS. Requires adding AIS to both OVERVIEW_BANDS and BAND_GROUPS.
+
+**Test counts:** 445/445 (334 pytest + 111 Vitest)
 
 ---
 

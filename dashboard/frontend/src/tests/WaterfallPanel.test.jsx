@@ -25,29 +25,31 @@ describe('WaterfallPanel', () => {
     mockFocusFrequency.mockClear()
   })
 
-  it('renders 12 canvas elements (main + crosshair per band strip) in default mode', () => {
+  it('renders 14 canvas elements (main + crosshair per band strip) in default mode', () => {
     render(<WaterfallPanel focusedFreq={null} focusFrequency={mockFocusFrequency} />)
     const canvases = document.querySelectorAll('canvas')
-    expect(canvases.length).toBe(12)
+    expect(canvases.length).toBe(14)
   })
 
-  it('renders 6 band labels with correct frequency text in default mode', () => {
+  it('renders 7 band labels with correct frequency text in default mode', () => {
     render(<WaterfallPanel focusedFreq={null} focusFrequency={mockFocusFrequency} />)
     expect(screen.getByText('98.0 MHz')).toBeTruthy()
     expect(screen.getByText('145.175 MHz')).toBeTruthy()
     expect(screen.getByText('127.0 MHz')).toBeTruthy()
     expect(screen.getByText('129.125 MHz')).toBeTruthy()
     expect(screen.getByText('915.0 MHz')).toBeTruthy()
+    expect(screen.getByText('161.975 MHz')).toBeTruthy()
     expect(screen.getByText('1090.0 MHz')).toBeTruthy()
   })
 
-  it('renders 6 band names in default mode', () => {
+  it('renders 7 band names in default mode', () => {
     render(<WaterfallPanel focusedFreq={null} focusFrequency={mockFocusFrequency} />)
     expect(screen.getByText('FM BROADCAST')).toBeTruthy()
     expect(screen.getByText('APRS')).toBeTruthy()
     expect(screen.getByText('AVIATION VHF')).toBeTruthy()
     expect(screen.getByText('ACARS')).toBeTruthy()
     expect(screen.getByText('ISM / LoRa')).toBeTruthy()
+    expect(screen.getByText('AIS')).toBeTruthy()
     expect(screen.getByText('ADS-B')).toBeTruthy()
   })
 
@@ -80,6 +82,12 @@ describe('WaterfallPanel', () => {
     render(<WaterfallPanel focusedFreq={null} focusFrequency={mockFocusFrequency} />)
     fireEvent.click(screen.getByText('915.0 MHz'))
     expect(mockFocusFrequency).toHaveBeenCalledWith(915000000)
+  })
+
+  it('clicking AIS label calls focusFrequency with 161975000', () => {
+    render(<WaterfallPanel focusedFreq={null} focusFrequency={mockFocusFrequency} />)
+    fireEvent.click(screen.getByText('161.975 MHz'))
+    expect(mockFocusFrequency).toHaveBeenCalledWith(161975000)
   })
 
   it('clicking ADS-B label calls focusFrequency with 1090000000', () => {

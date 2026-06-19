@@ -37,10 +37,10 @@ function freqLabel(freqHz) {
  *  @param {function} [props.onPinReasoning] — called with entry on click; toggles pin
  *  @param {string|null} [props.pinnedTimestamp] — currently pinned entry's timestamp for visual highlight
  *
- *  TODO: Wrap with React.memo to avoid re-render on every spectrum_update
- *  (~4-5 Hz). scanResults reference changes each time even if content is
- *  unchanged because useSocket prepends new entries. */
-export default function SignalHistoryLog({ scanResults, onPinReasoning, pinnedTimestamp }) {
+ *  Custom-compare React.memo: check content equality (length + head timestamp)
+ *  plus pinnedTimestamp to avoid re-render on every spectrum_update (~4-5 Hz)
+ *  while still re-rendering when pin state changes or new scan results arrive. */
+const SignalHistoryLog = React.memo(function SignalHistoryLog({ scanResults, onPinReasoning, pinnedTimestamp }) {
   return (
     <div style={{
       overflowY: 'auto',
@@ -90,4 +90,17 @@ export default function SignalHistoryLog({ scanResults, onPinReasoning, pinnedTi
       )}
     </div>
   )
-}
+}, (prevProps, nextProps) => {
+  if (prevProps.pinnedTimestamp !== nextProps.pinnedTimestamp) return false
+  const prev = prevProps.scanResults
+  const next = nextProps.scanResults
+  if (prev === next) return true
+  if (!prev || !next) return false
+  if (prev.length !== next.length) return false
+  if (prev.length > 0 && next.length > 0) {
+    return prev[0].timestamp === next[0].timestamp
+  }
+  return false
+})
+
+export default SignalHistoryLog

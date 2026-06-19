@@ -157,8 +157,9 @@ event rate, gap detection, and a PASS/FAIL summary. Use `--duration 60` minimum
 | 11-Hotfix | Broadcast fields + FM threshold + scan.py guard | ✅ Complete | 428/428 |
 | PHASE-TECH-DEBT-1 | Housekeeping: startup message, stale comments, test coverage | ✅ Complete | 437/437 |
 | PHASE-TECH-DEBT-2 | Frontend small fixes: ??, null guard, colour map, overview bands, test mock | ✅ Complete | 439/439 |
+| PHASE-BUILD-3 | AIS waterfall config, tuned-state test coverage, SignalHistoryLog memoisation | ✅ Complete | 445/445 (334 pytest + 111 Vitest) |
 
-**Total: 439 passing (334 pytest + 105 Vitest), 0 pre-existing failures**
+**Total: 445 passing (334 pytest + 111 Vitest), 0 pre-existing failures**
 
 ---
 
@@ -243,7 +244,7 @@ python scan.py
 
 Then open your browser at `http://localhost:5000`. The cyberpunk dashboard will show:
 
-- **Waterfall** — live spectrum activity across the four AU frequency bands
+- **Waterfall** — live spectrum activity across all seven monitored AU frequency bands (FM, APRS, Aviation VHF, ACARS, ISM/LoRa, AIS, ADS-B)
 - **AI Reasoning** — LLM classification output for the most recent signal
 - **Signal History** — a scrolling log of all detected signals this session
 - **Frequency List** — the bands Mimir is currently monitoring

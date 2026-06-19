@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: "PHASE-TECH-DEBT-2"
+last_updated_phase: "PHASE-BUILD-3"
 ---
 
 # Mimir Wiki
@@ -70,6 +70,76 @@ Step  Function / Component          What it does
 ## Phase Log
 
 Phases are listed newest-first so the current phase is always at the top.
+
+---
+
+### PHASE-BUILD-3 — AIS Waterfall Config, Tuned-State Test Coverage, SignalHistoryLog Memoisation ✓ DONE
+
+**What:** Three changes across the frontend:
+
+1. **AIS added to STRIP_CONFIGS** — Added AIS (161.975 MHz, `--neon-red`) as the 7th
+   entry in `WaterfallPanel.jsx` STRIP_CONFIGS. The waterfall now shows all 7
+   AU-legal bands: FM, APRS, Aviation VHF, ACARS, AIS, ISM/LoRa, ADS-B. Previously
+   AIS was missing from the waterfall display even though AIS messages were decoded
+   and displayed in the AIS panel.
+
+2. **SignalHistoryLog React.memo** — Wrapped `SignalHistoryLog` in `React.memo` with
+   a custom comparison function. Checks `pinnedTimestamp` first (fast exit on pin
+   toggle), then `scanResults` array length and head entry timestamp. Prevents
+   re-render on every `spectrum_update` (~4-5 Hz) while still re-rendering when
+   pin state changes or new scan results arrive.
+   **Resolves deferred item #3 from the Pin-to-Reasoning section** ("SignalHistoryLog
+   not memoised — Re-renders on every spectrum_update (~4-5 Hz). React.memo
+   recommended as optimisation.").
+
+3. **Tuned-state test coverage expanded** — Refactored `AdsbTunedState.test.jsx` with
+   `makeMock` helper, added ADS-B NOT TUNED test. Created `AcarsTunedState.test.jsx`
+   (2 tests) and `AisTunedState.test.jsx` (2 tests) — both cover the three-state
+   tuned-state logic (tuned+data, tuned+no data, not tuned). Updated
+   `WaterfallPanel.test.jsx` canvas count (12→14), band label/name count (6→7),
+   and added AIS-specific label click test.
+
+**Why:** AIS is a monitored band (161.975 MHz, maritime vessel identification) but
+was missing from the waterfall display — maritime users could not see AIS spectrum
+activity while decoder messages were flowing. The memoisation reduces unnecessary
+re-renders and improves dashboard responsiveness. The tuned-state tests ensure the
+three-state sub-panel logic is tested for all three decoder modules (ADS-B, ACARS,
+AIS), not just ADS-B.
+
+**Key functions affected:**
+
+`STRIP_CONFIGS` in `WaterfallPanel.jsx` — now 7 entries (added AIS at 161.975 MHz
+with `--neon-red` CSS colour variable). Ordered by frequency ascending. Used by
+`WaterfallStrip` for per-band waterfall rendering, by `SpectrometerBar` for
+frequency snapping, and by `FrequencyList` for band enumeration.
+
+`SignalHistoryLog` — wrapped in `React.memo` with a custom comparison function.
+The comparison checks `pinnedTimestamp` first (reference equality — fast exit on
+pin toggle), then `scanResults` identity (`===`), length, and head entry timestamp.
+Without this, the component re-rendered on every `spectrum_update` broadcast
+(~4-5 Hz) even when no new scan result had arrived.
+
+**Deferred items:**
+- OVERVIEW_BANDS in `App.jsx` has 6 entries while STRIP_CONFIGS has 7 — AIS
+  (161.975 MHz) is missing from the overview band strip at the bottom of the
+  waterfall. When tuned to AIS, the overview waterfall may fall back to FM
+  Broadcast (STRIP_CONFIGS[0]).
+- BAND_GROUPS in `App.jsx` also lacks an AIS entry — the navigation bar has no
+  AIS button. Currently users must enter 161.975 via the custom frequency input
+  to focus AIS.
+- ACARS 130.025 MHz dual-frequency check in `AcarsMessagePanel.jsx` confirmed
+  still present (the AGENTS.md deferred item was correct). The outer `isTuned()`
+  check in `App.jsx` at line ~1079 only matches 129.125 MHz, so focusing
+  130.025 MHz shows "NOT TUNED" while the inner panel renders correctly.
+- Resolved deferred item from Pin-to-Reasoning: **SignalHistoryLog not memoised**
+  resolved — `React.memo` with custom comparison implemented in this build.
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None — all changes are frontend display code, memoisation,
+  and test coverage
+
+**Test counts:** 445 (334 pytest + 111 Vitest).
 
 ---
 
@@ -511,8 +581,10 @@ on pin toggle, resetting any fade transition.
    pinnedReasoning. Signal Details shows new band while AI Reasoning shows old
    pinned data. Intentional per spec but a UX gap. Consider clearing the pin on
    band change or adding a visual indicator.
-3. **SignalHistoryLog not memoised** — Re-renders on every spectrum_update (~4-5 Hz).
-   `React.memo` recommended as optimisation.
+3. **SignalHistoryLog not memoised** *(RESOLVED — PHASE-BUILD-3)* — Wrapped in
+   `React.memo` with custom comparison (checks `pinnedTimestamp`, then
+   `scanResults` length + head timestamp). No longer re-renders on every
+   `spectrum_update` (~4-5 Hz).
 4. **FREQ_COLOUR_MAP / freqLabel incomplete** — Only 4 of 6 AU frequencies have
    dedicated colours and labels. Aviation, ACARS, AIS fall through to generic
    white text and computed labels. Pre-existing, not introduced by this build.
@@ -1801,7 +1873,7 @@ User clicks [ADS-B] button in browser
 | `dashboard/shared_state.py` | Python | Shared memory. Holds `BAND_PROFILES`, `current_band`, shutdown event, and band-switch lock. |
 | `dashboard/static/` | Static | Vite build output (generated). Served by Flask. |
 | `dashboard/frontend/src/App.jsx` | React | Root component. Three-row layout: waterfall + signal details (top), system status + signal history + AI reasoning + decoded signals (bottom). Owns `pinnedReasoning` state for pin-to-reasoning feature. OVERVIEW_BANDS (6 entries) for bottom strip. BAND_GROUPS (3 categories) for nav bar. |
-| `dashboard/frontend/src/components/SignalHistoryLog.jsx` | React | Scrolling log of scan results. FREQ_COLOUR_MAP colours each row by band (7 AU frequencies). Each row clickable: toggles pin on AIReasoningPanel. Amber highlight on pinned row. |
+| `dashboard/frontend/src/components/SignalHistoryLog.jsx` | React | Scrolling log of scan results. FREQ_COLOUR_MAP colours each row by band (7 AU frequencies). Each row clickable: toggles pin on AIReasoningPanel. Amber highlight on pinned row. Wrapped in React.memo with custom comparison (pinnedTimestamp + scanResults content) to avoid re-render on spectrum_update. |
 | `dashboard/frontend/src/components/AIReasoningPanel.jsx` | React | Displays LLM classification output. Shows ◆ PINNED badge when `isPinned` prop is true. Fade transition on new reasoning data. |
 
 ### Pin-to-Reasoning Data Flow

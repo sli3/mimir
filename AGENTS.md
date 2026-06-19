@@ -357,12 +357,13 @@ Do not apply this pre-emptively — only if context problems are observed.
 | ~~`FrequencyList.jsx:67`~~ | ~~`confidence_score` lacks null guard~~ | ~~Phase 7B polish~~ ✅ RESOLVED in PHASE-TECH-DEBT-2 |
 | CORS wildcard | `cors_allowed_origins="*"` in server.py — fine for dev | Pre-prod |
 | Queue max hard-coded | `020` in SystemStatsPanel — should read from systemStats | Phase 7B |
-| `sampleRateHz` dead param | Accepted by `useWaterfall.js` but unused | Post 7B |
+| ~~`sampleRateHz` dead param~~ | ~~Accepted by `useWaterfall.js` but unused~~ | ~~Post 7B~~ ✅ RESOLVED in PHASE-TECH-DEBT-1 |
 | Queue drain pattern | `_scan_loop()` drains queue before every insert ('latest wins'). AI loop always classifies freshest scan. Queue depth at steady state: 0–1 items. Introduced: 2026-06-16. | — |
 | ~~`psd_db` uncalibrated~~ | ~~FFT missing nfft normalisation~~ — fixed in Phase 9B-Hotfix (true dBFS) | ~~Post 7B~~ ✅ 9B-Hotfix |
 | scan.py startup message | "Scanning N frequencies" is misleading now that single-freq focus mode is active | Post 8C cosmetic |
 | Orphaned dashboard components | `SystemStatsPanel.jsx` and `AIReasoningPanel.jsx` are not imported by `App.jsx` -- live dashboard renders stats and AI reasoning inline. Components exist only as standalone test targets. | Pre-prod integration |
 | ~~test_server_stats.py strict dict equality~~ | ~~Full-dict equality broke every time broadcast() added a field~~ | ~~Resolved: test-quality refactor~~ ✅ |
+| SignalHistoryLog memoisation | `React.memo` with custom comparator — compares `pinnedTimestamp` + `scanResults` content equality | ✅ PHASE-BUILD-3 |
 
 ---
 
@@ -430,12 +431,15 @@ Do not apply this pre-emptively — only if context problems are observed.
   checks both 129.125 and 130.025 MHz. If user focuses 130.025 MHz, the outer sub-panel
   shows "NOT TUNED" while the inner panel renders correctly. Fix: align the outer `isTuned`
   check with the panel's dual-frequency check.
+  (Re-confirmed in PHASE-BUILD-3: `AcarsMessagePanel.jsx:10` references `130_025_000` via JS
+  numeric separator, confirmed in `modules/acars/constants.py:8`.)
 
-- **AIS missing from STRIP_CONFIGS/OVERVIEW_BANDS (open — Phase 10-Hotfix):** AIS
-  (161.975 MHz) is not in `WaterfallPanel.jsx` STRIP_CONFIGS or `App.jsx` OVERVIEW_BANDS.
-  When tuned to AIS, the `singleBand` waterfall falls back to FM Broadcast (STRIP_CONFIGS[0])
-  because no config matches within 2 MHz. The waterfall shows FM data while the user is
-  tuned to AIS. Intentional omission (AIS is narrowband, may not render visibly) but UX gap.
+- **AIS missing from OVERVIEW_BANDS (partial — PHASE-BUILD-3):** AIS (161.975 MHz,
+  `--neon-red`) was added to `WaterfallPanel.jsx` STRIP_CONFIGS in PHASE-BUILD-3
+  (now 7 entries). However, `App.jsx` OVERVIEW_BANDS and BAND_GROUPS still lack AIS
+  (6 bands only). When tuned to AIS, the `singleBand` waterfall renders correctly with
+  the `--neon-red` colour profile, but the nav bar overview waterfall does not show AIS.
+  STRIP_CONFIGS resolved; OVERVIEW_BANDS gap remains open.
 
 - **BANDS vs STRIP_CONFIGS ordering mismatch (RESOLVED — PHASE-TECH-DEBT-2):** `App.jsx`
   OVERVIEW_BANDS was genuinely missing AVIATION VHF (127 MHz) and ACARS (129.125 MHz)
@@ -444,10 +448,12 @@ Do not apply this pre-emptively — only if context problems are observed.
   remains (BANDS: FM→AVIATION→ACARS→APRS→ISM→ADS-B vs STRIP_CONFIGS: FM→APRS→AVIATION→ACARS→ISM→ADS-B)
   but both lists now contain the same 6 bands.
 
-- **Missing ACARS/AIS tuned-state tests (open — Phase 10-Hotfix):** `AdsbTunedState.test.jsx`
-  covers the three-state logic for ADS-B only. The equivalent logic for ACARS (lines 1089–1125)
-  and AIS (lines 1159–1195) in `App.jsx` has no test coverage. A regression in `isTuned()`
-  margin values or the three-state conditional would go undetected.
+- **Missing ACARS/AIS tuned-state tests (RESOLVED — PHASE-BUILD-3):** `AdsbTunedState.test.jsx`
+  covered the three-state logic for ADS-B only. The equivalent logic for ACARS (lines 1089–1125)
+  and AIS (lines 1159–1195) in `App.jsx` had no test coverage. Added `AcarsTunedState.test.jsx`
+  (2 tests) and `AisTunedState.test.jsx` (2 tests) covering NOT TUNED / TUNED / TUNED+EMPTY
+  three-state logic. A regression in `isTuned()` margin values or the three-state conditional
+  would now be caught.
 
 - **MED-01: scan.py fatal error exit path lacks test coverage (RESOLVED — PHASE-TECH-DEBT-1):** `scan.py` `main()` sets
   `fatal_error = True` in the `except Exception` handler and exits with code 1, but there is
