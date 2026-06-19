@@ -1038,15 +1038,38 @@ export default function App() {
                   }}>
                     ADS-B AIRCRAFT
                   </span>
-                  <span style={{
-                    fontSize: '11px',
-                    color: isTuned(focusedFreq, 1090000000) ? 'var(--neon-green)' : 'var(--neon-red)',
-                    fontFamily: 'var(--font-data)',
-                  }}>
-                    {isTuned(focusedFreq, 1090000000)
-                      ? '● TUNED 1090.000 MHz'
-                      : '● NOT TUNED — 1090.000 MHz'}
-                  </span>
+                  {isTuned(focusedFreq, 1090000000) ? (
+                    <div style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      border: '1px solid var(--neon-green)',
+                      background: 'rgba(0, 255, 136, 0.08)',
+                      boxShadow: '0 0 6px rgba(0, 255, 136, 0.25)',
+                      padding: '2px 8px',
+                      fontFamily: 'var(--font-display)',
+                      fontSize: 10,
+                      color: 'var(--neon-green)',
+                      letterSpacing: 1,
+                    }}>
+                      ◆ <span>TUNED</span>
+                    </div>
+                  ) : (
+                    <div style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      border: '1px solid var(--neon-red)',
+                      background: 'rgba(255, 68, 68, 0.08)',
+                      padding: '2px 8px',
+                      fontFamily: 'var(--font-display)',
+                      fontSize: 10,
+                      color: 'var(--neon-red)',
+                      letterSpacing: 1,
+                    }}>
+                      ◆ <span>NOT TUNED</span>
+                    </div>
+                  )}
                 </div>
                 <div style={{ padding: '0 10px 8px' }}>
                   {isTuned(focusedFreq, 1090000000) ? (
@@ -1109,15 +1132,38 @@ export default function App() {
                   }}>
                     ACARS MESSAGES
                   </span>
-                  <span style={{
-                    fontSize: '11px',
-                    color: isTuned(focusedFreq, 129125000, 5000) ? 'var(--neon-green)' : 'var(--neon-red)',
-                    fontFamily: 'var(--font-data)',
-                  }}>
-                    {isTuned(focusedFreq, 129125000, 5000)
-                      ? '● TUNED 129.125 MHz'
-                      : '● NOT TUNED — 129.125 MHz'}
-                  </span>
+                  {isTuned(focusedFreq, 129125000, 5000) ? (
+                    <div style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      border: '1px solid var(--neon-green)',
+                      background: 'rgba(0, 255, 136, 0.08)',
+                      boxShadow: '0 0 6px rgba(0, 255, 136, 0.25)',
+                      padding: '2px 8px',
+                      fontFamily: 'var(--font-display)',
+                      fontSize: 10,
+                      color: 'var(--neon-green)',
+                      letterSpacing: 1,
+                    }}>
+                      ◆ <span>TUNED</span>
+                    </div>
+                  ) : (
+                    <div style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      border: '1px solid var(--neon-red)',
+                      background: 'rgba(255, 68, 68, 0.08)',
+                      padding: '2px 8px',
+                      fontFamily: 'var(--font-display)',
+                      fontSize: 10,
+                      color: 'var(--neon-red)',
+                      letterSpacing: 1,
+                    }}>
+                      ◆ <span>NOT TUNED</span>
+                    </div>
+                  )}
                 </div>
                 <div style={{ padding: '0 10px 8px' }}>
                   {isTuned(focusedFreq, 129125000, 5000) ? (
@@ -1179,15 +1225,38 @@ export default function App() {
                   }}>
                     AIS VESSELS
                   </span>
-                  <span style={{
-                    fontSize: '11px',
-                    color: isTuned(focusedFreq, 161975000, 100000) ? 'var(--neon-green)' : 'var(--neon-red)',
-                    fontFamily: 'var(--font-data)',
-                  }}>
-                    {isTuned(focusedFreq, 161975000, 100000)
-                      ? '● TUNED 161.975 MHz'
-                      : '● NOT TUNED — 161.975 MHz'}
-                  </span>
+                  {isTuned(focusedFreq, 161975000, 100000) ? (
+                    <div style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      border: '1px solid var(--neon-green)',
+                      background: 'rgba(0, 255, 136, 0.08)',
+                      boxShadow: '0 0 6px rgba(0, 255, 136, 0.25)',
+                      padding: '2px 8px',
+                      fontFamily: 'var(--font-display)',
+                      fontSize: 10,
+                      color: 'var(--neon-green)',
+                      letterSpacing: 1,
+                    }}>
+                      ◆ <span>TUNED</span>
+                    </div>
+                  ) : (
+                    <div style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      border: '1px solid var(--neon-red)',
+                      background: 'rgba(255, 68, 68, 0.08)',
+                      padding: '2px 8px',
+                      fontFamily: 'var(--font-display)',
+                      fontSize: 10,
+                      color: 'var(--neon-red)',
+                      letterSpacing: 1,
+                    }}>
+                      ◆ <span>NOT TUNED</span>
+                    </div>
+                  )}
                 </div>
                 <div style={{ padding: '0 10px 8px' }}>
                   {isTuned(focusedFreq, 161975000, 100000) ? (
