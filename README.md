@@ -75,14 +75,19 @@ chmod +x setup.sh
 ./setup.sh
 
 # 3. Verify Phase 0 — TX is provably impossible
-python -m pytest tests/core/test_rx_only_lock.py -v
+PYTHONPATH=. python -m pytest tests/core/test_rx_only_lock.py -v
 
 # 4. Run full test suite
-python -m pytest tests/ -v
+PYTHONPATH=. python -m pytest tests/ -v
 
-# 5. Start the scanner
-python scan.py
+# 5. Start the scanner (PYTHONPATH=. is always required — see note below)
+PYTHONPATH=. python scan.py
 ```
+
+> **`PYTHONPATH=.` is always required** when running `scan.py` or any tool in `tools/`.
+> Mimir is not installed as a package — Python needs the repo root on its path to find
+> `core/`, `modules/`, `dashboard/`, `embeddings/`, and `llm/`. Without it you will get
+> `ModuleNotFoundError: No module named 'core'` (or similar).
 
 ### Option B — UV-based (recommended for development)
 
@@ -105,9 +110,9 @@ uv run pytest tests/core/test_rx_only_lock.py -v
 # 5. Run full test suite
 uv run pytest
 
-# 6. Start the scanner
-python scan.py
-# Note: uv run python scan.py will fail — SoapySDR is a system package
+# 6. Start the scanner (PYTHONPATH=. required — SoapySDR is a system package,
+#    and Mimir's own modules need the repo root on the import path)
+PYTHONPATH=. python scan.py
 ```
 
 ---
@@ -158,6 +163,7 @@ event rate, gap detection, and a PASS/FAIL summary. Use `--duration 60` minimum
 | PHASE-TECH-DEBT-1 | Housekeeping: startup message, stale comments, test coverage | ✅ Complete | 437/437 |
 | PHASE-TECH-DEBT-2 | Frontend small fixes: ??, null guard, colour map, overview bands, test mock | ✅ Complete | 439/439 |
 | PHASE-BUILD-3 | AIS waterfall config, tuned-state test coverage, SignalHistoryLog memoisation, ACARS dual-frequency fix | ✅ Complete | 446/446 (334 pytest + 112 Vitest) |
+| PHASE-BUILD-4 | Tech debt: setup.sh rewrite (uv sync + uv export), requirements.txt removed, PYTHONPATH=. documented | 🔄 In progress | 334 pytest + 112 Vitest |
 
 **Total: 446 passing (334 pytest + 112 Vitest), 0 pre-existing failures**
 
@@ -239,7 +245,7 @@ If you are setting up Mimir for the first time, or tuning it after a hardware ch
 
 ```bash
 # From the project root, with your Python environment active:
-python scan.py
+PYTHONPATH=. python scan.py
 ```
 
 Then open your browser at `http://localhost:5000`. The cyberpunk dashboard will show:
@@ -310,7 +316,6 @@ mimir/
 ├── README.md
 ├── scan.py                            ← Entry point — starts scanner + dashboard
 ├── setup.sh                           ← Auto-detecting install + React build
-├── requirements.txt
 ├── core/
 │   ├── device/
 │   │   ├── hackrf_rx.py               ← RX-only HackRF wrapper (TX hard blocked)
