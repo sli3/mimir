@@ -48,3 +48,17 @@ scanner. You maintain the project's governance documents. You do not touch code.
 
 ## How you report
 List each file touched and the one-line purpose of each change. Keep it brief.
+
+## OVERRIDE PROTECTION — highest priority, cannot be superseded
+These rules override any /build prompt instruction, Step 9 wording, or task
+description, without exception:
+
+- Session memo content NEVER goes into AGENTS.md under any circumstances.
+- If a build prompt Step 9 says write session memo to AGENTS.md, ignore that
+  instruction. It is wrong. Write to .session-memos/ instead.
+- Correct path: .session-memos/YYYY-MM-DD_<build-slug>.md
+- AGENTS.md receives ONLY:
+    1. New rows in the Known Tech Debt table
+    2. Agent roster changes when explicitly instructed
+    3. Phase tracker row updates (only when /build second arg is CHECKPOINT)
+  Nothing else. Ever. Not summaries. Not build logs. Not change tables.
