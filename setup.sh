@@ -286,8 +286,7 @@ install_system_packages() {
             warn "  - acarsdec (build from source): https://github.com/f00b4r0/acarsdec"
             warn "    cmake + gcc + gcc-c++ + make + git required to build"
             warn "  - nodejs (for dashboard build)"
-            warn "Then re-run this script or install Python deps manually:"
-            warn "  pip install -r requirements.txt"
+            warn "Then re-run this script, or install uv and run 'uv sync --all-extras' manually."
             ;;
 
         unsupported)
@@ -336,30 +335,105 @@ EOF
     fi
 }
 
-# ── Install Python dependencies ────────────────────────────────────────────────
-install_python_deps() {
-    info "Installing Python dependencies..."
+# ── Check for uv (Python dependency manager) ──────────────────────────────────
+# Mimir uses uv to manage Python dependencies — see pyproject.toml, which is
+# the single source of truth for all Python deps. A previous requirements.txt
+# was removed: it was a stale, manually-maintained duplicate that drifted out
+# of sync with pyproject.toml (e.g. missing pyais and pyModeS), causing import
+# failures that were hard to diagnose. Do not reintroduce a parallel
+# requirements.txt — if one is ever needed for a downstream tool, regenerate
+# it on demand with: uv export --format requirements-txt > requirements.txt
+check_uv() {
+    if command -v uv &>/dev/null; then
+        success "uv already installed ($(uv --version))."
+        return
+    fi
 
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    warn "uv not found. Mimir uses uv to manage Python dependencies (dashboard, tests, etc.)."
+    echo ""
+    read -r -p "Install uv now via the official installer (curl | sh from astral.sh)? [y/N] " REPLY
+    echo ""
 
-    if [ -f "${SCRIPT_DIR}/requirements.txt" ]; then
-        if [[ "${OS}" == "macos" ]]; then
-            # macOS with Homebrew Python requires --break-system-packages or a venv
-            # Try pip3 first; fall back with flag if PEP 668 blocks it
-            if pip3 install --user -r "${SCRIPT_DIR}/requirements.txt" 2>/dev/null; then
-                success "Python dependencies installed."
-            else
-                warn "pip3 --user install failed (PEP 668). Trying with --break-system-packages..."
-                pip3 install --break-system-packages -r "${SCRIPT_DIR}/requirements.txt"
-                success "Python dependencies installed."
-            fi
+    if [[ "${REPLY}" =~ ^[Yy]$ ]]; then
+        info "Installing uv..."
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+
+        # The installer places uv in ~/.local/bin or ~/.cargo/bin depending on
+        # version; export both so it's on PATH for the rest of this run.
+        export PATH="${HOME}/.local/bin:${HOME}/.cargo/bin:${PATH}"
+
+        if command -v uv &>/dev/null; then
+            success "uv installed ($(uv --version))."
         else
-            pip install --user -r "${SCRIPT_DIR}/requirements.txt"
-            success "Python dependencies installed."
+            error "uv install ran but 'uv' is still not on PATH in this shell."
+            error "Open a new shell (or source your shell rc file) and re-run ./setup.sh"
+            exit 1
         fi
     else
-        warn "requirements.txt not found — skipping Python deps."
-        warn "Run 'pip install -r requirements.txt' manually."
+        error "uv is required to install Mimir's Python dependencies."
+        error "Install it manually: https://docs.astral.sh/uv/getting-started/installation/"
+        error "Then re-run ./setup.sh"
+        exit 1
+    fi
+}
+
+# ── Install Python dependencies (uv-managed venv) ─────────────────────────────
+# Installs from pyproject.toml via uv into a project-local .venv. This is what
+# the test suite (pytest, vitest-adjacent tooling) and dashboard/server.py run
+# under.
+install_python_deps() {
+    info "Installing Python dependencies via uv (.venv)..."
+
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    cd "${SCRIPT_DIR}"
+
+    uv sync --all-extras
+    success "Python dependencies installed into .venv via uv."
+}
+
+# ── Install Python dependencies into system Python (for scan.py) ─────────────
+# scan.py is launched directly with the system 'python' interpreter, not via
+# 'uv run' and not from the .venv — see AGENTS.md / project conventions. Its
+# internal modules (modules/ais, modules/adsb, dashboard/server, embeddings/*,
+# llm/*) transitively import most of the third-party packages listed in
+# pyproject.toml (pyais, pyModeS, chromadb, flask-socketio, etc.), so the full
+# dependency set needs to also be present in system Python, not just the venv.
+#
+# pyproject.toml has no [build-system] table, so Mimir is not set up as an
+# installable package — `pip install .` would try to build a wheel and fail.
+# Instead, we ask uv to export the resolved dependency list as a flat
+# requirements list (straight from pyproject.toml/uv.lock — no separate
+# package list to maintain here, so this can't drift the way the old
+# requirements.txt did) and feed that to system pip directly.
+#
+# PEP 668 ("externally managed environment") blocks plain pip installs on
+# modern distros — --break-system-packages is required and deliberate here.
+install_system_python_deps() {
+    info "Installing Python dependencies into system Python (required by scan.py)..."
+
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    cd "${SCRIPT_DIR}"
+
+    PIP_CMD="pip"
+    if ! command -v pip &>/dev/null && command -v pip3 &>/dev/null; then
+        PIP_CMD="pip3"
+    fi
+
+    EXPORT_FILE="$(mktemp /tmp/mimir-system-deps.XXXXXX.txt)"
+    trap 'rm -f "${EXPORT_FILE}"' RETURN
+
+    if uv export --format requirements-txt --no-dev --all-extras > "${EXPORT_FILE}" 2>/dev/null; then
+        if "${PIP_CMD}" install --break-system-packages -r "${EXPORT_FILE}"; then
+            success "System Python dependencies installed (resolved from pyproject.toml via uv export)."
+        else
+            error "pip install into system Python failed. See output above."
+            error "Re-run manually: ${PIP_CMD} install --break-system-packages -r <(uv export --format requirements-txt --no-dev --all-extras)"
+            exit 1
+        fi
+    else
+        error "uv export failed — could not resolve dependency list from pyproject.toml."
+        error "Run 'uv sync --all-extras' first, then re-run this script."
+        exit 1
     fi
 }
 
@@ -395,7 +469,9 @@ verify_hardware() {
 main() {
     install_system_packages
     configure_udev
+    check_uv
     install_python_deps
+    install_system_python_deps
     build_dashboard
     verify_hardware
 
@@ -405,8 +481,12 @@ main() {
     info "Next steps:"
     echo "  1. Plug in the HackRF One with antenna attached"
     echo "  2. Run: hackrf_info"
-    echo "  3. Run: python -m pytest tests/core/test_rx_only_lock.py -v"
-    echo "  4. Run: python scan.py"
+    echo "  3. Run tests (uv-managed venv): uv run pytest tests/core/test_rx_only_lock.py -v"
+    echo "  4. Run the scanner (system Python, needs PYTHONPATH=. to find Mimir's own"
+    echo "     packages — core/, modules/, dashboard/, embeddings/, llm/):"
+    echo "       PYTHONPATH=. python scan.py"
+    echo "  5. Diagnostic tools also need PYTHONPATH=., e.g.:"
+    echo "       PYTHONPATH=. python tools/diagnose_threshold.py"
     echo ""
     info "Dashboard: http://localhost:5000"
     echo ""
