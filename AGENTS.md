@@ -187,46 +187,15 @@ uv run python tools/seed_chromadb.py
 | 11 | Per-Band Signal Thresholds + All-Bands Sweep | ✅ Complete | 425/425 (328 pytest + 97 Vitest) |
 | 9C-Threshold | Calibrate SIGNAL_THRESHOLD_DB | ⏳ PENDING ANTENNA | — |
 | 11-Hotfix | Broadcast Defaults + FM Threshold + Startup Guard | ✅ Complete | 427/427 (330 pytest + 97 Vitest) |
+| PHASE-TECH-DEBT-1 | Six backend/frontend tech debt fixes | ✅ Complete | 437/437 (332 pytest + 105 Vitest) |
+| PHASE-TECH-DEBT-2 | Five frontend small fixes | ✅ Complete | 439/439 (334 pytest + 105 Vitest) |
+| PHASE-BUILD-3 | AIS waterfall config, tuned-state tests, SignalHistoryLog memo | ✅ Complete | 446/446 (334 pytest + 112 Vitest) |
+| PHASE-BUILD-4 | Tech debt clean-up (setup.sh, FREQ_COLOUR_MAP, AIS nav, pin eviction, classifier prompt) | ✅ Complete | 446/446 (334 pytest + 112 Vitest) |
+| PHASE-BAND-PROFILE-FIX | Wire band profile into handle_set_focus for per-band thresholds | ✅ Complete | 452/452 (340 pytest + 112 Vitest) |
+| PHASE-CLASSIFIER-ACCURACY-FIX | Add AIS to BAND_PROFILES; fix ACARS/AIS misclassification | ✅ Complete | 456/456 (344 pytest + 112 Vitest) |
 
-**Total passing: 428 passing (331 pytest + 97 Vitest), 0 pre-existing pytest failures (428 total)**
-- Note: 6 pre-existing pytest failures resolved as of 2026-06-19 — all 331 pytest tests now passing.
-
-### Session Memo — PHASE-TECH-DEBT-1 (2026-06-19)
-
-**Build:** Six backend/frontend tech debt fixes across the codebase.
-
-| Change | File(s) | Purpose |
-|---|---|---|
-| Startup message accuracy | `scan.py` | "Scanning N frequencies" → "Focus mode: cycling through N band(s) one at a time" |
-| Test dict equality fragility | `tests/dashboard/test_server_stats.py` | `payload["key"]` → `payload.get("key")` subset-iteration with Expected dict |
-| MED-01 test coverage | `tests/test_scan.py` | New `test_fatal_error_exits_with_code_1` + `time.sleep` patching |
-| Stale ADS-B comments | `modules/adsb/message.py` | `position_with_ref()` → `PipeDecoder` CPR reference in docstrings |
-| Dead frontend parameter | `dashboard/frontend/src/hooks/useWaterfall.js`, `WaterfallPanel.jsx`, 3 test files | Removed unused `sampleRateHz` from hook, call site, and tests |
-| Partial flush fix | `modules/adsb/subscriber.py` | `decoder.flush()` in `stop()` before `_running=False` (incremental improvement) |
-
-**Test results:** 332 pytest + 105 Vitest = 437 total (up from 331 + 97 = 428).
-
-**Adjudicated:** @review-second (zero issues), @deep-analyst (MAJOR-01: flush inert + thread-safety). PM accepted flush as incremental step; harvest gap remains open.
-
-### Session Memo — PHASE-BAND-PROFILE-FIX (2026-06-22)
-
-**Build:** Wired band profile into `handle_set_focus` so per-band thresholds apply on frequency switch.
-
-Previously, `handle_set_focus` retuned the HackRF but never updated `shared_state.current_band`. The scan loop reads `current_band[signal_threshold_db]` before each fingerprint call, so after a band switch the scanner still applied the FM broadcast threshold (21.0 dB) to every other band. Aviation VHF signals at SNR ~11 dB were suppressed. The waterfall was blank and `bandwidth_hz`/`occupied_bins` remained zero on all non-FM bands.
-
-| Change | File(s) | Purpose |
-|---|---|---|
-| Band profile lookup | `dashboard/shared_state.py` | Added `get_band_for_freq(freq_hz)` — returns a dict copy of the matching BAND_PROFILES entry, or None. Thread-safe (read-only, returns copy). |
-| Focus handler wiring | `dashboard/server.py` | Updated `handle_set_focus` to call `get_band_for_freq` and update `current_band` under `current_band_lock` when a known band frequency is detected. |
-| New tests | `tests/dashboard/test_shared_state.py` | 4 new tests (TestGetBandForFreq class). |
-| New tests | `tests/dashboard/test_server_stats.py` | 2 new tests in TestFocusFrequencyFilter. |
-
-**Test results:** 340 pytest + 112 Vitest = 452 total (up from 334 + 112 = 446).
-
-**Tech debt surfaced:**
-- **[LOW]** `fm_broadcast` and `noise_floor` both have `center_freq_hz == 98_000_000`. `get_band_for_freq` relies on `fm_broadcast` appearing first in BAND_PROFILES dict ordering. Documented in docstring.
-- **[LOW]** Clear-focus (None) path does not reset `current_band`. Acceptable under current single-frequency-focus architecture.
-- **[LOW]** Thread-safety stress test doesn't exercise `current_band_lock` write path under concurrent load (test frequencies don't match BAND_PROFILES). Acceptable for this build.
+**Total passing: 456 passing (344 pytest + 112 Vitest), 0 pre-existing pytest failures (456 total)**
+- Note: All pre-existing pytest failures resolved. 344 pytest + 112 Vitest = 456 total as of 2026-06-22.
 
 ---
 
@@ -387,6 +356,8 @@ Do not apply this pre-emptively — only if context problems are observed.
 | BAND_PROFILES dict ordering dependency | `fm_broadcast` and `noise_floor` both at 98 MHz; `get_band_for_freq` relies on dict insertion order (`fm_broadcast` first). Documented in docstring. | — (tracked) |
 | Clear-focus path does not reset current_band | `handle_set_focus(None)` leaves `shared_state.current_band` pointing to the last tuned band. Acceptable under single-frequency-focus architecture. | — (tracked) |
 | Thread-safety stress test blind spot | `test_get_band_for_freq_concurrent` doesn't exercise `current_band_lock` write path (test frequencies don't match BAND_PROFILES). | — (advisory) |
+| Classifier schema missing acars/ais | `llm/classifier.py` _JSON_SCHEMA and _AU_BAND_REFERENCE don't list "acars" or "ais" as valid signal_type values. 4B LLM may not consistently output new labels despite ACMA reference notes. | — (tracked) |
+| AIS BAND_PROFILES centre vs demodulator centre mismatch | BAND_PROFILES centre_freq_hz (161.975 MHz = CH1) differs from AIS demodulator expected centre (162.000 MHz for dual-channel). If dashboard tunes to 161.975 MHz, dual-channel decode may misbehave. | — (tracked) |
 
 ---
 
