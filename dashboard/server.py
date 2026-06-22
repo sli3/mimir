@@ -42,6 +42,7 @@ from core.pipeline.scan_result import ScanResult
 from modules.acars.message import AcarsMessage
 from modules.adsb.message import AdsbMessage
 from modules.ais.message import AisMessage
+import dashboard.shared_state as shared_state
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,10 @@ def handle_set_focus(data):
     reference is available, also calls scanner.set_focus_frequency() to
     retune the HackRF and flush any queued results.
 
+    Also updates shared_state.current_band to the matching BAND_PROFILES entry
+    when freq_hz corresponds to a known band centre frequency, so the scan loop
+    applies the correct per-band signal_threshold_db without a restart.
+
     Args:
         data: Dict from the browser with key "freq_hz". Values accepted:
               numeric (int/float), string numeric, None (clear focus),
@@ -77,6 +82,10 @@ def handle_set_focus(data):
         freq_hz = None
     with _focused_freq_lock:
         _focused_freq_hz = freq_hz
+    band_profile = shared_state.get_band_for_freq(freq_hz)
+    if band_profile is not None:
+        with shared_state.current_band_lock:
+            shared_state.current_band = band_profile
     if _scanner_ref is not None:
         _scanner_ref.set_focus_frequency(freq_hz)
 

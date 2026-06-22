@@ -208,6 +208,26 @@ uv run python tools/seed_chromadb.py
 
 **Adjudicated:** @review-second (zero issues), @deep-analyst (MAJOR-01: flush inert + thread-safety). PM accepted flush as incremental step; harvest gap remains open.
 
+### Session Memo — PHASE-BAND-PROFILE-FIX (2026-06-22)
+
+**Build:** Wired band profile into `handle_set_focus` so per-band thresholds apply on frequency switch.
+
+Previously, `handle_set_focus` retuned the HackRF but never updated `shared_state.current_band`. The scan loop reads `current_band[signal_threshold_db]` before each fingerprint call, so after a band switch the scanner still applied the FM broadcast threshold (21.0 dB) to every other band. Aviation VHF signals at SNR ~11 dB were suppressed. The waterfall was blank and `bandwidth_hz`/`occupied_bins` remained zero on all non-FM bands.
+
+| Change | File(s) | Purpose |
+|---|---|---|
+| Band profile lookup | `dashboard/shared_state.py` | Added `get_band_for_freq(freq_hz)` — returns a dict copy of the matching BAND_PROFILES entry, or None. Thread-safe (read-only, returns copy). |
+| Focus handler wiring | `dashboard/server.py` | Updated `handle_set_focus` to call `get_band_for_freq` and update `current_band` under `current_band_lock` when a known band frequency is detected. |
+| New tests | `tests/dashboard/test_shared_state.py` | 4 new tests (TestGetBandForFreq class). |
+| New tests | `tests/dashboard/test_server_stats.py` | 2 new tests in TestFocusFrequencyFilter. |
+
+**Test results:** 340 pytest + 112 Vitest = 452 total (up from 334 + 112 = 446).
+
+**Tech debt surfaced:**
+- **[LOW]** `fm_broadcast` and `noise_floor` both have `center_freq_hz == 98_000_000`. `get_band_for_freq` relies on `fm_broadcast` appearing first in BAND_PROFILES dict ordering. Documented in docstring.
+- **[LOW]** Clear-focus (None) path does not reset `current_band`. Acceptable under current single-frequency-focus architecture.
+- **[LOW]** Thread-safety stress test doesn't exercise `current_band_lock` write path under concurrent load (test frequencies don't match BAND_PROFILES). Acceptable for this build.
+
 ---
 
 ## MCP Servers
@@ -364,6 +384,9 @@ Do not apply this pre-emptively — only if context problems are observed.
 | Orphaned dashboard components | `SystemStatsPanel.jsx` and `AIReasoningPanel.jsx` are not imported by `App.jsx` -- live dashboard renders stats and AI reasoning inline. Components exist only as standalone test targets. | Pre-prod integration |
 | ~~test_server_stats.py strict dict equality~~ | ~~Full-dict equality broke every time broadcast() added a field~~ | ~~Resolved: test-quality refactor~~ ✅ |
 | SignalHistoryLog memoisation | `React.memo` with custom comparator — compares `pinnedTimestamp` + `scanResults` content equality | ✅ PHASE-BUILD-3 |
+| BAND_PROFILES dict ordering dependency | `fm_broadcast` and `noise_floor` both at 98 MHz; `get_band_for_freq` relies on dict insertion order (`fm_broadcast` first). Documented in docstring. | — (tracked) |
+| Clear-focus path does not reset current_band | `handle_set_focus(None)` leaves `shared_state.current_band` pointing to the last tuned band. Acceptable under single-frequency-focus architecture. | — (tracked) |
+| Thread-safety stress test blind spot | `test_get_band_for_freq_concurrent` doesn't exercise `current_band_lock` write path (test frequencies don't match BAND_PROFILES). | — (advisory) |
 
 ---
 

@@ -157,3 +157,33 @@ BAND_PROFILES: dict = {
 # Protected by current_band_lock.
 current_band: dict = dict(BAND_PROFILES["fm_broadcast"])
 current_band_lock = threading.Lock()
+
+
+def get_band_for_freq(freq_hz: float | None) -> dict | None:
+    """Return a copy of the BAND_PROFILES entry whose center_freq_hz matches
+    freq_hz exactly, or None if no profile matches.
+
+    Used by handle_set_focus (dashboard/server.py) to update current_band
+    when the user switches to a known band frequency. Returns a dict copy
+    so callers cannot mutate the canonical profile.
+
+    **Ordering dependency:** Both ``fm_broadcast`` and ``noise_floor`` have
+    ``center_freq_hz == 98_000_000``. The function iterates ``BAND_PROFILES``
+    in definition order and returns the *first* match, so ``fm_broadcast``
+    always wins for 98 MHz. This is correct — the dashboard must never switch
+    to the ``noise_floor`` profile from a frequency change. If entries are
+    reordered or new duplicates are added, this function's behaviour changes
+    silently.
+
+    Args:
+        freq_hz: Centre frequency in Hz, or None.
+
+    Returns:
+        dict copy of the matching BAND_PROFILES entry, or None.
+    """
+    if freq_hz is None:
+        return None
+    for profile in BAND_PROFILES.values():
+        if profile["center_freq_hz"] == int(freq_hz):
+            return dict(profile)
+    return None

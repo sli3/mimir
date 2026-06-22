@@ -44,6 +44,7 @@
 | PHASE-TECH-DEBT-1 | Six backend/frontend tech debt fixes | ✅ Complete | 437/437 (332 pytest + 105 Vitest) |
 | PHASE-TECH-DEBT-2 | Five frontend small fixes (tech debt) | ✅ Complete | 439/439 (334 pytest + 105 Vitest) |
 | PHASE-BUILD-3 | AIS waterfall config, tuned-state test coverage, SignalHistoryLog memoisation | ✅ Complete | 446/446 (334 pytest + 112 Vitest) |
+| PHASE-BAND-PROFILE-FIX | Wire band profile into handle_set_focus for per-band thresholds on frequency switch | ✅ Complete | 452/452 (340 pytest + 112 Vitest) |
 
 ### Phase 11 Hotfix — Broadcast Defaults + FM Threshold + Startup Guard ✅
 
@@ -574,6 +575,43 @@ SignalHistoryLog in React.memo with a custom comparator for re-render optimisati
   waterfall omits AIS. Requires adding AIS to both OVERVIEW_BANDS and BAND_GROUPS.
 
 **Test counts:** 446/446 (334 pytest + 112 Vitest)
+
+---
+
+### Phase PHASE-BAND-PROFILE-FIX — Wire band profile into handle_set_focus for per-band thresholds on frequency switch ✅
+
+**Goal:** Make per-band `signal_threshold_db` values actually apply when the user
+switches frequencies via the dashboard. Previously, `handle_set_focus` retuned the
+HackRF but never updated `shared_state.current_band`, so every non-FM band was
+evaluated against the FM broadcast threshold (21.0 dB), suppressing Aviation VHF
+(~11 dB SNR) and keeping bandwidth_hz/occupied_bins at zero.
+
+**Delivered:**
+
+1. **`dashboard/shared_state.py`** — Added `get_band_for_freq(freq_hz)` — returns
+   a dict copy of the matching BAND_PROFILES entry, or None if no match.
+   Thread-safe by design (read-only, returns copy). Depends on dict insertion
+   order for the `fm_broadcast`/`noise_floor` ambiguity at 98 MHz — documented
+   in docstring.
+
+2. **`dashboard/server.py`** — Added `import dashboard.shared_state as shared_state`.
+   Updated `handle_set_focus` to call `shared_state.get_band_for_freq(freq_hz)` and
+   update `shared_state.current_band` under `current_band_lock` when a known band
+   frequency is detected.
+
+3. **`tests/dashboard/test_shared_state.py`** — 4 new tests (TestGetBandForFreq class):
+   test_known_band_returns_profile, test_unknown_band_returns_none,
+   test_fm_broadcast_found, test_matches_frequency_within_margin.
+
+4. **`tests/dashboard/test_server_stats.py`** — 2 new tests in TestFocusFrequencyFilter:
+   test_focus_wires_shared_state_band, test_focus_unknown_does_not_set_band.
+
+**Open tech debt surfaced:**
+- BAND_PROFILES dict ordering dependency (fm_broadcast vs noise_floor at 98 MHz)
+- Clear-focus (None) path does not reset current_band — acceptable under current architecture
+- Thread-safety stress test does not exercise current_band_lock write path
+
+**Test counts:** 452/452 (340 pytest + 112 Vitest)
 
 ---
 

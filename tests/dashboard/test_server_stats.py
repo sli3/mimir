@@ -15,6 +15,7 @@ from dashboard.server import (
 )
 from core.pipeline.scan_result import ScanResult
 from llm.classifier import ClassificationResult
+import dashboard.shared_state as ss
 
 
 class TestComputeHackrfStatus:
@@ -223,6 +224,29 @@ class TestFocusFrequencyFilter:
         assert stats["active_frequency_hz"] == 0.0
         assert stats["llm_call_count"] == 0
         assert stats["last_backlog"] == 0
+
+    def test_handle_set_focus_updates_current_band_for_known_freq(self):
+        """handle_set_focus updates current_band when freq matches a BAND_PROFILES entry."""
+        saved = dict(ss.current_band)
+        try:
+            handle_set_focus({"freq_hz": 129_125_000})
+            with ss.current_band_lock:
+                assert ss.current_band["center_freq_hz"] == 129_125_000
+                assert ss.current_band["signal_threshold_db"] == ss.BAND_PROFILES["acars"]["signal_threshold_db"]
+        finally:
+            with ss.current_band_lock:
+                ss.current_band = saved
+
+    def test_handle_set_focus_does_not_update_current_band_for_unknown_freq(self):
+        """handle_set_focus leaves current_band unchanged for a non-BAND_PROFILES frequency."""
+        saved = dict(ss.current_band)
+        try:
+            handle_set_focus({"freq_hz": 100_000_000})
+            with ss.current_band_lock:
+                assert ss.current_band == saved
+        finally:
+            with ss.current_band_lock:
+                ss.current_band = saved
 
     def test_thread_safety_no_deadlock(self):
         broadcast = self._start_server_with_mocks()

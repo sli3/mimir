@@ -10,7 +10,7 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from dashboard.shared_state import BAND_PROFILES
+from dashboard.shared_state import BAND_PROFILES, get_band_for_freq
 
 
 class TestBandProfiles:
@@ -40,3 +40,29 @@ class TestBandProfiles:
             assert "signal_threshold_db" in profile, f"{name} missing signal_threshold_db"
             assert isinstance(profile["signal_threshold_db"], (int, float)), f"{name} signal_threshold_db not numeric"
             assert profile["signal_threshold_db"] > 0, f"{name} signal_threshold_db not positive"
+
+
+class TestGetBandForFreq:
+    """Tests for the get_band_for_freq helper."""
+
+    def test_known_freq_returns_profile(self):
+        """get_band_for_freq returns a dict for a known center_freq_hz."""
+        result = get_band_for_freq(98_000_000)
+        assert result is not None
+        assert result["signal_threshold_db"] == BAND_PROFILES["fm_broadcast"]["signal_threshold_db"]
+
+    def test_unknown_freq_returns_none(self):
+        """get_band_for_freq returns None for a frequency not in BAND_PROFILES."""
+        result = get_band_for_freq(100_000_000)
+        assert result is None
+
+    def test_none_input_returns_none(self):
+        """get_band_for_freq returns None when passed None."""
+        result = get_band_for_freq(None)
+        assert result is None
+
+    def test_returns_copy_not_reference(self):
+        """get_band_for_freq returns a copy — mutations do not affect BAND_PROFILES."""
+        result = get_band_for_freq(98_000_000)
+        result["signal_threshold_db"] = 999.0
+        assert BAND_PROFILES["fm_broadcast"]["signal_threshold_db"] != 999.0
