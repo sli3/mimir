@@ -30,7 +30,7 @@ function confidenceColour(confidence) {
  *  @param {boolean} [props.isPinned=false] — if true and signal_type is set,
  *    renders a boxed ◆ PINNED badge with timestamp in amber, and the component
  *    key in App.jsx forces remount on pin toggle */
-export default function AIReasoningPanel({ aiReasoning, isPinned = false }) {
+export default function AIReasoningPanel({ aiReasoning, isPinned = false, onUnpin }) {
   const [opacity, setOpacity] = useState(1)
   const [displayData, setDisplayData] = useState(null)
   const prevReasoningRef = useRef(null)
@@ -102,19 +102,22 @@ export default function AIReasoningPanel({ aiReasoning, isPinned = false }) {
               gap: 8,
               marginBottom: 4,
             }}>
-              <div style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                border: '1px solid var(--neon-amber)',
-                background: 'rgba(255, 170, 0, 0.14)',
-                boxShadow: '0 0 6px rgba(255, 170, 0, 0.35)',
-                padding: '2px 8px',
-                fontFamily: 'var(--font-display)',
-                fontSize: 10,
-                color: 'var(--neon-amber)',
-                letterSpacing: 1,
-              }}>
-                ◆ PINNED
+              <div
+                onClick={onUnpin}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  border: '1px solid var(--neon-amber)',
+                  background: 'rgba(255, 170, 0, 0.14)',
+                  boxShadow: '0 0 6px rgba(255, 170, 0, 0.35)',
+                  padding: '2px 8px',
+                  fontFamily: 'var(--font-display)',
+                  fontSize: 10,
+                  color: 'var(--neon-amber)',
+                  letterSpacing: 1,
+                  cursor: 'pointer',
+                }}>
+                ◆ PINNED — CLICK TO UNPIN
               </div>
               <span style={{
                 fontFamily: 'var(--font-display)',

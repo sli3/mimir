@@ -991,9 +991,9 @@ export default function App() {
             </div>
             <div style={{ flex: 1, overflow: 'hidden' }}>
               <AIReasoningPanel
-                key={pinnedTimestamp || 'live'}
                 aiReasoning={pinnedReasoning || aiReasoning}
                 isPinned={!!pinnedReasoning}
+                onUnpin={() => setPinnedReasoning(null)}
               />
             </div>
           </div>
