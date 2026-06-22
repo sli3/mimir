@@ -447,13 +447,28 @@ set novel to true. Never invent data — only classify based on what you are giv
                 acma_lines.append(line)
             acma_section = "\n".join(acma_lines) + "\n"
             acma_footer = (
-                "Use this regulatory context to inform your classification. "
-                "If the signal frequency matches a known allocation, "
-                "say so explicitly in your reasoning.\n"
+                "REGULATORY CONTEXT: The ACMA allocations above are authoritative "
+                "for this exact frequency. Your classification MUST be consistent "
+                "with the allocated services. If the signal frequency falls within "
+                "a known allocation, that allocation takes precedence over "
+                "nearest-neighbour labels from the vector store.\n"
             )
         else:
             acma_section = ""
             acma_footer = ""
+
+        freq_anchor = (
+            "IMPORTANT: The centre frequency above is the authoritative anchor for "
+            "classification. Nearest neighbours may come from different frequencies "
+            "and different signal types — do not let neighbour labels override the "
+            "frequency evidence. If a neighbour label contradicts the centre frequency "
+            "or its known allocation, prefer the frequency evidence.\n"
+        ) if acma_allocations else (
+            "IMPORTANT: The centre frequency above is the authoritative anchor for "
+            "classification. Nearest neighbours may come from different frequencies "
+            "and different signal types — do not let neighbour labels override the "
+            "frequency evidence.\n"
+        )
 
         return (
             f"New signal fingerprint:\n"
@@ -463,11 +478,13 @@ set novel to true. Never invent data — only classify based on what you are giv
             f"  Spectral flatness: {flatness:.3f}       ({flatness_label})\n"
             f"  Captured         : {timestamp}\n"
             f"\n"
+            f"{acma_section}"
+            f"{acma_footer}"
             f"ChromaDB nearest neighbours (top {len(neighbours)}):\n"
             f"{neighbours_section}\n"
             f"\n"
-            f"{acma_section}"
-            f"{acma_footer}"
+            f"{freq_anchor}"
+            f"\n"
             f"Classify this signal. Respond with JSON only."
         )
 
