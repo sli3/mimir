@@ -37,8 +37,8 @@ export default function SystemStatsPanel({ systemStats }) {
     : '00000'
 
   const queueDepth = systemStats?.queue_depth != null
-    ? `${String(systemStats.queue_depth).padStart(3, '0')} / 020`
-    : '--- / ---'
+    ? String(systemStats.queue_depth).padStart(3, '0')
+    : '---'
 
   const llmInference = systemStats?.llm_last_inference_ms != null
     ? `${Math.round(systemStats.llm_last_inference_ms)} ms`

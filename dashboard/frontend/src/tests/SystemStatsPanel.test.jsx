@@ -6,9 +6,9 @@ import SystemStatsPanel from '../components/SystemStatsPanel.jsx'
 describe('SystemStatsPanel', () => {
   it('renders all --- placeholders when systemStats is null', () => {
     render(<SystemStatsPanel systemStats={null} />)
-    expect(screen.getByText('---')).toBeInTheDocument()
+    const dashes = screen.getAllByText('---')
+    expect(dashes.length).toBeGreaterThanOrEqual(2)
     expect(screen.getByText('00000')).toBeInTheDocument()
-    expect(screen.getByText('--- / ---')).toBeInTheDocument()
     expect(screen.getByText('--- ms')).toBeInTheDocument()
   })
 
@@ -47,6 +47,6 @@ describe('SystemStatsPanel', () => {
       queue_depth: 3,
       llm_last_inference_ms: 1240,
     }} />)
-    expect(screen.getByText('003 / 020')).toBeInTheDocument()
+    expect(screen.getByText('003')).toBeInTheDocument()
   })
 })
