@@ -41,6 +41,12 @@ const BAND_GROUPS = [
     ],
   },
   {
+    label: 'MARITIME',
+    bands: [
+      { name: 'AIS', freq_hz: 161975000, label: 'AIS' },
+    ],
+  },
+  {
     label: 'DATA / IoT',
     bands: [
       { name: 'APRS', freq_hz: 145175000, label: 'APRS' },
@@ -54,6 +60,7 @@ const OVERVIEW_BANDS = [
   { name: 'APRS',         freq_hz: 145175000 },
   { name: 'AVIATION VHF', freq_hz: 127000000 },
   { name: 'ACARS',        freq_hz: 129125000 },
+  { name: 'AIS',          freq_hz: 161975000 },
   { name: 'ISM / LoRa',   freq_hz: 915000000 },
   { name: 'ADS-B',        freq_hz: 1090000000 },
 ]
