@@ -960,7 +960,7 @@ export default function App() {
           overflow: 'hidden',
         }}>
           {/* Section A — AI Reasoning */}
-          <div style={{ height: '210px', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+          <div style={{ minHeight: '210px', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
             <div style={{
               height: '28px',
               flexShrink: 0,
