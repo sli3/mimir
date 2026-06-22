@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: "PHASE-BUILD-3"
+last_updated_phase: "PHASE-CLASSIFIER-ACCURACY-FIX"
 ---
 
 # Mimir Wiki
@@ -70,6 +70,69 @@ Step  Function / Component          What it does
 ## Phase Log
 
 Phases are listed newest-first so the current phase is always at the top.
+
+---
+
+### PHASE-CLASSIFIER-ACCURACY-FIX — ACMA Reference Entries for ACARS and AIS + AIS Band Profile ✓ DONE
+
+**What:** Three changes to correct LLM misclassification of ACARS and AIS signals:
+
+1. **ACARS entry in frequency_reference.json** — Added a new reference entry
+   (129.0–130.1 MHz, `mimir_band: "acars"`) so the LLM receives the context
+   "Classify as acars, not aviation_vhf" when looking up 129.125 MHz.
+   Previously, the LLM saw 129.125 MHz as "AERONAUTICAL MOBILE (R)" with no
+   specific acars annotation and frequently classified ACARS signals as
+   aviation_vhf.
+
+2. **AIS entry in frequency_reference.json** — Added a new reference entry
+   (161.9–162.1 MHz, `mimir_band: "ais"`) so the LLM receives the context
+   "This is NOT marine satellite or general marine VHF... Classify as ais"
+   when looking up 161.975 MHz. Previously, the LLM saw 161.975 MHz under a
+   generic maritime allocation and classified AIS signals as marine_satellite.
+
+3. **AIS entry in BAND_PROFILES** — Added the `ais` band profile to
+   `dashboard/shared_state.py` BAND_PROFILES dict (between acars and aprs).
+   Configuration: centre_freq_hz=161_975_000, lna_gain_db=24, vga_gain_db=26,
+   signal_threshold_db=5.0 (provisional, similar to APRS VHF). This completes
+   the AIS band coverage — previously AIS was missing from BAND_PROFILES even
+   though the AIS decoder module existed.
+
+**Why:** Without specific ACMA reference entries, the small 4B LLM had no way
+to distinguish ACARS from ordinary aviation voice, or AIS from marine satellite
+transmissions. Both misclassifications were confirmed during live testing. The
+BAND_PROFILES entry was a gap: AIS had a decoder module (Phase 9E) and a
+waterfall entry (Phase 10-Fix3), but no band profile for threshold/gain
+configuration.
+
+**Files changed:**
+- `data/frequency_reference.json` — added ACARS entry
+  (129.0–130.1 MHz, mimir_band: "acars") and AIS entry
+  (161.9–162.1 MHz, mimir_band: "ais")
+- `dashboard/shared_state.py` — added `ais` entry to BAND_PROFILES
+  (161.975 MHz, lna=24/vga=26, threshold=5.0 dB); updated block comment
+- `tests/dashboard/test_shared_state.py` — 2 new tests: test_ais_in_band_profiles,
+  test_ais_band_profile_lookup
+- `tests/llm/test_acma_reference.py` — 2 new tests: test_acars, test_ais
+  in TestRangeMatch
+
+**Deferred items:**
+- **[MED]** `llm/classifier.py` schema/examples don't list "acars" or "ais"
+  as valid signal_type values. The system prompt's _JSON_SCHEMA and
+  _AU_BAND_REFERENCE don't include these types. The 4B LLM may not consistently
+  output the new labels even with ACMA reference notes. Deferred as per spec
+  — the fix is data-layer only for this build.
+- **[LOW]** `get_band_for_freq()` relies on exact Hz match. The AIS
+  BAND_PROFILES entry uses 161_975_000 (AIS CH1), but the AIS demodulator in
+  `modules/ais/constants.py` expects centre 162_000_000 to capture both AIS
+  channels. If the dashboard tunes to 161.975 MHz, the AIS subscriber may not
+  centre correctly for dual-channel decode. Not addressed in this build.
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None — all changes are data additions (ACMA reference
+  entries and band profile config)
+
+**Test counts:** 456 (344 pytest + 112 Vitest).
 
 ---
 

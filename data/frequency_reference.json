@@ -3091,6 +3091,19 @@
   },
   {
     "freq_start_mhz": 129.0,
+    "freq_end_mhz": 130.1,
+    "services": [
+      "AERONAUTICAL MOBILE (R)"
+    ],
+    "footnotes": [
+      "AUS103",
+      "AUS25"
+    ],
+    "mimir_band": "acars",
+    "notes": "ACARS (Aircraft Communications Addressing and Reporting System) primary VHF data link. Australian primary channels: 129.125 MHz and 130.025 MHz. Digital operational messaging protocol transmitting engine data, flight plans, weather updates, and ATC clearances via AM-modulated FSK. NOT voice aviation communications. Within the AERONAUTICAL MOBILE (R) allocation per ICAO standards. Classify as acars, not aviation_vhf."
+  },
+  {
+    "freq_start_mhz": 129.0,
     "freq_end_mhz": 130.0,
     "services": [
       "FIXED",
@@ -3641,9 +3654,9 @@
     "freq_end_mhz": 164.0,
     "services": [
       "FIXED",
-      "FIXED\u2013SATELLITE (space-to-Earth)",
+      "FIXED–SATELLITE (space-to-Earth)",
       "MOBILE",
-      "MOBILE\u2013SATELLITE (space-to-Earth)"
+      "MOBILE–SATELLITE (space-to-Earth)"
     ],
     "footnotes": [],
     "mimir_band": null,
@@ -3678,6 +3691,18 @@
     ],
     "mimir_band": "marine_vhf",
     "notes": ""
+  },
+  {
+    "freq_start_mhz": 161.9,
+    "freq_end_mhz": 162.1,
+    "services": [
+      "MARITIME MOBILE"
+    ],
+    "footnotes": [
+      "AUS103"
+    ],
+    "mimir_band": "ais",
+    "notes": "AIS (Automatic Identification System) VHF maritime vessel tracking. AIS Channel 87B: 161.975 MHz, Channel 88B: 162.025 MHz. GMSK modulation at 9600 baud. Mandatory SOLAS broadcast from all commercial vessels over 300 gross tonnage. Unencrypted public safety broadcast \u2014 legal to receive passively. VHF MARITIME MOBILE service. IMPORTANT: This is NOT marine satellite or general marine VHF. Marine satellite operates at L-band (1621.35-1626.5 MHz), entirely different spectrum. Classify as ais."
   },
   {
     "freq_start_mhz": 161.9375,

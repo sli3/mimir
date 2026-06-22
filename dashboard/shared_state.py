@@ -107,7 +107,7 @@ band_change_event = threading.Event()
 #   correct threshold without restart.
 # All receive-only — AU-legal bands only.
 # NOTE: fm_broadcast and adsb are calibrated for the telescopic whip antenna.
-# Other bands (aviation, acars, aprs, ism) need revalidation in future phases.
+# Other bands (aviation, acars, ais, aprs, ism) need revalidation in future phases.
 BAND_PROFILES: dict = {
     "fm_broadcast": {
         "center_freq_hz":      98_000_000,
@@ -126,6 +126,12 @@ BAND_PROFILES: dict = {
         "lna_gain_db":         16,
         "vga_gain_db":         20,
         "signal_threshold_db": 6.0,
+    },
+    "ais": {
+        "center_freq_hz":      161_975_000,
+        "lna_gain_db":         24,  # VHF maritime — same as APRS
+        "vga_gain_db":         26,
+        "signal_threshold_db": 5.0,  # Provisional — similar to APRS VHF
     },
     "aprs": {
         "center_freq_hz":      145_175_000,

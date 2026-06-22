@@ -165,8 +165,9 @@ event rate, gap detection, and a PASS/FAIL summary. Use `--duration 60` minimum
 | PHASE-BUILD-3 | AIS waterfall config, tuned-state test coverage, SignalHistoryLog memoisation, ACARS dual-frequency fix | ✅ Complete | 446/446 (334 pytest + 112 Vitest) |
 | PHASE-BUILD-4 | Tech debt: setup.sh rewrite (uv sync + uv export), requirements.txt removed, PYTHONPATH=. documented | ✅ Complete | 446/446 (334 pytest + 112 Vitest) |
 | PHASE-BAND-PROFILE-FIX | Wire band profile into handle_set_focus for per-band thresholds on frequency switch | ✅ Complete | 452/452 (340 pytest + 112 Vitest) |
+| PHASE-CLASSIFIER-ACCURACY-FIX | ACMA reference entries for ACARS and AIS + AIS band profile in BAND_PROFILES | ✅ Complete | 456/456 (344 pytest + 112 Vitest) |
 
-**Total: 452 passing (340 pytest + 112 Vitest), 0 pre-existing failures**
+**Total: 456 passing (344 pytest + 112 Vitest), 0 pre-existing failures**
 
 ---
 

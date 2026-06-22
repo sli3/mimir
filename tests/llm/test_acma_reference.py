@@ -68,6 +68,18 @@ class TestRangeMatch:
         results = acma_ref.lookup(0)
         assert results == []
 
+    def test_acars(self, acma_ref):
+        """129.125 MHz returns at least one entry with mimir_band acars."""
+        results = acma_ref.lookup(129_125_000)
+        assert len(results) > 0
+        assert any(r["mimir_band"] == "acars" for r in results)
+
+    def test_ais(self, acma_ref):
+        """161.975 MHz returns at least one entry with mimir_band ais."""
+        results = acma_ref.lookup(161_975_000)
+        assert len(results) > 0
+        assert any(r["mimir_band"] == "ais" for r in results)
+
 
 # ══════════════════════════════════════════════════════════════════════════
 # GROUP 2 — Error handling

@@ -42,6 +42,13 @@ class TestBandProfiles:
             assert profile["signal_threshold_db"] > 0, f"{name} signal_threshold_db not positive"
 
 
+    def test_ais_in_band_profiles(self):
+        """ais entry must exist in BAND_PROFILES with correct center frequency."""
+        assert "ais" in BAND_PROFILES
+        assert BAND_PROFILES["ais"]["center_freq_hz"] == 161_975_000
+        assert BAND_PROFILES["ais"]["signal_threshold_db"] > 0
+
+
 class TestGetBandForFreq:
     """Tests for the get_band_for_freq helper."""
 
@@ -66,3 +73,10 @@ class TestGetBandForFreq:
         result = get_band_for_freq(98_000_000)
         result["signal_threshold_db"] = 999.0
         assert BAND_PROFILES["fm_broadcast"]["signal_threshold_db"] != 999.0
+
+    def test_ais_band_profile_lookup(self):
+        """get_band_for_freq returns the AIS profile for 161.975 MHz."""
+        result = get_band_for_freq(161_975_000)
+        assert result is not None
+        assert result["center_freq_hz"] == 161_975_000
+        assert result["signal_threshold_db"] > 0
