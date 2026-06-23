@@ -45,6 +45,7 @@ describe('useSocket', () => {
       reasoning: null,
       timestamp: null,
       peak_power_db: null,
+      peak_bin_power_db: null,
       snr_db: null,
       bandwidth_hz: null,
       spectral_flatness: null,
@@ -125,6 +126,7 @@ describe('useSocket', () => {
       reasoning: null,
       timestamp: null,
       peak_power_db: null,
+      peak_bin_power_db: null,
       snr_db: null,
       bandwidth_hz: null,
       spectral_flatness: null,
@@ -165,6 +167,7 @@ describe('useSocket', () => {
       reasoning: 'Signal matches FM broadcast characteristics',
       timestamp: '2026-06-03T12:00:00.000Z',
       peak_power_db: null,
+      peak_bin_power_db: null,
       snr_db: null,
       bandwidth_hz: null,
       spectral_flatness: null,
@@ -191,6 +194,7 @@ describe('useSocket', () => {
       reasoning: 'Strong FM carrier',
       timestamp: '2026-06-03T12:00:00.000Z',
       peak_power_db: -72.1,
+      peak_bin_power_db: -70.5,
       snr_db: 8.4,
       bandwidth_hz: 0,
       spectral_flatness: 0.123,
@@ -210,6 +214,7 @@ describe('useSocket', () => {
       reasoning: 'Strong FM carrier',
       timestamp: '2026-06-03T12:00:00.000Z',
       peak_power_db: -72.1,
+      peak_bin_power_db: -70.5,
       snr_db: 8.4,
       bandwidth_hz: 0,
       spectral_flatness: 0.123,
@@ -217,6 +222,27 @@ describe('useSocket', () => {
       signal_threshold_db: null,
       snr_margin_db: null,
     })
+  })
+
+  it('scan_result stores peak_bin_power_db in scanResults entry', () => {
+    const { result } = renderHook(() => useSocket())
+    const handler = eventHandlers['scan_result'][0]
+
+    const payload = {
+      timestamp: '2026-06-03T12:00:00.000Z',
+      center_freq_hz: 98000000,
+      signal_type: 'fm_broadcast',
+      confidence: 'high',
+      confidence_score: 0.95,
+      peak_power_db: -72.1,
+      peak_bin_power_db: -65.0,
+    }
+
+    act(() => {
+      handler(payload)
+    })
+
+    expect(result.current.scanResults[0].peak_bin_power_db).toBe(-65.0)
   })
 
   it('scan_result NOT matching focusedFreq does NOT update aiReasoning', () => {

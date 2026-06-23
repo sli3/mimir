@@ -177,6 +177,45 @@ class TestFocusFrequencyFilter:
             assert payload.get(key) == value, f"{key} mismatch"
         assert isinstance(payload.get("reasoning"), str) and payload.get("reasoning")
 
+    def test_broadcast_includes_peak_bin_power_db(self):
+        """Given a fingerprint dict with peak_bin_power_db=-65.0, the emitted scan_result data dict contains key 'peak_bin_power_db' with value -65.0."""
+        broadcast = self._start_server_with_mocks()
+        fp = {
+            "peak_power_db": -70.0,
+            "peak_bin_power_db": -65.0,
+            "snr_db": 12.0,
+            "signal_threshold_db": 10.0,
+            "snr_margin_db": 2.0,
+        }
+        with (
+            patch("dashboard.server._focused_freq_hz", 100e6),
+            patch("dashboard.server.socketio.emit") as mock_emit,
+        ):
+            broadcast(self._make_scan_result(100e6, fp))
+        mock_emit.assert_called_once()
+        event_name, payload = mock_emit.call_args[0]
+        assert event_name == "scan_result"
+        assert payload.get("peak_bin_power_db") == -65.0
+
+    def test_broadcast_peak_bin_power_db_none_when_missing(self):
+        """Given a fingerprint dict without peak_bin_power_db, fp.get('peak_bin_power_db') returns None — confirm the emit does not raise and the field is present as None."""
+        broadcast = self._start_server_with_mocks()
+        fp = {
+            "peak_power_db": -70.0,
+            "snr_db": 12.0,
+            "signal_threshold_db": 10.0,
+            "snr_margin_db": 2.0,
+        }
+        with (
+            patch("dashboard.server._focused_freq_hz", 100e6),
+            patch("dashboard.server.socketio.emit") as mock_emit,
+        ):
+            broadcast(self._make_scan_result(100e6, fp))
+        mock_emit.assert_called_once()
+        event_name, payload = mock_emit.call_args[0]
+        assert event_name == "scan_result"
+        assert payload.get("peak_bin_power_db") is None
+
     def test_passes_all_when_focus_is_none(self):
         broadcast = self._start_server_with_mocks()
         with (

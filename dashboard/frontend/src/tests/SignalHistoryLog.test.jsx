@@ -77,4 +77,49 @@ describe('SignalHistoryLog', () => {
     expect(onPin).toHaveBeenCalledTimes(2)
     expect(onPin).toHaveBeenCalledWith(results[0])
   })
+
+  it('[PEAK] tag renders when burst gap meets threshold', () => {
+    const results = [
+      {
+        timestamp: 1000000000,
+        center_freq_hz: 1090000000,
+        signal_type: 'adsb',
+        confidence_score: 0.95,
+        peak_bin_power_db: -50.0,
+        peak_power_db: -70.0,
+      },
+    ]
+    const { container } = render(<SignalHistoryLog scanResults={results} />)
+    expect(container.textContent).toContain('[PEAK]')
+  })
+
+  it('[PEAK] tag is absent when gap is below threshold', () => {
+    const results = [
+      {
+        timestamp: 1000000000,
+        center_freq_hz: 98000000,
+        signal_type: 'fm_broadcast',
+        confidence_score: 0.95,
+        peak_bin_power_db: -65.0,
+        peak_power_db: -70.0,
+      },
+    ]
+    const { container } = render(<SignalHistoryLog scanResults={results} />)
+    expect(container.textContent).not.toContain('[PEAK]')
+  })
+
+  it('[PEAK] tag is absent when peak_bin_power_db is null', () => {
+    const results = [
+      {
+        timestamp: 1000000000,
+        center_freq_hz: 98000000,
+        signal_type: 'fm_broadcast',
+        confidence_score: 0.95,
+        peak_bin_power_db: null,
+        peak_power_db: -70.0,
+      },
+    ]
+    const { container } = render(<SignalHistoryLog scanResults={results} />)
+    expect(container.textContent).not.toContain('[PEAK]')
+  })
 })

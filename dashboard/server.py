@@ -182,6 +182,7 @@ def start_server(host: str, port: int, device=None, scanner=None):
             "reasoning": cls.reasoning,
             # Fingerprint fields — added in Phase 10-Fix2
             "peak_power_db": fp.get("peak_power_db"),
+            "peak_bin_power_db": fp.get("peak_bin_power_db"),
             "snr_db": fp.get("snr_db"),
             # Per-band threshold fields — added in Phase 11
             "signal_threshold_db": fp.get("signal_threshold_db", 0.0),

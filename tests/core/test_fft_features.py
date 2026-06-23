@@ -46,9 +46,9 @@ class TestComputePsd:
         return 2048
 
     def test_output_keys_present(self, samples, sample_rate, center_freq, nfft):
-        """Result dict contains all 6 required keys."""
+        """Result dict contains all 7 required keys."""
         result = compute_psd(samples, sample_rate, center_freq, nfft)
-        expected_keys = {"frequencies_hz", "psd_db", "center_freq_hz", "sample_rate_hz", "nfft", "num_chunks"}
+        expected_keys = {"frequencies_hz", "psd_db", "center_freq_hz", "sample_rate_hz", "nfft", "num_chunks", "chunk_peak_db"}
         assert set(result.keys()) == expected_keys
 
     def test_frequencies_shape(self, samples, sample_rate, center_freq, nfft):
@@ -112,6 +112,30 @@ class TestComputePsd:
         peak_index = np.argmax(result["psd_db"])
         assert peak_index == nfft // 2 + 10
 
+    def test_chunk_peak_db_key_present(self, samples, sample_rate, center_freq, nfft):
+        """Result dict contains chunk_peak_db key."""
+        result = compute_psd(samples, sample_rate, center_freq, nfft)
+        assert "chunk_peak_db" in result
+
+    def test_chunk_peak_db_is_float(self, samples, sample_rate, center_freq, nfft):
+        """chunk_peak_db is a Python float."""
+        result = compute_psd(samples, sample_rate, center_freq, nfft)
+        assert isinstance(result["chunk_peak_db"], float)
+
+    def test_chunk_peak_db_gte_averaged_peak(self, sample_rate, center_freq, nfft):
+        """For a synthetic tone signal, chunk_peak_db >= psd_db.max() (peak of single chunk >= averaged peak)."""
+        num_chunks = 4
+        t = np.arange(nfft * num_chunks)
+        tone = np.exp(1j * 2 * np.pi * 10 * t / nfft).astype(np.complex64)
+        result = compute_psd(tone, sample_rate, center_freq, nfft)
+        assert result["chunk_peak_db"] >= result["psd_db"].max()
+
+    def test_chunk_peak_db_empty_psd(self, sample_rate, center_freq, nfft):
+        """With too-few samples, chunk_peak_db == 0.0 (matches the num_chunks == 0 early-return path)."""
+        few_samples = np.random.randn(512).astype(np.float32) + 1j * np.random.randn(512).astype(np.float32)
+        result = compute_psd(few_samples, sample_rate, center_freq, nfft)
+        assert result["chunk_peak_db"] == 0.0
+
 
 class TestSignalThresholdDb:
     """Tests for the SIGNAL_THRESHOLD_DB constant."""
@@ -154,12 +178,12 @@ class TestFingerprintSpectrum:
         )
 
     def test_output_keys_present(self, fm_psd):
-        """Result dict contains all 10 required keys."""
+        """Result dict contains all 11 required keys."""
         result = fingerprint_spectrum(fm_psd)
         expected_keys = {
             "center_freq_hz", "peak_freq_hz", "peak_power_db", "noise_floor_db",
             "snr_db", "bandwidth_hz", "occupied_bins", "spectral_flatness",
-            "signal_threshold_db", "snr_margin_db",
+            "signal_threshold_db", "snr_margin_db", "peak_bin_power_db",
         }
         assert set(result.keys()) == expected_keys
 
@@ -209,6 +233,7 @@ class TestFingerprintSpectrum:
         assert result["spectral_flatness"] == 0.0
         assert result["signal_threshold_db"] == SIGNAL_THRESHOLD_DB
         assert result["snr_margin_db"] == 0.0
+        assert result["peak_bin_power_db"] == 0.0
 
     def test_spectral_flatness_is_float_between_zero_and_one(self, fm_psd):
         """spectral_flatness must be a float in [0.0, 1.0]."""
@@ -332,4 +357,41 @@ class TestFingerprintSpectrum:
         result = fingerprint_spectrum(psd, signal_threshold_db=50.0)
         assert result["snr_margin_db"] < 0.0
         assert result["snr_margin_db"] == result["snr_db"] - 50.0
+
+    def test_peak_bin_power_db_gte_peak_power_db(self):
+        """For a pulsed signal fixture (strong tone in one chunk only, noise in the rest), peak_bin_power_db >= peak_power_db."""
+        nfft = 2048
+        num_chunks = 4
+        num_samples = nfft * num_chunks
+        t = np.arange(num_samples)
+
+        # Build a pulsed signal: strong tone only in the first chunk
+        chunk_size = nfft
+        strong_tone = np.exp(1j * 2 * np.pi * 10 * t[:chunk_size] / nfft).astype(np.complex64) * 0.1
+        noise_chunks = (
+            (np.random.randn(num_samples - chunk_size) * 0.001).astype(np.float32)
+            + 1j * (np.random.randn(num_samples - chunk_size) * 0.001).astype(np.float32)
+        )
+        samples = np.concatenate([strong_tone, noise_chunks])
+
+        psd = compute_psd(
+            samples,
+            sample_rate_hz=2_000_000,
+            center_freq_hz=98_000_000,
+            nfft=nfft,
+        )
+        result = fingerprint_spectrum(psd)
+        assert result["peak_bin_power_db"] >= result["peak_power_db"]
+
+    def test_peak_bin_power_db_fallback_no_chunk_key(self):
+        """When psd_result has no 'chunk_peak_db' key, peak_bin_power_db equals peak_power_db (fallback path)."""
+        synthetic_psd = {
+            "frequencies_hz": np.linspace(97_000_000, 99_000_000, 2048),
+            "psd_db": np.full(2048, -50.0),
+            "center_freq_hz": 98_000_000,
+            "sample_rate_hz": 2_000_000,
+            "nfft": 2048,
+        }
+        result = fingerprint_spectrum(synthetic_psd)
+        assert result["peak_bin_power_db"] == result["peak_power_db"]
 

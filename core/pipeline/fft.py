@@ -76,6 +76,7 @@ def compute_psd(
             "sample_rate_hz": sample_rate_hz,
             "nfft": nfft,
             "num_chunks": 0,
+            "chunk_peak_db": 0.0,
         }
 
     # Remove DC offset (HackRF One produces false spike at centre frequency)
@@ -95,12 +96,14 @@ def compute_psd(
             "sample_rate_hz": sample_rate_hz,
             "nfft": nfft,
             "num_chunks": 0,
+            "chunk_peak_db": 0.0,
         }
 
     # Apply Hann window to each chunk to reduce spectral leakage
     hann_window = np.hanning(nfft)
 
     chunk_psd_list = []
+    max_single_chunk_power = 0.0
     for i in range(num_chunks):
         chunk = samples[i * nfft : (i + 1) * nfft]
         # Apply window and FFT
@@ -111,6 +114,10 @@ def compute_psd(
         # Compute magnitude squared (power)
         power = np.abs(shifted_fft) ** 2
         chunk_psd_list.append(power)
+        # Track maximum power in any single chunk before averaging
+        chunk_max = np.max(power)
+        if chunk_max > max_single_chunk_power:
+            max_single_chunk_power = chunk_max
 
     # Average across all chunks
     averaged_power = np.mean(chunk_psd_list, axis=0)
@@ -120,6 +127,8 @@ def compute_psd(
     # This replaces the previous /max_power approach which forced peak to 0.0 dBFS and
     # prevented SIGNAL_THRESHOLD_DB from ever being met.
     window_power = np.sum(hann_window ** 2)
+    # Compute the hottest single-chunk peak before averaging, in dBFS
+    chunk_peak_db = 10 * np.log10(max_single_chunk_power / (nfft * window_power) + 1e-12)
     psd_db = 10 * np.log10(averaged_power / (nfft * window_power) + 1e-12)
 
     # Compute frequency array with absolute frequencies
@@ -141,4 +150,5 @@ def compute_psd(
         "sample_rate_hz": sample_rate_hz,
         "nfft": nfft,
         "num_chunks": num_chunks,
+        "chunk_peak_db": float(chunk_peak_db),
     }

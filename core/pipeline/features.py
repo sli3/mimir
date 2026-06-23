@@ -12,6 +12,12 @@ import numpy as np
 # Percentile used to estimate the noise floor from the PSD
 NOISE_FLOOR_PERCENTILE: float = 10.0
 
+# Gap threshold for detecting pulsed or burst signals.
+# A gap >= 10 dB between single-chunk peak and averaged peak indicates a
+# pulsed or burst signal (e.g. ADS-B). Continuous signals (FM, APRS, AIS)
+# will show near-zero gap.
+PEAK_BURST_MARGIN_DB: float = 10.0
+
 # Minimum SNR above the noise floor for a bin to be considered a signal.
 # Calibrated value. Hardware: HackRF One + telescopic whip SMA antenna
 # (~1 GHz optimised). Gain: lna=24 dB / vga=26 dB. Frequency: 98.9 MHz
@@ -63,6 +69,10 @@ def fingerprint_spectrum(
           - spectral_flatness: Wiener entropy (0.0 = pure tone, 1.0 = white noise)
           - signal_threshold_db: The effective threshold used for this fingerprint
           - snr_margin_db: SNR minus the effective threshold (positive = above threshold)
+          - peak_bin_power_db: Maximum peak power seen in any single FFT chunk before
+                              averaging, in dBFS. For continuous signals this approximates
+                              peak_power_db. For pulsed signals it will be significantly
+                              higher (gap >= PEAK_BURST_MARGIN_DB indicates bursty signal).
     """
     psd_db = psd_result["psd_db"]
 
@@ -87,6 +97,7 @@ def fingerprint_spectrum(
             "spectral_flatness": 0.0,
             "signal_threshold_db": float(effective_threshold),
             "snr_margin_db": 0.0,
+            "peak_bin_power_db": 0.0,
         }
 
     frequencies_hz = psd_result["frequencies_hz"]
@@ -98,6 +109,10 @@ def fingerprint_spectrum(
     peak_idx = int(np.argmax(psd_db))
     peak_freq_hz = float(frequencies_hz[peak_idx])
     peak_power_db = float(psd_db[peak_idx])
+
+    # Peak bin power from single chunk before averaging — fallback to peak_power_db
+    # if key absent (for backwards compatibility with synthetic PSD dicts in tests)
+    chunk_peak_db = float(psd_result.get("chunk_peak_db", peak_power_db))
 
     # Noise floor — 10th percentile of all psd_db values
     noise_floor_db = float(np.percentile(psd_db, NOISE_FLOOR_PERCENTILE))
@@ -145,4 +160,5 @@ def fingerprint_spectrum(
         "spectral_flatness": spectral_flatness,
         "signal_threshold_db": float(effective_threshold),
         "snr_margin_db": snr_margin_db,
+        "peak_bin_power_db": chunk_peak_db,
     }
