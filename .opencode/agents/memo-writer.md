@@ -6,7 +6,7 @@ description: >
   opencode-memo workflow. Does NOT touch any Python source files, test files, or
   opencode.json.
 mode: subagent
-model: opencode/deepseek-v4-flash-free
+model: opencode-go/mimo-v2.5
 temperature: 0.2
 permission:
   edit: allow
