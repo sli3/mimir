@@ -694,11 +694,11 @@ class TestBandReferenceCompleteness:
 
     _ALL_MIMIR_BANDS = [
         "fm_broadcast", "am_broadcast", "dab_plus",
-        "aviation_vhf", "aeronautical_comms", "ils_vor",
+        "aviation_vhf", "acars", "aeronautical_comms", "ils_vor",
         "adsb", "gnss", "aprs", "amateur",
         "ism_lora", "uhf_cb", "pmr_land_mobile",
         "uhf_tv", "mobile_cellular",
-        "marine_vhf", "marine_hf", "marine_satellite",
+        "marine_vhf", "ais", "marine_hf", "marine_satellite",
         "epirb_plb", "noaa_weather_sat", "met_satellite",
         "satellite_tv", "time_signal",
     ]

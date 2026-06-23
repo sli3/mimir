@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: "PHASE-CLASSIFIER-ACCURACY-FIX"
+last_updated_phase: "PHASE-CLASSIFIER-SCHEMA-FIX"
 ---
 
 # Mimir Wiki
@@ -73,6 +73,70 @@ Phases are listed newest-first so the current phase is always at the top.
 
 ---
 
+### PHASE-CLASSIFIER-SCHEMA-FIX — Classifier Schema: ACARS + AIS Added to LLM Prompt ✓ DONE
+
+**What:** Added `acars` and `ais` to the LLM classifier's schema and band reference
+so the 4B LLM can output these signal types and frequency bands consistently.
+
+Previously (PHASE-CLASSIFIER-ACCURACY-FIX), ACMA reference entries were added to
+`frequency_reference.json` to give the LLM contextual hints ("Classify as acars,
+not aviation_vhf"). However, the system prompt's `_JSON_SCHEMA` and
+`_AU_BAND_REFERENCE` constants still did not list `acars` or `ais` as valid
+`signal_type` or `frequency_band` values. The 4B LLM could not reliably output
+labels that were absent from its output schema.
+
+**Changes:**
+1. **`_AU_BAND_REFERENCE`** — Added ACARS (129.0–130.1 MHz, aircraft digital messaging,
+   129.125 MHz primary) and AIS (161.9–162.1 MHz, maritime vessel tracking,
+   161.975/162.025 MHz) entries. These complement the ACMA reference lookup by
+   giving the LLM direct band knowledge in its system prompt.
+
+2. **`_JSON_SCHEMA`** — Added `acars` and `ais` to the `signal_type` enum list,
+   and `acars_band` and `ais_band` to the `frequency_band` enum list. The LLM
+   now sees these as valid output values.
+
+3. **`ClassificationResult` docstring** — Updated `signal_type` and
+   `frequency_band` field examples to include `acars`, `ais`, `acars_band`,
+   and `ais_band`.
+
+4. **`tests/test_classifier.py`** — New file with 6 static schema-inspection
+   tests that verify `acars` and `ais` appear in `_AU_BAND_REFERENCE`,
+   `_JSON_SCHEMA` signal_type list, and `_JSON_SCHEMA` frequency_band list.
+
+5. **`tests/llm/test_phase4_classifier.py`** — Added `acars` and `ais` to
+   `_ALL_MIMIR_BANDS` set so existing band-coverage tests include the new types.
+
+**Why:** The 4B LLM on yubaba is a small model that follows its schema
+closely. If a label is absent from the output schema, the model will
+substitute a similar-sounding alternative (e.g. `aviation_vhf` for ACARS,
+`marine_satellite` for AIS). Adding the labels to both the band reference
+and the JSON schema eliminates this ambiguity at the prompt level.
+
+**Files changed:**
+- `llm/classifier.py` — `_AU_BAND_REFERENCE`, `_JSON_SCHEMA`,
+  `ClassificationResult` docstring
+- `tests/test_classifier.py` — new file, 6 static schema tests
+- `tests/llm/test_phase4_classifier.py` — `_ALL_MIMIR_BANDS` expanded
+
+**Deferred items:**
+- **[RESOLVED]** "Classifier schema missing acars/ais" Known Tech Debt entry
+  from PHASE-CLASSIFIER-ACCURACY-FIX is now resolved. The schema, band
+  reference, and docstrings all include ACARS and AIS.
+- **[OPEN]** AIS BAND_PROFILES centre vs demodulator centre mismatch —
+  `BAND_PROFILES` centre_freq_hz (161.975 MHz = CH1) differs from AIS
+  demodulator expected centre (162.000 MHz for dual-channel). If dashboard
+  tunes to 161.975 MHz, dual-channel decode may misbehave. Not addressed
+  in this build.
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None — all changes are prompt/schema text additions,
+  no RF interaction
+
+**Test counts:** 462 (350 pytest + 112 Vitest).
+
+---
+
 ### PHASE-CLASSIFIER-ACCURACY-FIX — ACMA Reference Entries for ACARS and AIS + AIS Band Profile ✓ DONE
 
 **What:** Three changes to correct LLM misclassification of ACARS and AIS signals:
@@ -116,11 +180,10 @@ configuration.
   in TestRangeMatch
 
 **Deferred items:**
-- **[MED]** `llm/classifier.py` schema/examples don't list "acars" or "ais"
-  as valid signal_type values. The system prompt's _JSON_SCHEMA and
-  _AU_BAND_REFERENCE don't include these types. The 4B LLM may not consistently
-  output the new labels even with ACMA reference notes. Deferred as per spec
-  — the fix is data-layer only for this build.
+- **[RESOLVED — PHASE-CLASSIFIER-SCHEMA-FIX]** `llm/classifier.py`
+  schema/examples don't list "acars" or "ais" as valid signal_type values.
+  The system prompt's _JSON_SCHEMA and _AU_BAND_REFERENCE now include these
+  types. Resolved in PHASE-CLASSIFIER-SCHEMA-FIX.
 - **[LOW]** `get_band_for_freq()` relies on exact Hz match. The AIS
   BAND_PROFILES entry uses 161_975_000 (AIS CH1), but the AIS demodulator in
   `modules/ais/constants.py` expects centre 162_000_000 to capture both AIS

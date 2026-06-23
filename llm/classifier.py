@@ -51,14 +51,14 @@ class ClassificationResult:
     Fields
     ──────
     signal_type      : Best guess at what the signal is.
-                       Examples: "fm_broadcast", "am_broadcast", "dab_plus",
-                       "aviation_vhf", "aeronautical_comms", "ils_vor", "adsb",
-                       "gnss", "aprs", "amateur", "ism_lora", "uhf_cb",
-                       "pmr_land_mobile", "uhf_tv", "mobile_cellular",
-                       "marine_vhf", "marine_hf", "marine_satellite",
-                       "epirb_plb", "noaa_weather_sat", "met_satellite",
-                       "satellite_tv", "time_signal", "noise", "unknown".
-                       "unavailable" means the LLM server was unreachable.
+                        Examples: "fm_broadcast", "am_broadcast", "dab_plus",
+                        "aviation_vhf", "acars", "aeronautical_comms", "ils_vor",
+                        "adsb", "gnss", "aprs", "amateur", "ism_lora", "uhf_cb",
+                        "pmr_land_mobile", "uhf_tv", "mobile_cellular",
+                        "marine_vhf", "ais", "marine_hf", "marine_satellite",
+                        "epirb_plb", "noaa_weather_sat", "met_satellite",
+                        "satellite_tv", "time_signal", "noise", "unknown".
+                        "unavailable" means the LLM server was unreachable.
 
     confidence       : Human-readable confidence tier.
                        "high"   = LLM is confident in the classification.
@@ -82,16 +82,16 @@ class ClassificationResult:
                                             bands or LLM could not verify.
 
     frequency_band   : Which AU band the signal appears to be in.
-                       Examples: "fm_broadcast_band", "am_broadcast_band",
-                       "dab_plus_band", "aviation_vhf_band",
-                       "aeronautical_comms_band", "ils_vor_band", "adsb_band",
-                       "gnss_band", "aprs_band", "amateur_band",
-                       "ism_lora_band", "uhf_cb_band", "pmr_land_mobile_band",
-                       "uhf_tv_band", "mobile_cellular_band",
-                       "marine_vhf_band", "marine_hf_band",
-                       "marine_satellite_band", "epirb_plb_band",
-                       "noaa_weather_sat_band", "met_satellite_band",
-                       "satellite_tv_band", "time_signal_band", "unknown".
+                        Examples: "fm_broadcast_band", "am_broadcast_band",
+                        "dab_plus_band", "aviation_vhf_band", "acars_band",
+                        "aeronautical_comms_band", "ils_vor_band", "adsb_band",
+                        "gnss_band", "aprs_band", "amateur_band",
+                        "ism_lora_band", "uhf_cb_band", "pmr_land_mobile_band",
+                        "uhf_tv_band", "mobile_cellular_band",
+                        "marine_vhf_band", "ais_band", "marine_hf_band",
+                        "marine_satellite_band", "epirb_plb_band",
+                        "noaa_weather_sat_band", "met_satellite_band",
+                        "satellite_tv_band", "time_signal_band", "unknown".
 
     raw_response     : The raw string the LLM returned. Kept for debugging
                        — useful if the JSON parse fails or the result looks
@@ -117,6 +117,7 @@ Australian frequency bands (legal to receive passively — no licence required):
   AM Broadcast       : 526.5 kHz – 1606.5 kHz (medium-wave radio)
   DAB+ Digital Radio : 174 MHz – 230 MHz
   Aviation VHF       : 118 MHz – 136 MHz (ATC and aircraft comms)
+  ACARS              : 129.0 MHz – 130.1 MHz (aircraft digital messaging — 129.125 MHz primary)
   Aeronautical Comms : 4.2 GHz – 5.091 GHz (C-band airborne data links, radio altimeters)
   ILS / VOR          : 74.8 MHz – 335.4 MHz (instrument landing and navigation aids)
   ADS-B              : 1090 MHz (aircraft GPS position, mandatory unencrypted broadcast)
@@ -129,6 +130,7 @@ Australian frequency bands (legal to receive passively — no licence required):
   UHF TV             : 520 MHz – 694 MHz (digital terrestrial television)
   Mobile Cellular    : 694 MHz – 2690 MHz (4G/5G mobile phone towers)
   Marine VHF         : 156.5 MHz – 162.0 MHz (ship and coast radio)
+  AIS                : 161.9 MHz – 162.1 MHz (maritime vessel tracking — 161.975/162.025 MHz)
   Marine HF          : 4 MHz – 27.5 MHz (long-range maritime HF comms, ITU marine bands)
   Marine Satellite   : 1621.35 MHz – 1626.5 MHz (Inmarsat, Iridium satphone downlinks)
   EPIRB / PLB        : 406 MHz – 406.1 MHz (distress beacons, emergency only)
@@ -163,13 +165,13 @@ Reference distances from calibration:
 
 _JSON_SCHEMA = """
 {
-  "signal_type":       string,   // e.g. "fm_broadcast", "am_broadcast", "dab_plus", "aviation_vhf", "aeronautical_comms", "ils_vor", "adsb", "gnss", "aprs", "amateur", "ism_lora", "uhf_cb", "pmr_land_mobile", "uhf_tv", "mobile_cellular", "marine_vhf", "marine_hf", "marine_satellite", "epirb_plb", "noaa_weather_sat", "met_satellite", "satellite_tv", "time_signal", "noise", "unknown"
+  "signal_type":       string,   // e.g. "fm_broadcast", "am_broadcast", "dab_plus", "aviation_vhf", "acars", "aeronautical_comms", "ils_vor", "adsb", "gnss", "aprs", "amateur", "ism_lora", "uhf_cb", "pmr_land_mobile", "uhf_tv", "mobile_cellular", "marine_vhf", "ais", "marine_hf", "marine_satellite", "epirb_plb", "noaa_weather_sat", "met_satellite", "satellite_tv", "time_signal", "noise", "unknown"
   "confidence":        string,   // "high", "medium", or "low"
   "confidence_score":  float,    // 0.0 to 1.0
   "novel":             boolean,  // true if no close ChromaDB match exists
   "reasoning":         string,   // plain English explanation of the classification
   "au_legal_status":   string,   // "legal_rx" or "verify_before_use"
-  "frequency_band":    string    // "fm_broadcast_band", "am_broadcast_band", "dab_plus_band", "aviation_vhf_band", "aeronautical_comms_band", "ils_vor_band", "adsb_band", "gnss_band", "aprs_band", "amateur_band", "ism_lora_band", "uhf_cb_band", "pmr_land_mobile_band", "uhf_tv_band", "mobile_cellular_band", "marine_vhf_band", "marine_hf_band", "marine_satellite_band", "epirb_plb_band", "noaa_weather_sat_band", "met_satellite_band", "satellite_tv_band", "time_signal_band", or "unknown"
+  "frequency_band":    string    // "fm_broadcast_band", "am_broadcast_band", "dab_plus_band", "aviation_vhf_band", "acars_band", "aeronautical_comms_band", "ils_vor_band", "adsb_band", "gnss_band", "aprs_band", "amateur_band", "ism_lora_band", "uhf_cb_band", "pmr_land_mobile_band", "uhf_tv_band", "mobile_cellular_band", "marine_vhf_band", "ais_band", "marine_hf_band", "marine_satellite_band", "epirb_plb_band", "noaa_weather_sat_band", "met_satellite_band", "satellite_tv_band", "time_signal_band", or "unknown"
 }
 """.strip()
 
