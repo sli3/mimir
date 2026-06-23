@@ -23,7 +23,7 @@ function elapsedSeconds(receivedAt) {
   return Math.floor((Date.now() - receivedAt) / 1000)
 }
 
-export default function AdsbAircraftPanel({ adsbAircraft = {}, focusedFreq }) {
+export default function AdsbAircraftPanel({ adsbAircraft = {}, adsbAircraftHistory = [], focusedFreq }) {
   const [now, setNow] = useState(Date.now())
   const isAdsbFreq = focusedFreq && (
     Math.abs(focusedFreq - 1_090_000_000) <= 2_000_000
@@ -37,6 +37,11 @@ export default function AdsbAircraftPanel({ adsbAircraft = {}, focusedFreq }) {
   const aircraftList = Object.values(adsbAircraft)
     .sort((a, b) => (b.receivedAt || 0) - (a.receivedAt || 0))
     .slice(0, MAX_AIRCRAFT)
+
+  const activeIcaos = new Set(Object.keys(adsbAircraft))
+  const previouslySeenList = adsbAircraftHistory
+    .filter((ac) => !activeIcaos.has(ac.icao))
+    .slice(0, 20)
 
   return (
     <div style={{ height: '100%', overflow: 'auto', padding: '8px' }}>
@@ -62,7 +67,7 @@ export default function AdsbAircraftPanel({ adsbAircraft = {}, focusedFreq }) {
           </span>
         )}
       </div>
-      {aircraftList.length === 0 ? (
+      {aircraftList.length === 0 && previouslySeenList.length === 0 ? (
         <div style={{
           fontFamily: 'var(--font-data)',
           fontSize: 10,
@@ -73,56 +78,121 @@ export default function AdsbAircraftPanel({ adsbAircraft = {}, focusedFreq }) {
             : 'Not tuned to ADS-B frequency'}
         </div>
       ) : (
-        <table style={{
-          width: '100%',
-          fontFamily: 'var(--font-data)',
-          fontSize: 10,
-          color: 'var(--text)',
-          borderCollapse: 'collapse',
-        }}>
-          <thead>
-            <tr style={{ color: 'var(--neon-cyan)', borderBottom: '1px solid var(--border)' }}>
-              <th style={{ textAlign: 'left', padding: '2px 4px' }}>Callsign</th>
-              <th style={{ textAlign: 'left', padding: '2px 4px' }}>ICAO</th>
-              <th style={{ textAlign: 'left', padding: '2px 4px' }}>Alt (ft)</th>
-              <th style={{ textAlign: 'left', padding: '2px 4px' }}>Spd (kt)</th>
-              <th style={{ textAlign: 'left', padding: '2px 4px' }}>Track (°)</th>
-              <th style={{ textAlign: 'left', padding: '2px 4px' }}>Last Seen</th>
-            </tr>
-          </thead>
-          <tbody>
-            {aircraftList.map((ac) => {
-              const displayCallsign = ac.callsign || ac.icao
-              const callsignDim = !ac.callsign
-              return (
-                <tr key={ac.icao} style={{ borderBottom: '1px solid var(--border)' }}>
-                  <td style={{
-                    padding: '2px 4px',
-                    whiteSpace: 'nowrap',
-                    color: callsignDim ? 'var(--text-dim)' : 'var(--neon-cyan)',
-                  }}>
-                    {displayCallsign}
-                  </td>
-                  <td style={{ padding: '2px 4px', whiteSpace: 'nowrap', fontFamily: 'monospace' }}>
-                    {ac.icao}
-                  </td>
-                  <td style={{ padding: '2px 4px', whiteSpace: 'nowrap' }}>
-                    {formatAltitude(ac.altitude_ft)}
-                  </td>
-                  <td style={{ padding: '2px 4px', whiteSpace: 'nowrap' }}>
-                    {formatSpeed(ac.groundspeed)}
-                  </td>
-                  <td style={{ padding: '2px 4px', whiteSpace: 'nowrap' }}>
-                    {formatTrack(ac.track)}
-                  </td>
-                  <td style={{ padding: '2px 4px', whiteSpace: 'nowrap' }}>
-                    {elapsedSeconds(ac.receivedAt)}s
-                  </td>
+        <>
+          {aircraftList.length > 0 && (
+            <table style={{
+              width: '100%',
+              fontFamily: 'var(--font-data)',
+              fontSize: 10,
+              color: 'var(--text)',
+              borderCollapse: 'collapse',
+            }}>
+              <thead>
+                <tr style={{ color: 'var(--neon-cyan)', borderBottom: '1px solid var(--border)' }}>
+                  <th style={{ textAlign: 'left', padding: '2px 4px' }}>Callsign</th>
+                  <th style={{ textAlign: 'left', padding: '2px 4px' }}>ICAO</th>
+                  <th style={{ textAlign: 'left', padding: '2px 4px' }}>Alt (ft)</th>
+                  <th style={{ textAlign: 'left', padding: '2px 4px' }}>Spd (kt)</th>
+                  <th style={{ textAlign: 'left', padding: '2px 4px' }}>Track (°)</th>
+                  <th style={{ textAlign: 'left', padding: '2px 4px' }}>Last Seen</th>
                 </tr>
-              )
-            })}
-          </tbody>
-        </table>
+              </thead>
+              <tbody>
+                {aircraftList.map((ac) => {
+                  const displayCallsign = ac.callsign || ac.icao
+                  const callsignDim = !ac.callsign
+                  return (
+                    <tr key={ac.icao} style={{ borderBottom: '1px solid var(--border)' }}>
+                      <td style={{
+                        padding: '2px 4px',
+                        whiteSpace: 'nowrap',
+                        color: callsignDim ? 'var(--text-dim)' : 'var(--neon-cyan)',
+                      }}>
+                        {displayCallsign}
+                      </td>
+                      <td style={{ padding: '2px 4px', whiteSpace: 'nowrap', fontFamily: 'monospace' }}>
+                        {ac.icao}
+                      </td>
+                      <td style={{ padding: '2px 4px', whiteSpace: 'nowrap' }}>
+                        {formatAltitude(ac.altitude_ft)}
+                      </td>
+                      <td style={{ padding: '2px 4px', whiteSpace: 'nowrap' }}>
+                        {formatSpeed(ac.groundspeed)}
+                      </td>
+                      <td style={{ padding: '2px 4px', whiteSpace: 'nowrap' }}>
+                        {formatTrack(ac.track)}
+                      </td>
+                      <td style={{ padding: '2px 4px', whiteSpace: 'nowrap' }}>
+                        {elapsedSeconds(ac.receivedAt)}s
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+          {previouslySeenList.length > 0 && (
+            <div style={{ marginTop: '8px' }}>
+              <div style={{
+                fontFamily: 'var(--font-display)',
+                fontSize: 9,
+                color: 'var(--text-dim)',
+                letterSpacing: '1px',
+                marginBottom: '4px',
+                borderTop: '1px solid var(--border)',
+                paddingTop: '6px',
+              }}>
+                PREVIOUSLY SEEN ({previouslySeenList.length})
+              </div>
+              <table style={{
+                width: '100%',
+                fontFamily: 'var(--font-data)',
+                fontSize: 10,
+                color: 'var(--text-dim)',
+                borderCollapse: 'collapse',
+                opacity: 0.65,
+              }}>
+                <thead>
+                  <tr style={{ color: 'var(--text-dim)', borderBottom: '1px solid var(--border)' }}>
+                    <th style={{ textAlign: 'left', padding: '2px 4px' }}>Callsign</th>
+                    <th style={{ textAlign: 'left', padding: '2px 4px' }}>ICAO</th>
+                    <th style={{ textAlign: 'left', padding: '2px 4px' }}>Alt (ft)</th>
+                    <th style={{ textAlign: 'left', padding: '2px 4px' }}>Spd (kt)</th>
+                    <th style={{ textAlign: 'left', padding: '2px 4px' }}>Track (°)</th>
+                    <th style={{ textAlign: 'left', padding: '2px 4px' }}>Last Seen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {previouslySeenList.map((ac) => {
+                    const displayCallsign = ac.callsign || ac.icao
+                    return (
+                      <tr key={ac.icao} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ padding: '2px 4px', whiteSpace: 'nowrap' }}>
+                          {displayCallsign}
+                        </td>
+                        <td style={{ padding: '2px 4px', whiteSpace: 'nowrap', fontFamily: 'monospace' }}>
+                          {ac.icao}
+                        </td>
+                        <td style={{ padding: '2px 4px', whiteSpace: 'nowrap' }}>
+                          {formatAltitude(ac.altitude_ft)}
+                        </td>
+                        <td style={{ padding: '2px 4px', whiteSpace: 'nowrap' }}>
+                          {formatSpeed(ac.groundspeed)}
+                        </td>
+                        <td style={{ padding: '2px 4px', whiteSpace: 'nowrap' }}>
+                          {formatTrack(ac.track)}
+                        </td>
+                        <td style={{ padding: '2px 4px', whiteSpace: 'nowrap' }}>
+                          {elapsedSeconds(ac.receivedAt)}s
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
       )}
     </div>
   )

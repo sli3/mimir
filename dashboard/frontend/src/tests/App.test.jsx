@@ -24,6 +24,7 @@ vi.mock('../hooks/useSocket.js', () => ({
     },
     aisVessels: [],
     adsbAircraft: {},
+    adsbAircraftHistory: [],
   }),
 }))
 

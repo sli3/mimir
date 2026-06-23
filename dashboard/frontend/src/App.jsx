@@ -149,6 +149,7 @@ export default function App() {
     acarsMessages,
     aisVessels,
     adsbAircraft,
+    adsbAircraftHistory,
   } = socket
 
   const clock = useClock()
@@ -327,7 +328,7 @@ export default function App() {
                   }}>
                     {group.bands.map((band) => {
                       const active = isTuned(focusedFreq, band.freq_hz)
-                      const hasAdsb = band.label === 'ADS-B' && adsbAircraftList.length > 0
+                      const hasAdsb = band.label === 'ADS-B' && (adsbAircraftList.length > 0 || (adsbAircraftHistory && adsbAircraftHistory.length > 0))
                       return (
                         <button
                           key={band.freq_hz}
@@ -1086,10 +1087,11 @@ export default function App() {
                 </div>
                 <div style={{ padding: '0 10px 8px' }}>
                   {isTuned(focusedFreq, 1090000000) ? (
-                    adsbAircraftList.length > 0 ? (
-                      <div style={{ height: '100px', overflow: 'auto' }}>
+                    adsbAircraftList.length > 0 || (adsbAircraftHistory && adsbAircraftHistory.length > 0) ? (
+                      <div style={{ height: '200px', overflow: 'auto' }}>
                         <AdsbAircraftPanel
                           adsbAircraft={adsbAircraft}
+                          adsbAircraftHistory={adsbAircraftHistory}
                           focusedFreq={focusedFreq}
                         />
                       </div>

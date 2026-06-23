@@ -31,6 +31,7 @@ describe('ADS-B tuned state', () => {
     },
     aisVessels: [],
     adsbAircraft: {},
+    adsbAircraftHistory: [],
   })
 
   it('does NOT render NOT TUNED prompt when focusedFreq is 1090000000', () => {

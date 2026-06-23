@@ -30,6 +30,7 @@ export function useSocket() {
   const [acarsMessages, setAcarsMessages] = useState([])
   const [aisMessages, setAisMessages] = useState([])
   const [adsbAircraft, setAdsbAircraft] = useState({})
+  const [adsbAircraftHistory, setAdsbAircraftHistory] = useState([])
   const socketRef = useRef(null)
   const psdMapRef = useRef({})
   const focusedFreqRef = useRef(98000000)
@@ -111,6 +112,11 @@ export function useSocket() {
           Object.entries(updated).filter(([, v]) => v.receivedAt > cutoff)
         )
       })
+      setAdsbAircraftHistory((prev) => {
+        const entry = { ...data, receivedAt: Date.now() }
+        const filtered = prev.filter((ac) => ac.icao !== data.icao)
+        return [entry, ...filtered].slice(0, 50)
+      })
     })
 
     return () => {
@@ -153,5 +159,6 @@ export function useSocket() {
     aisMessages,
     aisVessels: aisMessages,
     adsbAircraft,
+    adsbAircraftHistory,
   }
 }

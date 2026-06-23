@@ -31,6 +31,7 @@ describe('AIS tuned state', () => {
     },
     aisVessels: [],
     adsbAircraft: {},
+    adsbAircraftHistory: [],
   })
 
   it('does NOT render NOT TUNED prompt when focusedFreq is 161975000', () => {
