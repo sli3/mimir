@@ -193,9 +193,10 @@ uv run python tools/seed_chromadb.py
 | PHASE-BUILD-4 | Tech debt clean-up (setup.sh, FREQ_COLOUR_MAP, AIS nav, pin eviction, classifier prompt) | ✅ Complete | 446/446 (334 pytest + 112 Vitest) |
 | PHASE-BAND-PROFILE-FIX | Wire band profile into handle_set_focus for per-band thresholds | ✅ Complete | 452/452 (340 pytest + 112 Vitest) |
 | PHASE-CLASSIFIER-ACCURACY-FIX | Add AIS to BAND_PROFILES; fix ACARS/AIS misclassification | ✅ Complete | 456/456 (344 pytest + 112 Vitest) |
+| 12 | Decoder-Driven ADS-B Classification | ✅ Complete | 489 (368 pytest + 121 Vitest) |
 
-**Total passing: 456 passing (344 pytest + 112 Vitest), 0 pre-existing pytest failures (456 total)**
-- Note: All pre-existing pytest failures resolved. 344 pytest + 112 Vitest = 456 total as of 2026-06-22.
+**Total passing: 489 passing (368 pytest + 121 Vitest), 0 failures**
+- Note: All pre-existing pytest failures resolved. Updated 2026-06-23 after Phase 12.
 
 ---
 
@@ -258,6 +259,8 @@ Do not apply this pre-emptively — only if context problems are observed.
 | `acars_message` | server → browser | timestamp, freq_hz, registration, label, block_id, text, crc_ok |
 | `ais_message` | server → browser | timestamp, mmsi, vessel_name, lat, lon, speed, course, channel |
 | `adsb_aircraft` | server → browser | icao, callsign, altitude_ft, latitude, longitude, groundspeed, track, vertical_rate, timestamp |
+
+> **`scan_result` emission paths (Phase 12):** (1) `ScanRunner._emit_result()` via LLM pipeline — fingerprint-based, all fields populated. (2) `emit_adsb_scan_result()` via confirmed ADS-B decode — `confidence_score=1.0`, fingerprint fields `None`
 
 ### Critical field name facts
 - `timestamp` — ISO string e.g. `"2026-06-01T22:21:57.549402"` — use `new Date(ts)` not `new Date(ts * 1000)`

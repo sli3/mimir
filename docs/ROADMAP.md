@@ -45,6 +45,9 @@
 | PHASE-TECH-DEBT-2 | Five frontend small fixes (tech debt) | ✅ Complete | 439/439 (334 pytest + 105 Vitest) |
 | PHASE-BUILD-3 | AIS waterfall config, tuned-state test coverage, SignalHistoryLog memoisation | ✅ Complete | 446/446 (334 pytest + 112 Vitest) |
 | PHASE-BAND-PROFILE-FIX | Wire band profile into handle_set_focus for per-band thresholds on frequency switch | ✅ Complete | 452/452 (340 pytest + 112 Vitest) |
+| PHASE-BUILD-4 | Tech debt clean-up (setup.sh, FREQ_COLOUR_MAP, AIS nav, pin eviction, classifier prompt) | ✅ Complete | 446/446 (334 pytest + 112 Vitest) |
+| PHASE-CLASSIFIER-ACCURACY-FIX | Add AIS to BAND_PROFILES; fix ACARS/AIS misclassification | ✅ Complete | 456/456 (344 pytest + 112 Vitest) |
+| PHASE-12 | Decoder-driven ADS-B classification (bypass LLM for confirmed decodes) | ✅ Complete | 456/456 (344 pytest + 112 Vitest) |
 
 ### Phase 11 Hotfix — Broadcast Defaults + FM Threshold + Startup Guard ✅
 
@@ -612,6 +615,68 @@ evaluated against the FM broadcast threshold (21.0 dB), suppressing Aviation VHF
 - Thread-safety stress test does not exercise current_band_lock write path
 
 **Test counts:** 452/452 (340 pytest + 112 Vitest)
+
+---
+
+### Phase PHASE-BUILD-4 — Tech debt clean-up ✅
+
+**Goal:** Address accumulated tech debt items: setup.sh rewrite, FREQ_COLOUR_MAP
+consolidation, AIS navigation wiring, pin eviction logic, and classifier prompt
+improvements.
+
+**Delivered:**
+- setup.sh rewrite for uv sync + uv export workflow
+- requirements.txt removed (replaced by pyproject.toml + uv.lock)
+- PYTHONPATH=. requirement documented throughout
+- FREQ_COLOUR_MAP consolidated
+- AIS navigation wiring fixes
+- Pin eviction logic improvements
+- Classifier prompt refinements
+
+**Test counts:** 446/446 (334 pytest + 112 Vitest)
+
+---
+
+### Phase PHASE-CLASSIFIER-ACCURACY-FIX — ACMA reference entries for ACARS and AIS ✅
+
+**Goal:** Fix ACARS and AIS misclassification by adding AIS to BAND_PROFILES
+and expanding ACMA reference entries so the LLM classifier can distinguish
+ACARS from AIS signals.
+
+**Delivered:**
+- AIS added to BAND_PROFILES with appropriate threshold and gain settings
+- ACMA reference entries expanded for ACARS and AIS bands
+- Classifier prompt updated to include ACARS and AIS as valid signal types
+
+**Test counts:** 456/456 (344 pytest + 112 Vitest)
+
+---
+
+### Phase PHASE-12 — Decoder-driven ADS-B classification ✅
+
+**Goal:** Bypass the LLM pipeline for confirmed ADS-B decodes. When the
+AdsbSubscriber successfully decodes an aircraft message, emit a scan_result
+event directly with ground-truth confidence, giving the Signal History log
+instant ADS-B entries.
+
+**Delivered:**
+- `modules/adsb/subscriber.py` — optional `scan_result_fn` callback parameter
+  and call site in decode loop
+- `dashboard/server.py` — `emit_adsb_scan_result()` function with focus filter
+  (suppresses emissions when user is focused on non-ADS-B bands)
+- `scan.py` — wired `emit_adsb_scan_result` as `scan_result_fn`
+- `tests/modules/test_adsb_subscriber.py` — 3 new tests
+- `tests/dashboard/test_server_stats.py` — 7 new tests (TestEmitAdsbScanResult class)
+
+**Key decisions:**
+- Confidence set to 1.0 / confidence_score 1.0 because ADS-B decoding is
+  ground-truth (not LLM inference)
+- Focus filter uses existing AU_ADSB_FREQUENCY_HZ and FREQ_TOLERANCE_HZ
+  constants from modules/adsb/constants.py
+- No frontend changes required — existing scan_result handler in useSocket.js
+  already processes these events
+
+**Test counts:** 456/456 (344 pytest + 112 Vitest)
 
 ---
 

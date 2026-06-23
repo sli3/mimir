@@ -13,7 +13,7 @@ import time
 from core.config.loader import load_config
 from core.device.hackrf_rx import HackRFReceiver
 from core.pipeline.scanner import ScanRunner
-from dashboard.server import emit_acars_message, emit_ais_message, emit_adsb_aircraft, start_server
+from dashboard.server import emit_acars_message, emit_ais_message, emit_adsb_aircraft, emit_adsb_scan_result, start_server
 from embeddings.embedder import SpectrumEmbedder
 from embeddings.store import SignalStore
 from llm.classifier import SignalClassifier
@@ -77,7 +77,10 @@ def main() -> None:
     ais_subscriber.start()
     scanner.register_iq_subscriber(ais_subscriber)
 
-    adsb_subscriber = AdsbSubscriber(broadcast_fn=emit_adsb_aircraft)
+    adsb_subscriber = AdsbSubscriber(
+        broadcast_fn=emit_adsb_aircraft,
+        scan_result_fn=emit_adsb_scan_result,
+    )
     adsb_subscriber.start()
     scanner.register_iq_subscriber(adsb_subscriber)
 

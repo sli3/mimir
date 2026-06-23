@@ -41,6 +41,7 @@ from flask_socketio import SocketIO
 from core.pipeline.scan_result import ScanResult
 from modules.acars.message import AcarsMessage
 from modules.adsb.message import AdsbMessage
+from modules.adsb.constants import AU_ADSB_FREQUENCY_HZ, FREQ_TOLERANCE_HZ
 from modules.ais.message import AisMessage
 import dashboard.shared_state as shared_state
 
@@ -252,6 +253,60 @@ def emit_adsb_aircraft(msg: AdsbMessage) -> None:
         "track": msg.track,
         "vertical_rate": msg.vertical_rate,
         "timestamp": msg.timestamp.isoformat(),
+    })
+
+
+def emit_adsb_scan_result(msg: AdsbMessage) -> None:
+    """Emit a scan_result event for a confirmed ADS-B decode.
+
+    Called by AdsbSubscriber whenever AdsbDecoder successfully decodes a frame
+    (CRC valid, DF17/DF18, valid ICAO). Bypasses the LLM pipeline — a confirmed
+    decode is ground truth, confidence = 1.0.
+
+    Applies the same focused-frequency filter as broadcast(): only emits if
+    the current focused frequency is None (all frequencies pass through) or
+    is within FREQ_TOLERANCE_HZ of AU_ADSB_FREQUENCY_HZ (1090 MHz). This
+    prevents ADS-B scan_result events from appearing in Signal History when
+    the user is focused on a different band.
+
+    Fingerprint fields (peak_power_db, snr_db, etc.) are not available from
+    the decoder path and are emitted as None. Signal History will show ---
+    for those fields when an entry comes from this path.
+
+    NOTE: In busy airspace, ADS-B traffic can produce a high rate of decoded
+    frames (potentially dozens per second). Each decode emits a separate
+    scan_result event. If this floods Signal History or the AI Reasoning
+    panel, rate-limiting or batching may be needed in a future build.
+
+    Args:
+        msg: Decoded AdsbMessage from AdsbDecoder.
+    """
+    with _focused_freq_lock:
+        focused = _focused_freq_hz
+    if focused is not None and abs(focused - AU_ADSB_FREQUENCY_HZ) > FREQ_TOLERANCE_HZ:
+        return
+
+    callsign_str = msg.callsign.strip() if msg.callsign else 'unknown'
+    alt_str = str(msg.altitude_ft) + ' ft' if msg.altitude_ft is not None else 'unknown'
+    reasoning = f'Confirmed ADS-B decode - ICAO {msg.icao}, callsign {callsign_str}, altitude {alt_str}'
+
+    socketio.emit('scan_result', {
+        'timestamp': msg.timestamp.isoformat(),
+        'center_freq_hz': AU_ADSB_FREQUENCY_HZ,
+        'signal_type': 'adsb',
+        'confidence': 'high',
+        'confidence_score': 1.0,
+        'novel': False,
+        'au_legal_status': 'legal_rx',
+        'reasoning': reasoning,
+        'peak_power_db': None,
+        'snr_db': None,
+        'peak_bin_power_db': None,
+        'signal_threshold_db': None,
+        'snr_margin_db': None,
+        'bandwidth_hz': None,
+        'spectral_flatness': None,
+        'chroma_distance': None,
     })
 
 

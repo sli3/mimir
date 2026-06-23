@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: "PHASE-CLASSIFIER-SCHEMA-FIX"
+last_updated_phase: "PHASE-12"
 ---
 
 # Mimir Wiki
@@ -39,6 +39,12 @@ ACMA-compliant under the Radiocommunications Act 1992.
 Every scan flows through these steps in order. Each function does one job and passes
 its output to the next.
 
+**Exception: Decoder-driven paths.** ACARS, AIS, and ADS-B decoders run as subscribers
+on the shared IQ bus. When a decoder successfully decodes a frame, it emits an
+`adsb_aircraft` / `acars_message` / `ais_message` event directly. ADS-B additionally
+emits a `scan_result` event (confidence = 1.0) that bypasses steps 3-6 entirely — a
+CRC-validated decode is ground truth, no LLM classification needed.
+
 ```
 Step  Function / Component          What it does
 ────  ────────────────────────────  ──────────────────────────────────────────────
@@ -70,6 +76,89 @@ Step  Function / Component          What it does
 ## Phase Log
 
 Phases are listed newest-first so the current phase is always at the top.
+
+---
+
+### PHASE-12 — Decoder-Driven ADS-B Classification ✓ DONE
+
+**What:** Added a decoder-driven `scan_result` emission path for confirmed ADS-B
+decodes. When `AdsbDecoder` successfully decodes an ADS-B frame (CRC valid,
+DF17/DF18, valid ICAO), the decoder now emits a `scan_result` event directly —
+bypassing the LLM pipeline entirely. The decode is ground truth, so confidence = 1.0.
+
+Previously, ADS-B frames went through the same LLM classification path as raw
+spectrum captures: fingerprint → embedding → ChromaDB similarity → LLM prompt →
+classification. This was redundant for ADS-B because a CRC-validated, DF17-mode-S
+decode is already a confirmed signal type — no AI guessing needed. The decoder path
+also produces structured fields (ICAO, callsign, altitude) that the LLM prompt
+could not extract from a raw PSD fingerprint.
+
+**Changes:**
+
+1. **`modules/adsb/subscriber.py`** — Added `scan_result_fn: Callable | None = None`
+   parameter to `AdsbSubscriber.__init__()`. The callback is called after
+   `broadcast_fn` in both `_decode_loop()` (real-time decodes) and `stop()`
+   (harvested CPR positions). Uses `collections.abc.Callable` for the type
+   annotation (PEP 604 union operator works on types, not the builtin
+   `callable` function). Defaults to None for backward compatibility.
+
+2. **`dashboard/server.py`** — Added `emit_adsb_scan_result()` top-level function.
+   Builds a `scan_result` event payload with `confidence=1.0`, `signal_type='adsb'`,
+   and a reasoning string constructed from ICAO, callsign, and altitude. All
+   fingerprint fields (`peak_power_db`, `snr_db`, etc.) are emitted as `None`
+   because the decoder path does not go through the FFT/features pipeline.
+   Applies the same focused-frequency filter as `broadcast()`: only emits if the
+   focused frequency is None or within `FREQ_TOLERANCE_HZ` of
+   `AU_ADSB_FREQUENCY_HZ` (1090 MHz). Lock is released before `socketio.emit()`
+   to avoid deadlock (matches `broadcast()` pattern).
+
+3. **`scan.py`** — Imported `emit_adsb_scan_result` and wired it as
+   `scan_result_fn` in the `AdsbSubscriber` construction.
+
+**Why:** ADS-B at 1090 MHz is one of the strongest and most structured signals
+Mimir receives. A CRC-validated Mode S decode is unambiguous ground truth —
+there is nothing for the LLM to guess. The decoder also provides ICAO, callsign,
+altitude, and position that a PSD fingerprint cannot. Bypassing the LLM for ADS-B
+saves inference time (no ChromaDB lookup, no prompt construction, no LLM call) and
+produces higher-quality classification output (confidence 1.0 vs LLM's typical
+0.7-0.9 for ADS-B).
+
+**Key functions:**
+
+`emit_adsb_scan_result(msg: AdsbMessage)` — top-level function in `server.py`.
+Acquires `_focused_freq_lock`, reads focused frequency, releases lock, then
+emits a `scan_result` event with `confidence=1.0` and all fingerprint fields
+as `None`. The reasoning string reads: "Confirmed ADS-B decode - ICAO {icao},
+callsign {callsign}, altitude {alt} ft". Analogy: a barcode scanner that
+already knows what it scanned — no need to ask the AI to guess.
+
+`AdsbSubscriber.__init__(broadcast_fn, scan_result_fn=None)` — now accepts an
+optional `scan_result_fn` callback. When provided, called alongside
+`broadcast_fn` after every successful decode. When None (default), the
+subscriber behaves exactly as before. Analogy: a second output port on a
+radio — you can plug in an additional listener if you want, but the radio
+works fine without one.
+
+**Deferred items:**
+- **scan_result flooding** — In busy airspace, ADS-B traffic can produce dozens
+  of decoded frames per second. Each emits a separate `scan_result` event.
+  If this floods Signal History or the AI Reasoning panel, rate-limiting or
+  batching may be needed. Not addressed in this build (no busy airspace
+  available for testing).
+
+**Pre-existing issues surfaced (not new in this build):**
+- `au_legal_status` casing mismatch: backend emits lowercase `'legal_rx'`,
+  frontend checks for uppercase `'LEGAL'` (App.jsx:567). Pre-existing.
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None — all changes are passive receive-only decode path
+  additions. ADS-B decoding is legal under ACMA regulations.
+
+**Test counts:** 489 (368 pytest + 121 Vitest). 10 new tests total:
+3 subscriber tests (`scan_result_fn` called, not required, called on harvest)
+and 7 server tests (`TestEmitAdsbScanResult`: emit behaviour, signal type,
+confidence, reasoning, focus filter).
 
 ---
 

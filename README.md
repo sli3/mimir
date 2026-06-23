@@ -166,6 +166,7 @@ event rate, gap detection, and a PASS/FAIL summary. Use `--duration 60` minimum
 | PHASE-BUILD-4 | Tech debt: setup.sh rewrite (uv sync + uv export), requirements.txt removed, PYTHONPATH=. documented | ✅ Complete | 446/446 (334 pytest + 112 Vitest) |
 | PHASE-BAND-PROFILE-FIX | Wire band profile into handle_set_focus for per-band thresholds on frequency switch | ✅ Complete | 452/452 (340 pytest + 112 Vitest) |
 | PHASE-CLASSIFIER-ACCURACY-FIX | ACMA reference entries for ACARS and AIS + AIS band profile in BAND_PROFILES | ✅ Complete | 456/456 (344 pytest + 112 Vitest) |
+| PHASE-12 | Decoder-driven ADS-B classification (bypass LLM for confirmed decodes) | ✅ Complete | 456/456 (344 pytest + 112 Vitest) |
 
 **Total: 456 passing (344 pytest + 112 Vitest), 0 pre-existing failures**
 

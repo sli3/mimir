@@ -172,3 +172,104 @@ class TestAdsbSubscriber:
         sub._decoder.flush = lambda: []
         sub.stop()
         assert len(harvested) == 0
+
+    def test_scan_result_fn_called_on_successful_decode(self):
+        """scan_result_fn callback is invoked on each successful decode."""
+        broadcast_messages = []
+        scan_result_messages = []
+
+        def broadcast_spy(msg):
+            broadcast_messages.append(msg)
+
+        def scan_result_spy(msg):
+            scan_result_messages.append(msg)
+
+        msg = AdsbMessage(
+            icao="7C4B4C", callsign="QFA456", latitude=-34.0, longitude=138.0,
+            altitude_ft=35000, groundspeed=450.0, track=180.0, vertical_rate=0,
+            raw_hex="8D406B902015A678D4D220AA4BDA",
+        )
+
+        sub = AdsbSubscriber(
+            broadcast_fn=broadcast_spy,
+            scan_result_fn=scan_result_spy,
+        )
+
+        def fake_demodulate(iq_chunk):
+            return ["8D406B902015A678D4D220AA4BDA"]
+
+        def fake_decode(raw_hex):
+            return msg
+
+        sub._demodulator.demodulate = fake_demodulate
+        sub._decoder.decode = fake_decode
+
+        iq_chunk = np.zeros(1024, dtype=np.complex64)
+        sub.receive(iq_chunk, AU_ADSB_FREQUENCY_HZ, 2_000_000.0)
+
+        sub.start()
+        time.sleep(0.2)
+        sub.stop()
+
+        assert len(scan_result_messages) >= 1
+        assert scan_result_messages[0].icao == "7C4B4C"
+
+    def test_scan_result_fn_not_required(self):
+        """AdsbSubscriber works without scan_result_fn (backward compatible)."""
+        broadcast_messages = []
+
+        def broadcast_spy(msg):
+            broadcast_messages.append(msg)
+
+        msg = AdsbMessage(
+            icao="7C4B4C", callsign="QFA456", latitude=-34.0, longitude=138.0,
+            altitude_ft=35000, groundspeed=450.0, track=180.0, vertical_rate=0,
+            raw_hex="8D406B902015A678D4D220AA4BDA",
+        )
+
+        sub = AdsbSubscriber(broadcast_fn=broadcast_spy)
+
+        def fake_demodulate(iq_chunk):
+            return ["8D406B902015A678D4D220AA4BDA"]
+
+        def fake_decode(raw_hex):
+            return msg
+
+        sub._demodulator.demodulate = fake_demodulate
+        sub._decoder.decode = fake_decode
+
+        iq_chunk = np.zeros(1024, dtype=np.complex64)
+        sub.receive(iq_chunk, AU_ADSB_FREQUENCY_HZ, 2_000_000.0)
+
+        sub.start()
+        time.sleep(0.2)
+        sub.stop()
+
+        assert len(broadcast_messages) >= 1
+
+    def test_stop_calls_scan_result_fn_for_harvested(self):
+        """stop() invokes scan_result_fn for each harvested message."""
+        harvested_broadcast = []
+        harvested_scan = []
+
+        def broadcast_spy(msg):
+            harvested_broadcast.append(msg)
+
+        def scan_result_spy(msg):
+            harvested_scan.append(msg)
+
+        msg = AdsbMessage(
+            icao="7C4B4C", callsign="QFA456", latitude=-34.0, longitude=138.0,
+            altitude_ft=35000, groundspeed=450.0, track=180.0, vertical_rate=0,
+            raw_hex="8D406B902015A678D4D220AA4BDA",
+        )
+
+        sub = AdsbSubscriber(
+            broadcast_fn=broadcast_spy,
+            scan_result_fn=scan_result_spy,
+        )
+        sub._decoder.flush = lambda: [msg]
+        sub.stop()
+
+        assert len(harvested_scan) == 1
+        assert harvested_scan[0].icao == "7C4B4C"

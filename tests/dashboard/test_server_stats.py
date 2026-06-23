@@ -15,6 +15,8 @@ from dashboard.server import (
 )
 from core.pipeline.scan_result import ScanResult
 from llm.classifier import ClassificationResult
+from modules.adsb.message import AdsbMessage
+from modules.adsb.constants import AU_ADSB_FREQUENCY_HZ
 import dashboard.shared_state as ss
 
 
@@ -298,3 +300,118 @@ class TestFocusFrequencyFilter:
                     futs.append(ex.submit(broadcast, self._make_scan_result(float(i * 10e6))))
                 for f in concurrent.futures.as_completed(futs):
                     f.result(timeout=5.0)
+
+
+class TestEmitAdsbScanResult:
+    """Tests for emit_adsb_scan_result — decoder-driven scan_result emission."""
+
+    def setup_method(self):
+        self._saved_focused_freq = server._focused_freq_hz
+        server._focused_freq_hz = None
+
+    def teardown_method(self):
+        server._focused_freq_hz = self._saved_focused_freq
+
+    def _make_adsb_message(self, icao="ABCDEF", callsign="TEST123"):
+        from datetime import datetime, timezone
+        return AdsbMessage(
+            icao=icao,
+            callsign=callsign,
+            latitude=-34.0,
+            longitude=138.0,
+            altitude_ft=35000,
+            groundspeed=450.0,
+            track=180.0,
+            vertical_rate=0,
+            raw_hex="8D406B902015A678D4D220AA4BDA",
+            timestamp=datetime.now(timezone.utc),
+        )
+
+    def test_emits_scan_result_event(self):
+        """emit_adsb_scan_result() calls socketio.emit('scan_result')."""
+        from dashboard.server import emit_adsb_scan_result
+
+        msg = self._make_adsb_message()
+        with patch("dashboard.server.socketio.emit") as mock_emit:
+            emit_adsb_scan_result(msg)
+            assert mock_emit.called
+            assert mock_emit.call_args[0][0] == "scan_result"
+
+    def test_signal_type_is_adsb(self):
+        """Emitted data has signal_type='adsb'."""
+        from dashboard.server import emit_adsb_scan_result
+
+        msg = self._make_adsb_message()
+        with patch("dashboard.server.socketio.emit") as mock_emit:
+            emit_adsb_scan_result(msg)
+            data = mock_emit.call_args[0][1]
+            assert data["signal_type"] == "adsb"
+
+    def test_confidence_score_is_one(self):
+        """Emitted data has confidence_score=1.0 and confidence='high'."""
+        from dashboard.server import emit_adsb_scan_result
+
+        msg = self._make_adsb_message()
+        with patch("dashboard.server.socketio.emit") as mock_emit:
+            emit_adsb_scan_result(msg)
+            data = mock_emit.call_args[0][1]
+            assert data["confidence_score"] == 1.0
+            assert data["confidence"] == "high"
+
+    def test_reasoning_contains_icao(self):
+        """Emitted reasoning string includes the ICAO."""
+        from dashboard.server import emit_adsb_scan_result
+
+        msg = self._make_adsb_message(icao="ABCDEF")
+        with patch("dashboard.server.socketio.emit") as mock_emit:
+            emit_adsb_scan_result(msg)
+            data = mock_emit.call_args[0][1]
+            assert "ABCDEF" in data["reasoning"]
+
+    def test_focus_filter_blocks_wrong_frequency(self):
+        """When focused on FM (98 MHz), ADS-B emissions are blocked."""
+        from dashboard.server import emit_adsb_scan_result, _focused_freq_hz
+
+        saved = _focused_freq_hz
+        try:
+            import dashboard.server
+            dashboard.server._focused_freq_hz = 98_000_000.0
+            msg = self._make_adsb_message()
+            with patch("dashboard.server.socketio.emit") as mock_emit:
+                emit_adsb_scan_result(msg)
+                assert not mock_emit.called
+        finally:
+            import dashboard.server
+            dashboard.server._focused_freq_hz = saved
+
+    def test_focus_filter_passes_adsb_frequency(self):
+        """When focused on 1090 MHz, ADS-B emissions pass through."""
+        from dashboard.server import emit_adsb_scan_result, _focused_freq_hz
+
+        saved = _focused_freq_hz
+        try:
+            import dashboard.server
+            dashboard.server._focused_freq_hz = 1_090_000_000.0
+            msg = self._make_adsb_message()
+            with patch("dashboard.server.socketio.emit") as mock_emit:
+                emit_adsb_scan_result(msg)
+                assert mock_emit.called
+        finally:
+            import dashboard.server
+            dashboard.server._focused_freq_hz = saved
+
+    def test_focus_filter_passes_when_none(self):
+        """When focus is None (no focus active), ADS-B emissions pass through."""
+        from dashboard.server import emit_adsb_scan_result, _focused_freq_hz
+
+        saved = _focused_freq_hz
+        try:
+            import dashboard.server
+            dashboard.server._focused_freq_hz = None
+            msg = self._make_adsb_message()
+            with patch("dashboard.server.socketio.emit") as mock_emit:
+                emit_adsb_scan_result(msg)
+                assert mock_emit.called
+        finally:
+            import dashboard.server
+            dashboard.server._focused_freq_hz = saved
