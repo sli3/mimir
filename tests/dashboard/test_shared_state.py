@@ -45,8 +45,18 @@ class TestBandProfiles:
     def test_ais_in_band_profiles(self):
         """ais entry must exist in BAND_PROFILES with correct center frequency."""
         assert "ais" in BAND_PROFILES
-        assert BAND_PROFILES["ais"]["center_freq_hz"] == 161_975_000
+        assert BAND_PROFILES["ais"]["center_freq_hz"] == 162_000_000
         assert BAND_PROFILES["ais"]["signal_threshold_db"] > 0
+
+    def test_ais_centre_freq_matches_constants(self):
+        """AIS centre freq in BAND_PROFILES must match AU_AIS_CENTRE_FREQ_HZ."""
+        from modules.ais.constants import AU_AIS_CENTRE_FREQ_HZ
+        assert BAND_PROFILES["ais"]["center_freq_hz"] == AU_AIS_CENTRE_FREQ_HZ
+
+    def test_ais_gains_match_aviation_acars(self):
+        """AIS gains (lna=16, vga=20) match aviation and ACARS VHF-low peers."""
+        assert BAND_PROFILES["ais"]["lna_gain_db"] == 16
+        assert BAND_PROFILES["ais"]["vga_gain_db"] == 20
 
 
 class TestGetBandForFreq:
@@ -75,8 +85,16 @@ class TestGetBandForFreq:
         assert BAND_PROFILES["fm_broadcast"]["signal_threshold_db"] != 999.0
 
     def test_ais_band_profile_lookup(self):
-        """get_band_for_freq returns the AIS profile for 161.975 MHz."""
-        result = get_band_for_freq(161_975_000)
+        """get_band_for_freq returns the AIS profile for 162.000 MHz."""
+        result = get_band_for_freq(162_000_000)
         assert result is not None
-        assert result["center_freq_hz"] == 161_975_000
+        assert result["center_freq_hz"] == 162_000_000
         assert result["signal_threshold_db"] > 0
+
+    def test_ais_ch1_freq_no_longer_matches(self):
+        """get_band_for_freq(161_975_000) returns None after centre freq change to
+        162.000 MHz. This documents the known frontend/backend gap: the frontend still
+        sends 161.975 MHz (CH1) when the user clicks AIS, so the AIS band profile gains
+        and threshold are not applied until the frontend is updated."""
+        result = get_band_for_freq(161_975_000)
+        assert result is None

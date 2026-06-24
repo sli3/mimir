@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: "PHASE-13"
+last_updated_phase: "PHASE-14"
 ---
 
 # Mimir Wiki
@@ -76,6 +76,101 @@ Step  Function / Component          What it does
 ## Phase Log
 
 Phases are listed newest-first so the current phase is always at the top.
+
+---
+
+### PHASE-14 — AIS Band Profile Fix + CHECKPOINT Parser Fix ✓ DONE
+
+**What:** Two targeted fixes:
+
+1. **AIS band profile centre frequency corrected** — The `ais` entry in
+   `BAND_PROFILES` (`dashboard/shared_state.py`) had its `center_freq_hz`
+   changed from 161_975_000 (AIS Channel 1 only) to 162_000_000 (AIS
+   dual-channel centre). The AIS demodulator in `modules/ais/constants.py`
+   expects a centre of 162.000 MHz to capture both AIS channels
+   (161.975 MHz and 162.025 MHz). With the old centre at 161.975 MHz,
+   the demodulator's dual-channel capture was misaligned — the upper
+   channel (162.025 MHz) fell outside the tuned bandwidth. The gains
+   were also adjusted: lna 24→16, vga 26→20, consistent with other VHF
+   bands (aviation, ACARS) that operate at similar signal strengths.
+
+2. **CHECKPOINT_MODE parsing in build.md** — The governance doc
+   `.opencode/command/build.md` now supports dual-entry checkpoint mode:
+   via the `$2` flag (`CHECKPOINT`) or embedded in the task body
+   (`CHECKPOINT_MODE: ON`). The PHASE-TRACKER GATE was updated to accept
+   either form. This resolves the CHECKPOINT arg parser failure that
+   silently dropped the `$2` positional arg when `$1` was a long
+   multi-line string.
+
+**Why:** The AIS centre frequency mismatch meant that when the dashboard
+tuned to the AIS band, the backend band profile (gains, threshold) was
+not applied — `get_band_for_freq(161_975_000)` returned None because the
+profile centre was 162_000_000. Aligning the profile centre to
+162.000 MHz ensures the AIS band profile is correctly matched when the
+HackRF tunes to the AIS frequency. The gain reduction (24/26→16/20)
+aligns AIS with other VHF maritime peers (aviation and ACARS both use
+16/20).
+
+**Files changed:**
+- `dashboard/shared_state.py` — `BAND_PROFILES["ais"]`: centre moved from
+  161_975_000 to 162_000_000, gains changed from 24/26 to 16/20, inline
+  comment added documenting gain rationale and provisional threshold
+- `tests/dashboard/test_shared_state.py` — 3 new tests:
+  `test_ais_centre_freq_matches_constants` (asserts AU_AIS_CENTRE_FREQ_HZ
+  equality), `test_ais_gains_match_aviation_acars` (asserts lna=16, vga=20),
+  `test_ais_ch1_freq_no_longer_matches` (documents that
+  `get_band_for_freq(161_975_000)` returns None after centre change);
+  existing tests updated to match new centre
+- `.opencode/command/build.md` — PHASE-TRACKER GATE updated with
+  dual-entry CHECKPOINT_MODE support; usage line and TASK block comment
+  expanded
+
+**Key functions:**
+
+`BAND_PROFILES` — per-band gain, threshold, and centre frequency
+configuration for the dashboard waterfall. The `ais` entry now centres at
+162.000 MHz (dual-channel) instead of 161.975 MHz (Channel 1 only). This
+aligns the profile with the AIS demodulator's expected centre frequency.
+Analogy: tuning a radio to the midpoint between two stations so both
+come in clearly, rather than tuning to one station and losing the other.
+
+`get_band_for_freq(freq_hz)` — looks up a BAND_PROFILES entry by exact
+centre frequency match. After this change, `get_band_for_freq(161_975_000)`
+returns None (CH1 is no longer a profile centre). The function's behaviour
+is unchanged — it still iterates in definition order and returns the first
+match. The AIS profile is now matched at 162_000_000.
+
+**Deferred items:**
+
+1. **Frontend/backend AIS frequency mismatch (NEW):** The frontend still
+   sends `freq_hz=161975000` when the user clicks the AIS band button
+   (`App.jsx` OVERVIEW_BANDS, `WaterfallPanel.jsx` STRIP_CONFIGS,
+   `FrequencyList.jsx`, `AisVesselPanel.jsx`, `SignalHistoryLog.jsx`).
+   `get_band_for_freq(161975000)` returns None (profile centre is now
+   162_000_000), so AIS threshold and gains are NOT applied when the
+   user tunes to AIS. Fix: update frontend AIS references from 161975000
+   to 162000000. Deferred to a future phase.
+
+2. **AGENTS.md AIS tech debt row stale:** The row "AIS BAND_PROFILES
+   centre vs demodulator centre mismatch" described the old problem
+   (frontend at 161.975 MHz, BAND_PROFILES at 162.000 MHz). Now the
+   backend profile is correct, but the frontend is mismatched. Row should
+   be rewritten to describe the new frontend/backend frequency gap.
+   Deferred (AGENTS.md is outside this agent's scope).
+
+3. **capture_loop.py dead code (pre-existing):** `run_shared_capture_loop()`
+   is never imported or called. `band_change_event.set()` is never called
+   anywhere. `BAND_PROFILES` gains are consumed only by this dead code
+   path — the production scanner uses `config/mimir.yaml` gains.
+   Not introduced by this build.
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None — all changes are band profile configuration and
+  governance doc update. All RX-only.
+
+**Test counts:** 492 (371 pytest + 121 Vitest). 3 new tests in
+`tests/dashboard/test_shared_state.py`.
 
 ---
 

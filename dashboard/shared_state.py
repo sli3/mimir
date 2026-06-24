@@ -127,17 +127,17 @@ BAND_PROFILES: dict = {
         "vga_gain_db":         20,
         "signal_threshold_db": 6.0,
     },
-    "ais": {
-        "center_freq_hz":      161_975_000,
-        "lna_gain_db":         24,  # VHF maritime — same as APRS
-        "vga_gain_db":         26,
-        "signal_threshold_db": 5.0,  # Provisional — similar to APRS VHF
-    },
     "aprs": {
         "center_freq_hz":      145_175_000,
         "lna_gain_db":         24,
         "vga_gain_db":         26,
         "signal_threshold_db": 5.0,
+    },
+    "ais": {
+        "center_freq_hz":      162_000_000,
+        "lna_gain_db":         16,  # VHF maritime — consistent with aviation/ACARS
+        "vga_gain_db":         20,
+        "signal_threshold_db": 5.0,    # Provisional — needs live calibration with telescopic whip
     },
     "ism": {
         "center_freq_hz":      915_000_000,

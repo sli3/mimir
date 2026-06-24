@@ -4,6 +4,7 @@ description: >
   workflow — plan → research → security gate → code → fix loop → code review →
   PM audit → docs → memo → report — with no user intervention. The task description
   is pre-planned and pre-approved by the architect. Usage: /build "<task>" [CHECKPOINT]
+  OR embed CHECKPOINT_MODE: ON anywhere in the task body.
 subtask: false
 ---
 
@@ -27,6 +28,7 @@ Task description (first argument — pass it QUOTED, e.g. `/build "implement the
 $1
 
 Checkpoint flag (second argument — optional; the exact word CHECKPOINT, or nothing):
+  OR embed CHECKPOINT_MODE: ON anywhere in the task body.
 
 $2
 
@@ -223,15 +225,14 @@ to AGENTS.md.
 
 PHASE-TRACKER GATE — deterministic, driven solely by the checkpoint flag
 captured in the TASK block above:
-  - Checkpoint mode is ON if and ONLY if that flag reads exactly the token
-    CHECKPOINT (case-insensitive). When ON, @memo-writer also updates the
-    AGENTS.md phase tracker and may mark a phase complete in docs/ROADMAP.md.
-  - In EVERY other case — the flag is blank, absent, still showing as an
-    unsubstituted placeholder, or holds any other value — checkpoint mode is
-    OFF: write the session memo only and leave the phase tracker and all
-    phase-completion status untouched.
+  - Checkpoint mode is ON if EITHER:
+    - The $2 argument reads exactly CHECKPOINT (case-insensitive), OR
+    - The task description ($1) contains the line 'CHECKPOINT_MODE: ON'
+      (case-insensitive, anywhere in the task body)
+  - In ALL other cases checkpoint mode is OFF: write the session memo only
+    and leave the phase tracker and all phase-completion status untouched.
   - Never infer checkpoint status from the task description or from the work
-    itself. Only the checkpoint flag decides.
+    itself. Only the checkpoint flag (or its inline equivalent) decides.
 
 @memo-writer must not touch code, test files, opencode.json, or
 `.opencode/agents/*.md`.

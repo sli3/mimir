@@ -49,6 +49,7 @@
 | PHASE-CLASSIFIER-ACCURACY-FIX | Add AIS to BAND_PROFILES; fix ACARS/AIS misclassification | ✅ Complete | 456/456 (344 pytest + 112 Vitest) |
 | PHASE-12 | Decoder-driven ADS-B classification (bypass LLM for confirmed decodes) | ✅ Complete | 456/456 (344 pytest + 112 Vitest) |
 | PHASE-13 | Spectral flatness embedding expansion (6D to 7D vectors) | ✅ Complete | 489/489 (368 pytest + 121 Vitest) |
+| PHASE-14 | CHECKPOINT Parser Fix + AIS Band Profile | ✅ Complete | 492/492 (371 pytest + 121 Vitest) |
 
 ### Phase 11 Hotfix — Broadcast Defaults + FM Threshold + Startup Guard ✅
 
@@ -704,6 +705,40 @@ in the dashboard.
 
 ---
 
+### Phase 14 — CHECKPOINT Parser Fix + AIS Band Profile ✅
+
+**Goal:** Fix the longstanding CHECKPOINT flag parsing issue where `$2` was
+silently dropped with long multi-line task strings, and correct the AIS
+band profile centre frequency to match the dual-channel demodulator.
+
+**Delivered:**
+
+1. **`.opencode/command/build.md`** — PHASE-TRACKER GATE updated to support
+   both `$2 CHECKPOINT` positional flag AND `CHECKPOINT_MODE: ON` embedded
+   in the task body. Fixes the longstanding issue where `$2` was silently
+   dropped when `$1` was a long multi-line string.
+
+2. **`dashboard/shared_state.py`** — BAND_PROFILES["ais"]: centre frequency
+   corrected from 161_975_000 Hz (CH1 only) to 162_000_000 Hz (matching
+   `modules/ais/constants.py` AU_AIS_CENTRE_FREQ_HZ, the correct dual-channel
+   centre between CH1 161.975 MHz and CH2 162.025 MHz). Gains adjusted from
+   24/26 to 16/20 (consistent with VHF-low peers aviation/ACARS). Entry
+   reordered after APRS (cosmetic -- ascending frequency order).
+
+3. **`tests/dashboard/test_shared_state.py`** — 3 new/updated tests pinning
+   the corrected AIS BAND_PROFILES values and documenting the known
+   frontend/backend frequency mismatch.
+
+**Deferred:**
+- Frontend/backend AIS frequency mismatch: frontend still hardcodes 161.975 MHz.
+  When user clicks AIS, `get_band_for_freq(161_975_000)` returns None so AIS
+  threshold/gains not applied. HackRF retunes correctly (unconditional) so
+  reception works, but band profile config is stale. Fix in a future phase.
+
+**Test counts:** 492/492 (371 pytest + 121 Vitest), 0 failures
+
+---
+
 ## Known Tech Debt
 
 | Item | Detail | Fix in |
@@ -712,3 +747,4 @@ in the dashboard.
 | ~~`scan.py` startup message~~ | ~~Misleading "Scanning N frequencies" in single-freq mode~~ | ~~Post 8C~~ ✅ |
 | ~~MED-01: scan.py fatal error exit~~ | ~~`except Exception` sets fatal_error=True but no test verifies exit code 1~~ | ~~PHASE-TECH-DEBT-1~~ ✅ |
 | ADS-B gain divergence | tools use (32/38) for ADS-B gain, shared_state.py uses (24/24). Both tool values labelled provisional. | Live ADS-B test |
+| Frontend/backend AIS frequency mismatch | Frontend hardcodes 161.975 MHz (CH1). BAND_PROFILES expects 162.000 MHz (dual-channel centre). `get_band_for_freq(161_975_000)` returns None, so AIS threshold/gains not applied. HackRF retunes correctly (unconditional), so reception works but band profile config is stale. Fix: update frontend AIS references to 162.000. | Post-Phase 14 |

@@ -195,8 +195,9 @@ uv run python tools/seed_chromadb.py
 | PHASE-CLASSIFIER-ACCURACY-FIX | Add AIS to BAND_PROFILES; fix ACARS/AIS misclassification | ✅ Complete | 456/456 (344 pytest + 112 Vitest) |
 | 12 | Decoder-Driven ADS-B Classification | ✅ Complete | 489 (368 pytest + 121 Vitest) |
 | 13 | Spectral Flatness Embedding Expansion | ✅ Complete | 489 (368 pytest + 121 Vitest) |
+| 14 | CHECKPOINT Parser Fix + AIS Band Profile | ✅ Complete | 492 (371 pytest + 121 Vitest) |
 
-**Total passing: 489 passing (368 pytest + 121 Vitest), 0 failures**
+**Total passing: 492 passing (371 pytest + 121 Vitest), 0 failures**
 - Note: All pre-existing pytest failures resolved. Updated 2026-06-24 after Phase 13.
 
 ---
@@ -361,9 +362,10 @@ Do not apply this pre-emptively — only if context problems are observed.
 | Clear-focus path does not reset current_band | `handle_set_focus(None)` leaves `shared_state.current_band` pointing to the last tuned band. Acceptable under single-frequency-focus architecture. | — (tracked) |
 | Thread-safety stress test blind spot | `test_get_band_for_freq_concurrent` doesn't exercise `current_band_lock` write path (test frequencies don't match BAND_PROFILES). | — (advisory) |
 | ~~Classifier schema missing acars/ais~~ | ~~`llm/classifier.py` _JSON_SCHEMA and _AU_BAND_REFERENCE don't list "acars" or "ais" as valid signal_type values.~~ | ~~— (tracked)~~ ✅ RESOLVED in PHASE-CLASSIFIER-SCHEMA-FIX |
-| AIS BAND_PROFILES centre vs demodulator centre mismatch | BAND_PROFILES centre_freq_hz (161.975 MHz = CH1) differs from AIS demodulator expected centre (162.000 MHz for dual-channel). If dashboard tunes to 161.975 MHz, dual-channel decode may misbehave. | — (tracked) |
+| ~~AIS BAND_PROFILES centre vs demodulator centre mismatch~~ | ~~BAND_PROFILES centre_freq_hz (161.975 MHz = CH1) differs from AIS demodulator expected centre (162.000 MHz for dual-channel).~~ Backend resolved in Phase 14: BAND_PROFILES now uses 162.000 MHz. See frontend/backend AIS mismatch below. | ~~— (tracked)~~ ✅ Phase 14 (backend) |
+| Frontend/backend AIS frequency mismatch | Frontend hardcodes 161.975 MHz (CH1). BAND_PROFILES expects 162.000 MHz (dual-channel centre). `get_band_for_freq(161_975_000)` returns None, so AIS threshold/gains not applied. HackRF retunes correctly (unconditional), so reception works but band profile config is stale. Fix: update frontend AIS references to 162.000. | Post-Phase 14 |
 | ChromaDB distance reference stale (Phase 13) | `_DISTANCE_SCALE_REFERENCE` in `llm/classifier.py` calibrated for 6D L2 distances. After 7D reseed, thresholds over-classify known signals as "novel." Needs recalibration via live captures. | 9C-Threshold |
-| CHECKPOINT arg parser failure | `/build` command `$2` positional arg silently dropped when `$1` is a long multi-line string. CHECKPOINT flag must be passed inside the task body or via a dedicated fix to `build.md`. Workaround: standalone memo run after each build. | — (tracked) |
+| ~~CHECKPOINT arg parser failure~~ | ~~`/build` command `$2` positional arg silently dropped when `$1` is a long multi-line string.~~ Fixed in Phase 14: `build.md` PHASE-TRACKER GATE now supports both `$2 CHECKPOINT` flag and `CHECKPOINT_MODE: ON` embedded in the task body. | ~~— (tracked)~~ ✅ Phase 14 |
 
 ---
 
