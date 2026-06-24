@@ -1,7 +1,7 @@
 # config/mimir.yaml
 # Mimir RF Scanner — Runtime Configuration
 #
-# This file is manually maintained. Runtime loading is not yet implemented (Phase 1+).
+# Runtime config — loaded at startup by core/config/loader.py via scan.py.
 # Edit carefully — all frequency values are in Hz.
 #
 # LEGAL: All frequencies listed here are legal to receive passively
