@@ -48,7 +48,16 @@ import dashboard.shared_state as shared_state
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__, static_folder="static", static_url_path="")
-socketio = SocketIO(app, async_mode="threading", cors_allowed_origins="*")
+socketio = SocketIO(
+    app,
+    async_mode="threading",
+    cors_allowed_origins=[
+        "http://localhost:5000",
+        "http://127.0.0.1:5000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+)
 
 _device_ref = None
 _scanner_ref = None
