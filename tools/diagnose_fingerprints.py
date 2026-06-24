@@ -7,17 +7,20 @@ from core.pipeline.capture import capture_iq
 from core.pipeline.fft import compute_psd
 from core.pipeline.features import fingerprint_spectrum
 
-# Gain values: FM_broadcast calibrated to telescopic whip (Phase 9C-Threshold).
-# Aviation_VHF matches production BAND_PROFILES defaults (not yet validated
-# with telescopic whip). ADS_B uses provisional stock-stub values — requires
-# recalibration with telescopic whip. noise_floor uses moderate gain (16/20)
-# for diagnostic visibility, unlike the production zero-gain baseline used by
-# calibrate_thresholds.py and shared_state.py.
+# Gain values match production BAND_PROFILES in dashboard/shared_state.py.
+# FM_broadcast and ADS_B calibrated for telescopic whip (Phase 9C-Threshold).
+# ACARS and Aviation_VHF use moderate gain — weaker signals at VHF.
+# APRS, ISM, and AIS use same gain as FM — telescopic whip couples well here.
+# noise_floor uses moderate gain (16/20) for diagnostic visibility.
 TARGETS = [
-    ("FM_broadcast",  98_900_000,    24, 26),  # calibrated: telescopic whip
-    ("ADS_B",         1_090_000_000, 32, 38),  # TODO: recalibrate with telescopic whip — provisional stock-stub values
-    ("Aviation_VHF",  127_000_000,   16, 20),  # provisional: matches BAND_PROFILES defaults, not yet validated with telescopic whip
-    ("noise_floor",   433_000_000,   16, 20),  # moderate gain for diagnostic visibility
+    ("FM_broadcast",  98_900_000,     24, 26),  # calibrated: telescopic whip, Phase 9C-Threshold
+    ("Aviation_VHF",  127_000_000,    16, 20),  # provisional: not yet validated with telescopic whip
+    ("ACARS",         129_125_000,    16, 20),  # provisional: not yet validated with telescopic whip
+    ("APRS",          145_175_000,    24, 26),  # calibrated threshold: 10 dB, 2026-06-24
+    ("AIS",           162_000_000,    24, 26),  # provisional: not yet validated with telescopic whip
+    ("ISM_LoRa",      915_000_000,    24, 26),  # calibrated threshold: 3 dB, 2026-06-24
+    ("ADS_B",         1_090_000_000,  24, 24),  # calibrated: telescopic whip, Phase 9C-Threshold
+    ("noise_floor",   433_000_000,    16, 20),  # moderate gain for diagnostic visibility
 ]
 
 for label, freq_hz, lna, vga in TARGETS:
