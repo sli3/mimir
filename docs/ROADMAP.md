@@ -50,6 +50,7 @@
 | PHASE-12 | Decoder-driven ADS-B classification (bypass LLM for confirmed decodes) | ✅ Complete | 456/456 (344 pytest + 112 Vitest) |
 | PHASE-13 | Spectral flatness embedding expansion (6D to 7D vectors) | ✅ Complete | 489/489 (368 pytest + 121 Vitest) |
 | PHASE-14 | CHECKPOINT Parser Fix + AIS Band Profile | ✅ Complete | 492/492 (371 pytest + 121 Vitest) |
+| 15 | Frontend AIS Consistency + Nav Bar Completion | ✅ Complete | 493/493 (371 pytest + 122 Vitest) |
 
 ### Phase 11 Hotfix — Broadcast Defaults + FM Threshold + Startup Guard ✅
 
@@ -739,6 +740,43 @@ band profile centre frequency to match the dual-channel demodulator.
 
 ---
 
+### Phase 15 — Frontend AIS Consistency + Nav Bar Completion ✅
+
+**Goal:** Align all frontend AIS frequency references to match the Phase 14
+backend BAND_PROFILES correction (162.000 MHz centre), and add AIS to the
+nav bar overview waterfall.
+
+**Delivered:**
+
+1. **`dashboard/frontend/src/App.jsx`** — BAND_GROUPS and OVERVIEW_BANDS
+   updated from 161.975 MHz to 162.000 MHz (matches backend BAND_PROFILES).
+   `isTuned()` tuned-state check updated with 100 kHz tolerance around
+   162.000 MHz. `focusFrequency` call updated to send 162000000. Display
+   text strings updated. JSDoc comments added to `isTuned()` and
+   `isAcarsTuned()`.
+
+2. **`dashboard/frontend/src/tests/App.test.jsx`** — Added regression test
+   for AIS button click calling `focusFrequency(162000000)`. Updated test
+   title from 6 to 7 band buttons.
+
+3. **`dashboard/frontend/src/tests/AisTunedState.test.jsx`** — Updated
+   frequency assertions from 161975000 to 162000000 and display text to
+   match App.jsx changes.
+
+**Research notes:**
+- AIS dual-channel structure: CH1 161.975 MHz, CH2 162.025 MHz, centre 162.000 MHz
+- Backend subscriber accepts +/-100 kHz tolerance around 162.000 MHz centre
+- Centre-frequency with 100 kHz tolerance pattern used for isTuned()
+
+**Test counts:** 493/493 (371 pytest + 122 Vitest), 0 failures
+
+**Deferred:**
+- Fix 3 (queue max audit) deferred per task specification — no action taken
+- WaterfallPanel.jsx STRIP_CONFIGS AIS entry still uses 161975000 (AIS waterfall frozen)
+- SignalHistoryLog.jsx and AisVesselPanel.jsx use stale 161.975 MHz references
+
+---
+
 ## Known Tech Debt
 
 | Item | Detail | Fix in |
@@ -747,4 +785,4 @@ band profile centre frequency to match the dual-channel demodulator.
 | ~~`scan.py` startup message~~ | ~~Misleading "Scanning N frequencies" in single-freq mode~~ | ~~Post 8C~~ ✅ |
 | ~~MED-01: scan.py fatal error exit~~ | ~~`except Exception` sets fatal_error=True but no test verifies exit code 1~~ | ~~PHASE-TECH-DEBT-1~~ ✅ |
 | ADS-B gain divergence | tools use (32/38) for ADS-B gain, shared_state.py uses (24/24). Both tool values labelled provisional. | Live ADS-B test |
-| Frontend/backend AIS frequency mismatch | Frontend hardcodes 161.975 MHz (CH1). BAND_PROFILES expects 162.000 MHz (dual-channel centre). `get_band_for_freq(161_975_000)` returns None, so AIS threshold/gains not applied. HackRF retunes correctly (unconditional), so reception works but band profile config is stale. Fix: update frontend AIS references to 162.000. | Post-Phase 14 |
+| Frontend/backend AIS frequency mismatch | Frontend hardcodes 161.975 MHz (CH1). BAND_PROFILES expects 162.000 MHz (dual-channel centre). `get_band_for_freq(161_975_000)` returns None, so AIS threshold/gains not applied. HackRF retunes correctly (unconditional), so reception works but band profile config is stale. Fix: update frontend AIS references to 162.000. | ~~Post-Phase 14~~ ✅ Phase 15 |

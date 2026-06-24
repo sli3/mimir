@@ -34,17 +34,17 @@ describe('AIS tuned state', () => {
     adsbAircraftHistory: [],
   })
 
-  it('does NOT render NOT TUNED prompt when focusedFreq is 161975000', () => {
-    useSocket.mockReturnValue(makeMock(161975000))
+  it('does NOT render NOT TUNED prompt when focusedFreq is 162000000', () => {
+    useSocket.mockReturnValue(makeMock(162000000))
     render(<App />)
-    expect(screen.queryByText(/TUNE TO 161\.975 MHz TO DECODE AIS/)).toBeNull()
-    expect(screen.getByText('Listening on 161.975 MHz...')).toBeInTheDocument()
+    expect(screen.queryByText(/TUNE TO 162\.000 MHz TO DECODE AIS/)).toBeNull()
+    expect(screen.getByText('Listening on 162.000 MHz...')).toBeInTheDocument()
   })
 
   it('renders NOT TUNED prompt when focusedFreq is null', () => {
     useSocket.mockReturnValue(makeMock(null))
     render(<App />)
-    expect(screen.getByText(/TUNE TO 161\.975 MHz TO DECODE AIS/)).toBeInTheDocument()
-    expect(screen.queryByText('Listening on 161.975 MHz...')).toBeNull()
+    expect(screen.getByText(/TUNE TO 162\.000 MHz TO DECODE AIS/)).toBeInTheDocument()
+    expect(screen.queryByText('Listening on 162.000 MHz...')).toBeNull()
   })
 })

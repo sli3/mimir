@@ -196,8 +196,9 @@ uv run python tools/seed_chromadb.py
 | 12 | Decoder-Driven ADS-B Classification | ✅ Complete | 489 (368 pytest + 121 Vitest) |
 | 13 | Spectral Flatness Embedding Expansion | ✅ Complete | 489 (368 pytest + 121 Vitest) |
 | 14 | CHECKPOINT Parser Fix + AIS Band Profile | ✅ Complete | 492 (371 pytest + 121 Vitest) |
+| 15 | Frontend AIS Consistency + Nav Bar Completion | ✅ Complete | 493 (371 pytest + 122 Vitest) |
 
-**Total passing: 492 passing (371 pytest + 121 Vitest), 0 failures**
+**Total passing: 493 passing (371 pytest + 122 Vitest), 0 failures**
 - Note: All pre-existing pytest failures resolved. Updated 2026-06-24 after Phase 13.
 
 ---
@@ -363,7 +364,7 @@ Do not apply this pre-emptively — only if context problems are observed.
 | Thread-safety stress test blind spot | `test_get_band_for_freq_concurrent` doesn't exercise `current_band_lock` write path (test frequencies don't match BAND_PROFILES). | — (advisory) |
 | ~~Classifier schema missing acars/ais~~ | ~~`llm/classifier.py` _JSON_SCHEMA and _AU_BAND_REFERENCE don't list "acars" or "ais" as valid signal_type values.~~ | ~~— (tracked)~~ ✅ RESOLVED in PHASE-CLASSIFIER-SCHEMA-FIX |
 | ~~AIS BAND_PROFILES centre vs demodulator centre mismatch~~ | ~~BAND_PROFILES centre_freq_hz (161.975 MHz = CH1) differs from AIS demodulator expected centre (162.000 MHz for dual-channel).~~ Backend resolved in Phase 14: BAND_PROFILES now uses 162.000 MHz. See frontend/backend AIS mismatch below. | ~~— (tracked)~~ ✅ Phase 14 (backend) |
-| Frontend/backend AIS frequency mismatch | Frontend hardcodes 161.975 MHz (CH1). BAND_PROFILES expects 162.000 MHz (dual-channel centre). `get_band_for_freq(161_975_000)` returns None, so AIS threshold/gains not applied. HackRF retunes correctly (unconditional), so reception works but band profile config is stale. Fix: update frontend AIS references to 162.000. | Post-Phase 14 |
+| ~~Frontend/backend AIS frequency mismatch~~ | ~~Frontend hardcodes 161.975 MHz (CH1). BAND_PROFILES expects 162.000 MHz (dual-channel centre).~~ Fixed in Phase 15: BAND_GROUPS, OVERVIEW_BANDS, isTuned(), focusFrequency, and display text all updated to 162.000 MHz. | ~~Post-Phase 14~~ ✅ Phase 15 |
 | ChromaDB distance reference stale (Phase 13) | `_DISTANCE_SCALE_REFERENCE` in `llm/classifier.py` calibrated for 6D L2 distances. After 7D reseed, thresholds over-classify known signals as "novel." Needs recalibration via live captures. | 9C-Threshold |
 | ~~CHECKPOINT arg parser failure~~ | ~~`/build` command `$2` positional arg silently dropped when `$1` is a long multi-line string.~~ Fixed in Phase 14: `build.md` PHASE-TRACKER GATE now supports both `$2 CHECKPOINT` flag and `CHECKPOINT_MODE: ON` embedded in the task body. | ~~— (tracked)~~ ✅ Phase 14 |
 
@@ -435,12 +436,10 @@ Do not apply this pre-emptively — only if context problems are observed.
   helper that ORs both frequency checks (with 5 kHz margins) and using it at both `isTuned`
   call sites in the ACARS sub-panel. Tests added for 130.025 MHz tuned state.
 
-- **AIS missing from OVERVIEW_BANDS (partial — PHASE-BUILD-3):** AIS (161.975 MHz,
-  `--neon-red`) was added to `WaterfallPanel.jsx` STRIP_CONFIGS in PHASE-BUILD-3
-  (now 7 entries). However, `App.jsx` OVERVIEW_BANDS and BAND_GROUPS still lack AIS
-  (6 bands only). When tuned to AIS, the `singleBand` waterfall renders correctly with
-  the `--neon-red` colour profile, but the nav bar overview waterfall does not show AIS.
-  STRIP_CONFIGS resolved; OVERVIEW_BANDS gap remains open.
+- **AIS missing from OVERVIEW_BANDS (RESOLVED — Phase 15):** AIS (162.000 MHz,
+  `--neon-red`) was added to `App.jsx` OVERVIEW_BANDS and BAND_GROUPS in Phase 15,
+  completing the nav bar coverage. STRIP_CONFIGS resolved in PHASE-BUILD-3;
+  OVERVIEW_BANDS and BAND_GROUPS resolved in Phase 15.
 
 - **BANDS vs STRIP_CONFIGS ordering mismatch (RESOLVED — PHASE-TECH-DEBT-2):** `App.jsx`
   OVERVIEW_BANDS was genuinely missing AVIATION VHF (127 MHz) and ACARS (129.125 MHz)

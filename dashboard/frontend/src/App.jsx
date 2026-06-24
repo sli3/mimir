@@ -43,7 +43,7 @@ const BAND_GROUPS = [
   {
     label: 'MARITIME',
     bands: [
-      { name: 'AIS', freq_hz: 161975000, label: 'AIS' },
+      { name: 'AIS', freq_hz: 162000000, label: 'AIS' },  // 162.000 MHz dual-channel centre
     ],
   },
   {
@@ -60,7 +60,7 @@ const OVERVIEW_BANDS = [
   { name: 'APRS',         freq_hz: 145175000 },
   { name: 'AVIATION VHF', freq_hz: 127000000 },
   { name: 'ACARS',        freq_hz: 129125000 },
-  { name: 'AIS',          freq_hz: 161975000 },
+  { name: 'AIS',          freq_hz: 162000000 },  // dual-channel centre, matches BAND_PROFILES
   { name: 'ISM / LoRa',   freq_hz: 915000000 },
   { name: 'ADS-B',        freq_hz: 1090000000 },
 ]
@@ -116,10 +116,25 @@ function getSdrColour(status) {
   return 'var(--neon-red)'
 }
 
+/** Check whether the current focus frequency is tuned to a specific band.
+ *  Returns true when freq is within margin of target. Default margin is
+ *  2 MHz (suitable for most bands). AIS uses a tighter 100 kHz margin
+ *  because the dual-channel centre (162.000 MHz) sits between CH1
+ *  (161.975 MHz) and CH2 (162.025 MHz) -- 100 kHz covers both channels
+ *  while excluding nearby marine VHF allocations.
+ *  @param {number|null} freq - current focus frequency in Hz
+ *  @param {number} target - band centre frequency in Hz
+ *  @param {number} margin - tolerance in Hz (default 2 MHz)
+ *  @returns {boolean} */
 function isTuned(freq, target, margin = 2_000_000) {
   return freq != null && Math.abs(freq - target) <= margin
 }
 
+/** ACARS has two AU frequencies: 129.125 MHz and 130.025 MHz.
+ *  Both use 5 kHz tolerance matching the FFSK deviation. Either match
+ *  counts as "tuned" for the ACARS sub-panel display.
+ *  @param {number|null} freq - current focus frequency in Hz
+ *  @returns {boolean} */
 function isAcarsTuned(freq) {
   return isTuned(freq, 129125000, 5000) || isTuned(freq, 130025000, 5000)
 }
@@ -1219,7 +1234,10 @@ export default function App() {
                 </div>
               </div>
 
-              {/* SUB-PANEL 3 — AIS VESSELS */}
+              {/* SUB-PANEL 3 — AIS VESSELS
+                  162.000 MHz = dual-channel centre (matches backend BAND_PROFILES).
+                  100 kHz tolerance covers both CH1 (161.975) and CH2 (162.025).
+                  aligns with core/modules/ais/constants.py FREQ_TOLERANCE_HZ. */}
               <div style={{
                 display: 'flex',
                 flexDirection: 'column',
@@ -1240,7 +1258,8 @@ export default function App() {
                   }}>
                     AIS VESSELS
                   </span>
-                  {isTuned(focusedFreq, 161975000, 100000) ? (
+                  {/* 162.000 MHz centre, 100 kHz margin -- see note above */}
+                  {isTuned(focusedFreq, 162000000, 100000) ? (
                     <div style={{
                       display: 'inline-flex',
                       alignItems: 'center',
@@ -1274,7 +1293,7 @@ export default function App() {
                   )}
                 </div>
                 <div style={{ padding: '0 10px 8px' }}>
-                  {isTuned(focusedFreq, 161975000, 100000) ? (
+                  {isTuned(focusedFreq, 162000000, 100000) ? (
                     aisVessels.length > 0 ? (
                       <div style={{ height: '100px', overflow: 'auto' }}>
                         <AisVesselPanel
@@ -1289,12 +1308,12 @@ export default function App() {
                         fontFamily: 'var(--font-data)',
                         padding: '5px 8px',
                       }}>
-                        Listening on 161.975 MHz...
+                        Listening on 162.000 MHz...
                       </div>
                     )
                   ) : (
                     <div
-                      onClick={() => focusFrequency(161975000)}
+                      onClick={() => focusFrequency(162000000)}
                       style={{
                         border: '1px solid rgba(255,68,68,0.3)',
                         background: 'rgba(255,68,68,0.05)',
@@ -1306,11 +1325,14 @@ export default function App() {
                         cursor: 'pointer',
                       }}
                     >
-                      ▸ TUNE TO 161.975 MHz TO DECODE AIS
+                      ▸ TUNE TO 162.000 MHz TO DECODE AIS
                     </div>
                   )}
                 </div>
               </div>
+              {/* Note: AIS band button in nav bar uses 162.000 MHz (dual-channel
+                  centre) to match BAND_PROFILES. The overview strip also
+                  shows 162.000 MHz. Both are consistent with the backend. */}
             </div>
           </div>
         </div>

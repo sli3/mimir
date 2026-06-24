@@ -102,7 +102,7 @@ describe('App', () => {
     expect(screen.getByText('OPERATOR — MONITORING')).toBeInTheDocument()
   })
 
-  it('renders 6 band buttons', () => {
+  it('renders 7 band buttons', () => {
     render(<App />)
     const buttons = screen.getAllByRole('button')
     const labels = buttons.map((b) => b.textContent)
@@ -112,6 +112,7 @@ describe('App', () => {
     expect(labels).toContain('APRS')
     expect(labels).toContain('ISM')
     expect(labels).toContain('ADS-B')
+    expect(labels).toContain('AIS')
   })
 
   it('clicking FM band button calls focusFrequency with 98000000', () => {
@@ -128,6 +129,14 @@ describe('App', () => {
     const adsbButton = buttons.find((b) => b.textContent === 'ADS-B')
     fireEvent.click(adsbButton)
     expect(mockFocusFrequency).toHaveBeenCalledWith(1090000000)
+  })
+
+  it('clicking AIS band button calls focusFrequency with 162000000', () => {
+    render(<App />)
+    const buttons = screen.getAllByRole('button')
+    const aisButton = buttons.find((b) => b.textContent === 'AIS')
+    fireEvent.click(aisButton)
+    expect(mockFocusFrequency).toHaveBeenCalledWith(162000000)
   })
 
   it('custom frequency TUNE button calls focusFrequency with parseFloat*1e6', () => {
@@ -159,6 +168,7 @@ describe('App', () => {
     render(<App />)
     expect(screen.getByText('98.000 MHz')).toBeInTheDocument()
     expect(screen.getByText('145.175 MHz')).toBeInTheDocument()
+    expect(screen.getByText('162.000 MHz')).toBeInTheDocument()
     expect(screen.getByText('915.000 MHz')).toBeInTheDocument()
     expect(screen.getByText('1090.000 MHz')).toBeInTheDocument()
   })
