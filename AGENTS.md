@@ -346,18 +346,17 @@ Do not apply this pre-emptively — only if context problems are observed.
 ---
 
 ## Known Tech Debt
-
 | Item | Detail | Fix in |
 |---|---|---|
 | ~~Waterfall scroll rate slow~~ | ~~One row per dwell cycle (~8–10s)~~ — decoupled from AI loop in spectrum broadcast fix (~4-5 Hz from scan loop). Resolved. | ~~Post 7B~~ ✅ |
 | ~~`FrequencyList.jsx:67`~~ | ~~`confidence_score` lacks null guard~~ | ~~Phase 7B polish~~ ✅ RESOLVED in PHASE-TECH-DEBT-2 |
-| CORS wildcard | `cors_allowed_origins="*"` in server.py — fine for dev | Pre-prod |
+| ~~CORS wildcard~~ | ~~`cors_allowed_origins="*"` in server.py~~ | ~~Pre-prod~~ ✅ PHASE-CORS-FIX |
 | Queue max hard-coded | `020` in SystemStatsPanel — should read from systemStats | Phase 7B |
 | ~~`sampleRateHz` dead param~~ | ~~Accepted by `useWaterfall.js` but unused~~ | ~~Post 7B~~ ✅ RESOLVED in PHASE-TECH-DEBT-1 |
 | Queue drain pattern | `_scan_loop()` drains queue before every insert ('latest wins'). AI loop always classifies freshest scan. Queue depth at steady state: 0–1 items. Introduced: 2026-06-16. | — |
 | ~~`psd_db` uncalibrated~~ | ~~FFT missing nfft normalisation~~ — fixed in Phase 9B-Hotfix (true dBFS) | ~~Post 7B~~ ✅ 9B-Hotfix |
-| scan.py startup message | "Scanning N frequencies" is misleading now that single-freq focus mode is active | Post 8C cosmetic |
-| Orphaned dashboard components | `SystemStatsPanel.jsx` and `AIReasoningPanel.jsx` are not imported by `App.jsx` -- live dashboard renders stats and AI reasoning inline. Components exist only as standalone test targets. | Pre-prod integration |
+| ~~scan.py startup message~~ | ~~"Scanning N frequencies" is misleading now that single-freq focus mode is active~~ | ~~Post 8C cosmetic~~ ✅ PHASE-TECH-DEBT-1 |
+| ~~Orphaned dashboard components~~ | ~~`SystemStatsPanel.jsx` and `AIReasoningPanel.jsx` are not imported by `App.jsx`~~ — `AIReasoningPanel.jsx` integrated in Phase 10. `SystemStatsPanel.jsx` deleted 2026-06-24. | ~~Pre-prod integration~~ ✅ |
 | ~~test_server_stats.py strict dict equality~~ | ~~Full-dict equality broke every time broadcast() added a field~~ | ~~Resolved: test-quality refactor~~ ✅ |
 | SignalHistoryLog memoisation | `React.memo` with custom comparator — compares `pinnedTimestamp` + `scanResults` content equality | ✅ PHASE-BUILD-3 |
 | BAND_PROFILES dict ordering dependency | `fm_broadcast` and `noise_floor` both at 98 MHz; `get_band_for_freq` relies on dict insertion order (`fm_broadcast` first). Documented in docstring. | — (tracked) |
@@ -368,6 +367,8 @@ Do not apply this pre-emptively — only if context problems are observed.
 | ~~Frontend/backend AIS frequency mismatch~~ | ~~Frontend hardcodes 161.975 MHz (CH1). BAND_PROFILES expects 162.000 MHz (dual-channel centre).~~ Fixed across Phase 15 and 15b: BAND_GROUPS, OVERVIEW_BANDS, isTuned(), focusFrequency, display text (Phase 15); WaterfallPanel STRIP_CONFIGS, SignalHistoryLog FREQ_COLOUR_MAP, AisVesselPanel isAisFreq, FrequencyList FREQ_CONFIGS (Phase 15b). | ~~Post-Phase 14~~ ✅ Phase 15 + 15b |
 | ChromaDB distance reference stale (Phase 13) | `_DISTANCE_SCALE_REFERENCE` in `llm/classifier.py` calibrated for 6D L2 distances. After 7D reseed, thresholds over-classify known signals as "novel." Needs recalibration via live captures. | 9C-Threshold |
 | ~~CHECKPOINT arg parser failure~~ | ~~`/build` command `$2` positional arg silently dropped when `$1` is a long multi-line string.~~ Fixed in Phase 14: `build.md` PHASE-TRACKER GATE now supports both `$2 CHECKPOINT` flag and `CHECKPOINT_MODE: ON` embedded in the task body. | ~~— (tracked)~~ ✅ Phase 14 |
+| ~~ADS-B subscriber flush gap~~ | ~~`AdsbSubscriber.stop()` did not harvest bootstrap-held CPR positions before shutdown.~~ Resolved in PHASE-TECH-DEBT-1.5: `stop()` now calls `flush()` and broadcasts harvested messages. | ~~— (tracked)~~ ✅ PHASE-TECH-DEBT-1.5 |
+| ~~`config/mimir.yaml` stale comment~~ | ~~Comment said "runtime loading not yet implemented" but `scan.py` already calls `load_config()`.~~ | ~~Phase 2+~~ ✅ 2026-06-24 |
 
 ---
 
