@@ -131,7 +131,7 @@ BAND_PROFILES: dict = {
         "center_freq_hz":      145_175_000,
         "lna_gain_db":         24,
         "vga_gain_db":         26,
-        "signal_threshold_db": 5.0,
+        "signal_threshold_db": 10.0,    # Calibrated: telescopic whip, 2026-06-24, diagnose_threshold.py x2 runs
     },
     "ais": {
         "center_freq_hz":      162_000_000,
@@ -143,7 +143,7 @@ BAND_PROFILES: dict = {
         "center_freq_hz":      915_000_000,
         "lna_gain_db":         24,
         "vga_gain_db":         26,
-        "signal_threshold_db": 5.0,
+        "signal_threshold_db": 3.0,   # Calibrated: telescopic whip, 2026-06-24, diagnose_threshold.py x2 runs
     },
     "adsb": {
         "center_freq_hz":      1_090_000_000,
