@@ -142,6 +142,15 @@ Australian frequency bands (legal to receive passively — no licence required):
 
 # ── ChromaDB distance scale reference ─────────────────────────────────────────
 # Explains to the LLM what the distance numbers mean.
+#
+# NOTE: These thresholds were calibrated against 6-dimensional L2-normalised
+# embeddings (peak_freq_hz, peak_power_db, noise_floor_db, snr_db, bandwidth_hz,
+# occupied_bins). Phase 13 expanded the vector to 7D (added spectral_flatness).
+# After a ChromaDB re-seed with 7D vectors, these thresholds WILL shift — L2
+# distances scale with sqrt(dimension), so 7D distances will be slightly larger
+# than 6D for the same signal pair. Recalibrate via tools/calibrate_thresholds.py
+# once live captures are available with the telescopic whip antenna. Tracked under
+# 9C-Threshold (open).
 
 _DISTANCE_SCALE_REFERENCE = """
 ChromaDB distance scale (lower = more similar):

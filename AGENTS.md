@@ -361,6 +361,7 @@ Do not apply this pre-emptively — only if context problems are observed.
 | Thread-safety stress test blind spot | `test_get_band_for_freq_concurrent` doesn't exercise `current_band_lock` write path (test frequencies don't match BAND_PROFILES). | — (advisory) |
 | ~~Classifier schema missing acars/ais~~ | ~~`llm/classifier.py` _JSON_SCHEMA and _AU_BAND_REFERENCE don't list "acars" or "ais" as valid signal_type values.~~ | ~~— (tracked)~~ ✅ RESOLVED in PHASE-CLASSIFIER-SCHEMA-FIX |
 | AIS BAND_PROFILES centre vs demodulator centre mismatch | BAND_PROFILES centre_freq_hz (161.975 MHz = CH1) differs from AIS demodulator expected centre (162.000 MHz for dual-channel). If dashboard tunes to 161.975 MHz, dual-channel decode may misbehave. | — (tracked) |
+| ChromaDB distance reference stale (Phase 13) | `_DISTANCE_SCALE_REFERENCE` in `llm/classifier.py` calibrated for 6D L2 distances. After 7D reseed, thresholds over-classify known signals as "novel." Needs recalibration via live captures. | 9C-Threshold |
 
 ---
 

@@ -39,6 +39,7 @@ def _make_fingerprint(**overrides) -> dict:
         "snr_db": 48.0,
         "bandwidth_hz": 200_000.0,
         "occupied_bins": 200,
+        "spectral_flatness": 0.3,
     }
     base.update(overrides)
     return base

@@ -51,7 +51,7 @@ def mock_device():
 @pytest.fixture
 def mock_embedder():
     e = MagicMock()
-    e.embed.return_value = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]
+    e.embed.return_value = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.3]
     return e
 
 
@@ -111,7 +111,7 @@ class TestScanRunner:
         """
         maxsize = scanner._queue.maxsize
         for i in range(maxsize):
-            scanner._queue.put_nowait({"freq_hz": i, "fingerprint": {}, "vector": [0] * 6})
+            scanner._queue.put_nowait({"freq_hz": i, "fingerprint": {}, "vector": [0] * 7})
         assert scanner._queue.qsize() == maxsize
 
         scanner._running = True
@@ -180,7 +180,7 @@ class TestScanRunner:
 
     def test_set_focus_frequency_flushes_queue(self, scanner):
         for i in range(3):
-            scanner._queue.put_nowait({"freq_hz": i, "fingerprint": {}, "vector": [0] * 6})
+            scanner._queue.put_nowait({"freq_hz": i, "fingerprint": {}, "vector": [0] * 7})
         assert scanner._queue.qsize() == 3
         scanner.set_focus_frequency(1_090_000_000.0)
         assert scanner._queue.qsize() == 0
@@ -208,7 +208,7 @@ class TestScanRunner:
         scanner._queue.put_nowait({
             "freq_hz": 98_000_000.0,
             "fingerprint": {"center_freq_hz": 98_000_000.0},
-            "vector": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
+            "vector": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.3],
         })
 
         t = threading.Thread(target=scanner._ai_loop, daemon=True)

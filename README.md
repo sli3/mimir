@@ -167,8 +167,13 @@ event rate, gap detection, and a PASS/FAIL summary. Use `--duration 60` minimum
 | PHASE-BAND-PROFILE-FIX | Wire band profile into handle_set_focus for per-band thresholds on frequency switch | ✅ Complete | 452/452 (340 pytest + 112 Vitest) |
 | PHASE-CLASSIFIER-ACCURACY-FIX | ACMA reference entries for ACARS and AIS + AIS band profile in BAND_PROFILES | ✅ Complete | 456/456 (344 pytest + 112 Vitest) |
 | PHASE-12 | Decoder-driven ADS-B classification (bypass LLM for confirmed decodes) | ✅ Complete | 456/456 (344 pytest + 112 Vitest) |
+| PHASE-13 | Spectral flatness embedding expansion (6D to 7D vectors) | ✅ Complete | 489/489 (368 pytest + 121 Vitest) |
 
-**Total: 456 passing (344 pytest + 112 Vitest), 0 pre-existing failures**
+**Total: 489 passing (368 pytest + 121 Vitest), 0 pre-existing failures**
+
+> **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector
+> store (`data/vectorstore/`) must be re-seeded after deploying this build.
+> Run `PYTHONPATH=. python tools/seed_chromadb.py` to wipe and re-seed.
 
 ---
 

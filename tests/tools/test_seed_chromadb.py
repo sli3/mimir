@@ -69,10 +69,10 @@ class TestPipelineProducesValidRecord:
         assert "embedding" in record
         assert "metadata" in record
 
-    def test_embedding_length_is_6(self) -> None:
-        """Embedding vector has length 6 (matching embedder dimension)."""
+    def test_embedding_length_is_7(self) -> None:
+        """Embedding vector has length 7 (matching embedder dimension)."""
         record = _make_synthetic_record()
-        assert len(record["embedding"]) == 6
+        assert len(record["embedding"]) == 7
 
     def test_metadata_has_label(self) -> None:
         """Metadata contains the label field."""

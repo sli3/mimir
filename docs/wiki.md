@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: "PHASE-12"
+last_updated_phase: "PHASE-13"
 ---
 
 # Mimir Wiki
@@ -76,6 +76,86 @@ Step  Function / Component          What it does
 ## Phase Log
 
 Phases are listed newest-first so the current phase is always at the top.
+
+---
+
+### PHASE-13 — Spectral Flatness Embedding Expansion ✓ DONE
+
+**What:** Expanded the embedding vector from 6 dimensions to 7 by adding
+`spectral_flatness` (Wiener entropy) as the 7th feature. Previously,
+`spectral_flatness` was computed in `fingerprint_spectrum()` (Phase 10-Fix4)
+and included in the LLM classifier's user prompt, but was not part of the
+ChromaDB embedding vector — meaning ChromaDB similarity search could not
+use spectral flatness when finding nearest neighbours. A narrowband FM carrier
+(flatness ~0.05) and a wideband noise signal (flatness ~0.9) could appear
+similar to ChromaDB if their other 6 features were close, even though their
+spectral shapes are fundamentally different.
+
+**Changes:**
+
+1. **`embeddings/embedder.py`** — Added `"spectral_flatness"` to
+   `EMBEDDING_FEATURES` at index 6 (now 7 features). Added
+   `"spectral_flatness": [0.0, 1.0]` to `NORMALISATION_RANGES`. Updated
+   module docstring ("6 features" to "7 features"), `embed()` Args and
+   Returns docstrings ("6 keys/floats" to "7 keys/floats"). `VECTOR_DIM`
+   auto-updates to 7 via `len(EMBEDDING_FEATURES)`.
+
+2. **`llm/classifier.py`** — Added a NOTE comment block above
+   `_DISTANCE_SCALE_REFERENCE` explaining that the hardcoded distance
+   thresholds (0.010/0.022/0.031) were calibrated against 6D embeddings
+   and will shift after a 7D reseed (L2 distance scales with
+   sqrt(dimension)). Tracked under 9C-Threshold.
+
+**Why:** Spectral flatness (Wiener entropy) measures the shape of the
+spectrum: a pure tone has flatness near 0.0 (very narrow/tonal), while
+white noise has flatness near 1.0 (spread uniformly across all frequencies).
+This is a powerful discriminator for the vector store — two signals with
+similar peak power and SNR but different spectral shapes will now produce
+different embeddings, giving ChromaDB better nearest-neighbour results and
+the LLM richer context for classification.
+
+**Key functions:**
+
+`SpectrumEmbedder.embed(fingerprint)` — converts a fingerprint dict into
+a normalised 7D embedding vector. Each feature is min-max normalised to
+[0, 1] using predefined ranges. The 7th feature (`spectral_flatness`) is
+normalised from [0.0, 1.0] (its natural range) to [0.0, 1.0] (identity
+mapping). The resulting vector is used for ChromaDB storage and similarity
+search. Analogy: a blood test panel that now includes one additional marker
+— the test is more informative without changing how it works.
+
+`VECTOR_DIM` — auto-derived constant, now 7 (was 6). Used by
+`SpectrumEmbedder.__init__()` to set `self.dim`. Any downstream code that
+checks embedding length will pick up the new dimension automatically.
+
+**Deferred items:**
+
+1. **ChromaDB distance thresholds stale for 7D** — The `_DISTANCE_SCALE_REFERENCE`
+   thresholds in `llm/classifier.py` (0.010/0.022/0.031) were calibrated
+   against 6D L2 embeddings. After 7D reseed, these thresholds will
+   over-classify known signal types as "novel" because L2 distances scale
+   with sqrt(dimension). Requires recalibration via
+   `tools/calibrate_thresholds.py` when live captures are available.
+   Track under 9C-Threshold (open).
+
+2. **NaN propagation** (pre-existing, LOW) — `embed()` does not guard
+   against NaN values in any feature. A NaN in `spectral_flatness` (from
+   a corrupt FFT) would propagate through to ChromaDB and produce
+   unpredictable similarity distances. Consider adding `math.isfinite()`
+   guard before normalisation. Not addressed in this build.
+
+3. **ChromaDB re-seed required** — Existing embeddings in `data/vectorstore/`
+   were computed under 6D. After this build, new captures produce 7D
+   vectors. The vector store must be re-seeded (via `tools/seed_chromadb.py`)
+   to ensure all stored embeddings are 7D. Running the scanner with a mix
+   of 6D and 7D vectors will produce incorrect similarity results.
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None — all changes are embedding dimension expansion
+  and comment additions. No RF interaction.
+
+**Test counts:** 489 (368 pytest + 121 Vitest).
 
 ---
 

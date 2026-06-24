@@ -13,7 +13,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# The 6 features extracted from a fingerprint for embedding.
+# The 7 features extracted from a fingerprint for embedding.
 # center_freq_hz is excluded — it is capture metadata, not a fingerprint feature.
 EMBEDDING_FEATURES = [
     "peak_freq_hz",
@@ -22,6 +22,7 @@ EMBEDDING_FEATURES = [
     "snr_db",
     "bandwidth_hz",
     "occupied_bins",
+    "spectral_flatness",
 ]
 
 # Normalisation ranges for each feature [min, max].
@@ -33,6 +34,7 @@ NORMALISATION_RANGES = {
     "snr_db": [0.0, 100.0],                        # 0 – 100 dB
     "bandwidth_hz": [0.0, 20_000_000.0],             # 0 – 20 MHz (max HackRF BW)
     "occupied_bins": [0.0, 2048.0],                  # 0 – DEFAULT_NFFT
+    "spectral_flatness": [0.0, 1.0],                 # 0 – 1 (Wiener entropy)
 }
 
 VECTOR_DIM = len(EMBEDDING_FEATURES)
@@ -55,10 +57,10 @@ class SpectrumEmbedder:
 
         Args:
             fingerprint: Dict from fingerprint_spectrum() containing at least
-                         the 6 keys listed in EMBEDDING_FEATURES.
+                         the 7 keys listed in EMBEDDING_FEATURES.
 
         Returns:
-            List of 6 floats, each in [0, 1].
+            List of 7 floats, each in [0, 1].
         """
         vector = []
         for feature in self.feature_names:
