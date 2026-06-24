@@ -48,6 +48,7 @@
 | PHASE-BUILD-4 | Tech debt clean-up (setup.sh, FREQ_COLOUR_MAP, AIS nav, pin eviction, classifier prompt) | ✅ Complete | 446/446 (334 pytest + 112 Vitest) |
 | PHASE-CLASSIFIER-ACCURACY-FIX | Add AIS to BAND_PROFILES; fix ACARS/AIS misclassification | ✅ Complete | 456/456 (344 pytest + 112 Vitest) |
 | PHASE-12 | Decoder-driven ADS-B classification (bypass LLM for confirmed decodes) | ✅ Complete | 456/456 (344 pytest + 112 Vitest) |
+| PHASE-13 | Spectral flatness embedding expansion (6D to 7D vectors) | ✅ Complete | 489/489 (368 pytest + 121 Vitest) |
 
 ### Phase 11 Hotfix — Broadcast Defaults + FM Threshold + Startup Guard ✅
 
@@ -677,6 +678,29 @@ instant ADS-B entries.
   already processes these events
 
 **Test counts:** 456/456 (344 pytest + 112 Vitest)
+
+---
+
+### Phase PHASE-13 — Spectral flatness embedding expansion (6D to 7D vectors) ✅
+
+**Goal:** Add `spectral_flatness` (Wiener entropy) as the 7th dimension of the
+embedding vector in `embeddings/embedder.py`, enabling ChromaDB similarity
+search to leverage a feature already computed by the pipeline and displayed
+in the dashboard.
+
+**Delivered:**
+- `embeddings/embedder.py` — "spectral_flatness" added to EMBEDDING_FEATURES
+  (index 6) and NORMALISATION_RANGES; docstrings updated 6→7
+- Existing tests updated: 6D→7D assertions across 4 test files
+- ChromaDB wiped and re-seeded: 800 records inserted as 7D vectors
+
+**Key changes:**
+- Embedding dimensionality: 6 → 7
+- No new tests added — existing assertions updated in-place (count unchanged)
+- ChromaDB distance thresholds in `llm/classifier.py` now stale (calibrated
+  for 6D L2 distance) — tracked under 9C-Threshold
+
+**Test counts:** 489/489 (368 pytest + 121 Vitest), 0 failures
 
 ---
 

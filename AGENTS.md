@@ -194,9 +194,10 @@ uv run python tools/seed_chromadb.py
 | PHASE-BAND-PROFILE-FIX | Wire band profile into handle_set_focus for per-band thresholds | ✅ Complete | 452/452 (340 pytest + 112 Vitest) |
 | PHASE-CLASSIFIER-ACCURACY-FIX | Add AIS to BAND_PROFILES; fix ACARS/AIS misclassification | ✅ Complete | 456/456 (344 pytest + 112 Vitest) |
 | 12 | Decoder-Driven ADS-B Classification | ✅ Complete | 489 (368 pytest + 121 Vitest) |
+| 13 | Spectral Flatness Embedding Expansion | ✅ Complete | 489 (368 pytest + 121 Vitest) |
 
 **Total passing: 489 passing (368 pytest + 121 Vitest), 0 failures**
-- Note: All pre-existing pytest failures resolved. Updated 2026-06-23 after Phase 12.
+- Note: All pre-existing pytest failures resolved. Updated 2026-06-24 after Phase 13.
 
 ---
 
@@ -362,6 +363,7 @@ Do not apply this pre-emptively — only if context problems are observed.
 | ~~Classifier schema missing acars/ais~~ | ~~`llm/classifier.py` _JSON_SCHEMA and _AU_BAND_REFERENCE don't list "acars" or "ais" as valid signal_type values.~~ | ~~— (tracked)~~ ✅ RESOLVED in PHASE-CLASSIFIER-SCHEMA-FIX |
 | AIS BAND_PROFILES centre vs demodulator centre mismatch | BAND_PROFILES centre_freq_hz (161.975 MHz = CH1) differs from AIS demodulator expected centre (162.000 MHz for dual-channel). If dashboard tunes to 161.975 MHz, dual-channel decode may misbehave. | — (tracked) |
 | ChromaDB distance reference stale (Phase 13) | `_DISTANCE_SCALE_REFERENCE` in `llm/classifier.py` calibrated for 6D L2 distances. After 7D reseed, thresholds over-classify known signals as "novel." Needs recalibration via live captures. | 9C-Threshold |
+| CHECKPOINT arg parser failure | `/build` command `$2` positional arg silently dropped when `$1` is a long multi-line string. CHECKPOINT flag must be passed inside the task body or via a dedicated fix to `build.md`. Workaround: standalone memo run after each build. | — (tracked) |
 
 ---
 
