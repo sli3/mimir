@@ -51,6 +51,7 @@
 | PHASE-13 | Spectral flatness embedding expansion (6D to 7D vectors) | ✅ Complete | 489/489 (368 pytest + 121 Vitest) |
 | PHASE-14 | CHECKPOINT Parser Fix + AIS Band Profile | ✅ Complete | 492/492 (371 pytest + 121 Vitest) |
 | 15 | Frontend AIS Consistency + Nav Bar Completion | ✅ Complete | 493/493 (371 pytest + 122 Vitest) |
+| 15b | AIS Waterfall Frequency Migration Completion | ✅ Complete | 493/493 (371 pytest + 122 Vitest) |
 
 ### Phase 11 Hotfix — Broadcast Defaults + FM Threshold + Startup Guard ✅
 
@@ -777,6 +778,50 @@ nav bar overview waterfall.
 
 ---
 
+### Phase 15b — AIS Waterfall Frequency Migration Completion ✅
+
+**Goal:** Complete the remaining AIS frequency migration across all frontend
+components that Phase 15 left at 161.975 MHz. Phase 15 updated App.jsx
+(BAND_GROUPS, OVERVIEW_BANDS, isTuned, focusFrequency) but four other
+components still referenced the old CH1 frequency, causing the AIS waterfall
+to freeze when tuned, visual degradation in signal history, and fragile
+frequency checks in the vessel panel.
+
+**Delivered:**
+
+1. **`dashboard/frontend/src/components/WaterfallPanel.jsx`** — STRIP_CONFIGS
+   AIS entry updated: `freq_hz` 161975000 -> 162000000, `label` '161.975 MHz'
+   -> '162.000 MHz'. JSDoc comment updated to note all configs now in sync.
+
+2. **`dashboard/frontend/src/components/SignalHistoryLog.jsx`** — FREQ_COLOUR_MAP
+   key updated 161975000 -> 162000000. `freqLabel()` return value updated
+   '161.975 MHz' -> '162.000 MHz'.
+
+3. **`dashboard/frontend/src/components/AisVesselPanel.jsx`** — `isAisFreq`
+   centre constant updated 161_975_000 -> 162_000_000. Display text updated
+   'Listening on 161.975 MHz...' -> 'Listening on 162.000 MHz...'.
+
+4. **`dashboard/frontend/src/components/FrequencyList.jsx`** — FREQ_CONFIGS AIS
+   entry updated: `freq_hz` 161975000 -> 162000000, `label` '161.975 MHz' ->
+   '162.000 MHz'.
+
+5. **`dashboard/frontend/src/tests/WaterfallPanel.test.jsx`** — Updated 3 AIS
+   frequency assertions (label, test title, expected value) to 162000000 /
+   '162.000 MHz'.
+
+**No backend changes. No new features. No hardware required.**
+
+**Resolved deferred items:**
+- WaterfallPanel.jsx STRIP_CONFIGS AIS entry (Phase 15 deferred)
+- SignalHistoryLog.jsx FREQ_COLOUR_MAP stale 161.975 MHz reference
+- AisVesselPanel.jsx isAisFreq fragile centre constant
+- FrequencyList.jsx FREQ_CONFIGS stale AIS entry (discovered during sweep)
+- "Frontend/backend AIS frequency mismatch" tech debt item fully resolved
+
+**Test counts:** 493/493 (371 pytest + 122 Vitest), 0 failures
+
+---
+
 ## Known Tech Debt
 
 | Item | Detail | Fix in |
@@ -785,4 +830,4 @@ nav bar overview waterfall.
 | ~~`scan.py` startup message~~ | ~~Misleading "Scanning N frequencies" in single-freq mode~~ | ~~Post 8C~~ ✅ |
 | ~~MED-01: scan.py fatal error exit~~ | ~~`except Exception` sets fatal_error=True but no test verifies exit code 1~~ | ~~PHASE-TECH-DEBT-1~~ ✅ |
 | ADS-B gain divergence | tools use (32/38) for ADS-B gain, shared_state.py uses (24/24). Both tool values labelled provisional. | Live ADS-B test |
-| Frontend/backend AIS frequency mismatch | Frontend hardcodes 161.975 MHz (CH1). BAND_PROFILES expects 162.000 MHz (dual-channel centre). `get_band_for_freq(161_975_000)` returns None, so AIS threshold/gains not applied. HackRF retunes correctly (unconditional), so reception works but band profile config is stale. Fix: update frontend AIS references to 162.000. | ~~Post-Phase 14~~ ✅ Phase 15 |
+| ~~Frontend/backend AIS frequency mismatch~~ | ~~Frontend hardcodes 161.975 MHz (CH1). BAND_PROFILES expects 162.000 MHz (dual-channel centre). `get_band_for_freq(161_975_000)` returns None, so AIS threshold/gains not applied. HackRF retunes correctly (unconditional), so reception works but band profile config is stale.~~ Fixed across Phase 15 (BAND_GROUPS, OVERVIEW_BANDS, isTuned, focusFrequency) and Phase 15b (STRIP_CONFIGS, FREQ_COLOUR_MAP, isAisFreq, FREQ_CONFIGS). All frontend AIS references now use 162.000 MHz. | ~~Post-Phase 14~~ ✅ Phase 15 + 15b |

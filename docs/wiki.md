@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: "PHASE-14"
+last_updated_phase: "15b"
 ---
 
 # Mimir Wiki
@@ -79,6 +79,80 @@ Phases are listed newest-first so the current phase is always at the top.
 
 ---
 
+### Phase 15b — AIS Waterfall Frequency Migration Completion ✓ DONE
+
+**What:** Completed the AIS frequency migration from 161.975 MHz (AIS Channel 1
+only) to 162.000 MHz (AIS dual-channel centre) across all frontend components.
+This resolves the frontend/backend AIS frequency mismatch deferred from Phase 14:
+the backend `BAND_PROFILES` already centred AIS at 162.000 MHz, but the frontend
+still referenced 161.975 MHz in four separate locations.
+
+**Changes:**
+
+1. **`WaterfallPanel.jsx` STRIP_CONFIGS** — AIS entry updated from 161.975 MHz
+   to 162.000 MHz. The JSDoc comment was already updated in Phase 15 to reference
+   the sync between STRIP_CONFIGS, BAND_GROUPS, and OVERVIEW_BANDS.
+
+2. **`SignalHistoryLog.jsx` FREQ_COLOUR_MAP + freqLabel()** — The colour map key
+   changed from `161975000` to `162000000` and the `freqLabel()` return value
+   changed from `'161.975 MHz'` to `'162.000 MHz'`. Without this, signals
+   arriving at 162.000 MHz fell through to the generic white colour and a
+   computed label.
+
+3. **`AisVesselPanel.jsx` isAisFreq + display text** — The centre frequency
+   comparison changed from `161_975_000` to `162_000_000` and the "Listening
+   on..." display text changed from `161.975 MHz` to `162.000 MHz`. Without
+   this, the AIS vessel panel showed "Not tuned to AIS frequency" when focused
+   on 162.000 MHz.
+
+4. **`FrequencyList.jsx` FREQ_CONFIGS** — AIS entry updated from 161.975 MHz to
+   162.000 MHz. Discovered during the sweep — this file was not in the original
+   Phase 15 plan but contained the same stale frequency. A JSDoc comment was
+   added documenting the sync requirement and the 162.000 MHz rationale.
+
+5. **`WaterfallPanel.test.jsx`** — AIS frequency assertions updated from
+   `161.975 MHz` to `162.000 MHz`.
+
+**Why:** The AIS dual-channel centre is 162.000 MHz (midpoint between Channel 1
+at 161.975 MHz and Channel 2 at 162.025 MHz). The backend `BAND_PROFILES` was
+corrected to 162.000 MHz in Phase 14, but the frontend still sent 161.975 MHz
+when the user clicked the AIS band button. This meant `get_band_for_freq(161975000)`
+returned None (no profile matched), so AIS threshold and gains were never applied
+when the user tuned to AIS. Aligning all frontend references to 162.000 MHz
+ensures the band profile is correctly matched.
+
+**Key constants affected:**
+
+`STRIP_CONFIGS` in `WaterfallPanel.jsx` — AIS entry now `freq_hz: 162000000`.
+Used by WaterfallStrip for per-band waterfall rendering and by SpectrometerBar
+for frequency snapping.
+
+`FREQ_COLOUR_MAP` in `SignalHistoryLog.jsx` — AIS key now `162000000`. Maps the
+centre frequency to `--neon-red` CSS variable for consistent row colouring.
+
+`freqLabel(freqHz)` in `SignalHistoryLog.jsx` — returns `'162.000 MHz'` for
+`162000000`. Provides a human-readable label in the signal history log.
+
+`isAisFreq` in `AisVesselPanel.jsx` — checks `Math.abs(focusedFreq - 162_000_000) <= 100_000`.
+Determines whether the AIS vessel panel shows data or a "not tuned" message.
+
+`FREQ_CONFIGS` in `FrequencyList.jsx` — AIS entry now `freq_hz: 162000000`.
+Drives the sidebar band list.
+
+**Deferred items:**
+- None new. This phase resolves the "Frontend/backend AIS frequency mismatch"
+  deferred item from Phase 14.
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None — all changes are frontend display constants, no RF
+  interaction
+
+**Test counts:** 493 (371 pytest + 122 Vitest). No new tests — existing
+WaterfallPanel.test.jsx assertions updated to match new constant.
+
+---
+
 ### PHASE-14 — AIS Band Profile Fix + CHECKPOINT Parser Fix ✓ DONE
 
 **What:** Two targeted fixes:
@@ -142,21 +216,17 @@ match. The AIS profile is now matched at 162_000_000.
 
 **Deferred items:**
 
-1. **Frontend/backend AIS frequency mismatch (NEW):** The frontend still
-   sends `freq_hz=161975000` when the user clicks the AIS band button
-   (`App.jsx` OVERVIEW_BANDS, `WaterfallPanel.jsx` STRIP_CONFIGS,
-   `FrequencyList.jsx`, `AisVesselPanel.jsx`, `SignalHistoryLog.jsx`).
-   `get_band_for_freq(161975000)` returns None (profile centre is now
-   162_000_000), so AIS threshold and gains are NOT applied when the
-   user tunes to AIS. Fix: update frontend AIS references from 161975000
-   to 162000000. Deferred to a future phase.
+1. **Frontend/backend AIS frequency mismatch (RESOLVED — Phase 15b):** The
+   frontend AIS references (STRIP_CONFIGS, FREQ_COLOUR_MAP, freqLabel(),
+   isAisFreq, FREQ_CONFIGS) were updated from 161975000 to 162000000 in
+   Phase 15b. All frontend components now use the dual-channel centre
+   frequency, matching BAND_PROFILES.
 
-2. **AGENTS.md AIS tech debt row stale:** The row "AIS BAND_PROFILES
-   centre vs demodulator centre mismatch" described the old problem
-   (frontend at 161.975 MHz, BAND_PROFILES at 162.000 MHz). Now the
-   backend profile is correct, but the frontend is mismatched. Row should
-   be rewritten to describe the new frontend/backend frequency gap.
-   Deferred (AGENTS.md is outside this agent's scope).
+2. **AGENTS.md AIS tech debt row stale (RESOLVED — Phase 15b):** The row
+   "AIS BAND_PROFILES centre vs demodulator centre mismatch" described the
+   old problem (frontend at 161.975 MHz, BAND_PROFILES at 162.000 MHz).
+   Both backend and frontend are now aligned at 162.000 MHz. The AGENTS.md
+   row should be updated to reflect the resolution.
 
 3. **capture_loop.py dead code (pre-existing):** `run_shared_capture_loop()`
    is never imported or called. `band_change_event.set()` is never called
@@ -2264,8 +2334,10 @@ User clicks [ADS-B] button in browser
 | `dashboard/shared_state.py` | Python | Shared memory. Holds `BAND_PROFILES`, `current_band`, shutdown event, and band-switch lock. |
 | `dashboard/static/` | Static | Vite build output (generated). Served by Flask. |
 | `dashboard/frontend/src/App.jsx` | React | Root component. Three-row layout: waterfall + signal details (top), system status + signal history + AI reasoning + decoded signals (bottom). Owns `pinnedReasoning` state for pin-to-reasoning feature. OVERVIEW_BANDS (6 entries) for bottom strip. BAND_GROUPS (3 categories) for nav bar. |
-| `dashboard/frontend/src/components/SignalHistoryLog.jsx` | React | Scrolling log of scan results. FREQ_COLOUR_MAP colours each row by band (7 AU frequencies). Each row clickable: toggles pin on AIReasoningPanel. Amber highlight on pinned row. Wrapped in React.memo with custom comparison (pinnedTimestamp + scanResults content) to avoid re-render on spectrum_update. |
+| `dashboard/frontend/src/components/SignalHistoryLog.jsx` | React | Scrolling log of scan results. FREQ_COLOUR_MAP colours each row by band (7 AU frequencies, all at 162.000 MHz for AIS). Each row clickable: toggles pin on AIReasoningPanel. Amber highlight on pinned row. Wrapped in React.memo with custom comparison (pinnedTimestamp + scanResults content) to avoid re-render on spectrum_update. |
 | `dashboard/frontend/src/components/AIReasoningPanel.jsx` | React | Displays LLM classification output. Shows ◆ PINNED badge when `isPinned` prop is true. Fade transition on new reasoning data. |
+| `dashboard/frontend/src/components/FrequencyList.jsx` | React | Sidebar band list. FREQ_CONFIGS (7 entries) drives the clickable band rows. Shows latest signal type and confidence per band. Kept in sync with STRIP_CONFIGS and BAND_GROUPS. |
+| `dashboard/frontend/src/components/AisVesselPanel.jsx` | React | AIS vessel data table. Shows decoded AIS messages (MMSI, vessel name, position, speed, course, channel). Displays "Listening on 162.000 MHz..." when tuned to AIS frequency, "Not tuned to AIS frequency" otherwise. |
 
 ### Pin-to-Reasoning Data Flow
 

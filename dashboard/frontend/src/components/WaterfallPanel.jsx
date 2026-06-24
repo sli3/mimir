@@ -13,16 +13,17 @@ const SAMPLE_RATE_HZ = 2_000_000
  *  the per-band waterfall canvas and by SpectrometerBar for
  *  frequency snapping.  Ordered by frequency ascending.
  *
- *  NOTE: OVERVIEW_BANDS and BAND_GROUPS in App.jsx still have
- *  only 6 entries (AIS at 161.975 MHz is missing from both).
- *  If adding a new band here, add it to those lists too. */
+ *  NOTE: STRIP_CONFIGS, BAND_GROUPS in App.jsx, OVERVIEW_BANDS
+ *  in App.jsx, FREQ_COLOUR_MAP in SignalHistoryLog.jsx, and
+ *  FREQ_CONFIGS in FrequencyList.jsx are all in sync at 162.000 MHz
+ *  for AIS (Phase 15b — dual-channel centre). */
 export const STRIP_CONFIGS = [
   { freq_hz: 98000000,   label: '98.0 MHz',    name: 'FM BROADCAST', colourVar: '--neon-cyan'    },
   { freq_hz: 145175000,  label: '145.175 MHz',  name: 'APRS',         colourVar: '--neon-green'  },
   { freq_hz: 127000000,  label: '127.0 MHz',   name: 'AVIATION VHF', colourVar: '--neon-cyan'   },
   { freq_hz: 129125000,  label: '129.125 MHz',  name: 'ACARS',        colourVar: '--neon-amber'  },
   { freq_hz: 915000000,  label: '915.0 MHz',    name: 'ISM / LoRa',   colourVar: '--neon-amber'  },
-  { freq_hz: 161975000,  label: '161.975 MHz',  name: 'AIS',          colourVar: '--neon-red'    },
+  { freq_hz: 162000000,  label: '162.000 MHz',  name: 'AIS',          colourVar: '--neon-red'    },
   { freq_hz: 1090000000, label: '1090.0 MHz',   name: 'ADS-B',        colourVar: '--neon-magenta'},
 ]
 

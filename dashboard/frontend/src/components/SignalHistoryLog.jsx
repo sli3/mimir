@@ -6,7 +6,7 @@ const FREQ_COLOUR_MAP = {
   127000000: '--neon-cyan',
   129125000: '--neon-amber',
   145175000: '--neon-green',
-  161975000: '--neon-red',
+  162000000: '--neon-red',
   915000000: '--neon-amber',
   1090000000: '--neon-magenta',
 }
@@ -25,7 +25,7 @@ function freqLabel(freqHz) {
   if (freqHz === 127000000) return '127.0 MHz'
   if (freqHz === 129125000) return '129.125 MHz'
   if (freqHz === 145175000) return '145.175 MHz'
-  if (freqHz === 161975000) return '161.975 MHz'
+  if (freqHz === 162000000) return '162.000 MHz'
   if (freqHz === 915000000) return '915.0 MHz'
   if (freqHz === 1090000000) return '1090.0 MHz'
   return `${(freqHz / 1e6).toFixed(3)} MHz`

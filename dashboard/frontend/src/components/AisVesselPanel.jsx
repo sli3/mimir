@@ -5,7 +5,7 @@ const neonPink = '#ff0055'
 
 export default function AisVesselPanel({ aisMessages = [], focusedFreq }) {
   const isAisFreq = focusedFreq && (
-    Math.abs(focusedFreq - 161_975_000) <= 100_000
+    Math.abs(focusedFreq - 162_000_000) <= 100_000
   )
 
   return (
@@ -26,7 +26,7 @@ export default function AisVesselPanel({ aisMessages = [], focusedFreq }) {
           color: 'var(--text-dim)',
         }}>
           {isAisFreq
-            ? 'Listening on 161.975 MHz...'
+            ? 'Listening on 162.000 MHz...'
             : 'Not tuned to AIS frequency'}
         </div>
       ) : (

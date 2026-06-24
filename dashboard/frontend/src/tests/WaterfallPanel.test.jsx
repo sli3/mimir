@@ -38,7 +38,7 @@ describe('WaterfallPanel', () => {
     expect(screen.getByText('127.0 MHz')).toBeTruthy()
     expect(screen.getByText('129.125 MHz')).toBeTruthy()
     expect(screen.getByText('915.0 MHz')).toBeTruthy()
-    expect(screen.getByText('161.975 MHz')).toBeTruthy()
+    expect(screen.getByText('162.000 MHz')).toBeTruthy()
     expect(screen.getByText('1090.0 MHz')).toBeTruthy()
   })
 
@@ -84,10 +84,10 @@ describe('WaterfallPanel', () => {
     expect(mockFocusFrequency).toHaveBeenCalledWith(915000000)
   })
 
-  it('clicking AIS label calls focusFrequency with 161975000', () => {
+  it('clicking AIS label calls focusFrequency with 162000000', () => {
     render(<WaterfallPanel focusedFreq={null} focusFrequency={mockFocusFrequency} />)
-    fireEvent.click(screen.getByText('161.975 MHz'))
-    expect(mockFocusFrequency).toHaveBeenCalledWith(161975000)
+    fireEvent.click(screen.getByText('162.000 MHz'))
+    expect(mockFocusFrequency).toHaveBeenCalledWith(162000000)
   })
 
   it('clicking ADS-B label calls focusFrequency with 1090000000', () => {
