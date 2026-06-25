@@ -134,7 +134,7 @@ BAND_PROFILES: dict = {
         "signal_threshold_db": 10.0,    # Calibrated: telescopic whip, 2026-06-24, diagnose_threshold.py x2 runs
     },
     "ais": {
-        "center_freq_hz":      162_000_000,
+        "center_freq_hz": 162_000_000,  # was 161_975_000 — demodulator centres at 162 MHz, channels at ±25 kHz
         "lna_gain_db":         16,  # VHF maritime — consistent with aviation/ACARS
         "vga_gain_db":         20,
         "signal_threshold_db": 5.0,    # Provisional — needs live calibration with telescopic whip
