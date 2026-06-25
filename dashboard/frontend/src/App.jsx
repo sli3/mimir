@@ -118,10 +118,10 @@ function getSdrColour(status) {
 
 /** Check whether the current focus frequency is tuned to a specific band.
  *  Returns true when freq is within margin of target. Default margin is
- *  2 MHz (suitable for most bands). AIS uses a tighter 100 kHz margin
- *  because the dual-channel centre (162.000 MHz) sits between CH1
- *  (161.975 MHz) and CH2 (162.025 MHz) -- 100 kHz covers both channels
- *  while excluding nearby marine VHF allocations.
+ *  *  2 MHz (suitable for most bands). AIS uses a tighter 100 kHz margin
+ *  *  because the dual-channel centre (162.000 MHz) sits between CH1
+ *  *  (161.975 MHz) and CH2 (162.025 MHz) -- 100 kHz covers both channels
+ *  *  while excluding nearby marine VHF allocations.
  *  @param {number|null} freq - current focus frequency in Hz
  *  @param {number} target - band centre frequency in Hz
  *  @param {number} margin - tolerance in Hz (default 2 MHz)
@@ -1234,10 +1234,10 @@ export default function App() {
                 </div>
               </div>
 
-              {/* SUB-PANEL 3 — AIS VESSELS
-                  162.000 MHz = dual-channel centre (matches backend BAND_PROFILES).
-                  100 kHz tolerance covers both CH1 (161.975) and CH2 (162.025).
-                  aligns with core/modules/ais/constants.py FREQ_TOLERANCE_HZ. */}
+                {/* SUB-PANEL 3 — AIS VESSELS
+                    162.000 MHz = dual-channel centre (matches backend BAND_PROFILES).
+                    100 kHz tolerance covers both CH1 (161.975 MHz) and CH2 (162.025 MHz).
+                    aligns with core/modules/ais/constants.py FREQ_TOLERANCE_HZ. */}
               <div style={{
                 display: 'flex',
                 flexDirection: 'column',
