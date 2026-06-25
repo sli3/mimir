@@ -171,8 +171,9 @@ event rate, gap detection, and a PASS/FAIL summary. Use `--duration 60` minimum
 | PHASE-14 | CHECKPOINT Parser Fix + AIS Band Profile | ✅ Complete | 492/492 (371 pytest + 121 Vitest) |
 | 15 | Frontend AIS Consistency + Nav Bar Completion | ✅ Complete | 493/493 (371 pytest + 122 Vitest) |
 | 15b | AIS Waterfall Frequency Migration Completion | ✅ Complete | 493/493 (371 pytest + 122 Vitest) |
+| 17 | Feature A: focused decode panel | ✅ Complete | 496/496 (373 pytest + 123 Vitest) |
 
-**Total: 493 passing (371 pytest + 122 Vitest), 0 pre-existing failures**
+**Total: 496 passing (373 pytest + 123 Vitest), 0 failures**
 
 > **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector
 > store (`data/vectorstore/`) must be re-seeded after deploying this build.
@@ -267,9 +268,7 @@ Then open your browser at `http://localhost:5000`. The cyberpunk dashboard will 
 - **Frequency List** — the bands Mimir is currently monitoring
 - **System Stats** — scanner status, connection state, and hardware info
 - **Character Panel** — visual indicator of current activity level (idle / low / high / anomaly)
-- **ADS-B Messages** — decoded aircraft transponder data (ICAO, callsign, altitude, position, groundspeed, track)
-- **ACARS Messages** — decoded aircraft data link messages (registration, label, text)
-- **AIS Messages** — decoded vessel identification data (MMSI, vessel name, position, speed)
+- **Decoded Signals** — decoder sub-panels for the currently focused band (ADS-B aircraft, ACARS messages, AIS vessels). Only the relevant panel for the tuned band is shown; a "NO DECODER FOR THIS BAND" placeholder appears for non-decoder bands (FM, APRS, Aviation VHF, ISM/LoRa).
 
 The scanner starts automatically when the server starts. It cycles through the configured frequency bands continuously.
 

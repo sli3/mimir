@@ -41,10 +41,9 @@ describe('ADS-B tuned state', () => {
     expect(screen.getByText('Listening on 1090.000 MHz...')).toBeInTheDocument()
   })
 
-  it('renders NOT TUNED prompt when focusedFreq is null', () => {
+  it('hides ADS-B sub-panel when focusedFreq is null', () => {
     useSocket.mockReturnValue(makeMock(null))
     render(<App />)
-    expect(screen.getByText(/TUNE TO 1090\.000 MHz TO DECODE ADS-B/)).toBeInTheDocument()
-    expect(screen.queryByText('Listening on 1090.000 MHz...')).toBeNull()
+    expect(screen.queryByText('ADS-B AIRCRAFT')).toBeNull()
   })
 })

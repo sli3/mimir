@@ -118,10 +118,10 @@ function getSdrColour(status) {
 
 /** Check whether the current focus frequency is tuned to a specific band.
  *  Returns true when freq is within margin of target. Default margin is
- *  *  2 MHz (suitable for most bands). AIS uses a tighter 100 kHz margin
- *  *  because the dual-channel centre (162.000 MHz) sits between CH1
- *  *  (161.975 MHz) and CH2 (162.025 MHz) -- 100 kHz covers both channels
- *  *  while excluding nearby marine VHF allocations.
+ *  2 MHz (suitable for most bands). AIS uses a tighter 100 kHz margin
+ *  because the dual-channel centre (162.000 MHz) sits between CH1
+ *  (161.975 MHz) and CH2 (162.025 MHz) -- 100 kHz covers both channels
+ *  while excluding nearby marine VHF allocations.
  *  @param {number|null} freq - current focus frequency in Hz
  *  @param {number} target - band centre frequency in Hz
  *  @param {number} margin - tolerance in Hz (default 2 MHz)
@@ -137,6 +137,14 @@ function isTuned(freq, target, margin = 2_000_000) {
  *  @returns {boolean} */
 function isAcarsTuned(freq) {
   return isTuned(freq, 129125000, 5000) || isTuned(freq, 130025000, 5000)
+}
+
+/** AIS dual-channel centre is 162.000 MHz. 100 kHz tolerance covers both
+ *  CH1 (161.975 MHz) and CH2 (162.025 MHz).
+ *  @param {number|null} freq - current focus frequency in Hz
+ *  @returns {boolean} */
+function isAisTuned(freq) {
+  return isTuned(freq, 162000000, 100000)
 }
 
 function getFirstSeen(signalType, scanResults) {
@@ -226,6 +234,11 @@ export default function App() {
   }, [handleTune])
 
   const adsbAircraftList = Object.values(adsbAircraft || {})
+  /** True when focused on any band that has a decoder sub-panel (ADS-B, ACARS, or AIS).
+   *  Used to show the "NO DECODER FOR THIS BAND" placeholder when no decoder is active. */
+  const anyDecoderTuned = isTuned(focusedFreq, 1090000000)
+    || isAcarsTuned(focusedFreq)
+    || isAisTuned(focusedFreq)
 
   return (
     <div style={{
@@ -1045,294 +1058,309 @@ export default function App() {
               display: 'flex',
               flexDirection: 'column',
             }}>
-              {/* SUB-PANEL 1 — ADS-B AIRCRAFT */}
-              <div style={{
-                borderBottom: '1px solid var(--border)',
-                display: 'flex',
-                flexDirection: 'column',
-                flexShrink: 0,
-              }}>
+              {isTuned(focusedFreq, 1090000000) && (
                 <div style={{
+                  borderBottom: '1px solid var(--border)',
                   display: 'flex',
-                  flexDirection: 'row',
-                  padding: '6px 10px',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
+                  flexDirection: 'column',
+                  flexShrink: 0,
                 }}>
-                  <span style={{
-                    fontSize: '11px',
-                    color: 'var(--neon-amber)',
-                    letterSpacing: '1px',
-                    fontFamily: 'var(--font-data)',
+                  {/* SUB-PANEL 1 — ADS-B AIRCRAFT */}
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'row',
+                    padding: '6px 10px',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
                   }}>
-                    ADS-B AIRCRAFT
-                  </span>
-                  {isTuned(focusedFreq, 1090000000) ? (
-                    <div style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '5px',
-                      border: '1px solid var(--neon-green)',
-                      background: 'rgba(0, 255, 136, 0.08)',
-                      boxShadow: '0 0 6px rgba(0, 255, 136, 0.25)',
-                      padding: '2px 8px',
-                      fontFamily: 'var(--font-display)',
-                      fontSize: 10,
-                      color: 'var(--neon-green)',
-                      letterSpacing: 1,
+                    <span style={{
+                      fontSize: '11px',
+                      color: 'var(--neon-amber)',
+                      letterSpacing: '1px',
+                      fontFamily: 'var(--font-data)',
                     }}>
-                      ◆ <span>TUNED</span>
-                    </div>
-                  ) : (
-                    <div style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '5px',
-                      border: '1px solid var(--neon-red)',
-                      background: 'rgba(255, 68, 68, 0.08)',
-                      padding: '2px 8px',
-                      fontFamily: 'var(--font-display)',
-                      fontSize: 10,
-                      color: 'var(--neon-red)',
-                      letterSpacing: 1,
-                    }}>
-                      ◆ <span>NOT TUNED</span>
-                    </div>
-                  )}
-                </div>
-                <div style={{ padding: '0 10px 8px' }}>
-                  {isTuned(focusedFreq, 1090000000) ? (
-                    adsbAircraftList.length > 0 || (adsbAircraftHistory && adsbAircraftHistory.length > 0) ? (
-                      <div style={{ height: '200px', overflow: 'auto' }}>
-                        <AdsbAircraftPanel
-                          adsbAircraft={adsbAircraft}
-                          adsbAircraftHistory={adsbAircraftHistory}
-                          focusedFreq={focusedFreq}
-                        />
+                      ADS-B AIRCRAFT
+                    </span>
+                    {isTuned(focusedFreq, 1090000000) ? (
+                      <div style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        border: '1px solid var(--neon-green)',
+                        background: 'rgba(0, 255, 136, 0.08)',
+                        boxShadow: '0 0 6px rgba(0, 255, 136, 0.25)',
+                        padding: '2px 8px',
+                        fontFamily: 'var(--font-display)',
+                        fontSize: 10,
+                        color: 'var(--neon-green)',
+                        letterSpacing: 1,
+                      }}>
+                        ◆ <span>TUNED</span>
                       </div>
                     ) : (
                       <div style={{
-                        fontSize: '12px',
-                        color: 'var(--text-dim)',
-                        fontFamily: 'var(--font-data)',
-                        padding: '5px 8px',
-                      }}>
-                        Listening on 1090.000 MHz...
-                      </div>
-                    )
-                  ) : (
-                    <div
-                      onClick={() => focusFrequency(1090000000)}
-                      style={{
-                        border: '1px solid rgba(255,68,68,0.3)',
-                        background: 'rgba(255,68,68,0.05)',
-                        padding: '5px 8px',
-                        fontSize: '12px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        border: '1px solid var(--neon-red)',
+                        background: 'rgba(255, 68, 68, 0.08)',
+                        padding: '2px 8px',
+                        fontFamily: 'var(--font-display)',
+                        fontSize: 10,
                         color: 'var(--neon-red)',
-                        letterSpacing: '1px',
-                        fontFamily: 'var(--font-data)',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      ▸ TUNE TO 1090.000 MHz TO DECODE ADS-B
-                    </div>
-                  )}
+                        letterSpacing: 1,
+                      }}>
+                        ◆ <span>NOT TUNED</span>
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ padding: '0 10px 8px' }}>
+                    {isTuned(focusedFreq, 1090000000) ? (
+                      adsbAircraftList.length > 0 || (adsbAircraftHistory && adsbAircraftHistory.length > 0) ? (
+                        <div style={{ height: '200px', overflow: 'auto' }}>
+                          <AdsbAircraftPanel
+                            adsbAircraft={adsbAircraft}
+                            adsbAircraftHistory={adsbAircraftHistory}
+                            focusedFreq={focusedFreq}
+                          />
+                        </div>
+                      ) : (
+                        <div style={{
+                          fontSize: '12px',
+                          color: 'var(--text-dim)',
+                          fontFamily: 'var(--font-data)',
+                          padding: '5px 8px',
+                        }}>
+                          Listening on 1090.000 MHz...
+                        </div>
+                      )
+                    ) : (
+                      <div
+                        onClick={() => focusFrequency(1090000000)}
+                        style={{
+                          border: '1px solid rgba(255,68,68,0.3)',
+                          background: 'rgba(255,68,68,0.05)',
+                          padding: '5px 8px',
+                          fontSize: '12px',
+                          color: 'var(--neon-red)',
+                          letterSpacing: '1px',
+                          fontFamily: 'var(--font-data)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        ▸ TUNE TO 1090.000 MHz TO DECODE ADS-B
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
 
-              {/* SUB-PANEL 2 — ACARS MESSAGES */}
-              <div style={{
-                borderBottom: '1px solid var(--border)',
-                display: 'flex',
-                flexDirection: 'column',
-                flexShrink: 0,
-              }}>
+              {isAcarsTuned(focusedFreq) && (
                 <div style={{
+                  borderBottom: '1px solid var(--border)',
                   display: 'flex',
-                  flexDirection: 'row',
-                  padding: '6px 10px',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
+                  flexDirection: 'column',
+                  flexShrink: 0,
                 }}>
-                  <span style={{
-                    fontSize: '11px',
-                    color: 'var(--neon-amber)',
-                    letterSpacing: '1px',
-                    fontFamily: 'var(--font-data)',
+                  {/* SUB-PANEL 2 — ACARS MESSAGES */}
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'row',
+                    padding: '6px 10px',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
                   }}>
-                    ACARS MESSAGES
-                  </span>
-                  {isAcarsTuned(focusedFreq) ? (
-                    <div style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '5px',
-                      border: '1px solid var(--neon-green)',
-                      background: 'rgba(0, 255, 136, 0.08)',
-                      boxShadow: '0 0 6px rgba(0, 255, 136, 0.25)',
-                      padding: '2px 8px',
-                      fontFamily: 'var(--font-display)',
-                      fontSize: 10,
-                      color: 'var(--neon-green)',
-                      letterSpacing: 1,
+                    <span style={{
+                      fontSize: '11px',
+                      color: 'var(--neon-amber)',
+                      letterSpacing: '1px',
+                      fontFamily: 'var(--font-data)',
                     }}>
-                      ◆ <span>TUNED</span>
-                    </div>
-                  ) : (
-                    <div style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '5px',
-                      border: '1px solid var(--neon-red)',
-                      background: 'rgba(255, 68, 68, 0.08)',
-                      padding: '2px 8px',
-                      fontFamily: 'var(--font-display)',
-                      fontSize: 10,
-                      color: 'var(--neon-red)',
-                      letterSpacing: 1,
-                    }}>
-                      ◆ <span>NOT TUNED</span>
-                    </div>
-                  )}
-                </div>
-                <div style={{ padding: '0 10px 8px' }}>
-                  {isAcarsTuned(focusedFreq) ? (
-                    acarsMessages.length > 0 ? (
-                      <div style={{ height: '100px', overflow: 'auto' }}>
-                        <AcarsMessagePanel
-                          acarsMessages={acarsMessages}
-                          focusedFreq={focusedFreq}
-                        />
+                      ACARS MESSAGES
+                    </span>
+                    {isAcarsTuned(focusedFreq) ? (
+                      <div style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        border: '1px solid var(--neon-green)',
+                        background: 'rgba(0, 255, 136, 0.08)',
+                        boxShadow: '0 0 6px rgba(0, 255, 136, 0.25)',
+                        padding: '2px 8px',
+                        fontFamily: 'var(--font-display)',
+                        fontSize: 10,
+                        color: 'var(--neon-green)',
+                        letterSpacing: 1,
+                      }}>
+                        ◆ <span>TUNED</span>
                       </div>
                     ) : (
                       <div style={{
-                        fontSize: '12px',
-                        color: 'var(--text-dim)',
-                        fontFamily: 'var(--font-data)',
-                        padding: '5px 8px',
-                      }}>
-                        Listening on 129.125 MHz...
-                      </div>
-                    )
-                  ) : (
-                    <div
-                      onClick={() => focusFrequency(129125000)}
-                      style={{
-                        border: '1px solid rgba(255,68,68,0.3)',
-                        background: 'rgba(255,68,68,0.05)',
-                        padding: '5px 8px',
-                        fontSize: '12px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        border: '1px solid var(--neon-red)',
+                        background: 'rgba(255, 68, 68, 0.08)',
+                        padding: '2px 8px',
+                        fontFamily: 'var(--font-display)',
+                        fontSize: 10,
                         color: 'var(--neon-red)',
-                        letterSpacing: '1px',
-                        fontFamily: 'var(--font-data)',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      ▸ TUNE TO 129.125 MHz TO DECODE ACARS
-                    </div>
-                  )}
+                        letterSpacing: 1,
+                      }}>
+                        ◆ <span>NOT TUNED</span>
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ padding: '0 10px 8px' }}>
+                    {isAcarsTuned(focusedFreq) ? (
+                      acarsMessages.length > 0 ? (
+                        <div style={{ height: '100px', overflow: 'auto' }}>
+                          <AcarsMessagePanel
+                            acarsMessages={acarsMessages}
+                            focusedFreq={focusedFreq}
+                          />
+                        </div>
+                      ) : (
+                        <div style={{
+                          fontSize: '12px',
+                          color: 'var(--text-dim)',
+                          fontFamily: 'var(--font-data)',
+                          padding: '5px 8px',
+                        }}>
+                          Listening on 129.125 MHz...
+                        </div>
+                      )
+                    ) : (
+                      <div
+                        onClick={() => focusFrequency(129125000)}
+                        style={{
+                          border: '1px solid rgba(255,68,68,0.3)',
+                          background: 'rgba(255,68,68,0.05)',
+                          padding: '5px 8px',
+                          fontSize: '12px',
+                          color: 'var(--neon-red)',
+                          letterSpacing: '1px',
+                          fontFamily: 'var(--font-data)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        ▸ TUNE TO 129.125 MHz TO DECODE ACARS
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
 
-                {/* SUB-PANEL 3 — AIS VESSELS
-                    162.000 MHz = dual-channel centre (matches backend BAND_PROFILES).
-                    100 kHz tolerance covers both CH1 (161.975 MHz) and CH2 (162.025 MHz).
-                    aligns with core/modules/ais/constants.py FREQ_TOLERANCE_HZ. */}
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                flexShrink: 0,
-              }}>
+              {isAisTuned(focusedFreq) && (
                 <div style={{
                   display: 'flex',
-                  flexDirection: 'row',
-                  padding: '6px 10px',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
+                  flexDirection: 'column',
+                  flexShrink: 0,
                 }}>
-                  <span style={{
-                    fontSize: '11px',
-                    color: 'var(--neon-amber)',
-                    letterSpacing: '1px',
-                    fontFamily: 'var(--font-data)',
+                  {/* SUB-PANEL 3 — AIS VESSELS
+                      162.000 MHz = dual-channel centre (matches backend BAND_PROFILES).
+                      100 kHz tolerance covers both CH1 (161.975 MHz) and CH2 (162.025 MHz).
+                      aligns with core/modules/ais/constants.py FREQ_TOLERANCE_HZ. */}
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'row',
+                    padding: '6px 10px',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
                   }}>
-                    AIS VESSELS
-                  </span>
-                  {/* 162.000 MHz centre, 100 kHz margin -- see note above */}
-                  {isTuned(focusedFreq, 162000000, 100000) ? (
-                    <div style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '5px',
-                      border: '1px solid var(--neon-green)',
-                      background: 'rgba(0, 255, 136, 0.08)',
-                      boxShadow: '0 0 6px rgba(0, 255, 136, 0.25)',
-                      padding: '2px 8px',
-                      fontFamily: 'var(--font-display)',
-                      fontSize: 10,
-                      color: 'var(--neon-green)',
-                      letterSpacing: 1,
+                    <span style={{
+                      fontSize: '11px',
+                      color: 'var(--neon-amber)',
+                      letterSpacing: '1px',
+                      fontFamily: 'var(--font-data)',
                     }}>
-                      ◆ <span>TUNED</span>
-                    </div>
-                  ) : (
-                    <div style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '5px',
-                      border: '1px solid var(--neon-red)',
-                      background: 'rgba(255, 68, 68, 0.08)',
-                      padding: '2px 8px',
-                      fontFamily: 'var(--font-display)',
-                      fontSize: 10,
-                      color: 'var(--neon-red)',
-                      letterSpacing: 1,
-                    }}>
-                      ◆ <span>NOT TUNED</span>
-                    </div>
-                  )}
-                </div>
-                <div style={{ padding: '0 10px 8px' }}>
-                  {isTuned(focusedFreq, 162000000, 100000) ? (
-                    aisVessels.length > 0 ? (
-                      <div style={{ height: '100px', overflow: 'auto' }}>
-                        <AisVesselPanel
-                          aisMessages={aisVessels}
-                          focusedFreq={focusedFreq}
-                        />
+                      AIS VESSELS
+                    </span>
+                    {/* 162.000 MHz centre, 100 kHz margin -- see note above */}
+                    {isAisTuned(focusedFreq) ? (
+                      <div style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        border: '1px solid var(--neon-green)',
+                        background: 'rgba(0, 255, 136, 0.08)',
+                        boxShadow: '0 0 6px rgba(0, 255, 136, 0.25)',
+                        padding: '2px 8px',
+                        fontFamily: 'var(--font-display)',
+                        fontSize: 10,
+                        color: 'var(--neon-green)',
+                        letterSpacing: 1,
+                      }}>
+                        ◆ <span>TUNED</span>
                       </div>
                     ) : (
                       <div style={{
-                        fontSize: '12px',
-                        color: 'var(--text-dim)',
-                        fontFamily: 'var(--font-data)',
-                        padding: '5px 8px',
-                      }}>
-                        Listening on 162.000 MHz...
-                      </div>
-                    )
-                  ) : (
-                    <div
-                      onClick={() => focusFrequency(162000000)}
-                      style={{
-                        border: '1px solid rgba(255,68,68,0.3)',
-                        background: 'rgba(255,68,68,0.05)',
-                        padding: '5px 8px',
-                        fontSize: '12px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        border: '1px solid var(--neon-red)',
+                        background: 'rgba(255, 68, 68, 0.08)',
+                        padding: '2px 8px',
+                        fontFamily: 'var(--font-display)',
+                        fontSize: 10,
                         color: 'var(--neon-red)',
-                        letterSpacing: '1px',
-                        fontFamily: 'var(--font-data)',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      ▸ TUNE TO 162.000 MHz TO DECODE AIS
-                    </div>
-                  )}
+                        letterSpacing: 1,
+                      }}>
+                        ◆ <span>NOT TUNED</span>
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ padding: '0 10px 8px' }}>
+                    {isAisTuned(focusedFreq) ? (
+                      aisVessels.length > 0 ? (
+                        <div style={{ height: '100px', overflow: 'auto' }}>
+                          <AisVesselPanel
+                            aisMessages={aisVessels}
+                            focusedFreq={focusedFreq}
+                          />
+                        </div>
+                      ) : (
+                        <div style={{
+                          fontSize: '12px',
+                          color: 'var(--text-dim)',
+                          fontFamily: 'var(--font-data)',
+                          padding: '5px 8px',
+                        }}>
+                          Listening on 162.000 MHz...
+                        </div>
+                      )
+                    ) : (
+                      <div
+                        onClick={() => focusFrequency(162000000)}
+                        style={{
+                          border: '1px solid rgba(255,68,68,0.3)',
+                          background: 'rgba(255,68,68,0.05)',
+                          padding: '5px 8px',
+                          fontSize: '12px',
+                          color: 'var(--neon-red)',
+                          letterSpacing: '1px',
+                          fontFamily: 'var(--font-data)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        ▸ TUNE TO 162.000 MHz TO DECODE AIS
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-              {/* Note: AIS band button in nav bar uses 162.000 MHz (dual-channel
-                  centre) to match BAND_PROFILES. The overview strip also
-                  shows 162.000 MHz. Both are consistent with the backend. */}
+              )}
+
+              {!anyDecoderTuned && (
+                <div style={{
+                  padding: '16px 10px',
+                  fontSize: '11px',
+                  color: 'var(--text-dim)',
+                  fontFamily: 'var(--font-data)',
+                  letterSpacing: '1px',
+                }}>
+                  NO DECODER FOR THIS BAND
+                </div>
+              )}
             </div>
           </div>
         </div>

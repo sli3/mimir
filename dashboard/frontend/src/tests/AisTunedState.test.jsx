@@ -41,10 +41,9 @@ describe('AIS tuned state', () => {
     expect(screen.getByText('Listening on 162.000 MHz...')).toBeInTheDocument()
   })
 
-  it('renders NOT TUNED prompt when focusedFreq is null', () => {
+  it('hides AIS sub-panel when focusedFreq is null', () => {
     useSocket.mockReturnValue(makeMock(null))
     render(<App />)
-    expect(screen.getByText(/TUNE TO 162\.000 MHz TO DECODE AIS/)).toBeInTheDocument()
-    expect(screen.queryByText('Listening on 162.000 MHz...')).toBeNull()
+    expect(screen.queryByText('AIS VESSELS')).toBeNull()
   })
 })

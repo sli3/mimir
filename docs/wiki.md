@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: "15b"
+last_updated_phase: "17"
 ---
 
 # Mimir Wiki
@@ -76,6 +76,94 @@ Step  Function / Component          What it does
 ## Phase Log
 
 Phases are listed newest-first so the current phase is always at the top.
+
+---
+
+### Phase 17 — Focused Decode Panel (Feature A) ✓ DONE
+
+**What:** The DECODED SIGNALS section now shows only the decoder sub-panel relevant
+to the currently focused band. Previously, all three sub-panels (ADS-B, ACARS, AIS)
+were always rendered regardless of which band was tuned. This created visual clutter
+when monitoring non-decoder bands (e.g. FM, APRS) and misleading "NOT TUNED" badges
+on panels that were irrelevant to the current view.
+
+The fix wraps each sub-panel in an outer conditional renderer: ADS-B renders only when
+`isTuned(focusedFreq, 1090000000)`, ACARS only when `isAcarsTuned(focusedFreq)`, and
+AIS only when `isAisTuned(focusedFreq)`. When no decoder band is focused, a
+"NO DECODER FOR THIS BAND" placeholder is shown.
+
+**Changes:**
+
+1. **`isAisTuned(freq)` helper** — New top-level function in `App.jsx` (after
+   `isAcarsTuned`). Checks `isTuned(freq, 162000000, 100000)`. The 100 kHz tolerance
+   covers both AIS Channel 1 (161.975 MHz) and Channel 2 (162.025 MHz). Replaces
+   inline `isTuned(focusedFreq, 162000000, 100000)` calls with a named function for
+   consistency with `isAcarsTuned`.
+
+2. **`anyDecoderTuned` derivation** — New boolean in `App()` body. True when
+   `focusedFreq` matches ADS-B, ACARS, or AIS. Controls the "NO DECODER FOR THIS
+   BAND" placeholder visibility.
+
+3. **Outer conditional wrappers** — Each sub-panel's root `<div>` is now guarded by
+   its tuned-state check (e.g. `{isTuned(focusedFreq, 1090000000) && (...)}`).
+   When the guard is false, the entire sub-panel is removed from the DOM. The inner
+   three-state logic (TUNED / NOT TUNED / Listening) is preserved unchanged per spec.
+
+4. **"NO DECODER FOR THIS BAND" placeholder** — New element rendered when
+   `!anyDecoderTuned`. Uses `--text-dim` colour and 11px data font to match the
+   dashboard's visual language.
+
+5. **Malformed JSDoc fix** — `isTuned()` JSDoc had `*  *` (double asterisk); fixed to
+   single `*`.
+
+6. **Test updates** — NOT TUNED tests in `AdsbTunedState.test.jsx`,
+   `AcarsTunedState.test.jsx`, and `AisTunedState.test.jsx` updated to assert the
+   sub-panel is hidden when `focusedFreq` is null. New `DecodedSignalsVisibility.test.jsx`
+   (6 tests) covers visibility for all decoder bands, FM, and null focus. Existing
+   `App.test.jsx` sub-panel presence tests updated for the behaviour change.
+
+**Why:** When monitoring FM broadcast (98 MHz) or APRS (145.175 MHz), the ADS-B,
+ACARS, and AIS sub-panels were visible but showed "NOT TUNED" badges and "TUNE TO..."
+prompts. This was visual noise with no actionable value. The user already knows which
+band they are on from the nav bar. Hiding irrelevant sub-panels declutters the
+dashboard and makes the decoded signals section more focused.
+
+**Key functions:**
+
+`isAisTuned(freq)` — returns true when `freq` is within 100 kHz of the AIS
+dual-channel centre (162.000 MHz). The tolerance covers both Channel 1 (161.975 MHz)
+and Channel 2 (162.025 MHz). Analogy: a bouncer at the door who lets in anyone
+wearing an AIS badge, regardless of which channel they arrived on.
+
+`anyDecoderTuned` — derived boolean, true when focused on any band with a decoder
+(ADS-B, ACARS, or AIS). Used solely to toggle the "NO DECODER FOR THIS BAND"
+placeholder. Analogy: an "open for business" sign that flips to "closed" when no
+decoder is relevant.
+
+**Deferred items:**
+
+1. **Dead inner NOT TUNED branches** — The inner three-state conditional (TUNED /
+   NOT TUNED / "TUNE TO...") inside each sub-panel is now unreachable when the
+   outer guard is false. The NOT TUNED badge and "TUNE TO..." prompt inside each
+   sub-panel are dead code because the outer conditional only renders the panel when
+   tuned. The spec explicitly forbade altering internal sub-panel JSX, so this dead
+   code was intentionally left in place. Clean up in a future phase.
+
+2. **Optional: `isAdsbTuned()` helper** — ADS-B uses inline `isTuned(focusedFreq,
+   1090000000)` while ACARS and AIS have named helpers. Consider adding
+   `isAdsbTuned(freq)` for consistency.
+
+3. **Optional: boundary-frequency tests** — `DecodedSignalsVisibility.test.jsx`
+   covers AIS CH1 (161.975 MHz) and CH2 (162.025 MHz) boundary frequencies but
+   could be extended to cover ACARS 130.025 MHz (already tested via AcarsTunedState)
+   and ADS-B boundary frequencies.
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None -- all changes are frontend conditional rendering, no RF
+  interaction
+
+**Test counts:** 496 (373 pytest + 123 Vitest).
 
 ---
 
@@ -2333,7 +2421,7 @@ User clicks [ADS-B] button in browser
 | `dashboard/server.py` | Python | Entry point. Starts Flask-SocketIO server, registers routes, kicks off `scan.py` loop. |
 | `dashboard/shared_state.py` | Python | Shared memory. Holds `BAND_PROFILES`, `current_band`, shutdown event, and band-switch lock. |
 | `dashboard/static/` | Static | Vite build output (generated). Served by Flask. |
-| `dashboard/frontend/src/App.jsx` | React | Root component. Three-row layout: waterfall + signal details (top), system status + signal history + AI reasoning + decoded signals (bottom). Owns `pinnedReasoning` state for pin-to-reasoning feature. OVERVIEW_BANDS (6 entries) for bottom strip. BAND_GROUPS (3 categories) for nav bar. |
+| `dashboard/frontend/src/App.jsx` | React | Root component. Three-row layout: waterfall + signal details (top), system status + signal history + AI reasoning + decoded signals (bottom). Owns `pinnedReasoning` state for pin-to-reasoning feature. OVERVIEW_BANDS (7 entries) for bottom strip. BAND_GROUPS (4 categories) for nav bar. DECODED SIGNALS section conditionally renders decoder sub-panels (ADS-B, ACARS, AIS) based on focused band; shows "NO DECODER FOR THIS BAND" placeholder otherwise. Helper functions: `isTuned()`, `isAcarsTuned()`, `isAisTuned()`. |
 | `dashboard/frontend/src/components/SignalHistoryLog.jsx` | React | Scrolling log of scan results. FREQ_COLOUR_MAP colours each row by band (7 AU frequencies, all at 162.000 MHz for AIS). Each row clickable: toggles pin on AIReasoningPanel. Amber highlight on pinned row. Wrapped in React.memo with custom comparison (pinnedTimestamp + scanResults content) to avoid re-render on spectrum_update. |
 | `dashboard/frontend/src/components/AIReasoningPanel.jsx` | React | Displays LLM classification output. Shows ◆ PINNED badge when `isPinned` prop is true. Fade transition on new reasoning data. |
 | `dashboard/frontend/src/components/FrequencyList.jsx` | React | Sidebar band list. FREQ_CONFIGS (7 entries) drives the clickable band rows. Shows latest signal type and confidence per band. Kept in sync with STRIP_CONFIGS and BAND_GROUPS. |

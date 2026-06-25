@@ -82,19 +82,19 @@ describe('App', () => {
     expect(screen.getByText('DECODED SIGNALS')).toBeInTheDocument()
   })
 
-  it('renders ADS-B AIRCRAFT sub-panel', () => {
+  it('does not render ADS-B AIRCRAFT sub-panel when focusedFreq is null', () => {
     render(<App />)
-    expect(screen.getByText('ADS-B AIRCRAFT')).toBeInTheDocument()
+    expect(screen.queryByText('ADS-B AIRCRAFT')).toBeNull()
   })
 
-  it('renders ACARS MESSAGES sub-panel', () => {
+  it('does not render ACARS MESSAGES sub-panel when focusedFreq is null', () => {
     render(<App />)
-    expect(screen.getByText('ACARS MESSAGES')).toBeInTheDocument()
+    expect(screen.queryByText('ACARS MESSAGES')).toBeNull()
   })
 
-  it('renders AIS VESSELS sub-panel', () => {
+  it('does not render AIS VESSELS sub-panel when focusedFreq is null', () => {
     render(<App />)
-    expect(screen.getByText('AIS VESSELS')).toBeInTheDocument()
+    expect(screen.queryByText('AIS VESSELS')).toBeNull()
   })
 
   it('renders OPERATOR indicator', () => {

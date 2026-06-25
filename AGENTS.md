@@ -198,9 +198,10 @@ uv run python tools/seed_chromadb.py
 | 14 | CHECKPOINT Parser Fix + AIS Band Profile | ✅ Complete | 492 (371 pytest + 121 Vitest) |
 | 15 | Frontend AIS Consistency + Nav Bar Completion | ✅ Complete | 493 (371 pytest + 122 Vitest) |
 | 15b | AIS Waterfall Frequency Migration Completion | ✅ Complete | 493 (371 pytest + 122 Vitest) |
+| 17 | Feature A: focused decode panel | ✅ Complete | 496 (373 pytest + 123 Vitest) |
 
-**Total passing: 493 passing (371 pytest + 122 Vitest), 0 failures**
-- Note: All pre-existing pytest failures resolved. Updated 2026-06-24 after Phase 13.
+**Total passing: 496 passing (373 pytest + 123 Vitest), 0 failures**
+- Note: All pre-existing pytest failures resolved. Updated 2026-06-25 after Phase 17.
 
 ---
 
@@ -369,6 +370,8 @@ Do not apply this pre-emptively — only if context problems are observed.
 | ~~CHECKPOINT arg parser failure~~ | ~~`/build` command `$2` positional arg silently dropped when `$1` is a long multi-line string.~~ Fixed in Phase 14: `build.md` PHASE-TRACKER GATE now supports both `$2 CHECKPOINT` flag and `CHECKPOINT_MODE: ON` embedded in the task body. | ~~— (tracked)~~ ✅ Phase 14 |
 | ~~ADS-B subscriber flush gap~~ | ~~`AdsbSubscriber.stop()` did not harvest bootstrap-held CPR positions before shutdown.~~ Resolved in PHASE-TECH-DEBT-1.5: `stop()` now calls `flush()` and broadcasts harvested messages. | ~~— (tracked)~~ ✅ PHASE-TECH-DEBT-1.5 |
 | ~~`config/mimir.yaml` stale comment~~ | ~~Comment said "runtime loading not yet implemented" but `scan.py` already calls `load_config()`.~~ | ~~Phase 2+~~ ✅ 2026-06-24 |
+| Inner NOT TUNED badge branches in decoder sub-panels | Phase 17 outer conditional wrappers only render panels when tuned, making the inner NOT TUNED badges and "TUNE TO X" prompts unreachable dead code. Left in place per spec (no internal sub-panel JSX changes). | Future phase |
+| Missing `isAdsbTuned()` helper | `isAcarsTuned()` and `isAisTuned()` helpers exist but ADS-B tuning check is still inline. Optional consistency improvement. | Future phase |
 
 ---
 
