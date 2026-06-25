@@ -251,7 +251,14 @@ def emit_ais_message(msg: AisMessage) -> None:
 
 
 def emit_adsb_aircraft(msg: AdsbMessage) -> None:
-    """Broadcast a decoded ADS-B aircraft message via SocketIO."""
+    """Broadcast a decoded ADS-B aircraft message via SocketIO.
+
+    Payload includes all decoded fields plus the raw hex Mode S frame
+    for diagnostic display in the ADS-B panel. The raw_hex field
+    carries the original DF17/DF18 frame as a hex string, enabling
+    the frontend to show both hex and binary representations in the
+    raw decode view.
+    """
     socketio.emit("adsb_aircraft", {
         "icao": msg.icao,
         "callsign": msg.callsign,
@@ -262,6 +269,7 @@ def emit_adsb_aircraft(msg: AdsbMessage) -> None:
         "track": msg.track,
         "vertical_rate": msg.vertical_rate,
         "timestamp": msg.timestamp.isoformat(),
+        "raw_hex": msg.raw_hex,
     })
 
 

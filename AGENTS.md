@@ -199,9 +199,10 @@ uv run python tools/seed_chromadb.py
 | 15 | Frontend AIS Consistency + Nav Bar Completion | ✅ Complete | 493 (371 pytest + 122 Vitest) |
 | 15b | AIS Waterfall Frequency Migration Completion | ✅ Complete | 493 (371 pytest + 122 Vitest) |
 | 17 | Feature A: focused decode panel | ✅ Complete | 496 (373 pytest + 123 Vitest) |
+| 18 | Feature B: Raw ADS-B Hex Decode View | ✅ Complete | 507 (373 pytest + 134 Vitest) |
 
-**Total passing: 496 passing (373 pytest + 123 Vitest), 0 failures**
-- Note: All pre-existing pytest failures resolved. Updated 2026-06-25 after Phase 17.
+**Total passing: 507 passing (373 pytest + 134 Vitest), 0 failures**
+- Note: All pre-existing pytest failures resolved. Updated 2026-06-25 after Phase 18.
 
 ---
 
@@ -263,7 +264,7 @@ Do not apply this pre-emptively — only if context problems are observed.
 | `set_focus_frequency` | browser → server | freq_hz |
 | `acars_message` | server → browser | timestamp, freq_hz, registration, label, block_id, text, crc_ok |
 | `ais_message` | server → browser | timestamp, mmsi, vessel_name, lat, lon, speed, course, channel |
-| `adsb_aircraft` | server → browser | icao, callsign, altitude_ft, latitude, longitude, groundspeed, track, vertical_rate, timestamp |
+| `adsb_aircraft` | server → browser | icao, callsign, altitude_ft, latitude, longitude, groundspeed, track, vertical_rate, timestamp, raw_hex |
 
 > **`scan_result` emission paths (Phase 12):** (1) `ScanRunner._emit_result()` via LLM pipeline — fingerprint-based, all fields populated. (2) `emit_adsb_scan_result()` via confirmed ADS-B decode — `confidence_score=1.0`, fingerprint fields `None`
 

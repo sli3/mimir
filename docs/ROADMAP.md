@@ -53,6 +53,7 @@
 | 15 | Frontend AIS Consistency + Nav Bar Completion | ✅ Complete | 493/493 (371 pytest + 122 Vitest) |
 | 15b | AIS Waterfall Frequency Migration Completion | ✅ Complete | 493/493 (371 pytest + 122 Vitest) |
 | 17 | Feature A: focused decode panel | ✅ Complete | 496/496 (373 pytest + 123 Vitest) |
+| 18 | Feature B: Raw ADS-B Hex Decode View | ✅ Complete | 392 (373 pytest + 19 Vitest) |
 
 ### Phase 11 Hotfix — Broadcast Defaults + FM Threshold + Startup Guard ✅
 
@@ -820,6 +821,55 @@ frequency checks in the vessel panel.
 - "Frontend/backend AIS frequency mismatch" tech debt item fully resolved
 
 **Test counts:** 493/493 (371 pytest + 122 Vitest), 0 failures
+
+---
+
+### Phase 18 — Feature B: Raw ADS-B Hex Decode View ✅
+
+**Goal:** Display raw ADS-B hex message data in the dashboard, allowing users
+to inspect the original transponder frames alongside decoded aircraft fields.
+
+**Delivered:**
+1. **`dashboard/server.py`** — `emit_adsb_aircraft()` now includes `raw_hex`
+   field in the SocketIO event payload (pass-through from `AdsbMessage`).
+   Docstring updated.
+
+2. **`dashboard/frontend/src/hooks/useSocket.js`** — Added `adsbRawLog` state
+   as a ring buffer (cap 50, newest-first) keyed by ICAO. Handles `adsb_aircraft`
+   events, prepending `raw_hex` entries with timestamp. Defensive guard
+   `if (!data.raw_hex) return prev` handles legacy events without the field.
+
+3. **`dashboard/frontend/src/App.jsx`** — Destructures `adsbRawLog` from
+   `useSocket()` and passes it as a prop to `AdsbAircraftPanel`.
+
+4. **`dashboard/frontend/src/components/AdsbAircraftPanel.jsx`** — Added
+   `hexToBin()` and `hexToSpaced()` helper functions. Added RAW DECODE section
+   with HEX/BIN toggle, rendering hex bytes or binary representation from the
+   ring buffer. RAW DECODE section always renders when panel is mounted (parent
+   already gates on ADS-B tuned state).
+
+5. **`AGENTS.md`** — Updated SocketIO event table: `adsb_aircraft` payload
+   now includes `raw_hex`.
+
+6. **`dashboard/frontend/src/tests/AdsbRawDecode.test.jsx`** (NEW) — 8 tests:
+   hexToBin correctness, hexToBin error handling, hexToSpaced formatting,
+   empty log renders empty state, raw hex bytes rendered, binary toggle works,
+   timestamp formatting, ring buffer cap at 50.
+
+**Key decisions:**
+- No TX code introduced — pure display layer only
+- Ring buffer cap at 50 matches existing `adsbAircraftHistory` pattern
+- Defensive guard handles legacy events without `raw_hex` field gracefully
+- RAW DECODE section always renders when `AdsbAircraftPanel` is mounted
+  (parent already gated on ADS-B tuned state via Phase 17 wrappers)
+
+**Known debt (optional polish):**
+- `emit_adsb_aircraft()` has zero unit tests (LOW priority — field is
+  trivial pass-through)
+- `hexToBin`/`hexToSpaced` could be exported to `utils/` for better testability
+- `key={idx}` in RAW DECODE render could use composite key for React best practice
+
+**Test counts:** 507 (373 pytest + 134 Vitest), 0 failures
 
 ---
 

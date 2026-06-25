@@ -32,6 +32,7 @@ export function useSocket() {
   const [aisMessages, setAisMessages] = useState([])
   const [adsbAircraft, setAdsbAircraft] = useState({})
   const [adsbAircraftHistory, setAdsbAircraftHistory] = useState([])
+  const [adsbRawLog, setAdsbRawLog] = useState([])
   const socketRef = useRef(null)
   const psdMapRef = useRef({})
   const focusedFreqRef = useRef(98000000)
@@ -119,6 +120,11 @@ export function useSocket() {
         const filtered = prev.filter((ac) => ac.icao !== data.icao)
         return [entry, ...filtered].slice(0, 50)
       })
+      setAdsbRawLog((prev) => {
+        if (!data.raw_hex) return prev
+        const entry = { icao: data.icao, raw_hex: data.raw_hex, timestamp: data.timestamp }
+        return [entry, ...prev].slice(0, 50)
+      })
     })
 
     return () => {
@@ -162,5 +168,6 @@ export function useSocket() {
     aisVessels: aisMessages,
     adsbAircraft,
     adsbAircraftHistory,
+    adsbRawLog,
   }
 }

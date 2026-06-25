@@ -173,6 +173,7 @@ export default function App() {
     aisVessels,
     adsbAircraft,
     adsbAircraftHistory,
+    adsbRawLog,
   } = socket
 
   const clock = useClock()
@@ -1116,24 +1117,14 @@ export default function App() {
                   </div>
                   <div style={{ padding: '0 10px 8px' }}>
                     {isTuned(focusedFreq, 1090000000) ? (
-                      adsbAircraftList.length > 0 || (adsbAircraftHistory && adsbAircraftHistory.length > 0) ? (
-                        <div style={{ height: '200px', overflow: 'auto' }}>
-                          <AdsbAircraftPanel
-                            adsbAircraft={adsbAircraft}
-                            adsbAircraftHistory={adsbAircraftHistory}
-                            focusedFreq={focusedFreq}
-                          />
-                        </div>
-                      ) : (
-                        <div style={{
-                          fontSize: '12px',
-                          color: 'var(--text-dim)',
-                          fontFamily: 'var(--font-data)',
-                          padding: '5px 8px',
-                        }}>
-                          Listening on 1090.000 MHz...
-                        </div>
-                      )
+                      <div style={{ height: '200px', overflow: 'auto' }}>
+                        <AdsbAircraftPanel
+                          adsbAircraft={adsbAircraft}
+                          adsbAircraftHistory={adsbAircraftHistory}
+                          focusedFreq={focusedFreq}
+                          adsbRawLog={adsbRawLog}
+                        />
+                      </div>
                     ) : (
                       <div
                         onClick={() => focusFrequency(1090000000)}

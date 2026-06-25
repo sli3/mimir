@@ -1,5 +1,31 @@
 import React, { useEffect, useState } from 'react'
 
+/**
+ * Convert a hex string to space-separated 8-bit binary groups.
+ * Example: "A3D4" -> "10100011 11010100"
+ * Used in the RAW DECODE view's binary mode to show the Mode S
+ * frame bits at a glance.
+ * @param {string} hex - Hex string (e.g. "A3D4F0")
+ * @returns {string} Space-separated 8-bit binary groups
+ */
+function hexToBin(hex) {
+  return hex.match(/.{1,2}/g)
+    .map((byte) => parseInt(byte, 16).toString(2).padStart(8, '0'))
+    .join(' ')
+}
+
+/**
+ * Format a hex string as uppercase space-separated byte pairs.
+ * Example: "a3d4" -> "A3 D4"
+ * Used in the RAW DECODE view's hex mode to make the Mode S frame
+ * readable at a glance.
+ * @param {string} hex - Hex string (e.g. "A3D4F0")
+ * @returns {string} Uppercase space-separated byte pairs
+ */
+function hexToSpaced(hex) {
+  return hex.match(/.{1,2}/g).join(' ').toUpperCase()
+}
+
 const MAX_AIRCRAFT = 30
 
 function formatAltitude(value) {
@@ -23,8 +49,19 @@ function elapsedSeconds(receivedAt) {
   return Math.floor((Date.now() - receivedAt) / 1000)
 }
 
-export default function AdsbAircraftPanel({ adsbAircraft = {}, adsbAircraftHistory = [], focusedFreq }) {
+/**
+ * ADS-B aircraft tracking panel. Shows active aircraft in a table,
+ * previously-seen aircraft below, and a raw decode view (hex/binary
+ * toggle) for the last N Mode S frames when tuned to 1090 MHz.
+ *
+ * @param {Object} adsbAircraft - Map of ICAO address -> aircraft state
+ * @param {Array}  adsbAircraftHistory - Recently departed aircraft (ring buffer)
+ * @param {number|null} focusedFreq - Currently tuned frequency in Hz
+ * @param {Array}  adsbRawLog - Recent raw Mode S frames {icao, raw_hex}
+ */
+export default function AdsbAircraftPanel({ adsbAircraft = {}, adsbAircraftHistory = [], focusedFreq, adsbRawLog = [] }) {
   const [now, setNow] = useState(Date.now())
+  const [rawView, setRawView] = useState('hex')
   const isAdsbFreq = focusedFreq && (
     Math.abs(focusedFreq - 1_090_000_000) <= 2_000_000
   )
@@ -47,12 +84,11 @@ export default function AdsbAircraftPanel({ adsbAircraft = {}, adsbAircraftHisto
     <div style={{ height: '100%', overflow: 'auto', padding: '8px' }}>
       <div style={{
         fontFamily: 'var(--font-display)',
-        fontSize: 10,
+        fontSize: 12,
         color: 'var(--neon-cyan)',
         marginBottom: '8px',
-        textShadow: '0 0 6px var(--neon-cyan)',
       }}>
-        ADS-B AIRCRAFT
+        ADS-B DECODE
         {aircraftList.length > 0 && (
           <span style={{
             marginLeft: '8px',
@@ -70,7 +106,7 @@ export default function AdsbAircraftPanel({ adsbAircraft = {}, adsbAircraftHisto
       {aircraftList.length === 0 && previouslySeenList.length === 0 ? (
         <div style={{
           fontFamily: 'var(--font-data)',
-          fontSize: 10,
+          fontSize: 12,
           color: 'var(--text-dim)',
         }}>
           {isAdsbFreq
@@ -83,7 +119,7 @@ export default function AdsbAircraftPanel({ adsbAircraft = {}, adsbAircraftHisto
             <table style={{
               width: '100%',
               fontFamily: 'var(--font-data)',
-              fontSize: 10,
+              fontSize: 12,
               color: 'var(--text)',
               borderCollapse: 'collapse',
             }}>
@@ -193,6 +229,66 @@ export default function AdsbAircraftPanel({ adsbAircraft = {}, adsbAircraftHisto
             </div>
           )}
         </>
+      )}
+      {isAdsbFreq && (
+        <div style={{ marginTop: '8px', borderTop: '1px solid var(--border)', paddingTop: '6px' }}>
+          <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center',
+                        justifyContent: 'space-between', marginBottom: '4px' }}>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 12,
+                          color: 'var(--neon-cyan)', letterSpacing: '1px' }}>
+              RAW DECODE
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'row', gap: '0px' }}>
+              {['hex', 'bin'].map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => setRawView(mode)}
+                  style={{
+                    fontFamily: 'var(--font-data)',
+                    fontSize: 12,
+                    padding: '1px 6px',
+                    background: rawView === mode ? 'rgba(0,255,255,0.1)' : 'transparent',
+                    border: '1px solid var(--border)',
+                    borderColor: rawView === mode ? 'var(--neon-cyan)' : 'var(--border)',
+                    color: rawView === mode ? 'var(--neon-cyan)' : 'var(--text-dim)',
+                    cursor: 'pointer',
+                    letterSpacing: '1px',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  {mode}
+                </button>
+              ))}
+            </div>
+          </div>
+          {adsbRawLog.length === 0 ? (
+            <div style={{ fontFamily: 'var(--font-data)', fontSize: 12,
+                          color: 'var(--text-dim)' }}>
+              Awaiting decodes...
+            </div>
+          ) : (
+            <div style={{ maxHeight: '120px', overflow: 'auto' }}>
+              {adsbRawLog.map((entry, idx) => (
+                <div key={idx} style={{ display: 'flex', flexDirection: 'row',
+                                         gap: '8px', marginBottom: '2px',
+                                         alignItems: 'flex-start' }}>
+                  <span style={{ fontFamily: 'monospace', fontSize: 12,
+                                 color: 'var(--neon-cyan)', whiteSpace: 'nowrap',
+                                 flexShrink: 0 }}>
+                    {entry.icao}
+                  </span>
+                  <span style={{ fontFamily: 'monospace', fontSize:11,
+                                 color: 'var(--text-dim)', wordBreak: 'break-all',
+                                 lineHeight: '1.4' }}>
+                    {rawView === 'hex'
+                      ? hexToSpaced(entry.raw_hex)
+                      : hexToBin(entry.raw_hex)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
     </div>
   )
