@@ -45,11 +45,14 @@ def _colour(text: str, code: str) -> str:
 # =============================================================================
 # SECTION 1 — CALIBRATION_TARGETS config block
 # =============================================================================
-# Gain values: FM_broadcast (24/26) calibrated to telescopic whip (Phase 9C-
-# Threshold). Aviation_VHF (16/20) matches production BAND_PROFILES defaults
-# (not yet validated with telescopic whip). ADS_B uses provisional stock-stub
-# values (32/38) — requires recalibration with telescopic whip. noise_floor
-# (0/0) uses zero-gain baseline for reference measurement.
+# Gain values match shared_state.py BAND_PROFILES exactly.
+# FM_broadcast (24/26): calibrated telescopic whip, Phase 9C-Threshold.
+# ADS_B (24/24): updated Phase 17 recalibration (was 32/38 stock-stub).
+# Aviation_VHF (16/20), ACARS (16/20), AIS (16/20): VHF maritime/aviation,
+#   not yet validated with telescopic whip — provisional.
+# APRS (24/26): calibrated, diagnose_threshold.py Phase 11.
+# ISM_LoRa (24/26): calibrated, diagnose_threshold.py Phase 11.
+# noise_floor (0/0): zero-gain baseline for reference measurement.
 CALIBRATION_TARGETS: list[dict] = [
     {
         "label": "FM_broadcast",
@@ -65,8 +68,8 @@ CALIBRATION_TARGETS: list[dict] = [
         "freq_hz": 1_090_000_000,
         "sample_rate_hz": 2_000_000,
         "num_samples": 256_000,
-        "lna_gain_db": 32,  # TODO: recalibrate with telescopic whip — provisional stock-stub values
-        "vga_gain_db": 38,
+        "lna_gain_db": 24,  # Matches shared_state.py BAND_PROFILES adsb (Phase 17 recalibration)
+        "vga_gain_db": 24,
         "captures": 2,
     },
     {
@@ -76,6 +79,42 @@ CALIBRATION_TARGETS: list[dict] = [
         "num_samples": 256_000,
         "lna_gain_db": 16,  # matches shared_state.py BAND_PROFILES aviation
         "vga_gain_db": 20,
+        "captures": 2,
+    },
+    {
+        "label": "ACARS",
+        "freq_hz": 129_125_000,
+        "sample_rate_hz": 2_000_000,
+        "num_samples": 256_000,
+        "lna_gain_db": 16,  # matches shared_state.py BAND_PROFILES acars
+        "vga_gain_db": 20,
+        "captures": 2,
+    },
+    {
+        "label": "APRS",
+        "freq_hz": 145_175_000,
+        "sample_rate_hz": 2_000_000,
+        "num_samples": 256_000,
+        "lna_gain_db": 24,  # matches shared_state.py BAND_PROFILES aprs (calibrated)
+        "vga_gain_db": 26,
+        "captures": 2,
+    },
+    {
+        "label": "AIS",
+        "freq_hz": 162_000_000,
+        "sample_rate_hz": 2_000_000,
+        "num_samples": 256_000,
+        "lna_gain_db": 16,  # matches shared_state.py BAND_PROFILES ais
+        "vga_gain_db": 20,
+        "captures": 2,
+    },
+    {
+        "label": "ISM_LoRa",
+        "freq_hz": 915_000_000,
+        "sample_rate_hz": 2_000_000,
+        "num_samples": 256_000,
+        "lna_gain_db": 24,  # matches shared_state.py BAND_PROFILES ism (calibrated)
+        "vga_gain_db": 26,
         "captures": 2,
     },
     {
@@ -164,6 +203,42 @@ def main() -> None:
             print(f"  Frequency: {freq_hz / 1e6:.3f} MHz")
             print(f"  Samples: {num_samples:,}")
             print(f"  Capture #{cap_idx + 1}/{target['captures']}")
+
+            if label == "ACARS":
+                print("\n" + "=" * 70)
+                print("ACARS CAPTURE WARNING")
+                print("=" * 70)
+                print()
+                print("ACARS (129.125 MHz) transmits data bursts from aircraft in flight.")
+                print("Signal will only be present if an aircraft is actively transmitting overhead.")
+                print("Without an active aircraft, only noise will be captured for this band.")
+                print()
+                print("Check live aircraft at: https://www.flightradar24.com")
+                print()
+                try:
+                    input("Press ENTER to continue or Ctrl+C to skip this band: ")
+                except KeyboardInterrupt:
+                    logger.info("User skipped %s capture", label)
+                    print(f"  Skipped {label} — no captures stored for this band.")
+                    continue
+
+            if label == "AIS":
+                print("\n" + "=" * 70)
+                print("AIS CAPTURE WARNING")
+                print("=" * 70)
+                print()
+                print("AIS (162 MHz) transmits position data from vessels at sea or in port.")
+                print("Signal will only be present if a vessel is within range (~20–50 km).")
+                print("Without vessels in range, only noise will be captured for this band.")
+                print()
+                print("Check live vessel positions at: https://www.marinetraffic.com")
+                print()
+                try:
+                    input("Press ENTER to continue or Ctrl+C to skip this band: ")
+                except KeyboardInterrupt:
+                    logger.info("User skipped %s capture", label)
+                    print(f"  Skipped {label} — no captures stored for this band.")
+                    continue
 
             try:
                 # Capture IQ samples from HackRF (RX-only)

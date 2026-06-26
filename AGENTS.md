@@ -202,9 +202,10 @@ uv run python tools/seed_chromadb.py
 | 17 | Feature A: focused decode panel | ✅ Complete | 496 (373 pytest + 123 Vitest) |
 | 18 | Feature B: Raw ADS-B Hex Decode View | ✅ Complete | 507 (373 pytest + 134 Vitest) |
 | 18b | Raw Decode Log — ACARS and AIS | ✅ Complete | 517 (375 pytest + 142 Vitest) |
+| 19a | calibrate_thresholds.py — missing bands + ADS-B gain fix | ✅ Complete | 517 (375 pytest + 142 Vitest) |
 
 **Total passing: 517 passing (375 pytest + 142 Vitest), 0 failures**
-- Note: All pre-existing pytest failures resolved. Updated 2026-06-26 after Phase 18b.
+- Note: All pre-existing pytest failures resolved. Updated 2026-06-26 after Phase 19a.
 
 ---
 
@@ -470,10 +471,12 @@ Do not apply this pre-emptively — only if context problems are observed.
   require mocking `ScanRunner.run()` to raise a generic exception. Deferred because this build
   explicitly forbade test file changes.
 
-- **ADS-B gain divergence (open — tools vs production):** `tools/calibrate_thresholds.py` and
+- **~~ADS-B gain divergence (tools vs production)~~:** ~~`tools/calibrate_thresholds.py` and
   `tools/diagnose_fingerprints.py` use (32/38) for ADS-B gain (lna/vga) while
-  `dashboard/shared_state.py` BAND_PROFILES uses (24/24). Both tool files correctly label
-  their values as provisional/stock-stub. Documented in inline TODOs. Will resolve when ADS-B
-  is live-tested with the telescopic whip antenna.
+  `dashboard/shared_state.py` BAND_PROFILES uses (24/24).~~ `calibrate_thresholds.py`
+  resolved in Phase 19a (ADS-B gain aligned to 24/24, matching BAND_PROFILES).
+  `diagnose_fingerprints.py` retains legacy (32/38) — out of scope for Phase 19a,
+  documented as provisional in inline TODOs. | ✅ Phase 19a (calibrate_thresholds.py);
+  diagnose_fingerprints.py deferred
 
 ---
