@@ -335,7 +335,10 @@ export default function App() {
                     gap: '4px',
                   }}>
                     {group.bands.map((band) => {
-                      const active = isTuned(focusedFreq, band.freq_hz)
+                      // Exact match only — custom frequencies must not highlight named band buttons.
+                      // isTuned() with its 2 MHz default margin causes adjacent bands (e.g. AVIATION
+                      // at 127 MHz and ACARS at 129.125 MHz) to both light up for a custom input.
+                      const active = focusedFreq === band.freq_hz
                       const hasAdsb = band.label === 'ADS-B' && (adsbAircraftList.length > 0 || (adsbAircraftHistory && adsbAircraftHistory.length > 0))
                       return (
                         <button
