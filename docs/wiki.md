@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: "17"
+last_updated_phase: "19b"
 ---
 
 # Mimir Wiki
@@ -76,6 +76,98 @@ Step  Function / Component          What it does
 ## Phase Log
 
 Phases are listed newest-first so the current phase is always at the top.
+
+---
+
+### Phase 19b — calibrate_thresholds.py Antenna Selection + UX Improvements ✓ DONE
+
+**What:** Interactive UX overhaul of `tools/calibrate_thresholds.py`. At startup the
+operator now selects their connected antenna from a menu; only frequency bands within
+that antenna's usable range are captured. Per-band warnings are shown before the first
+capture of ADS-B, ACARS, and AIS because those bands require live aircraft or vessel
+signals to produce meaningful vectors. The pairwise distance matrix is split into two
+halves when there are more than 8 capture entries so the output fits a normal terminal
+width. The SUGGESTED THRESHOLDS output now references both `_DISTANCE_SCALE_REFERENCE`
+and `_build_user_prompt()` in `llm/classifier.py` so the operator knows exactly where
+to apply the printed values.
+
+**Changes:**
+
+1. **`ANTENNA_PROFILES` dict** (module-level) -- three antenna profiles mapping antenna
+   name to usable frequency bands: telescopic whip (75 MHz -- 700 MHz, 6 bands),
+   V-dipole 533mm (130 MHz -- 145 MHz, 4 bands), spiral discone (800 MHz -- 8500 MHz,
+   3 bands). Labels match CALIBRATION_TARGETS entries exactly.
+
+2. **`MATRIX_SPLIT_THRESHOLD = 8`** (module-level) -- when the total number of captured
+   entries exceeds this value, the pairwise distance matrix is printed in two halves
+   (columns split at the midpoint) so the output does not overflow a standard 80-column
+   terminal.
+
+3. **`_print_band_warning(label: str)`** -- prints a one-time warning block before the
+   first capture of ADS-B, ACARS, or AIS. Explains why live signals are needed and
+   provides a link to a live traffic checker (Flightradar24 for ADS-B/ACARS,
+   MarineTraffic for AIS). Operator can press ENTER to continue or Ctrl+C to skip
+   the band.
+
+4. **`_print_matrix(row_entries, col_entries, distance_pairs, ...)`** -- prints a
+   pairwise distance matrix subset. All rows are printed but only the requested columns
+   are shown, enabling the split-half display. Uses ANSI colour coding: green for
+   strong matches, yellow for possible matches, red for different types. Same-type
+   pairs are marked with an asterisk.
+
+5. **Antenna selection prompt** (Step A) -- replaces the old ADS-B-only warning. The
+   operator picks their antenna by number (1/2/3). The script filters CALIBRATION_TARGETS
+   to only those bands within the selected antenna's range, prints the band list and
+   any skipped bands.
+
+6. **Per-band warnings in capture loop** -- fires `_print_band_warning` before the first
+   capture of ADS-B, ACARS, or AIS. Operator can skip the band entirely via Ctrl+C.
+
+7. **SUGGESTED THRESHOLDS output** -- now explicitly references both
+   `_DISTANCE_SCALE_REFERENCE` (module-level constant, ~line 155) and
+   `_build_user_prompt()` threshold block (~lines 424-431) in `llm/classifier.py`.
+
+8. **Module and `main()` docstrings** -- updated to reflect antenna selection, per-band
+   warnings, and matrix splitting.
+
+**Why:** The previous version always captured all 8 bands regardless of antenna, wasting
+time on bands the antenna could not receive. ADS-B, ACARS, and AIS need live traffic --
+capturing them without aircraft or vessels in range produces noise-floor vectors that
+corrupt the distance matrix and threshold suggestions. The matrix overflow was a
+cosmetic problem that made the output unreadable on standard terminals.
+
+**Key functions:**
+
+`_print_band_warning(label: str)` -- prints a one-time warning for bands that need live
+signals. ADS-B, ACARS, and AIS only produce real fingerprints when aircraft or vessels
+are within range. Without them the tool captures noise-floor vectors, which corrupts
+the distance matrix and threshold suggestions. Analogy: a weather station warning that
+"no rain detected" might just mean the gauge is broken, not that it is dry.
+
+`_print_matrix(row_entries, col_entries, distance_pairs, ...)` -- prints a pairwise
+distance matrix subset. All rows are printed but only the requested columns are shown.
+This lets the full matrix be split into two halves when it would otherwise overflow a
+terminal width. Analogy: a spreadsheet that shows all rows but only half the columns at
+a time, with a note to scroll right for the rest.
+
+**Deferred items:**
+
+1. **`tools/diagnose_fingerprints.py` ADS-B gain divergence** -- documented as
+   provisional in inline TODOs. The file was aligned to 24/24 in Phase 19a but the
+   AGENTS.md tech debt row is stale. Not addressed in this build (doc changes only).
+
+2. **ChromaDB distance reference stale (Phase 13)** -- `_DISTANCE_SCALE_REFERENCE`
+   thresholds in `llm/classifier.py` were calibrated for 6D L2 distances. After 7D
+   reseed, thresholds over-classify known signals as "novel." This tool is part of
+   the recalibration workflow. Track under 9C-Threshold (open).
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None -- all changes are calibration tool UX and display. No RF
+  interaction beyond receive-only IQ capture.
+
+**Test counts:** 517 (375 pytest + 142 Vitest). No new tests -- calibration tool
+changes are not covered by the test suite.
 
 ---
 

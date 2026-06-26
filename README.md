@@ -227,19 +227,35 @@ Output: per-band tables of threshold → bandwidth → bins, a recommended value
 
 ### `tools/calibrate_thresholds.py`
 
-**What it does:** The full calibration workflow. Captures IQ samples from four bands (FM broadcast, ADS-B, Aviation VHF, and a noise floor reference), runs them through the complete pipeline (FFT → features → embedding), stores the resulting vectors in a separate calibration ChromaDB collection at `data/calibration_vectorstore/`, then computes a pairwise distance matrix between all stored vectors. From that matrix it derives and prints recommended similarity threshold values for `llm/classifier.py`.
+**What it does:** The full calibration workflow. At startup you select your connected
+antenna (telescopic whip, V-dipole, or spiral discone); only bands within that
+antenna's usable range are captured. The tool captures IQ samples, runs them through
+the complete pipeline (FFT, features, embedding), stores the resulting vectors in a
+separate calibration ChromaDB collection at `data/calibration_vectorstore/`, then
+computes a pairwise distance matrix between all stored vectors. From that matrix it
+derives and prints recommended similarity threshold values for `llm/classifier.py`.
+
+ADS-B, ACARS, and AIS require live aircraft or vessel signals to produce meaningful
+vectors. The tool warns you before each of those bands and lets you skip them if no
+traffic is present. The distance matrix is split into two halves when there are more
+than 8 capture entries so the output fits a standard terminal.
 
 **This tool does NOT touch `data/vectorstore/` (your production signal store).**
 
-**When to use it:** Before finalising the LLM classifier thresholds, after significant hardware changes (gain settings, antenna swap), or any time the similarity distances returned by ChromaDB seem off. Run it, then update the `STRONG_MATCH`, `POSSIBLE_MATCH`, `DIFFERENT_TYPE`, and `NOVEL_SIGNAL` values in `llm/classifier.py` with the printed recommendations.
+**When to use it:** Before finalising the LLM classifier thresholds, after significant
+hardware changes (gain settings, antenna swap), or any time the similarity distances
+returned by ChromaDB seem off. Run it, then update the `STRONG_MATCH`,
+`POSSIBLE_MATCH`, `DIFFERENT_TYPE`, and `NOVEL_SIGNAL` values in `llm/classifier.py`
+with the printed recommendations.
 
 ```bash
 PYTHONPATH=. python tools/calibrate_thresholds.py
 ```
 
-Output: coloured pairwise distance matrix (green = strong match, yellow = possible match, red = different type) followed by a threshold analysis block with recommended values.
-
-> **Note:** ADS-B at 1090 MHz may produce weaker captures depending on local aircraft traffic. The tool will warn you and ask for confirmation before proceeding.
+Output: antenna selection prompt, per-band captures (with warnings for ADS-B, ACARS,
+AIS), coloured pairwise distance matrix (green = strong match, yellow = possible match,
+red = different type) split into halves if needed, followed by a threshold analysis
+block with recommended values.
 
 ---
 
