@@ -14,3 +14,4 @@ opencode.json
 dashboard/static/
 !data/frequency_reference.json
 node_modules/
+embeddings/chroma_store/
