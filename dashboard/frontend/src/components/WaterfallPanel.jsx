@@ -180,10 +180,21 @@ export default function WaterfallPanel({ focusedFreq, focusFrequency, singleBand
 
   const configs = singleBand
     ? (() => {
-        const match = STRIP_CONFIGS.find(
-          (c) => Math.abs(c.freq_hz - focusedFreq) <= 2_000_000
+        // Exact match — user clicked a named band button.
+        const exact = STRIP_CONFIGS.find((c) => c.freq_hz === focusedFreq)
+        if (exact) return [exact]
+        // Custom frequency — synthesise a temporary strip config so the
+        // latestPsd lookup matches the actual center_freq_hz the backend
+        // emits. Borrow the colour from the nearest named band.
+        const nearest = STRIP_CONFIGS.reduce((a, b) =>
+          Math.abs(a.freq_hz - focusedFreq) <= Math.abs(b.freq_hz - focusedFreq) ? a : b
         )
-        return match ? [match] : [STRIP_CONFIGS[0]]
+        return [{
+          freq_hz: focusedFreq,
+          label: `${(focusedFreq / 1e6).toFixed(3)} MHz`,
+          name: 'CUSTOM',
+          colourVar: nearest.colourVar,
+        }]
       })()
     : STRIP_CONFIGS
 
