@@ -92,7 +92,10 @@ def handle_set_focus(data):
         freq_hz = None
     with _focused_freq_lock:
         _focused_freq_hz = freq_hz
-    band_profile = shared_state.get_band_for_freq(freq_hz)
+    band_profile = (
+        shared_state.get_band_for_freq(freq_hz)
+        or shared_state.get_nearest_band_for_freq(freq_hz)
+    )
     if band_profile is not None:
         with shared_state.current_band_lock:
             shared_state.current_band = band_profile
