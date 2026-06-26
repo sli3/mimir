@@ -200,9 +200,10 @@ uv run python tools/seed_chromadb.py
 | 15b | AIS Waterfall Frequency Migration Completion | ✅ Complete | 493 (371 pytest + 122 Vitest) |
 | 17 | Feature A: focused decode panel | ✅ Complete | 496 (373 pytest + 123 Vitest) |
 | 18 | Feature B: Raw ADS-B Hex Decode View | ✅ Complete | 507 (373 pytest + 134 Vitest) |
+| 18b | Raw Decode Log — ACARS and AIS | ✅ Complete | 517 (375 pytest + 142 Vitest) |
 
-**Total passing: 507 passing (373 pytest + 134 Vitest), 0 failures**
-- Note: All pre-existing pytest failures resolved. Updated 2026-06-25 after Phase 18.
+**Total passing: 517 passing (375 pytest + 142 Vitest), 0 failures**
+- Note: All pre-existing pytest failures resolved. Updated 2026-06-26 after Phase 18b.
 
 ---
 
@@ -262,8 +263,8 @@ Do not apply this pre-emptively — only if context problems are observed.
 | `spectrum_update` | server → browser | center_freq_hz, psd_db (2048 floats dBFS) |
 | `system_stats` | server → browser | hackrf_status, active_frequency_hz, scan_count, queue_depth, **last_backlog**, **llm_call_count**, llm_last_inference_ms |
 | `set_focus_frequency` | browser → server | freq_hz |
-| `acars_message` | server → browser | timestamp, freq_hz, registration, label, block_id, text, crc_ok |
-| `ais_message` | server → browser | timestamp, mmsi, vessel_name, lat, lon, speed, course, channel |
+| `acars_message` | server → browser | timestamp, freq_hz, registration, label, block_id, text, crc_ok, **raw** |
+| `ais_message` | server → browser | timestamp, mmsi, vessel_name, lat, lon, speed, course, channel, **raw** |
 | `adsb_aircraft` | server → browser | icao, callsign, altitude_ft, latitude, longitude, groundspeed, track, vertical_rate, timestamp, raw_hex |
 
 > **`scan_result` emission paths (Phase 12):** (1) `ScanRunner._emit_result()` via LLM pipeline — fingerprint-based, all fields populated. (2) `emit_adsb_scan_result()` via confirmed ADS-B decode — `confidence_score=1.0`, fingerprint fields `None`

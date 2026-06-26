@@ -7,6 +7,8 @@ const mockFocusFrequency = vi.fn()
 vi.mock('../hooks/useSocket.js', () => ({
   useSocket: () => ({
     spectrumUpdates: [],
+    acarsRawLog: [],
+    aisRawLog: [],
   }),
 }))
 

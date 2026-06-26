@@ -173,8 +173,9 @@ event rate, gap detection, and a PASS/FAIL summary. Use `--duration 60` minimum
 | 15b | AIS Waterfall Frequency Migration Completion | ✅ Complete | 493/493 (371 pytest + 122 Vitest) |
 | 17 | Feature A: focused decode panel | ✅ Complete | 496/496 (373 pytest + 123 Vitest) |
 | 18 | Feature B: Raw ADS-B Hex Decode View | ✅ Complete | 507/507 (373 pytest + 134 Vitest) |
+| 18b | Raw Decode Log — ACARS and AIS | ✅ Complete | 517/517 (375 pytest + 142 Vitest) |
 
-**Total: 507 passing (373 pytest + 134 Vitest), 0 failures**
+**Total: 517 passing (375 pytest + 142 Vitest), 0 failures**
 
 > **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector
 > store (`data/vectorstore/`) must be re-seeded after deploying this build.

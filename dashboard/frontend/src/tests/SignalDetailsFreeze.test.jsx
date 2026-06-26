@@ -33,6 +33,8 @@ describe('Signal Details freeze', () => {
       aisVessels: [],
       adsbAircraft: {},
       adsbAircraftHistory: [],
+      acarsRawLog: [],
+      aisRawLog: [],
     })
     render(<App />)
     await new Promise((resolve) => setTimeout(resolve, 100))
@@ -61,6 +63,8 @@ describe('Signal Details freeze', () => {
       aisVessels: [],
       adsbAircraft: {},
       adsbAircraftHistory: [],
+      acarsRawLog: [],
+      aisRawLog: [],
     })
     render(<App />)
     await new Promise((resolve) => setTimeout(resolve, 100))
@@ -97,6 +101,8 @@ describe('Signal Details freeze', () => {
       aisVessels: [],
       adsbAircraft: {},
       adsbAircraftHistory: [],
+      acarsRawLog: [],
+      aisRawLog: [],
     })
     render(<App />)
     await new Promise((resolve) => setTimeout(resolve, 100))

@@ -224,7 +224,24 @@ def start_server(host: str, port: int, device=None, scanner=None):
 
 
 def emit_acars_message(msg: AcarsMessage) -> None:
-    """Broadcast a decoded ACARS message to all connected browsers."""
+    """Broadcast a decoded ACARS message to all connected browsers.
+
+    Emits the ``acars_message`` SocketIO event with the decoded ACARS
+    fields and a ``raw`` field containing the decoded ASCII message text
+    (same as ``text``). The frontend ``useSocket`` hook extracts ``raw``
+    into the ``acarsRawLog`` ring buffer, which the RAW DECODE section
+    of the ACARS sub-panel renders as a scrollable monospace log.
+
+    Payload fields:
+        timestamp  — ISO-8601 string
+        freq_hz    — receive frequency in Hz
+        registration — aircraft registration (e.g. "VH-ABC")
+        label      — ACARS label code
+        block_id   — block identifier
+        text       — decoded ACARS message text
+        crc_ok     — whether the CRC-16 check passed
+        raw        — raw decoded text shown in RAW DECODE panel
+    """
     socketio.emit("acars_message", {
         "timestamp": msg.timestamp.isoformat(),
         "freq_hz": msg.freq_hz,
@@ -233,11 +250,30 @@ def emit_acars_message(msg: AcarsMessage) -> None:
         "block_id": msg.block_id,
         "text": msg.text,
         "crc_ok": msg.crc_ok,
+        "raw": msg.text,
     })
 
 
 def emit_ais_message(msg: AisMessage) -> None:
-    """Broadcast a decoded AIS message to all connected browsers."""
+    """Broadcast a decoded AIS message to all connected browsers.
+
+    Emits the ``ais_message`` SocketIO event with the decoded AIS vessel
+    fields and a ``raw`` field containing the original NMEA-0183 sentence
+    text (e.g. ``!AIVDM,...``). The frontend ``useSocket`` hook extracts
+    ``raw`` into the ``aisRawLog`` ring buffer, which the RAW DECODE
+    section of the AIS sub-panel renders as a scrollable monospace log.
+
+    Payload fields:
+        timestamp    — ISO-8601 string (or raw if not datetime-parseable)
+        mmsi         — Maritime Mobile Service Identity (9-digit)
+        vessel_name  — decoded vessel name (falls back to "---")
+        lat          — latitude in decimal degrees (or "---")
+        lon          — longitude in decimal degrees (or "---")
+        speed        — speed over ground in knots (or "---")
+        course       — course over ground in degrees (or "---")
+        channel      — AIS channel (A or B)
+        raw          — NMEA-0183 sentence shown in RAW DECODE panel
+    """
     socketio.emit("ais_message", {
         "timestamp": msg.timestamp.isoformat() if hasattr(msg.timestamp, "isoformat") else msg.timestamp,
         "mmsi": msg.mmsi,
@@ -247,6 +283,7 @@ def emit_ais_message(msg: AisMessage) -> None:
         "speed": msg.speed if msg.speed is not None else "---",
         "course": msg.course if msg.course is not None else "---",
         "channel": msg.channel,
+        "raw": msg.raw_nmea,
     })
 
 

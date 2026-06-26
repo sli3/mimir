@@ -174,35 +174,16 @@ export default function App() {
     adsbAircraft,
     adsbAircraftHistory,
     adsbRawLog,
+    acarsRawLog,
+    aisRawLog,
   } = socket
 
   const clock = useClock()
   const displayed = useFrozenDisplay(aiReasoning)
   const [customInput, setCustomInput] = useState('')
-  /** Pinned AI reasoning entry — set by clicking a row in SignalHistoryLog.
-   *  Toggles on/off: clicking the same row unpins, clicking a different row
-   *  replaces the pin. Composite identity uses (timestamp + center_freq_hz)
-   *  because timestamps alone are not guaranteed unique across frequencies
-   *  at scan rate (~4-5 Hz).
-   *
-   *  TODO: Pin eviction — if the pinned entry scrolls out of scanResults
-   *  (capped at 200), the row becomes invisible and the user cannot unpin.
-   *  Consider adding an unpin button inside AIReasoningPanel or a timeout.
-   *
-   *  TODO: Pin survives frequency change — FocusFrequency clears aiReasoning
-   *  but not pinnedReasoning. Signal Details shows new band while AI Reasoning
-   *  shows old pinned data. Intentional per spec but a UX gap — consider
-   *  clearing pin on band change or adding a visual indicator.
-   *  @type {{ freq_hz, signal_type, confidence, confidence_score, au_legal_status, reasoning, timestamp } | null} */
   const [pinnedReasoning, setPinnedReasoning] = useState(null)
-  /** @type {string|null} — derived pin timestamp for data-pinned attribute matching */
   const pinnedTimestamp = pinnedReasoning ? pinnedReasoning.timestamp : null
 
-  /** Click handler for SignalHistoryLog rows. Toggles pin on/off.
-   *  Uses composite identity (timestamp + center_freq_hz) so the user must
-   *  click the exact same row to unpin. Spreads INITIAL_AI_REASONING then
-   *  overlays entry fields to ensure every display key is present.
-   *  @param {{ timestamp: string, center_freq_hz: number, signal_type: string, confidence: string, confidence_score: number, au_legal_status: string, reasoning: string }} entry */
   const handlePinReasoning = useCallback((entry) => {
     setPinnedReasoning((prev) => {
       if (prev && prev.timestamp === entry.timestamp && prev.freq_hz === entry.center_freq_hz) {
@@ -235,8 +216,6 @@ export default function App() {
   }, [handleTune])
 
   const adsbAircraftList = Object.values(adsbAircraft || {})
-  /** True when focused on any band that has a decoder sub-panel (ADS-B, ACARS, or AIS).
-   *  Used to show the "NO DECODER FOR THIS BAND" placeholder when no decoder is active. */
   const anyDecoderTuned = isTuned(focusedFreq, 1090000000)
     || isAcarsTuned(focusedFreq)
     || isAisTuned(focusedFreq)
@@ -972,7 +951,6 @@ export default function App() {
               display: 'flex',
               flexDirection: 'column',
             }}>
-              {/* Data rows */}
               <SignalHistoryLog
                 scanResults={scanResults}
                 onPinReasoning={handlePinReasoning}
@@ -1153,7 +1131,10 @@ export default function App() {
                   flexDirection: 'column',
                   flexShrink: 0,
                 }}>
-                  {/* SUB-PANEL 2 — ACARS MESSAGES */}
+                  {/* SUB-PANEL 2 — ACARS MESSAGES
+                      FIX (Phase 18b-hotfix): removed acarsMessages.length > 0 inner gate.
+                      AcarsMessagePanel always mounts when tuned — component handles its own
+                      empty state ("Listening..." / "Awaiting decodes...") internally. */}
                   <div style={{
                     display: 'flex',
                     flexDirection: 'row',
@@ -1204,23 +1185,13 @@ export default function App() {
                   </div>
                   <div style={{ padding: '0 10px 8px' }}>
                     {isAcarsTuned(focusedFreq) ? (
-                      acarsMessages.length > 0 ? (
-                        <div style={{ height: '100px', overflow: 'auto' }}>
-                          <AcarsMessagePanel
-                            acarsMessages={acarsMessages}
-                            focusedFreq={focusedFreq}
-                          />
-                        </div>
-                      ) : (
-                        <div style={{
-                          fontSize: '12px',
-                          color: 'var(--text-dim)',
-                          fontFamily: 'var(--font-data)',
-                          padding: '5px 8px',
-                        }}>
-                          Listening on 129.125 MHz...
-                        </div>
-                      )
+                      <div style={{ height: '150px', overflow: 'auto' }}>
+                        <AcarsMessagePanel
+                          acarsMessages={acarsMessages}
+                          focusedFreq={focusedFreq}
+                          acarsRawLog={acarsRawLog}
+                        />
+                      </div>
                     ) : (
                       <div
                         onClick={() => focusFrequency(129125000)}
@@ -1251,7 +1222,9 @@ export default function App() {
                   {/* SUB-PANEL 3 — AIS VESSELS
                       162.000 MHz = dual-channel centre (matches backend BAND_PROFILES).
                       100 kHz tolerance covers both CH1 (161.975 MHz) and CH2 (162.025 MHz).
-                      aligns with core/modules/ais/constants.py FREQ_TOLERANCE_HZ. */}
+                      FIX (Phase 18b-hotfix): removed aisVessels.length > 0 inner gate.
+                      AisVesselPanel always mounts when tuned — component handles its own
+                      empty state ("Listening..." / "Awaiting decodes...") internally. */}
                   <div style={{
                     display: 'flex',
                     flexDirection: 'row',
@@ -1267,7 +1240,6 @@ export default function App() {
                     }}>
                       AIS VESSELS
                     </span>
-                    {/* 162.000 MHz centre, 100 kHz margin -- see note above */}
                     {isAisTuned(focusedFreq) ? (
                       <div style={{
                         display: 'inline-flex',
@@ -1303,23 +1275,13 @@ export default function App() {
                   </div>
                   <div style={{ padding: '0 10px 8px' }}>
                     {isAisTuned(focusedFreq) ? (
-                      aisVessels.length > 0 ? (
-                        <div style={{ height: '100px', overflow: 'auto' }}>
-                          <AisVesselPanel
-                            aisMessages={aisVessels}
-                            focusedFreq={focusedFreq}
-                          />
-                        </div>
-                      ) : (
-                        <div style={{
-                          fontSize: '12px',
-                          color: 'var(--text-dim)',
-                          fontFamily: 'var(--font-data)',
-                          padding: '5px 8px',
-                        }}>
-                          Listening on 162.000 MHz...
-                        </div>
-                      )
+                      <div style={{ height: '150px', overflow: 'auto' }}>
+                        <AisVesselPanel
+                          aisMessages={aisVessels}
+                          focusedFreq={focusedFreq}
+                          aisRawLog={aisRawLog}
+                        />
+                      </div>
                     ) : (
                       <div
                         onClick={() => focusFrequency(162000000)}

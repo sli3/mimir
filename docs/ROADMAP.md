@@ -53,7 +53,8 @@
 | 15 | Frontend AIS Consistency + Nav Bar Completion | ✅ Complete | 493/493 (371 pytest + 122 Vitest) |
 | 15b | AIS Waterfall Frequency Migration Completion | ✅ Complete | 493/493 (371 pytest + 122 Vitest) |
 | 17 | Feature A: focused decode panel | ✅ Complete | 496/496 (373 pytest + 123 Vitest) |
-| 18 | Feature B: Raw ADS-B Hex Decode View | ✅ Complete | 392 (373 pytest + 19 Vitest) |
+| 18 | Feature B: Raw ADS-B Hex Decode View | ✅ Complete | 507 (373 pytest + 134 Vitest) |
+| 18b | Raw Decode Log — ACARS and AIS | ✅ Complete | 517 (375 pytest + 142 Vitest) |
 
 ### Phase 11 Hotfix — Broadcast Defaults + FM Threshold + Startup Guard ✅
 
@@ -870,6 +871,54 @@ to inspect the original transponder frames alongside decoded aircraft fields.
 - `key={idx}` in RAW DECODE render could use composite key for React best practice
 
 **Test counts:** 507 (373 pytest + 134 Vitest), 0 failures
+
+---
+
+### Phase 18b — Raw Decode Log — ACARS and AIS ✅
+
+**Goal:** Extend the raw decode log concept from Phase 18 (ADS-B `raw_hex`)
+to ACARS (decoded text) and AIS (`raw_nmea` sentences), giving users visibility
+into the raw decoder output for all three decoder sub-panels.
+
+**Delivered:**
+1. **`dashboard/server.py`** — `emit_acars_message()` now includes `raw` field
+   (pass-through from `AcarsMessage.text`). `emit_ais_message()` now includes
+   `raw` field (pass-through from `AisMessage.raw_nmea`).
+
+2. **`dashboard/frontend/src/hooks/useSocket.js`** — Added `acarsRawLog` and
+   `aisRawLog` ring-buffer states (cap 50, newest-first). Both include
+   defensive guards for legacy events without the `raw` field.
+
+3. **`dashboard/frontend/src/App.jsx`** — Destructures `acarsRawLog` and
+   `aisRawLog` from `useSocket()` and passes them as props to
+   `AcarsMessagePanel` and `AisVesselPanel`.
+
+4. **`dashboard/frontend/src/components/AcarsMessagePanel.jsx`** — Added
+   RAW DECODE section showing decoded ACARS text from the ring buffer.
+
+5. **`dashboard/frontend/src/components/AisVesselPanel.jsx`** — Added
+   RAW DECODE section showing raw NMEA sentences from the ring buffer.
+
+6. **`AGENTS.md`** — Updated SocketIO event table: `acars_message` and
+   `ais_message` payloads now include `raw`.
+
+7. **`tests/dashboard/test_server_emit.py`** — new pytest tests for `raw`
+   field presence in ACARS and AIS emission payloads.
+
+8. **`dashboard/frontend/src/tests/AcarsRawLog.test.jsx`** (NEW) — 4 tests.
+
+9. **`dashboard/frontend/src/tests/AisRawLog.test.jsx`** (NEW) — 4 tests.
+
+10. Updated `useSocket` mocks in 7 existing test files to include
+    `acarsRawLog: []` and `aisRawLog: []`.
+
+**Key decisions:**
+- No TX code introduced — pure display layer only
+- Phase 18 ring-buffer pattern translated cleanly to ACARS and AIS
+- ACARS raw shows decoded text; AIS raw shows raw NMEA sentences
+- Both follow 50-entry cap and newest-first ordering
+
+**Test counts:** 517 (375 pytest + 142 Vitest), 0 failures
 
 ---
 

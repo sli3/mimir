@@ -33,6 +33,16 @@ export function useSocket() {
   const [adsbAircraft, setAdsbAircraft] = useState({})
   const [adsbAircraftHistory, setAdsbAircraftHistory] = useState([])
   const [adsbRawLog, setAdsbRawLog] = useState([])
+  // acarsRawLog — ring buffer (max 50 entries) of ACARS raw decode text.
+  // Each entry: { registration, raw, timestamp }. Populated from the
+  // acars_message event's "raw" field. Rendered by AcarsMessagePanel's
+  // RAW DECODE section. Wraps via slice(0, 50).
+  const [acarsRawLog, setAcarsRawLog] = useState([])
+  // aisRawLog — ring buffer (max 50 entries) of AIS raw NMEA sentences.
+  // Each entry: { mmsi, raw, timestamp }. Populated from the ais_message
+  // event's "raw" field. Rendered by AisVesselPanel's RAW DECODE section.
+  // Wraps via slice(0, 50).
+  const [aisRawLog, setAisRawLog] = useState([])
   const socketRef = useRef(null)
   const psdMapRef = useRef({})
   const focusedFreqRef = useRef(98000000)
@@ -97,12 +107,30 @@ export function useSocket() {
         const next = [data, ...prev]
         return next.slice(0, 20)
       })
+      setAcarsRawLog((prev) => {
+        if (!data.raw) return prev
+        const entry = {
+          registration: data.registration || '---',
+          raw: data.raw,
+          timestamp: data.timestamp,
+        }
+        return [entry, ...prev].slice(0, 50)
+      })
     })
 
     socket.on('ais_message', (data) => {
       setAisMessages((prev) => {
         const next = [data, ...prev]
         return next.slice(0, 20)
+      })
+      setAisRawLog((prev) => {
+        if (!data.raw) return prev
+        const entry = {
+          mmsi: data.mmsi || '---',
+          raw: data.raw,
+          timestamp: data.timestamp,
+        }
+        return [entry, ...prev].slice(0, 50)
       })
     })
 
@@ -169,5 +197,7 @@ export function useSocket() {
     adsbAircraft,
     adsbAircraftHistory,
     adsbRawLog,
+    acarsRawLog,
+    aisRawLog,
   }
 }
