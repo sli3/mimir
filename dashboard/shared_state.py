@@ -193,3 +193,39 @@ def get_band_for_freq(freq_hz: float | None) -> dict | None:
         if profile["center_freq_hz"] == int(freq_hz):
             return dict(profile)
     return None
+
+
+def get_nearest_band_for_freq(freq_hz: float | None) -> dict | None:
+    """Return a copy of the BAND_PROFILES entry whose center_freq_hz is
+    closest to freq_hz, excluding the noise_floor profile.
+
+    Used as a fallback by handle_set_focus (dashboard/server.py) when
+    get_band_for_freq() returns None — i.e. when the user tunes to a custom
+    frequency that is not a canonical band centre. Returns the nearest band
+    so the correct signal_threshold_db is applied to the waterfall.
+
+    Example: typing 129 MHz in Custom MHz returns None from get_band_for_freq
+    (no exact match), then this function returns the ACARS profile at
+    129.125 MHz as the nearest entry — applying the 6.0 dB ACARS threshold
+    instead of letting the FM threshold (21.0 dB) bleed through.
+
+    noise_floor is excluded because it is a zero-gain reference measurement,
+    not a real receivable band, and should never be applied to live scanning.
+
+    Args:
+        freq_hz: Centre frequency in Hz, or None.
+
+    Returns:
+        dict copy of the nearest BAND_PROFILES entry, or None if freq_hz is None.
+    """
+    if freq_hz is None:
+        return None
+    candidates = {
+        k: v for k, v in BAND_PROFILES.items()
+        if k != "noise_floor"
+    }
+    nearest_key = min(
+        candidates,
+        key=lambda k: abs(candidates[k]["center_freq_hz"] - freq_hz)
+    )
+    return dict(candidates[nearest_key])
