@@ -41,15 +41,18 @@ CLASS_META: dict[str, dict] = {
     "ADS_B": {"center_freq_hz": 1_090_000_000, "label": "ADS_B"},
     "APRS": {"center_freq_hz": 144_390_000, "label": "APRS"},
     "FM_broadcast": {"center_freq_hz": 98_000_000, "label": "FM_broadcast"},
-    "FRS_GMRS": {"center_freq_hz": 462_562_500, "label": "FRS_GMRS"},
     "ISM_sensors": {"center_freq_hz": 433_920_000, "label": "ISM_sensors_433"},
     "NOAA_APT": {"center_freq_hz": 137_500_000, "label": "NOAA_APT"},
-    "NOAA_weather": {"center_freq_hz": 162_400_000, "label": "NOAA_weather"},
     "noise": {"center_freq_hz": 100_000_000, "label": "noise"},
     "pager": {"center_freq_hz": 931_937_500, "label": "pager"},
 }
 
 CAPTURE_ORIGIN = "Temecula, CA, USA"
+
+# Classes excluded from seeding — not relevant to AU/SA operations.
+# FRS_GMRS: US citizens band, no AU equivalent.
+# NOAA_weather: US weather radio service, not broadcast in AU.
+EXCLUDED_CLASSES: set[str] = {"FRS_GMRS", "NOAA_weather"}
 
 
 def extract_iq_data(filepath: Path) -> np.ndarray | None:
@@ -214,6 +217,11 @@ def main() -> None:
     The collection is wiped before each run to guarantee a clean seed.
     A fresh SignalStore instance is created after the wipe because the
     old instance's internal collection handle is stale post-deletion.
+
+    Classes listed in EXCLUDED_CLASSES are skipped regardless of whether
+    their files exist in the cached dataset directory. This prevents
+    non-AU-relevant signal types (e.g. FRS_GMRS, NOAA_weather) from
+    being inserted even when present in the HuggingFace dataset cache.
     """
     logging.basicConfig(
         level=logging.INFO,
@@ -245,6 +253,10 @@ def main() -> None:
     class_counts: dict[str, int] = {}
 
     for class_name in sorted(classes):
+        if class_name in EXCLUDED_CLASSES:
+            print(f"  {class_name}: skipped (excluded — not AU-relevant)")
+            continue
+
         file_list = classes[class_name]
         meta = CLASS_META.get(class_name, {
             "center_freq_hz": 100_000_000,
