@@ -4,7 +4,16 @@ calibrate_thresholds.py — Calibration script for Mimir RF Scanner
 This standalone script captures real IQ samples from the HackRF One across
 multiple frequency bands, processes them through the existing pipeline, and
 computes pairwise distance statistics to suggest threshold values for use in
-llm/classifier.py's _build_system_prompt() function.
+llm/classifier.py's _DISTANCE_SCALE_REFERENCE constant and _build_user_prompt()
+threshold block.
+
+At startup the operator selects the connected antenna; only bands within that
+antenna's usable range are captured. Per-band warnings are shown before the
+first capture of ADS-B, ACARS, and AIS because those bands require live aircraft
+or vessel signals to produce meaningful vectors.
+
+If the total number of captured entries exceeds 8, the pairwise distance matrix
+is split into two halves so each half fits a normal terminal width.
 
 The script stores calibration vectors in a SEPARATE ChromaDB collection at
 "data/calibration_vectorstore" — it does NOT touch data/vectorstore/ (production).
@@ -36,10 +45,95 @@ ANSI_YELLOW = "\033[93m"
 ANSI_RED = "\033[91m"
 ANSI_RESET = "\033[0m"
 
+# Matrix is split into two halves when there are more than this many entries.
+MATRIX_SPLIT_THRESHOLD = 8
+
+# Antenna-to-band mappings. Labels must match CALIBRATION_TARGETS exactly.
+ANTENNA_PROFILES: dict[str, dict] = {
+    "1": {
+        "name": "Telescopic whip",
+        "range": "75 MHz – 700 MHz",
+        "bands": [
+            "FM_broadcast",
+            "Aviation_VHF",
+            "ACARS",
+            "APRS",
+            "AIS",
+            "noise_floor",
+        ],
+    },
+    "2": {
+        "name": "V-dipole 533mm",
+        "range": "130 MHz – 145 MHz",
+        "bands": [
+            "Aviation_VHF",
+            "ACARS",
+            "APRS",
+            "noise_floor",
+        ],
+    },
+    "3": {
+        "name": "Spiral discone",
+        "range": "800 MHz – 8500 MHz",
+        "bands": [
+            "ADS_B",
+            "ISM_LoRa",
+            "noise_floor",
+        ],
+    },
+}
+
 
 def _colour(text: str, code: str) -> str:
     """Wrap text in an ANSI colour code."""
     return f"{code}{text}{ANSI_RESET}"
+
+
+def _print_band_warning(label: str) -> None:
+    """Print a one-time warning for bands that need live signals.
+
+    ADS-B, ACARS, and AIS only produce real fingerprints when aircraft or
+    vessels are within range. Without them the tool captures noise-floor
+    vectors, which corrupts the distance matrix and threshold suggestions.
+    """
+    warnings = {
+        "ADS_B": (
+            "ADS-B CAPTURE WARNING",
+            [
+                "ADS-B (1090 MHz) transmits position data from aircraft in flight.",
+                "Signal will only be present if an aircraft is overhead.",
+                "Without an aircraft, only noise will be captured for this band.",
+                "Check live aircraft positions at: https://www.flightradar24.com",
+            ],
+        ),
+        "ACARS": (
+            "ACARS CAPTURE WARNING",
+            [
+                "ACARS (129.125 MHz) transmits data bursts from aircraft in flight.",
+                "Signal will only be present if an aircraft is actively transmitting overhead.",
+                "Without an active aircraft, only noise will be captured for this band.",
+                "Check live aircraft at: https://www.flightradar24.com",
+            ],
+        ),
+        "AIS": (
+            "AIS CAPTURE WARNING",
+            [
+                "AIS (162 MHz) transmits position data from vessels at sea or in port.",
+                "Signal will only be present if a vessel is within range (~20–50 km).",
+                "Without vessels in range, only noise will be captured for this band.",
+                "Check live vessel positions at: https://www.marinetraffic.com",
+            ],
+        ),
+    }
+
+    title, body_lines = warnings[label]
+    print("\n" + "=" * 70)
+    print(title)
+    print("=" * 70)
+    print()
+    for line in body_lines:
+        print(line)
+    print()
 
 
 # =============================================================================
@@ -129,7 +223,86 @@ CALIBRATION_TARGETS: list[dict] = [
 ]
 
 # =============================================================================
-# SECTION 2 — main() function
+# SECTION 2 — helper functions
+# =============================================================================
+
+
+def _print_matrix(
+    row_entries: list[dict],
+    col_entries: list[dict],
+    distance_pairs: list[tuple[str, str, float]],
+    strong_match: float,
+    possible_match: float,
+    different_type: float,
+) -> None:
+    """Print a pairwise distance matrix subset.
+
+    All rows are printed, but only the requested columns are shown. This lets
+    the full matrix be split into halves when it would otherwise overflow a
+    terminal width.
+    """
+    # Calculate column width based on longest id in the full row/col union
+    all_ids = {e["id"] for e in row_entries + col_entries}
+    col_width = max(len(e_id) for e_id in all_ids) + 2
+
+    # Header row — one column per col_entry
+    header_parts = [f"{'':>{col_width}}"]
+    for e in col_entries:
+        header_parts.append(f"{e['id']:>{col_width}}")
+    print("  " + "".join(header_parts))
+    print("  " + "-" * (col_width * (len(col_entries) + 1)))
+
+    # Print each row
+    for a in row_entries:
+        row_parts = [f"{a['id']:>{col_width}}"]
+        for b in col_entries:
+            if a["id"] == b["id"]:
+                cell = f"{'*':>{col_width}}"
+            else:
+                dist = None
+                for pa, pb, d in distance_pairs:
+                    if (pa == a["id"] and pb == b["id"]) or \
+                       (pb == a["id"] and pa == b["id"]):
+                        dist = d
+                        break
+                if dist is not None:
+                    marker = "*" if a["label"] == b["label"] else " "
+                    cell_visible = f"{dist:.4f}{marker}"
+
+                    is_same_type = a["label"] == b["label"]
+                    is_noise = a["label"] == "noise_floor" or b["label"] == "noise_floor"
+
+                    if is_same_type:
+                        if dist <= strong_match:
+                            c_code = ANSI_GREEN
+                        elif dist <= possible_match:
+                            c_code = ANSI_YELLOW
+                        else:
+                            c_code = ANSI_RED
+                    elif is_noise:
+                        if dist <= strong_match:
+                            c_code = ANSI_RED
+                        elif dist >= different_type:
+                            c_code = ANSI_GREEN
+                        else:
+                            c_code = ANSI_YELLOW
+                    else:
+                        if dist >= different_type:
+                            c_code = ANSI_GREEN
+                        elif dist >= possible_match:
+                            c_code = ANSI_YELLOW
+                        else:
+                            c_code = ANSI_RED
+
+                    cell = _colour(f"{cell_visible:>{col_width}}", c_code)
+                else:
+                    cell = f"{'N/A  ':>{col_width}}"
+            row_parts.append(cell)
+        print("  " + "".join(row_parts))
+
+
+# =============================================================================
+# SECTION 3 — main() function
 # =============================================================================
 
 
@@ -137,10 +310,13 @@ def main() -> None:
     """
     Main calibration workflow.
 
-    1. Print ADS-B warning and wait for user confirmation.
+    1. Prompt user to select connected antenna; filter bands accordingly.
     2. Initialise calibration vectorstore (overwrites any existing).
     3. Capture IQ samples for each target, run through pipeline, store vectors.
-    4. Compute pairwise distance matrix between all stored vectors.
+       Per-band warnings for ADS-B, ACARS, and AIS fire before the first
+       capture of each such band.
+    4. Compute pairwise distance matrix between all stored vectors. Split the
+       matrix into two halves if there are more than 8 capture entries.
     5. Analyse distances to suggest threshold values for classifier.
 
     All capture and processing is RX-only — no transmit functionality.
@@ -148,25 +324,49 @@ def main() -> None:
     logger.info("Starting Mimir calibration workflow")
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Step A — ADS-B warning at startup
+    # Step A — Antenna selection at startup
     # ─────────────────────────────────────────────────────────────────────────
     print("\n" + "=" * 70)
-    print("ADS-B CAPTURE WARNING")
+    print("ANTENNA SELECTION")
     print("=" * 70)
     print()
-    print("The ADS-B target (1090 MHz) will only show a real signal if an aircraft")
-    print("is overhead. Without an aircraft, you will see noise floor only.")
+    print("Select the antenna connected to the HackRF.")
+    print("This determines which frequency bands will be captured.")
     print()
-    print("Check live aircraft positions at:")
-    print("  https://www.flightradar24.com")
+    print("  1. Telescopic whip    (75 MHz – 700 MHz)")
+    print("  2. V-dipole 533mm     (130 MHz – 145 MHz)")
+    print("  3. Spiral discone     (800 MHz – 8500 MHz)")
     print()
-    print("Press ENTER to continue calibration, or Ctrl+C to abort entirely:")
-    # Use input() directly as requested — no argument parsing
-    try:
-        input("Press ENTER to continue or Ctrl+C to abort: ")
-    except KeyboardInterrupt:
-        logger.info("User aborted calibration at ADS-B warning")
-        raise SystemExit(0)
+
+    antenna_choice = None
+    while antenna_choice not in ANTENNA_PROFILES:
+        try:
+            antenna_choice = input("Enter choice (1/2/3) or Ctrl+C to abort: ").strip()
+        except KeyboardInterrupt:
+            logger.info("User aborted calibration at antenna selection")
+            print()
+            raise SystemExit(0)
+        if antenna_choice not in ANTENNA_PROFILES:
+            print("Invalid choice. Please enter 1, 2, or 3.")
+
+    profile = ANTENNA_PROFILES[antenna_choice]
+    selected_bands = set(profile["bands"])
+    selected_targets = [t for t in CALIBRATION_TARGETS if t["label"] in selected_bands]
+
+    skipped_labels = sorted(
+        t["label"] for t in CALIBRATION_TARGETS if t["label"] not in selected_bands
+    )
+
+    print()
+    print(f"Antenna: {profile['name']}")
+    print(f"Bands to capture: {', '.join(t['label'] for t in selected_targets)}")
+    if skipped_labels:
+        print(f"Skipping: {', '.join(skipped_labels)} (outside this antenna's range)")
+    print()
+    print(
+        "NOTE: ADS-B, ACARS, and AIS require live aircraft or vessel signals. "
+        "You will be prompted before each of those bands."
+    )
 
     # ─────────────────────────────────────────────────────────────────────────
     # Step B — Store initialisation (overwrite on every run)
@@ -183,12 +383,12 @@ def main() -> None:
     # ─────────────────────────────────────────────────────────────────────────
     # Step C — Capture loop
     # ─────────────────────────────────────────────────────────────────────────
-    total_expected = sum(t["captures"] for t in CALIBRATION_TARGETS)
+    total_expected = sum(t["captures"] for t in selected_targets)
     captured_count = 0
 
     entries: list[dict] = []
 
-    for idx, target in enumerate(CALIBRATION_TARGETS):
+    for idx, target in enumerate(selected_targets):
         for cap_idx in range(target["captures"]):
             label = target["label"]
             freq_hz = target["freq_hz"]
@@ -199,46 +399,20 @@ def main() -> None:
 
             record_id = f"{label}_{cap_idx}"
 
-            print(f"\n[{idx + 1}/{len(CALIBRATION_TARGETS)}] Capturing: {label}")
+            print(f"\n[{idx + 1}/{len(selected_targets)}] Capturing: {label}")
             print(f"  Frequency: {freq_hz / 1e6:.3f} MHz")
             print(f"  Samples: {num_samples:,}")
             print(f"  Capture #{cap_idx + 1}/{target['captures']}")
 
-            if label == "ACARS":
-                print("\n" + "=" * 70)
-                print("ACARS CAPTURE WARNING")
-                print("=" * 70)
-                print()
-                print("ACARS (129.125 MHz) transmits data bursts from aircraft in flight.")
-                print("Signal will only be present if an aircraft is actively transmitting overhead.")
-                print("Without an active aircraft, only noise will be captured for this band.")
-                print()
-                print("Check live aircraft at: https://www.flightradar24.com")
-                print()
+            # Per-band warning fires once, before the first capture of the band.
+            if cap_idx == 0 and label in ("ADS_B", "ACARS", "AIS"):
+                _print_band_warning(label)
                 try:
                     input("Press ENTER to continue or Ctrl+C to skip this band: ")
                 except KeyboardInterrupt:
-                    logger.info("User skipped %s capture", label)
-                    print(f"  Skipped {label} — no captures stored for this band.")
-                    continue
-
-            if label == "AIS":
-                print("\n" + "=" * 70)
-                print("AIS CAPTURE WARNING")
-                print("=" * 70)
-                print()
-                print("AIS (162 MHz) transmits position data from vessels at sea or in port.")
-                print("Signal will only be present if a vessel is within range (~20–50 km).")
-                print("Without vessels in range, only noise will be captured for this band.")
-                print()
-                print("Check live vessel positions at: https://www.marinetraffic.com")
-                print()
-                try:
-                    input("Press ENTER to continue or Ctrl+C to skip this band: ")
-                except KeyboardInterrupt:
-                    logger.info("User skipped %s capture", label)
-                    print(f"  Skipped {label} — no captures stored for this band.")
-                    continue
+                    logger.info("User skipped %s band", label)
+                    print(f"\n  Skipping {label} — no captures stored for this band.")
+                    break
 
             try:
                 # Capture IQ samples from HackRF (RX-only)
@@ -292,7 +466,7 @@ def main() -> None:
                 continue
 
             is_last = (
-                idx == len(CALIBRATION_TARGETS) - 1
+                idx == len(selected_targets) - 1
                 and cap_idx == target["captures"] - 1
             )
             if not is_last:
@@ -365,63 +539,40 @@ def main() -> None:
 
     # Sort entries for consistent ordering
     sorted_entries = sorted(entries, key=lambda x: (x["label"], x["id"]))
-    # Calculate column width based on longest entry id
-    col_width = max(len(e["id"]) for e in sorted_entries) + 2
 
-    # Print header row — one column per entry, right-padded
-    header_parts = [f"{'':>{col_width}}"]
-    for e in sorted_entries:
-        header_parts.append(f"{e['id']:>{col_width}}")
-    print("  " + "".join(header_parts))
-    print("  " + "-" * (col_width * (len(sorted_entries) + 1)))
+    if len(sorted_entries) <= MATRIX_SPLIT_THRESHOLD:
+        _print_matrix(
+            sorted_entries,
+            sorted_entries,
+            distance_pairs,
+            STRONG_MATCH,
+            POSSIBLE_MATCH,
+            DIFFERENT_TYPE,
+        )
+    else:
+        mid = len(sorted_entries) // 2
+        col_half_1 = sorted_entries[:mid]
+        col_half_2 = sorted_entries[mid:]
 
-    # Print each row
-    for a in sorted_entries:
-        row_parts = [f"{a['id']:>{col_width}}"]
-        for b in sorted_entries:
-            if a["id"] == b["id"]:
-                cell = f"{'*':>{col_width}}"
-            else:
-                dist = None
-                for pa, pb, d in distance_pairs:
-                    if (pa == a["id"] and pb == b["id"]) or \
-                       (pb == a["id"] and pa == b["id"]):
-                        dist = d
-                        break
-                if dist is not None:
-                    marker = "*" if a["label"] == b["label"] else " "
-                    cell_visible = f"{dist:.4f}{marker}"
+        print("\n--- Matrix Part 1 of 2 ---")
+        _print_matrix(
+            sorted_entries,
+            col_half_1,
+            distance_pairs,
+            STRONG_MATCH,
+            POSSIBLE_MATCH,
+            DIFFERENT_TYPE,
+        )
 
-                    is_same_type = a["label"] == b["label"]
-                    is_noise = a["label"] == "noise_floor" or b["label"] == "noise_floor"
-
-                    if is_same_type:
-                        if dist <= STRONG_MATCH:
-                            c_code = ANSI_GREEN
-                        elif dist <= POSSIBLE_MATCH:
-                            c_code = ANSI_YELLOW
-                        else:
-                            c_code = ANSI_RED
-                    elif is_noise:
-                        if dist <= STRONG_MATCH:
-                            c_code = ANSI_RED
-                        elif dist >= DIFFERENT_TYPE:
-                            c_code = ANSI_GREEN
-                        else:
-                            c_code = ANSI_YELLOW
-                    else:
-                        if dist >= DIFFERENT_TYPE:
-                            c_code = ANSI_GREEN
-                        elif dist >= POSSIBLE_MATCH:
-                            c_code = ANSI_YELLOW
-                        else:
-                            c_code = ANSI_RED
-
-                    cell = _colour(f"{cell_visible:>{col_width}}", c_code)
-                else:
-                    cell = f"{'N/A  ':>{col_width}}"
-            row_parts.append(cell)
-        print("  " + "".join(row_parts))
+        print("\n--- Matrix Part 2 of 2 ---")
+        _print_matrix(
+            sorted_entries,
+            col_half_2,
+            distance_pairs,
+            STRONG_MATCH,
+            POSSIBLE_MATCH,
+            DIFFERENT_TYPE,
+        )
 
     # ─────────────────────────────────────────────────────────────────────────
     # Step E — Threshold analyser
@@ -463,7 +614,8 @@ def main() -> None:
     cross_type_min = min(cross_type_pairs) if cross_type_pairs else 1.0
     noise_min = min(noise_pairs) if noise_pairs else 1.0
 
-    # Suggested thresholds for _build_system_prompt() in llm/classifier.py
+    # Suggested thresholds for _DISTANCE_SCALE_REFERENCE and _build_user_prompt()
+    # in llm/classifier.py.
     STRONG_MATCH = round(same_type_max * 2, 3)
     POSSIBLE_MATCH = round((same_type_max * 2 + cross_type_min) / 2, 3)
     DIFFERENT_TYPE = round(cross_type_min * 0.9, 3)
@@ -497,8 +649,14 @@ def main() -> None:
     print("Noise floor min distance: {}".format(_colour("{:.4f}".format(noise_min), _nf_colour)))
     print()
     print("-" * 70)
-    print("SUGGESTED THRESHOLDS (for llm/classifier.py → _build_system_prompt()):")
+    print("SUGGESTED THRESHOLDS — update TWO locations in llm/classifier.py:")
     print("-" * 70)
+    print()
+    print("1. _DISTANCE_SCALE_REFERENCE (module-level constant, ~line 155)")
+    print("   Update the distance range text and reference distances.")
+    print()
+    print("2. _build_user_prompt() threshold block (~lines 424-431)")
+    print("   Update the if/elif distance comparisons that label each neighbour.")
     print()
 
     _diff_type_gap = cross_type_min - same_type_max
