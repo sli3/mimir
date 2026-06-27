@@ -72,7 +72,11 @@ CAPTURE_ORIGIN = "Temecula, CA, USA"
 # Classes excluded from seeding — not relevant to AU/SA operations.
 # FRS_GMRS: US citizens band, no AU equivalent.
 # NOAA_weather: US weather radio service, not broadcast in AU.
-EXCLUDED_CLASSES: set[str] = {"FRS_GMRS", "NOAA_weather"}
+# pager: 931.9 MHz pager service — not a Mimir target band. Removing from
+#   CLASS_META alone is insufficient; the dataset files still exist and the
+#   CLASS_META fallback in main() would seed them with default metadata.
+#   Must be listed here so discover_dataset_files() skips them entirely.
+EXCLUDED_CLASSES: set[str] = {"FRS_GMRS", "NOAA_weather", "pager"}
 
 
 def extract_iq_data(filepath: Path) -> np.ndarray | None:
