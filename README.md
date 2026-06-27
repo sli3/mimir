@@ -174,8 +174,9 @@ event rate, gap detection, and a PASS/FAIL summary. Use `--duration 60` minimum
 | 17 | Feature A: focused decode panel | ✅ Complete | 496/496 (373 pytest + 123 Vitest) |
 | 18 | Feature B: Raw ADS-B Hex Decode View | ✅ Complete | 507/507 (373 pytest + 134 Vitest) |
 | 18b | Raw Decode Log — ACARS and AIS | ✅ Complete | 517/517 (375 pytest + 142 Vitest) |
+| 20 | Live Capture → Vector Store Ingestion Tool | ✅ Complete | 526/526 (384 pytest + 142 Vitest) |
 
-**Total: 517 passing (375 pytest + 142 Vitest), 0 failures**
+**Total: 526 passing (384 pytest + 142 Vitest), 0 failures**
 
 > **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector
 > store (`data/vectorstore/`) must be re-seeded after deploying this build.
@@ -185,7 +186,7 @@ event rate, gap detection, and a PASS/FAIL summary. Use `--duration 60` minimum
 
 ## Diagnostic Tools
 
-Mimir ships with three standalone tools in `tools/`. These are run manually from the project root — they require the HackRF to be plugged in with an antenna attached, and the Python environment to be active.
+Mimir ships with four standalone tools in `tools/`. These are run manually from the project root — they require the HackRF to be plugged in with an antenna attached, and the Python environment to be active.
 
 All tools are receive-only. No transmission occurs. Jurisdiction: AU/SA — Radiocommunications Act 1992 (Cth).
 
@@ -259,6 +260,40 @@ block with recommended values.
 
 ---
 
+### `tools/capture_to_vectorstore.py`
+
+**What it does:** Captures live IQ samples from the HackRF across AU-legal receive
+bands, computes spectral fingerprints, converts them to embeddings, and stores them
+directly in the **production** vector store at `data/vectorstore/`. This is the fast
+path to seeding the production store with fresh live vectors -- faster than waiting
+for `scan.py` to accumulate captures organically over time.
+
+At startup you select your connected antenna (telescopic whip, V-dipole, or spiral
+discone); only bands within that antenna's usable range are captured. ADS-B, ACARS,
+and AIS warn you before the first capture of each band because those require live
+aircraft or vessel signals to produce meaningful vectors.
+
+**When to use it:** After reseeding the vector store, after hardware changes (antenna
+swap, gain adjustment), or whenever you want to deliberately add fresh live vectors
+to the production store. Run `tools/calibrate_thresholds.py` afterwards to recompute
+distance thresholds.
+
+```bash
+# Capture all bands for the connected antenna
+PYTHONPATH=. python tools/capture_to_vectorstore.py
+
+# Wipe existing vectors before capturing (destructive -- all previous embeddings lost)
+PYTHONPATH=. python tools/capture_to_vectorstore.py --wipe
+```
+
+> **Important:** Stop `scan.py` before running this tool. Both processes write to
+> `data/vectorstore/` and concurrent access may cause SQLite lock errors.
+
+Output: antenna selection prompt, per-band captures with progress and SNR margin
+readings, summary of records stored, and a reminder to run `calibrate_thresholds.py`.
+
+---
+
 ### Recommended tool workflow
 
 If you are setting up Mimir for the first time, or tuning it after a hardware change, run the tools in this order:
@@ -266,6 +301,7 @@ If you are setting up Mimir for the first time, or tuning it after a hardware ch
 1. `diagnose_fingerprints.py` — confirm the pipeline is alive and producing numbers
 2. `diagnose_threshold.py` — find the right `SIGNAL_THRESHOLD_DB` for your setup
 3. `calibrate_thresholds.py` — derive LLM classifier distance thresholds from real captures
+4. `capture_to_vectorstore.py` — seed the production vector store with live captures (stop `scan.py` first)
 
 ---
 
@@ -370,6 +406,7 @@ mimir/
 │   └── static/                        ← Vite build output (generated)
 ├── tools/
 │   ├── calibrate_thresholds.py        ← ChromaDB threshold calibration
+│   ├── capture_to_vectorstore.py      ← Live capture → production vector store
 │   ├── diagnose_fingerprints.py       ← Fingerprint diagnostics
 │   ├── diagnose_threshold.py          ← Threshold diagnostics
 │   └── diagnose_live.py               ← Live pipeline diagnostic (CLI)

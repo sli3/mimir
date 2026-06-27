@@ -56,6 +56,7 @@
 | 18 | Feature B: Raw ADS-B Hex Decode View | ✅ Complete | 507 (373 pytest + 134 Vitest) |
 | 18b | Raw Decode Log — ACARS and AIS | ✅ Complete | 517 (375 pytest + 142 Vitest) |
 | 19a | calibrate_thresholds.py — missing bands + ADS-B gain fix | ✅ Complete | 517 (375 pytest + 142 Vitest) |
+| 20 | Live Capture to Vector Store Ingestion Tool | ✅ Complete | 526 (384 pytest + 142 Vitest) |
 
 ### Phase 11 Hotfix — Broadcast Defaults + FM Threshold + Startup Guard ✅
 
@@ -920,6 +921,60 @@ into the raw decoder output for all three decoder sub-panels.
 - Both follow 50-entry cap and newest-first ordering
 
 **Test counts:** 517 (375 pytest + 142 Vitest), 0 failures
+
+---
+
+### Phase 20 — Live Capture to Vector Store Ingestion Tool ✅
+
+**Goal:** Add a standalone tool that captures live IQ samples from the HackRF
+across all AU-legal receive bands, runs them through the full pipeline (FFT,
+features, embedding), and stores the resulting vectors directly in the
+production ChromaDB store at `data/vectorstore/`. This is the fast path to
+seeding the production store with fresh live vectors.
+
+**Delivered:**
+1. **`tools/capture_to_vectorstore.py`** (NEW) — Standalone CLI tool.
+   Antenna selection at startup (telescopic whip, V-dipole, spiral discone);
+   only bands within the antenna's usable range are captured. Iterates all
+   eligible bands, captures IQ samples, computes PSD + fingerprint + embedding,
+   and inserts into production ChromaDB. Append by default; `--wipe` flag
+   deletes and recreates the collection before capturing. ADS-B, ACARS, and
+   AIS bands warn the user before the first capture because those require
+   live aircraft or vessel signals. Prints summary of records stored and a
+   reminder to run `calibrate_thresholds.py`. All frequencies AU/SA legal;
+   no TX code, no `amp_enable=True`, no direct SoapySDR import.
+
+2. **`tests/tools/test_capture_to_vectorstore.py`** (NEW) — 9 tests:
+   - structure (argparse, band iteration, antenna mapping)
+   - antenna coverage (all 3 antennas produce valid band lists)
+   - metadata (embedding dimensionality, band label presence)
+   - 5-capture loop (captures across multiple bands without error)
+   - RuntimeError recovery (single-band failure does not abort tool)
+   - `--wipe` flag (collection deleted and recreated before capture)
+   - Ctrl+C skip (KeyboardInterrupt during capture is handled gracefully)
+   - per-band `signal_threshold_db` passthrough (BAND_PROFILES threshold
+     used for each band's fingerprint computation)
+
+3. **`tests/tools/test_seed_chromadb.py`** — Updated ISM assertions from
+   433 MHz to 915 MHz to match current `CLASS_META`.
+
+4. **`docs/wiki.md`** — Phase 20 log entry, function entries for
+   `capture_to_vectorstore`, ChromaDB glossary update (by @doc-writer).
+
+5. **`README.md`** — Phase 20 tracker row added; tool usage section with
+   `--wipe` flag documented; recommended tool workflow updated (by @doc-writer).
+
+**Known debt / deferred items:**
+- `tools/diagnose_fingerprints.py` still uses legacy ADS-B gain (32/38) —
+  deferred to a future phase.
+- ChromaDB distance reference stale (Phase 13) remains open; tool prints
+  a reminder to re-run `tools/calibrate_thresholds.py` after capture.
+- `--wipe` flag prints a warning but has no interactive confirmation
+  (accepted as non-blocking for this phase).
+- Concurrent writes to `data/vectorstore/` if `scan.py` is running are
+  documented in README (user must stop scan.py first).
+
+**Test counts:** 526 (384 pytest + 142 Vitest), 0 failures
 
 ---
 

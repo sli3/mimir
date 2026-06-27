@@ -98,16 +98,16 @@ class TestSampleRateIs1024000:
         assert RTL_ML_SAMPLE_RATE == 1_024_000
 
 
-class TestIsmLabelIs433Variant:
-    """ISM_sensors class maps to ISM_sensors_433 label."""
+class TestIsmLabelIs915Variant:
+    """ISM_sensors class maps to ISM_915 label."""
 
-    def test_ism_label_is_suffixed(self) -> None:
-        """ISM_sensors label is ISM_sensors_433, not ISM_sensors."""
-        assert CLASS_META["ISM_sensors"]["label"] == "ISM_sensors_433"
+    def test_ism_label_is_ism_915(self) -> None:
+        """ISM_sensors label is ISM_915, not ISM_sensors."""
+        assert CLASS_META["ISM_sensors"]["label"] == "ISM_915"
 
-    def test_ism_center_freq_is_433_mhz(self) -> None:
-        """ISM_sensors center_freq_hz is 433_920_000."""
-        assert CLASS_META["ISM_sensors"]["center_freq_hz"] == 433_920_000
+    def test_ism_center_freq_is_915_mhz(self) -> None:
+        """ISM_sensors center_freq_hz is 915_000_000."""
+        assert CLASS_META["ISM_sensors"]["center_freq_hz"] == 915_000_000
 
 
 class TestBatchInsertIntoStore:

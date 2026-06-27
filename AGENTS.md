@@ -203,9 +203,10 @@ uv run python tools/seed_chromadb.py
 | 18 | Feature B: Raw ADS-B Hex Decode View | ✅ Complete | 507 (373 pytest + 134 Vitest) |
 | 18b | Raw Decode Log — ACARS and AIS | ✅ Complete | 517 (375 pytest + 142 Vitest) |
 | 19a | calibrate_thresholds.py — missing bands + ADS-B gain fix | ✅ Complete | 517 (375 pytest + 142 Vitest) |
+| 20 | Live Capture to Vector Store Ingestion Tool | ✅ Complete | 526 (384 pytest + 142 Vitest) |
 
-**Total passing: 517 passing (375 pytest + 142 Vitest), 0 failures**
-- Note: All pre-existing pytest failures resolved. Updated 2026-06-26 after Phase 19a.
+**Total passing: 526 passing (384 pytest + 142 Vitest), 0 failures**
+- Note: All pre-existing pytest failures resolved. Updated 2026-06-27 after Phase 20.
 
 ---
 
@@ -345,6 +346,7 @@ Do not apply this pre-emptively — only if context problems are observed.
 | `scan.py` | CLI entry point |
 | `config/mimir.yaml` | Runtime configuration |
 | `setup.sh` (build_acarsdec) | Builds acarsdec from source on first run |
+| `tools/capture_to_vectorstore.py` | Live IQ capture across AU-legal bands, pipeline to production ChromaDB |
 | `docs/au-legal-reference.md` | ACMA legal reference |
 | `docs/ROADMAP.md` | Phase tracker and build history |
 

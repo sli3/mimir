@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: "19b"
+last_updated_phase: "20"
 ---
 
 # Mimir Wiki
@@ -76,6 +76,136 @@ Step  Function / Component          What it does
 ## Phase Log
 
 Phases are listed newest-first so the current phase is always at the top.
+
+---
+
+### Phase 20 — Live Capture → Vector Store Ingestion Tool ✓ DONE
+
+**What:** New standalone tool `tools/capture_to_vectorstore.py` that captures live IQ
+samples from the HackRF across AU-legal receive bands, computes spectral fingerprints,
+converts them to embeddings, and stores them in the production ChromaDB vector store at
+`data/vectorstore/`. This fills a gap in the toolchain: previously, live vectors could
+only enter the store indirectly via `scan.py` running over time. The new tool lets the
+operator deliberately seed the production vector store with fresh captures in a single
+run, which is faster and more controlled than waiting for organic traffic.
+
+The tool reuses the antenna-selection UX from `calibrate_thresholds.py` (Phase 19b):
+the operator picks their connected antenna, and only bands within that antenna's
+usable range are captured. Per-band warnings fire for ADS-B, ACARS, and AIS because
+those bands require live aircraft or vessel signals to produce meaningful vectors.
+
+A new test file `tests/tools/test_capture_to_vectorstore.py` (9 tests) covers
+structure, antenna coverage, metadata correctness, 5-record capture, RuntimeError
+recovery, --wipe flag, Ctrl+C skip, and signal_threshold passthrough. An existing
+test file `tests/tools/test_seed_chromadb.py` was updated to fix stale ISM label
+assertions (previously referenced 433 MHz, now correctly asserts ISM_915 / 915 MHz).
+
+**Changes:**
+
+1. **`tools/capture_to_vectorstore.py` (new file)** -- complete capture-to-vectorstore
+   workflow: antenna selection, per-band IQ capture, FFT, fingerprint, embedding,
+   ChromaDB storage. Supports `--wipe` flag to delete the existing collection before
+   capture.
+
+2. **`ANTENNA_PROFILES` dict** (module-level) -- three antenna profiles mapping antenna
+   name to usable frequency bands: telescopic whip (5 bands), V-dipole (3 bands),
+   spiral discone (2 bands). Labels match `CAPTURE_TARGETS` entries exactly.
+
+3. **`CAPTURE_TARGETS` list** (module-level) -- seven band configurations with per-band
+   frequency, sample rate, gain settings, signal threshold, and capture count. Gain
+   values match `dashboard/shared_state.py` `BAND_PROFILES`.
+
+4. **`_colour(text, code)`** -- wraps text in ANSI colour codes for terminal output.
+
+5. **`_print_band_warning(label)`** -- prints a one-time warning for bands that need
+   live signals (ADS-B, ACARS, AIS). Same pattern as `calibrate_thresholds.py`.
+
+6. **`build_metadata(label, antenna_name, target, fingerprint, cap_idx)`** -- builds
+   the ChromaDB metadata dict for a stored capture record. Includes label, source,
+   antenna, frequency, gain, threshold, timestamp, peak power, SNR, and capture index.
+
+7. **`_parse_args()`** -- parses CLI arguments. Currently supports `--wipe` only.
+
+8. **`_select_antenna()`** -- prompts the user to select an antenna profile. Returns
+   `(choice_key, profile_dict)`. Handles Ctrl+C gracefully.
+
+9. **`run_capture_loop(store, embedder, selected_targets, antenna_name, ...)`** --
+   main capture loop. For each target band, captures IQ, computes PSD, fingerprints
+   the spectrum, embeds the fingerprint, and stores the vector in ChromaDB. Prints
+   per-capture results with colour-coded SNR margin. Accepts `input_func` and
+   `sleep_func` parameters for testability. Returns the count of records stored.
+
+10. **`main()`** -- orchestrates the full workflow: parse args, select antenna, filter
+    bands, initialise store (optionally wiping), run capture loop, print summary.
+
+11. **`tests/tools/test_capture_to_vectorstore.py` (new file)** -- 9 pytest tests:
+    structure validation, antenna coverage completeness, metadata correctness,
+    5-record capture loop, RuntimeError recovery, --wipe flag, Ctrl+C skip, and
+    signal_threshold passthrough.
+
+12. **`tests/tools/test_seed_chromadb.py` (updated)** -- `TestIsmLabelIs915Variant`
+    class assertions updated from stale 433 MHz to ISM_915 / 915 MHz to match
+    current `CLASS_META` constants.
+
+**Why:** The production vector store at `data/vectorstore/` accumulates vectors
+organically as `scan.py` runs, but this is slow and depends on traffic presence.
+A deliberate capture tool lets the operator seed the store quickly after a reseed,
+hardware change, or initial setup. It is the missing piece between
+`calibrate_thresholds.py` (which writes to a separate calibration store) and the
+live scanner (which writes to the production store opportunistically).
+
+**Key functions:**
+
+`run_capture_loop(store, embedder, selected_targets, antenna_name, ...)` -- runs the
+capture, fingerprint, embed, store loop for each target band. Returns the number of
+records stored. The `input_func` and `sleep_func` parameters allow tests to inject
+mocks without touching real hardware. Analogy: a controlled photo shoot where each
+band gets its portrait taken, one at a time, rather than waiting for subjects to walk
+past a security camera.
+
+`build_metadata(label, antenna_name, target, fingerprint, cap_idx)` -- assembles the
+metadata dictionary that ChromaDB stores alongside each embedding. This metadata is
+what the LLM classifier and diagnostic tools use to understand where a vector came
+from. Analogy: a label on a filing cabinet drawer that tells you who filed it, when,
+and with what equipment.
+
+`_select_antenna()` -- interactive prompt that maps the physical antenna to the
+correct subset of frequency bands. Prevents the operator from wasting time capturing
+bands the antenna cannot receive. Analogy: choosing the right lens before a
+photography shoot -- a wide-angle lens for many bands, a telephoto for a narrow range.
+
+`main()` -- top-level orchestrator. Parses CLI args, prompts for antenna, initialises
+the store (wiping if requested), runs the capture loop, and prints a summary with a
+reminder to re-run `calibrate_thresholds.py`. Analogy: the stage manager who calls
+the shots in order -- lights, camera, action, wrap.
+
+**Deferred items:**
+
+1. **`tools/diagnose_fingerprints.py` ADS-B gain divergence** -- still uses legacy
+   gain (32/38). Deferred from Phase 19a; out of scope for this build.
+
+2. **ChromaDB distance reference stale (Phase 13)** -- thresholds in
+   `llm/classifier.py` calibrated for 6D L2 distances. After 7D reseed,
+   thresholds over-classify known signals as "novel." The capture tool prints a
+   reminder to re-run `calibrate_thresholds.py` after capture. Track under
+   9C-Threshold (open).
+
+3. **`--wipe` no interactive confirmation** -- the `--wipe` flag deletes the
+   collection without a Y/N prompt. Accepted per security review; the warning
+   message is sufficient.
+
+4. **Concurrent ChromaDB writes** -- if `scan.py` is running at the same time as
+   this tool, both write to `data/vectorstore/` and SQLite lock errors may occur.
+   Documented in README usage notes.
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None -- tool performs receive-only IQ capture on ACMA-compliant
+  frequencies. All bands are legal to receive passively under the Radiocommunications
+  Act 1992 (Cth).
+
+**Test counts:** 526 (384 pytest + 142 Vitest). New: 9 pytest tests for the capture
+tool, 2 updated pytest tests in seed_chromadb.
 
 ---
 
@@ -2593,6 +2723,7 @@ This is a strong sign the connected antenna is too short for that frequency.
 | asyncio | Asynchronous I/O | Python's way of doing multiple things concurrently without threads. `capture_loop` runs as an asyncio background task. |
 | Canvas | HTML Canvas | Browser element that JavaScript draws on pixel by pixel. The waterfall is drawn here — one row of pixels per PSD frame. |
 | colourmap | Colour Map | Lookup table: power (dB) → colour. Weak signals = dark blue. Strong signals = yellow/white. Produces the heat-map look. |
+| ChromaDB | ChromaDB | Vector database optimised for similarity search. Mimir stores signal embeddings (7-dimensional numerical fingerprints) in ChromaDB. When a new signal arrives, ChromaDB finds the most similar previously-seen signals and returns them as context for the LLM classifier. Analogy: a library catalog organised by "what things look like" rather than by title. |
 | CPR | Compact Position Reporting | ADS-B position encoding scheme. Aircraft transmit latitude/longitude as compressed even/odd frame pairs. A receiver needs both frames (or a known reference position) to resolve the full position. Mimir uses pyModeS.PipeDecoder to accumulate even/odd frame pairs per ICAO and resolve positions globally — no fixed reference point required. Positions appear within ~5 seconds of the first pair. |
 | dB | Decibel | Unit of signal strength. Logarithmic scale. Values in Mimir are negative (e.g. -50 dB). Closer to 0 = stronger signal. Noise floor ≈ -50 to -60 dB. |
 | DOM | Document Object Model | Browser's internal model of the HTML page. `waterfall.js` uses it to find the canvas element and draw on it. |
