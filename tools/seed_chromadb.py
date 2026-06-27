@@ -29,22 +29,42 @@ from embeddings.store import SignalStore
 
 logger = logging.getLogger(__name__)
 
-RTL_ML_SAMPLE_RATE = 1_024_000
+RTL_ML_SAMPLE_RATE = 1_024_000  # Original capture sample rate — kept for metadata only
 
-# RTL-ML dataset class metadata. Frequencies are taken from the dataset as-is.
-# NOTE: APRS (144.390 MHz) is the US frequency; AU uses 145.175 MHz.
-# ISM_sensors (433.92 MHz) is the EU frequency; AU uses 433.05 MHz.
-# These do not affect ChromaDB seeding (used only for metadata labelling),
-# but LLM classifier prompts should use the AU frequencies from the
-# ACMA frequency reference instead.
+# Mimir's production sample rate. FFT must be run at this rate so seeded
+# vectors match live captures. hz_per_bin = sample_rate / nfft:
+#   RTL_ML_SAMPLE_RATE -> 500 Hz/bin  (wrong — half of live)
+#   MIMIR_SAMPLE_RATE  -> 976.5625 Hz/bin  (correct — matches scanner.py)
+# bandwidth_hz and occupied_bins dimensions are derived from hz_per_bin,
+# so using the wrong rate corrupts 2 of 7 embedding dimensions for every
+# seeded vector.
+MIMIR_SAMPLE_RATE = 2_000_000
+
+# RTL-ML dataset class metadata.
+# center_freq_hz: authoritative AU frequency used for embedding and LLM context.
+# label: stored in ChromaDB metadata — must match signal_type values in classifier.py.
+# signal_threshold_db: per-class detection threshold passed to fingerprint_spectrum().
+#   Using the global 24 dB fallback for all classes produces bandwidth_hz=0 for
+#   weaker signals (APRS, ISM) where live SNR is well below 24 dB. Per-class values
+#   match BAND_PROFILES in dashboard/shared_state.py so seeded and live vectors use
+#   the same threshold.
+#
+# NOTE: ISM_sensors in RTL-ML was captured at 433.92 MHz (EU band). Mimir targets
+# 915 MHz (AU/NZ ISM band). center_freq_hz is overridden here to 915 MHz so the
+# peak_freq_hz embedding dimension is correct for AU queries. The underlying RF
+# characteristics (bandwidth, spectral flatness) of LoRa/ISM signals are similar
+# across bands — the waveform shape is what matters for similarity search.
+#
+# NOTE: pager (931.9 MHz) removed — not a Mimir target band and pollutes ISM
+# queries (pager at 931.9 MHz is closer to live ISM at 915 MHz than ISM_sensors
+# at 433.9 MHz, causing pager to be returned as top neighbour for every ISM scan).
 CLASS_META: dict[str, dict] = {
-    "ADS_B": {"center_freq_hz": 1_090_000_000, "label": "ADS_B"},
-    "APRS": {"center_freq_hz": 144_390_000, "label": "APRS"},
-    "FM_broadcast": {"center_freq_hz": 98_000_000, "label": "FM_broadcast"},
-    "ISM_sensors": {"center_freq_hz": 433_920_000, "label": "ISM_sensors_433"},
-    "NOAA_APT": {"center_freq_hz": 137_500_000, "label": "NOAA_APT"},
-    "noise": {"center_freq_hz": 100_000_000, "label": "noise"},
-    "pager": {"center_freq_hz": 931_937_500, "label": "pager"},
+    "ADS_B":        {"center_freq_hz": 1_090_000_000, "label": "ADS_B",        "signal_threshold_db": 3.0},
+    "APRS":         {"center_freq_hz":   145_175_000, "label": "APRS",         "signal_threshold_db": 10.0},
+    "FM_broadcast": {"center_freq_hz":    98_000_000, "label": "FM_broadcast",  "signal_threshold_db": 21.0},
+    "ISM_sensors":  {"center_freq_hz":   915_000_000, "label": "ISM_915",       "signal_threshold_db": 3.0},
+    "NOAA_APT":     {"center_freq_hz":   137_500_000, "label": "NOAA_APT",      "signal_threshold_db": 6.0},
+    "noise":        {"center_freq_hz":   100_000_000, "label": "noise",         "signal_threshold_db": 24.0},
 }
 
 CAPTURE_ORIGIN = "Temecula, CA, USA"
@@ -95,7 +115,7 @@ def build_metadata(
         "class": class_name,
         "sample_index": sample_index,
         "center_freq_hz": meta["center_freq_hz"],
-        "sample_rate_hz": RTL_ML_SAMPLE_RATE,
+        "sample_rate_hz": MIMIR_SAMPLE_RATE,
         "capture_origin": CAPTURE_ORIGIN,
         "n_samples": len(iq_data),
     }
@@ -116,10 +136,11 @@ def process_sample(
     try:
         psd = compute_psd(
             samples=iq_data,
-            sample_rate_hz=RTL_ML_SAMPLE_RATE,
+            sample_rate_hz=MIMIR_SAMPLE_RATE,
             center_freq_hz=meta["center_freq_hz"],
         )
-        fingerprint = fingerprint_spectrum(psd)
+        threshold = meta.get("signal_threshold_db")
+        fingerprint = fingerprint_spectrum(psd, signal_threshold_db=threshold)
         metadata = build_metadata(class_name, sample_index, iq_data, meta)
         record = embedder.embed_fingerprint(fingerprint, metadata=metadata)
         return record

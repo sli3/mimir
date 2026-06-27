@@ -362,7 +362,7 @@ No code blocks. Raw JSON exactly matching this schema:
 {_JSON_SCHEMA}
 
 If you cannot confidently classify the signal, use signal_type "unknown" \
-and set confidence to "low". If all neighbours have distances above 0.031, \
+and set confidence to "low". If all neighbours have distances above 0.052, \
 set novel to true. Never invent data — only classify based on what you are given. /no_think"""
 
     def _build_user_prompt(
@@ -426,11 +426,11 @@ set novel to true. Never invent data — only classify based on what you are giv
                 label = n.get("label", "unknown")
                 distance = n.get("distance", 0.0)
 
-                if distance <= 0.005:
+                if distance <= 0.004:
                     match_label = "strong match"
-                elif distance <= 0.018:
+                elif distance <= 0.031:
                     match_label = "possible match"
-                elif distance <= 0.030:
+                elif distance <= 0.052:
                     match_label = "different signal type"
                 else:
                     match_label = "novel signal — not closely matched to anything stored"
