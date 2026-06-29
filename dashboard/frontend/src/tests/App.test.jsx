@@ -79,9 +79,9 @@ describe('App', () => {
     expect(screen.getByText('AI REASONING')).toBeInTheDocument()
   })
 
-  it('renders DECODED SIGNALS section', () => {
+  it('renders SIGNAL INTERCEPT section', () => {
     render(<App />)
-    expect(screen.getByText('DECODED SIGNALS')).toBeInTheDocument()
+    expect(screen.getByText('SIGNAL INTERCEPT')).toBeInTheDocument()
   })
 
   it('does not render ADS-B AIRCRAFT sub-panel when focusedFreq is null', () => {

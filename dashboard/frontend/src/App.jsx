@@ -1031,7 +1031,7 @@ export default function App() {
                 letterSpacing: '2px',
                 fontFamily: 'var(--font-data)',
               }}>
-                DECODED SIGNALS
+                SIGNAL INTERCEPT
               </span>
             </div>
             <div style={{
@@ -1045,7 +1045,8 @@ export default function App() {
                   borderBottom: '1px solid var(--border)',
                   display: 'flex',
                   flexDirection: 'column',
-                  flexShrink: 0,
+                  flex: 1,
+                  minHeight: 0,
                 }}>
                   {/* SUB-PANEL 1 — ADS-B AIRCRAFT */}
                   <div style={{
@@ -1096,9 +1097,9 @@ export default function App() {
                       </div>
                     )}
                   </div>
-                  <div style={{ padding: '0 10px 8px' }}>
+                  <div style={{ padding: '0 10px 8px', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
                     {isTuned(focusedFreq, 1090000000) ? (
-                      <div style={{ height: '200px', overflow: 'auto' }}>
+                      <div style={{ flex: 1, overflow: 'hidden' }}>
                         <AdsbAircraftPanel
                           adsbAircraft={adsbAircraft}
                           adsbAircraftHistory={adsbAircraftHistory}

@@ -6,7 +6,7 @@ description: >
   opencode-memo workflow. Does NOT touch any Python source files, test files, or
   opencode.json.
 mode: subagent
-model: local-llama/Qwen3.6-35b
+model: local-llama/Qwen3.5-9B(Q4)
 temperature: 0.2
 permission:
   edit: allow

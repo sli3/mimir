@@ -206,9 +206,10 @@ uv run python tools/seed_chromadb.py
 | 19b | calibrate_thresholds.py — antenna selection, single-band prompt, matrix split | ✅ Complete | 517 (375 pytest + 142 Vitest) |
 | 19c | classifier.py — ChromaDB distance threshold recalibration | ✅ Complete | 517 (375 pytest + 142 Vitest) |
 | 20 | Live Capture to Vector Store Ingestion Tool | ✅ Complete | 526 (384 pytest + 142 Vitest) |
+| 21 | ADS-B Frame Inspector + SIGNAL INTERCEPT rename | ✅ Complete | 538 (390 pytest + 148 Vitest) |
 
-**Total passing: 526 passing (384 pytest + 142 Vitest), 0 failures**
-- Note: All pre-existing pytest failures resolved. Updated 2026-06-27 after Phase 20.
+**Total passing: 538 passing (390 pytest + 148 Vitest), 0 failures**
+- Note: All pre-existing pytest failures resolved. Updated 2026-06-29 after Phase 21.
 
 ---
 

@@ -39,7 +39,7 @@ describe('AdsbRawDecode', () => {
     const mockHistory = []
     const mockFocusedFreq = 1090000000
 
-    it('shows "Awaiting decodes..." when adsbRawLog is empty', () => {
+    it('shows "Awaiting frames..." when adsbRawLog is empty', () => {
       render(
         <AdsbAircraftPanel
           adsbAircraft={mockAircraft}
@@ -48,7 +48,8 @@ describe('AdsbRawDecode', () => {
           adsbRawLog={[]}
         />
       )
-      expect(screen.getByText('Awaiting decodes...')).toBeInTheDocument()
+      const awaitingElements = screen.getAllByText('Awaiting frames...')
+      expect(awaitingElements.length).toBeGreaterThanOrEqual(1)
     })
 
     it('renders RAW DECODE section when adsbRawLog has entries', () => {

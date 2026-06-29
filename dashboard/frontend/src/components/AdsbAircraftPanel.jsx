@@ -50,18 +50,28 @@ function elapsedSeconds(receivedAt) {
 }
 
 /**
- * ADS-B aircraft tracking panel. Shows active aircraft in a table,
- * previously-seen aircraft below, and a raw decode view (hex/binary
- * toggle) for the last N Mode S frames when tuned to 1090 MHz.
+ * ADS-B aircraft tracking panel with raw decode view and frame inspector.
+ * Shows active aircraft in a table, previously-seen aircraft below, and a
+ * two-column layout when tuned to 1090 MHz:
+ *   - Left: RAW DECODE view showing recent Mode S frames (hex/binary toggle)
+ *   - Right: FRAME INSPECTOR showing parsed frame data from /api/adsb/parse
  *
  * @param {Object} adsbAircraft - Map of ICAO address -> aircraft state
  * @param {Array}  adsbAircraftHistory - Recently departed aircraft (ring buffer)
  * @param {number|null} focusedFreq - Currently tuned frequency in Hz
  * @param {Array}  adsbRawLog - Recent raw Mode S frames {icao, raw_hex}
+ * @param {string|null} pinnedFrame - Hex string of currently pinned frame, or null
+ * @param {Object|null} frameData - Parsed frame data from /api/adsb/parse, or null
+ * @param {Function} setPinnedFrame - Function to set pinned frame state
+ * @param {Function} setFrameData - Function to set frame data state
+ * @param {string} rawView - Current view mode ('hex' or 'bin')
+ * @param {Function} setRawView - Function to set raw view mode
  */
 export default function AdsbAircraftPanel({ adsbAircraft = {}, adsbAircraftHistory = [], focusedFreq, adsbRawLog = [] }) {
   const [now, setNow] = useState(Date.now())
   const [rawView, setRawView] = useState('hex')
+  const [pinnedFrame, setPinnedFrame] = useState(null)
+  const [frameData, setFrameData] = useState(null)
   const isAdsbFreq = focusedFreq && (
     Math.abs(focusedFreq - 1_090_000_000) <= 2_000_000
   )
@@ -70,6 +80,20 @@ export default function AdsbAircraftPanel({ adsbAircraft = {}, adsbAircraftHisto
     const timer = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(timer)
   }, [])
+
+  const targetHex = pinnedFrame ? pinnedFrame.raw_hex : adsbRawLog[0]?.raw_hex ?? null
+
+  useEffect(() => {
+    if (targetHex === null) {
+      setFrameData(null)
+      return
+    }
+
+    fetch(`/api/adsb/parse?hex=${targetHex}`)
+      .then((r) => r.json())
+      .then(setFrameData)
+      .catch(() => setFrameData(null))
+  }, [targetHex])
 
   const aircraftList = Object.values(adsbAircraft)
     .sort((a, b) => (b.receivedAt || 0) - (a.receivedAt || 0))
@@ -231,63 +255,196 @@ export default function AdsbAircraftPanel({ adsbAircraft = {}, adsbAircraftHisto
         </>
       )}
       {isAdsbFreq && (
-        <div style={{ marginTop: '8px', borderTop: '1px solid var(--border)', paddingTop: '6px' }}>
-          <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center',
-                        justifyContent: 'space-between', marginBottom: '4px' }}>
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: 12,
-                          color: 'var(--neon-cyan)', letterSpacing: '1px' }}>
-              RAW DECODE
+        <div style={{ marginTop: '8px', borderTop: '1px solid var(--border)', paddingTop: '6px', display: 'flex', flexDirection: 'row', gap: '8px' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center',
+                          justifyContent: 'space-between', marginBottom: '4px' }}>
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: 12,
+                            color: 'var(--neon-cyan)', letterSpacing: '1px' }}>
+                RAW DECODE
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'row', gap: '0px' }}>
+                {['hex', 'bin'].map((mode) => (
+                  <button
+                    key={mode}
+                    onClick={() => setRawView(mode)}
+                    style={{
+                      fontFamily: 'var(--font-data)',
+                      fontSize: 12,
+                      padding: '1px 6px',
+                      background: rawView === mode ? 'rgba(0,255,255,0.1)' : 'transparent',
+                      border: '1px solid var(--border)',
+                      borderColor: rawView === mode ? 'var(--neon-cyan)' : 'var(--border)',
+                      color: rawView === mode ? 'var(--neon-cyan)' : 'var(--text-dim)',
+                      cursor: 'pointer',
+                      letterSpacing: '1px',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    {mode}
+                  </button>
+                ))}
+              </div>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'row', gap: '0px' }}>
-              {['hex', 'bin'].map((mode) => (
-                <button
-                  key={mode}
-                  onClick={() => setRawView(mode)}
-                  style={{
-                    fontFamily: 'var(--font-data)',
-                    fontSize: 12,
-                    padding: '1px 6px',
-                    background: rawView === mode ? 'rgba(0,255,255,0.1)' : 'transparent',
-                    border: '1px solid var(--border)',
-                    borderColor: rawView === mode ? 'var(--neon-cyan)' : 'var(--border)',
-                    color: rawView === mode ? 'var(--neon-cyan)' : 'var(--text-dim)',
-                    cursor: 'pointer',
-                    letterSpacing: '1px',
-                    textTransform: 'uppercase',
-                  }}
-                >
-                  {mode}
-                </button>
-              ))}
-            </div>
+            {adsbRawLog.length === 0 ? (
+              <div style={{ fontFamily: 'var(--font-data)', fontSize: 12,
+                            color: 'var(--text-dim)' }}>
+                Awaiting frames...
+              </div>
+            ) : (
+              <div style={{ overflow: 'auto' }}>
+                {adsbRawLog.map((entry, idx) => {
+                  const isPinned = pinnedFrame && entry.icao === pinnedFrame.icao && entry.raw_hex === pinnedFrame.raw_hex
+                  const isNewest = !pinnedFrame && idx === 0
+                  return (
+                    <div
+                      key={idx}
+                      onClick={() => {
+                        if (isPinned) {
+                          setPinnedFrame(null)
+                        } else {
+                          setPinnedFrame(entry)
+                        }
+                      }}
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'row',
+                        gap: '8px',
+                        marginBottom: '2px',
+                        alignItems: 'flex-start',
+                        cursor: 'pointer',
+                        background: isPinned ? 'rgba(0,255,255,0.07)' : isNewest ? 'rgba(0,255,255,0.03)' : 'transparent',
+                        borderLeft: isPinned ? '2px solid var(--neon-cyan)' : 'none',
+                        paddingLeft: isPinned ? '6px' : '8px',
+                      }}
+                    >
+                      <span style={{ fontFamily: 'monospace', fontSize: 12,
+                                     color: 'var(--neon-cyan)', whiteSpace: 'nowrap',
+                                     flexShrink: 0 }}>
+                        {entry.icao}
+                      </span>
+                      <span style={{ fontFamily: 'monospace', fontSize: 11,
+                                     color: 'var(--text-dim)', wordBreak: 'break-all',
+                                     lineHeight: '1.4' }}>
+                        {rawView === 'hex'
+                          ? hexToSpaced(entry.raw_hex)
+                          : hexToBin(entry.raw_hex)}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
-          {adsbRawLog.length === 0 ? (
-            <div style={{ fontFamily: 'var(--font-data)', fontSize: 12,
-                          color: 'var(--text-dim)' }}>
-              Awaiting decodes...
+          <div style={{ width: '1px', background: 'var(--border)', flexShrink: 0, margin: '0 8px' }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: 12,
+                            color: 'var(--neon-cyan)', letterSpacing: '1px' }}>
+                FRAME INSPECTOR
+              </div>
+              {pinnedFrame && (
+                <div style={{
+                  fontFamily: 'var(--font-data)',
+                  fontSize: 10,
+                  color: 'var(--neon-amber)',
+                  border: '1px solid var(--neon-amber)',
+                  padding: '1px 5px',
+                }}>
+                  (PINNED)
+                </div>
+              )}
             </div>
-          ) : (
-            <div style={{ maxHeight: '120px', overflow: 'auto' }}>
-              {adsbRawLog.map((entry, idx) => (
-                <div key={idx} style={{ display: 'flex', flexDirection: 'row',
-                                         gap: '8px', marginBottom: '2px',
-                                         alignItems: 'flex-start' }}>
-                  <span style={{ fontFamily: 'monospace', fontSize: 12,
-                                 color: 'var(--neon-cyan)', whiteSpace: 'nowrap',
+            {adsbRawLog.length === 0 ? (
+              <div style={{ fontFamily: 'var(--font-data)', fontSize: 12,
+                            color: 'var(--text-dim)' }}>
+                Awaiting frames...
+              </div>
+            ) : frameData === null ? (
+              <div style={{ fontFamily: 'var(--font-data)', fontSize: 12,
+                            color: 'var(--text-dim)' }}>
+                Decoding...
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
+                <div style={{ display: 'flex', flexDirection: 'row', borderBottom: '1px solid #0F2030', padding: '4px 0' }}>
+                  <span style={{ fontFamily: 'var(--font-data)', fontSize: 10,
+                                 color: 'var(--text-dim)', letterSpacing: '1px',
                                  flexShrink: 0 }}>
-                    {entry.icao}
+                    DOWNLINK FORMAT
                   </span>
-                  <span style={{ fontFamily: 'monospace', fontSize:11,
-                                 color: 'var(--text-dim)', wordBreak: 'break-all',
-                                 lineHeight: '1.4' }}>
-                    {rawView === 'hex'
-                      ? hexToSpaced(entry.raw_hex)
-                      : hexToBin(entry.raw_hex)}
+                  <span style={{ fontFamily: 'var(--font-data)', fontSize: 11,
+                                 color: 'var(--text)', textAlign: 'right',
+                                 marginLeft: 'auto' }}>
+                    {frameData.df !== null && frameData.df !== undefined ? String(frameData.df) : '—'}
                   </span>
                 </div>
-              ))}
-            </div>
-          )}
+                <div style={{ display: 'flex', flexDirection: 'row', borderBottom: '1px solid #0F2030', padding: '4px 0' }}>
+                  <span style={{ fontFamily: 'var(--font-data)', fontSize: 10,
+                                 color: 'var(--text-dim)', letterSpacing: '1px',
+                                 flexShrink: 0 }}>
+                    ICAO ADDRESS
+                  </span>
+                  <span style={{ fontFamily: 'var(--font-data)', fontSize: 11,
+                                 color: 'var(--neon-cyan)', textAlign: 'right',
+                                 marginLeft: 'auto' }}>
+                    {frameData.icao ?? '—'}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'row', borderBottom: '1px solid #0F2030', padding: '4px 0' }}>
+                  <span style={{ fontFamily: 'var(--font-data)', fontSize: 10,
+                                 color: 'var(--text-dim)', letterSpacing: '1px',
+                                 flexShrink: 0 }}>
+                    TYPECODE
+                  </span>
+                  <span style={{ fontFamily: 'var(--font-data)', fontSize: 11,
+                                 color: 'var(--text)', textAlign: 'right',
+                                 marginLeft: 'auto' }}>
+                    {frameData.typecode !== null && frameData.typecode !== undefined ? String(frameData.typecode) : '—'}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'row', borderBottom: '1px solid #0F2030', padding: '4px 0' }}>
+                  <span style={{ fontFamily: 'var(--font-data)', fontSize: 10,
+                                 color: 'var(--text-dim)', letterSpacing: '1px',
+                                 flexShrink: 0 }}>
+                    MESSAGE TYPE
+                  </span>
+                  <span style={{ fontFamily: 'var(--font-data)', fontSize: 11,
+                                 color: 'var(--text)', textAlign: 'right',
+                                 marginLeft: 'auto' }}>
+                    {frameData.message_type ?? '—'}
+                  </span>
+                </div>
+                {frameData.fields && Object.entries(frameData.fields).map(([k, v]) => (
+                  <div key={k} style={{ display: 'flex', flexDirection: 'row', borderBottom: '1px solid #0F2030', padding: '4px 0' }}>
+                    <span style={{ fontFamily: 'var(--font-data)', fontSize: 10,
+                                   color: 'var(--text-dim)', letterSpacing: '1px',
+                                   flexShrink: 0 }}>
+                      {k.toUpperCase()}
+                    </span>
+                    <span style={{ fontFamily: 'var(--font-data)', fontSize: 11,
+                                   color: 'var(--text)', textAlign: 'right',
+                                   marginLeft: 'auto' }}>
+                      {v}
+                    </span>
+                  </div>
+                ))}
+                <div style={{ display: 'flex', flexDirection: 'row', borderBottom: '1px solid #0F2030', padding: '4px 0' }}>
+                  <span style={{ fontFamily: 'var(--font-data)', fontSize: 10,
+                                 color: 'var(--text-dim)', letterSpacing: '1px',
+                                 flexShrink: 0 }}>
+                    CRC
+                  </span>
+                  <span style={{ fontFamily: 'var(--font-data)', fontSize: 11,
+                                 textAlign: 'right',
+                                 marginLeft: 'auto',
+                                 color: frameData.crc_ok === true ? 'var(--neon-green)' : frameData.crc_ok === false ? 'var(--neon-red)' : 'var(--text-dim)' }}>
+                    {frameData.crc_ok === true ? 'OK ✓' : frameData.crc_ok === false ? 'FAIL ✗' : '—'}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
