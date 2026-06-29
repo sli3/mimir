@@ -203,6 +203,8 @@ uv run python tools/seed_chromadb.py
 | 18 | Feature B: Raw ADS-B Hex Decode View | ✅ Complete | 507 (373 pytest + 134 Vitest) |
 | 18b | Raw Decode Log — ACARS and AIS | ✅ Complete | 517 (375 pytest + 142 Vitest) |
 | 19a | calibrate_thresholds.py — missing bands + ADS-B gain fix | ✅ Complete | 517 (375 pytest + 142 Vitest) |
+| 19b | calibrate_thresholds.py — antenna selection, single-band prompt, matrix split | ✅ Complete | 517 (375 pytest + 142 Vitest) |
+| 19c | classifier.py — ChromaDB distance threshold recalibration | ✅ Complete | 517 (375 pytest + 142 Vitest) |
 | 20 | Live Capture to Vector Store Ingestion Tool | ✅ Complete | 526 (384 pytest + 142 Vitest) |
 
 **Total passing: 526 passing (384 pytest + 142 Vitest), 0 failures**
@@ -378,6 +380,9 @@ Do not apply this pre-emptively — only if context problems are observed.
 | ~~`config/mimir.yaml` stale comment~~ | ~~Comment said "runtime loading not yet implemented" but `scan.py` already calls `load_config()`.~~ | ~~Phase 2+~~ ✅ 2026-06-24 |
 | Inner NOT TUNED badge branches in decoder sub-panels | Phase 17 outer conditional wrappers only render panels when tuned, making the inner NOT TUNED badges and "TUNE TO X" prompts unreachable dead code. Left in place per spec (no internal sub-panel JSX changes). | Future phase |
 | Missing `isAdsbTuned()` helper | `isAcarsTuned()` and `isAisTuned()` helpers exist but ADS-B tuning check is still inline. Optional consistency improvement. | Future phase |
+| ~~RTL-ML sample rate in seed_chromadb.py~~ | ~~`compute_psd` called at 1,024,000 Hz (RTL-ML rate) — `bandwidth_hz`/`occupied_bins` dimension-corrupted vs live 2,000,000 Hz vectors.~~ Fixed pre-Phase 20: `seed_chromadb.py` now uses `MIMIR_SAMPLE_RATE = 2_000_000`. | ~~pre-Phase 20~~ ✅ seed hotfix |
+| Missing ADS-B / NOAA_APT ChromaDB entries | Both classes absent from RTL-ML dataset — 0 records in production vectorstore for these bands until live capture runs via `tools/capture_to_vectorstore.py`. | Pending live capture window |
+| ~~Phase 19b/19c governance rows missing~~ | ~~Phase tracker entries for 19b and 19c were never written — checkpoint mode was off for both builds.~~ Added this session. | ~~This session~~ ✅ RESOLVED |
 
 ---
 
