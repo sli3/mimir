@@ -7,7 +7,7 @@ description: >
   Part of the standard analysis team — pairs with @deep-analyst for complex
   investigations. Read-only — never modifies files.
 mode: subagent
-model: opencode-go/mimo-v2.5-pro
+model: opencode/nemotron-3-ultra-free
 temperature: 0.2
 tools:
   write: false

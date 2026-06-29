@@ -6,7 +6,7 @@ description: >
   AGENTS.md conventions. Read-only — reports findings to the Project Manager,
   does not edit code. Invoked by /build at Step 5b.
 mode: subagent
-model: opencode/mimo-v2.5-free
+model: zai-coding-plan/glm-4.7
 temperature: 0.1
 permission:
   edit: deny

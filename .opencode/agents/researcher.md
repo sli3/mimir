@@ -6,7 +6,7 @@ description: >
   concept, ChromaDB API, FFT theory, or SoapySDR behaviour.
   Read-only — never modifies or creates files.
 mode: subagent
-model: opencode-go/mimo-v2.5
+model: opencode/mimo-v2.5-free
 temperature: 0.5
 tools:
   write: false

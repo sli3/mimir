@@ -6,7 +6,7 @@ description: >
   phase. Invoked by /build at Step 8. Does NOT touch the AGENTS.md phase
   tracker or ROADMAP.md — those are handled separately by @memo-writer.
 mode: subagent
-model: opencode-go/mimo-v2.5
+model: opencode/north-mini-code-free
 temperature: 0.2
 permission:
   edit: allow
