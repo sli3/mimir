@@ -329,9 +329,13 @@ EOF
     if groups "${USER}" | grep -q plugdev; then
         success "User '${USER}' already in plugdev group."
     else
+        if ! getent group plugdev >/dev/null 2>&1; then
+            info "Group 'plugdev' does not exist on this system — creating it."
+            sudo groupadd plugdev
+        fi
         info "Adding user '${USER}' to plugdev group..."
         sudo usermod -aG plugdev "${USER}"
-        warn "Group change requires logout/login to take effect."
+        warn "Group change requires logout/login (or unplug/replug HackRF) to take effect."
     fi
 }
 

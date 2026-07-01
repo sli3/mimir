@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import React from 'react'
 import AdsbAircraftPanel from '../components/AdsbAircraftPanel.jsx'
 
@@ -40,7 +40,7 @@ describe('AdsbFrameInspector', () => {
   })
 
   describe('frame fetching', () => {
-    it('test_frame_inspector_fetches_newest_frame_automatically', () => {
+    it('test_frame_inspector_fetches_newest_frame_automatically', async () => {
       const mockFrameData = {
         df: 17,
         icao: '7C1CA5',
@@ -77,6 +77,16 @@ describe('AdsbFrameInspector', () => {
       expect(fetchCallArgs).toContain('/api/adsb/parse?hex=')
       expect(fetchCallArgs).toContain('8D7C1CA5902136CF')
 
+      // Wait for the resolved frame data to actually render. This is the
+      // real synchronisation point: it only becomes true after
+      // setFrameData has run inside the promise chain, so it correctly
+      // captures that state update inside act() via RTL's waitFor
+      // (NOT vi.waitFor, which is React/act-unaware and does not help
+      // here — see https://github.com/vitest-dev/vitest/discussions/7062).
+      await waitFor(() => {
+        expect(screen.getByText('35000 ft')).toBeInTheDocument()
+      })
+
       vi.unstubAllGlobals()
     })
   })
@@ -111,8 +121,14 @@ describe('AdsbFrameInspector', () => {
         />
       )
 
-      await vi.waitFor(() => {
-        expect(screen.getByText('ENTRY2')).toBeInTheDocument()
+      // Wait for the automatic mount-time fetch (targetHex defaults to
+      // entry1, the newest entry, before any pin exists) to actually
+      // resolve and clear the "Decoding..." placeholder, before we start
+      // clicking around. "Decoding..." only disappears once frameData
+      // has been set, so this is a real synchronisation point rather
+      // than a condition that's trivially true immediately after render.
+      await waitFor(() => {
+        expect(screen.queryByText('Decoding...')).not.toBeInTheDocument()
       })
 
       const allText = container.textContent
@@ -125,13 +141,13 @@ describe('AdsbFrameInspector', () => {
 
       fireEvent.click(entry2Target)
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(screen.getByText('(PINNED)')).toBeInTheDocument()
       })
 
       fireEvent.click(entry2Target)
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(screen.queryByText('(PINNED)')).toBeNull()
       })
 
