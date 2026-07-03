@@ -79,7 +79,7 @@ Phases are listed newest-first so the current phase is always at the top.
 
 ---
 
-### Phase 22 — LLM Offline Handling ✓ DONE
+### Phase 22 Hotfix — LLM Offline Emit Rate-Limit ▶ ACTIVE
 
 **What:** Added offline resilience to the LLM classifier. The classifier now:
 

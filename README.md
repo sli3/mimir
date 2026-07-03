@@ -188,8 +188,9 @@ event rate, gap detection, and a PASS/FAIL summary. Use `--duration 60` minimum
 | 18b | Raw Decode Log — ACARS and AIS | ✅ Complete | 517/517 (375 pytest + 142 Vitest) |
 | 20 | Live Capture → Vector Store Ingestion Tool | ✅ Complete | 526/526 (384 pytest + 142 Vitest) |
 | 22 | LLM Offline Handling — health check + cooldown system | ✅ Complete | 548/548 (399 pytest + 149 Vitest) |
+| 22-Hotfix | LLM offline emit rate-limit (SocketIO flood fix) | ✅ Complete | 551/551 (402 pytest + 149 Vitest) |
 
-**Total: 548 passing (399 pytest + 149 Vitest), 0 failures**
+**Total: 551 passing (402 pytest + 149 Vitest), 0 failures**
 
 > **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector
 > store (`data/vectorstore/`) must be re-seeded after deploying this build.

@@ -208,9 +208,10 @@ uv run python tools/seed_chromadb.py
 | 20 | Live Capture to Vector Store Ingestion Tool | ✅ Complete | 526 (384 pytest + 142 Vitest) |
 | 21 | ADS-B Frame Inspector + SIGNAL INTERCEPT rename | ✅ Complete | 538 (390 pytest + 148 Vitest) |
 | 22 | LLM Offline Handling — health check + cooldown system | ✅ Complete | 548 (399 pytest + 149 Vitest) |
+| 22-Hotfix | LLM offline emit rate-limit (SocketIO flood fix) | ✅ Complete | 551 (402 pytest + 149 Vitest) |
 
-**Total passing: 548 passing (399 pytest + 149 Vitest), 0 failures**
-- Note: All pre-existing pytest failures resolved. Updated 2026-07-03 after Phase 22.
+**Total passing: 551 passing (402 pytest + 149 Vitest), 0 failures**
+- Note: All pre-existing pytest failures resolved. Updated 2026-07-03 after Phase 22 Hotfix.
 
 ---
 

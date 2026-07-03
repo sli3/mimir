@@ -352,3 +352,98 @@ class TestScanRunner:
         assert len(scan_results) == 1
         assert scan_results[0] is scan_result
         assert len(spectrum_calls) == 0
+
+    def test_ai_loop_suppresses_rapid_offline_emits(self, scanner, mock_classifier):
+        """If an llm_offline result arrives within the 5-second emit window, it must
+        not be emitted and _last_offline_emit must remain unchanged."""
+        mock_classifier.classify.return_value = ClassificationResult(
+            signal_type="llm_offline",
+            confidence="low",
+            confidence_score=0.0,
+            novel=False,
+            reasoning="LLM unreachable",
+            au_legal_status="legal_rx",
+            frequency_band="unknown",
+            raw_response='{}',
+        )
+        scanner._running = True
+        scanner._queue.put_nowait({
+            "freq_hz": 98_000_000.0,
+            "fingerprint": {"center_freq_hz": 98_000_000.0},
+            "vector": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.3],
+        })
+        original_last_emit = time.time()
+        scanner._last_offline_emit = original_last_emit
+
+        with patch.object(scanner, "_emit_result") as mock_emit:
+            t = threading.Thread(target=scanner._ai_loop, daemon=True)
+            t.start()
+            time.sleep(0.1)
+            scanner.stop()
+            t.join(timeout=3)
+
+            mock_emit.assert_not_called()
+
+        assert scanner._last_offline_emit == original_last_emit
+
+    def test_ai_loop_emits_offline_after_interval(self, scanner, mock_classifier):
+        """If the 5-second emit window has expired, an llm_offline result must be
+        emitted and _last_offline_emit updated to approximately now."""
+        mock_classifier.classify.return_value = ClassificationResult(
+            signal_type="llm_offline",
+            confidence="low",
+            confidence_score=0.0,
+            novel=False,
+            reasoning="LLM unreachable",
+            au_legal_status="legal_rx",
+            frequency_band="unknown",
+            raw_response='{}',
+        )
+        scanner._running = True
+        scanner._queue.put_nowait({
+            "freq_hz": 98_000_000.0,
+            "fingerprint": {"center_freq_hz": 98_000_000.0},
+            "vector": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.3],
+        })
+        scanner._last_offline_emit = time.time() - 10.0
+
+        with patch.object(scanner, "_emit_result") as mock_emit:
+            t = threading.Thread(target=scanner._ai_loop, daemon=True)
+            t.start()
+            time.sleep(0.1)
+            scanner.stop()
+            t.join(timeout=3)
+
+            mock_emit.assert_called_once()
+
+        assert scanner._last_offline_emit > time.time() - 2.0
+
+    def test_ai_loop_normal_results_always_emitted(self, scanner, mock_classifier):
+        """The llm_offline rate-limit gate must never suppress normal
+        classification results, even when the offline emit window is active."""
+        mock_classifier.classify.return_value = ClassificationResult(
+            signal_type="fm_broadcast",
+            confidence="high",
+            confidence_score=0.95,
+            novel=False,
+            reasoning="Strong match to FM broadcast",
+            au_legal_status="legal_rx",
+            frequency_band="fm_broadcast_band",
+            raw_response='{}',
+        )
+        scanner._running = True
+        scanner._queue.put_nowait({
+            "freq_hz": 98_000_000.0,
+            "fingerprint": {"center_freq_hz": 98_000_000.0},
+            "vector": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.3],
+        })
+        scanner._last_offline_emit = time.time()
+
+        with patch.object(scanner, "_emit_result") as mock_emit:
+            t = threading.Thread(target=scanner._ai_loop, daemon=True)
+            t.start()
+            time.sleep(0.1)
+            scanner.stop()
+            t.join(timeout=3)
+
+            mock_emit.assert_called_once()

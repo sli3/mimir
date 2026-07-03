@@ -31,6 +31,21 @@ class ScanRunner:
     into _last_backlog when the AI loop picks up an item, then reset.
     """
     def __init__(self, device, embedder, store, classifier, config: MimirConfig) -> None:
+        """Initialise the two-thread scanner.
+
+        The scan loop captures IQ and queues fingerprints; the AI loop classifies
+        the freshest sample via LLM. Queue behaviour is "latest wins" — the scan
+        loop drains the queue before every insert so the AI loop always sees the
+        most recent scan. At steady state the queue holds 0–1 items.
+
+        Stats counters:
+        _scan_count_since_llm — increments once per scan cycle; snapshot
+        into _last_backlog when the AI loop picks up an item, then reset.
+
+        _last_offline_emit — timestamp of the last llm_offline emit; used to
+        rate-limit offline results to one every 5 seconds to avoid SocketIO
+        flooding.
+        """
         self._device = device
         self._embedder = embedder
         self._store = store
@@ -49,6 +64,7 @@ class ScanRunner:
         self._llm_call_count: int = 0
         self._active_freq_hz: float = 0.0
         self._last_llm_ms: float = 0.0
+        self._last_offline_emit: float = 0.0
         self._focus_freq_hz: float = config.frequencies_hz[0]
         self._focus_lock: threading.Lock = threading.Lock()
         self._iq_subscribers: list = []
@@ -210,6 +226,20 @@ class ScanRunner:
                 logger.exception("Scan loop error at %.3f MHz", freq_hz / 1e6)
 
     def _ai_loop(self) -> None:
+        """AI classification loop.
+
+        Runs continuously while ``_running`` is True. Each iteration:
+        1. Waits for the next fingerprint from the scan loop queue (timeout 1s).
+        2. Queries ChromaDB for nearest neighbours (5 results).
+        3. Calls the LLM classifier with the fingerprint, neighbour context, and
+           ACMA band reference.
+        4. Rate-limits llm_offline results to one emit every 5 seconds to avoid
+           SocketIO flooding. Normal classification results are unaffected.
+        5. Emits a ScanResult via ``_emit_result()`` for all non-offline results.
+
+        The queue is drained before each scan-loop insertion, so the AI loop
+        always sees the freshest scan. At steady state the queue holds 0–1 items.
+        """
         q = self._queue
         while self._running:
             try:
@@ -243,6 +273,17 @@ class ScanRunner:
                 )
                 self._llm_call_count += 1
                 self._last_llm_ms = (time.time() - t0) * 1000.0
+
+                # Rate-limit llm_offline emits — fast-fail returns in microseconds, which
+                # floods SocketIO and causes the frontend to report a false disconnect.
+                # One emit every 5 seconds is sufficient to keep the UI updated without
+                # saturating the socket. Normal classification results are unaffected.
+                if result.signal_type == "llm_offline":
+                    now = time.time()
+                    if now - self._last_offline_emit < 5.0:
+                        continue
+                    self._last_offline_emit = now
+
                 scan_result = ScanResult(
                     timestamp=datetime.now().isoformat(),
                     center_freq_hz=item["freq_hz"],

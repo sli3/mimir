@@ -60,6 +60,7 @@
 | 19c | classifier.py — ChromaDB distance threshold recalibration | ✅ Complete | 517 (375 pytest + 142 Vitest) |
 | 20 | Live Capture to Vector Store Ingestion Tool | ✅ Complete | 526 (384 pytest + 142 Vitest) |
 | 22 | LLM Offline Handling — health check + cooldown system | ✅ Complete | 548 (399 pytest + 149 Vitest) |
+| 22-Hotfix | LLM offline emit rate-limit (SocketIO flood fix) | ✅ Complete | 551 (402 pytest + 149 Vitest) |
 
 ### Phase 11 Hotfix — Broadcast Defaults + FM Threshold + Startup Guard ✅
 
@@ -999,7 +1000,7 @@ seeding the production store with fresh live vectors.
 2. **scanner.py `_llm_call_count` inflation during offline/cooldown**: The AI loop increments `_llm_call_count` even when `classify()` fast-fails during cooldown, inflating the metric. Consider fixing in a future phase.
 3. **Timeout in `classify()` does not trigger cooldown**: Per explicit Phase 22 spec, only `ConnectionError` in `classify()` sets cooldown; `Timeout` still returns `unavailable`. `check_connection()` does treat Timeout as offline. Asymmetry could be addressed in a future robustness pass.
 
-**Test counts:** 548 (399 pytest + 149 Vitest), 0 failures
+**Test counts:** 551 (402 pytest + 149 Vitest), 0 failures
 
 ---
 
