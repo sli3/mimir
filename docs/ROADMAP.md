@@ -56,7 +56,10 @@
 | 18 | Feature B: Raw ADS-B Hex Decode View | ✅ Complete | 507 (373 pytest + 134 Vitest) |
 | 18b | Raw Decode Log — ACARS and AIS | ✅ Complete | 517 (375 pytest + 142 Vitest) |
 | 19a | calibrate_thresholds.py — missing bands + ADS-B gain fix | ✅ Complete | 517 (375 pytest + 142 Vitest) |
+| 19b | calibrate_thresholds.py — antenna selection, single-band prompt, matrix split | ✅ Complete | 517 (375 pytest + 142 Vitest) |
+| 19c | classifier.py — ChromaDB distance threshold recalibration | ✅ Complete | 517 (375 pytest + 142 Vitest) |
 | 20 | Live Capture to Vector Store Ingestion Tool | ✅ Complete | 526 (384 pytest + 142 Vitest) |
+| 22 | LLM Offline Handling — health check + cooldown system | ✅ Complete | 548 (399 pytest + 149 Vitest) |
 
 ### Phase 11 Hotfix — Broadcast Defaults + FM Threshold + Startup Guard ✅
 
@@ -975,6 +978,28 @@ seeding the production store with fresh live vectors.
   documented in README (user must stop scan.py first).
 
 **Test counts:** 526 (384 pytest + 142 Vitest), 0 failures
+
+---
+
+### Phase 22 — LLM Offline Handling ✅
+
+**Goal:** Add a configurable LLM health-check and cooldown system to prevent the scanner from hanging when the local LLM server is unreachable.
+
+**Delivered:**
+- `llm/classifier.py` — New `check_connection()` method probes `GET {base_url}/models` at startup and on demand. Cooldown system: only `ConnectionError` triggers `_offline_until`; HTTP errors/malformed JSON → `signal_type="unavailable"`. Auto-recovery clears `_offline_until` on successful response.
+- `llm/classifier.py` — `classify()` fast-fails during cooldown with `signal_type="llm_offline"` and zero network calls.
+- `config/mimir.yaml` — Added optional `llm_cooldown_sec` (default 60.0) and `llm_connect_timeout_sec` (default 5.0).
+- `core/config/loader.py` — Extended `MimirConfig` dataclass with new LLM timeout fields.
+- `scan.py` — Calls `classifier.check_connection()` at startup before creating `ScanRunner`; does NOT exit or raise on failure.
+- Frontend: `AIReasoningPanel.jsx` and `SignalHistoryLog.jsx` display `llm_offline` in amber with "LLM OFFLINE" label.
+- Tests: 9 new pytest tests in `tests/llm/test_classifier_offline.py`; 1 existing pytest test renamed/updated in `tests/llm/test_phase4_classifier.py`; 1 new Vitest test in `dashboard/frontend/src/tests/AIReasoningPanel.test.jsx`.
+
+**Deferred items recorded:**
+1. **SIGNAL_THRESHOLD_DB discrepancy**: Field log reported 21 dB threshold, project memory says 27 dB. Value lives in `core/pipeline/features.py`. Needs verification against live file before next calibration run.
+2. **scanner.py `_llm_call_count` inflation during offline/cooldown**: The AI loop increments `_llm_call_count` even when `classify()` fast-fails during cooldown, inflating the metric. Consider fixing in a future phase.
+3. **Timeout in `classify()` does not trigger cooldown**: Per explicit Phase 22 spec, only `ConnectionError` in `classify()` sets cooldown; `Timeout` still returns `unavailable`. `check_connection()` does treat Timeout as offline. Asymmetry could be addressed in a future robustness pass.
+
+**Test counts:** 548 (399 pytest + 149 Vitest), 0 failures
 
 ---
 

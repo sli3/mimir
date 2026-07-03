@@ -23,6 +23,16 @@ const SAMPLE_REASONING = {
   timestamp: '2026-06-03T12:30:00.000Z',
 }
 
+const OFFLINE_REASONING = {
+  freq_hz: 98000000,
+  signal_type: 'llm_offline',
+  confidence: 'low',
+  confidence_score: 0.0,
+  au_legal_status: 'UNKNOWN',
+  reasoning: 'LLM server offline at http://192.168.0.66:8080/v1. Cooldown active — next retry in 42 s.',
+  timestamp: '2026-06-03T12:30:00.000Z',
+}
+
 const UNAVAILABLE_REASONING = {
   freq_hz: 98000000,
   signal_type: 'unavailable',
@@ -68,6 +78,17 @@ describe('AIReasoningPanel', () => {
     )
     expect(screen.getByText('TIMEOUT')).toBeInTheDocument()
     expect(screen.getByText('LLM TIMEOUT — ChromaDB match only')).toBeInTheDocument()
+  })
+
+  it('shows amber LLM OFFLINE text when signal_type is llm_offline', () => {
+    render(
+      <AIReasoningPanel
+        aiReasoning={OFFLINE_REASONING}
+        focusedFreq={98000000}
+      />
+    )
+    expect(screen.getByText('LLM OFFLINE')).toBeInTheDocument()
+    expect(screen.getByText(/Cooldown active/)).toBeInTheDocument()
   })
 
   it('renders PINNED badge when isPinned=true and signal_type is set', () => {

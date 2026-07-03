@@ -64,6 +64,9 @@ const SignalHistoryLog = React.memo(function SignalHistoryLog({ scanResults, onP
           const isPeakBurst = entry.peak_bin_power_db != null
             && entry.peak_power_db != null
             && (entry.peak_bin_power_db - entry.peak_power_db) >= PEAK_BURST_MARGIN_DB
+          const signalTypeColour = entry.signal_type === 'llm_offline'
+            ? 'var(--neon-amber)'
+            : 'var(--text-bright)'
 
           return (
             <div
@@ -84,7 +87,7 @@ const SignalHistoryLog = React.memo(function SignalHistoryLog({ scanResults, onP
               <span style={{ color: colour }}>
                 [{freqLabel(entry.center_freq_hz)}]
               </span>{' '}
-              <span style={{ color: 'var(--text-bright)' }}>
+              <span style={{ color: signalTypeColour }}>
                 {entry.signal_type || entry.label}
               </span>{' '}
               <span style={{ color: colour }}>

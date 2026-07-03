@@ -324,10 +324,10 @@ class TestFallbackBehaviour:
     """
 
     @patch("llm.classifier.requests.post")
-    def test_llm_unavailable_returns_fallback(
+    def test_llm_connection_error_returns_offline(
         self, mock_post, classifier, fm_fingerprint, fm_neighbours
     ):
-        """Connection error returns fallback result — does not raise."""
+        """Connection error returns offline result — does not raise."""
         mock_post.side_effect = requests.exceptions.ConnectionError("refused")
 
         result = classifier.classify(fm_fingerprint, fm_neighbours)
@@ -336,7 +336,7 @@ class TestFallbackBehaviour:
             "classify() must return a ClassificationResult even when the "
             "LLM server is unreachable — not raise an exception."
         )
-        assert result.signal_type == "unavailable"
+        assert result.signal_type == "llm_offline"
         assert result.confidence == "low"
         assert result.confidence_score == 0.0
 
@@ -371,11 +371,11 @@ class TestFallbackBehaviour:
     def test_fallback_reasoning_is_non_empty(
         self, mock_post, classifier, fm_fingerprint, fm_neighbours
     ):
-        """Fallback result always includes a non-empty reasoning string."""
+        """Offline result always includes a non-empty reasoning string."""
         mock_post.side_effect = requests.exceptions.ConnectionError("refused")
         result = classifier.classify(fm_fingerprint, fm_neighbours)
         assert len(result.reasoning) > 0, (
-            "Fallback result must include a reasoning string explaining "
+            "Offline result must include a reasoning string explaining "
             "why classification was not possible."
         )
 
@@ -383,7 +383,7 @@ class TestFallbackBehaviour:
     def test_fallback_au_legal_status_is_verify(
         self, mock_post, classifier, fm_fingerprint, fm_neighbours
     ):
-        """Fallback result sets au_legal_status to verify_before_use."""
+        """Offline result sets au_legal_status to verify_before_use."""
         mock_post.side_effect = requests.exceptions.ConnectionError("refused")
         result = classifier.classify(fm_fingerprint, fm_neighbours)
         assert result.au_legal_status == "verify_before_use"

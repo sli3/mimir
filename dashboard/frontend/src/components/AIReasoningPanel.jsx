@@ -146,9 +146,11 @@ export default function AIReasoningPanel({ aiReasoning, isPinned = false, onUnpi
             marginTop: 4,
           }}>
             <span style={{ color: 'var(--neon-cyan)' }}>
-              {displayData.signal_type === 'unavailable'
-                ? 'TIMEOUT'
-                : (displayData.signal_type || '').toUpperCase()}
+              {displayData.signal_type === 'llm_offline'
+                ? 'LLM OFFLINE'
+                : displayData.signal_type === 'unavailable'
+                  ? 'TIMEOUT'
+                  : (displayData.signal_type || '').toUpperCase()}
             </span>
             <span style={{ color: 'var(--text-dim)' }}>: </span>
             <span style={{ color: 'var(--neon-cyan)' }}>
@@ -199,7 +201,7 @@ export default function AIReasoningPanel({ aiReasoning, isPinned = false, onUnpi
           <div style={{
             fontFamily: 'var(--font-data)',
             fontSize: 13,
-            color: displayData.signal_type === 'unavailable'
+            color: (displayData.signal_type === 'unavailable' || displayData.signal_type === 'llm_offline')
               ? 'var(--neon-amber)'
               : 'var(--text-dim)',
             lineHeight: 1.5,

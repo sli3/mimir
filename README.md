@@ -117,6 +117,18 @@ PYTHONPATH=. python scan.py
 
 ---
 
+## LLM Offline Handling
+
+The LLM classifier now includes offline resilience to handle temporary unavailability of the LLM server on yubaba. Key changes:
+
+- **Startup health check** — `scan.py` calls `classifier.check_connection()` before starting the scan loop. If the server is unreachable, the classifier enters a 60-second cooldown period.
+- **Graceful offline results** — During cooldown, classification requests return a `ClassificationResult` with `signal_type="llm_offline"`, confidence "low", and a human-readable reasoning message.
+- **Configurable timeouts** — Added `llm_cooldown_sec` and `llm_connect_timeout_sec` configuration fields in `config/mimir.yaml` (defaults: 60 seconds cooldown, 5 seconds connection timeout).
+
+The dashboard displays offline status in the AI Reasoning panel (amber "LLM OFFLINE" label) and Signal History log (amber colour for `llm_offline` entries).
+
+---
+
 ## Diagnostic Tool
 
 To verify the live pipeline is emitting events correctly (requires `scan.py` running):
@@ -175,8 +187,9 @@ event rate, gap detection, and a PASS/FAIL summary. Use `--duration 60` minimum
 | 18 | Feature B: Raw ADS-B Hex Decode View | ✅ Complete | 507/507 (373 pytest + 134 Vitest) |
 | 18b | Raw Decode Log — ACARS and AIS | ✅ Complete | 517/517 (375 pytest + 142 Vitest) |
 | 20 | Live Capture → Vector Store Ingestion Tool | ✅ Complete | 526/526 (384 pytest + 142 Vitest) |
+| 22 | LLM Offline Handling — health check + cooldown system | ✅ Complete | 548/548 (399 pytest + 149 Vitest) |
 
-**Total: 526 passing (384 pytest + 142 Vitest), 0 failures**
+**Total: 548 passing (399 pytest + 149 Vitest), 0 failures**
 
 > **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector
 > store (`data/vectorstore/`) must be re-seeded after deploying this build.

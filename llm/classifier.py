@@ -34,6 +34,7 @@ trustworthy rather than just a number.
 
 import json
 import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
@@ -58,7 +59,12 @@ class ClassificationResult:
                         "marine_vhf", "ais", "marine_hf", "marine_satellite",
                         "epirb_plb", "noaa_weather_sat", "met_satellite",
                         "satellite_tv", "time_signal", "noise", "unknown".
-                        "unavailable" means the LLM server was unreachable.
+                        "unavailable" means classification failed for a
+                        non-network reason (malformed JSON, unexpected response
+                        structure, etc.).
+                        "llm_offline" means the LLM server is unreachable
+                        (ConnectionError, or cooldown active after a recent
+                        connection failure).
 
     confidence       : Human-readable confidence tier.
                        "high"   = LLM is confident in the classification.
@@ -213,6 +219,7 @@ class SignalClassifier:
     """
 
     _FALLBACK_SIGNAL_TYPE = "unavailable"
+    _OFFLINE_SIGNAL_TYPE = "llm_offline"
     _REQUEST_TIMEOUT_SEC = 90
 
     def __init__(
@@ -220,6 +227,8 @@ class SignalClassifier:
         base_url: str = "http://192.168.0.66:8080/v1",
         model: str = "Qwen3-4B-Mimir",
         temperature: float = 0.1,
+        cooldown_sec: float = 60.0,
+        connect_timeout_sec: float = 5.0,
     ) -> None:
         """
         Initialise the classifier.
@@ -230,12 +239,54 @@ class SignalClassifier:
             model       : Model name to pass to the API.
             temperature : LLM temperature. Keep low (0.1) for classification —
                           you want consistent, deterministic results, not creativity.
+            cooldown_sec: Seconds to suppress LLM retries after a connection failure.
+            connect_timeout_sec: Timeout in seconds for the startup health-check probe.
         """
         self._base_url = base_url.rstrip("/")
         self._model = model
         self._temperature = temperature
+        self._cooldown_sec = cooldown_sec
+        self._connect_timeout_sec = connect_timeout_sec
+        self._offline_until: float = 0.0
 
     # ── Public interface ───────────────────────────────────────────────────────
+
+    def check_connection(self) -> bool:
+        """Probe the LLM server at startup and set cooldown if unreachable.
+
+        Never raises. Returns True if the server is reachable, False otherwise.
+        An HTTP error (e.g. 404 from /models) is treated as reachable because
+        not every build exposes that endpoint.
+
+        This is called by scan.py at startup to pre-warm the connection state.
+        If the server is unreachable, the classifier enters a cooldown period
+        and will return offline results for any classification requests until
+        the cooldown expires.
+        """
+        try:
+            response = requests.get(
+                f"{self._base_url}/models",
+                timeout=self._connect_timeout_sec,
+            )
+            response.raise_for_status()
+            self._offline_until = 0.0
+            logger.info("LLM server reachable at %s", self._base_url)
+            return True
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+            self._offline_until = time.time() + self._cooldown_sec
+            logger.warning(
+                "LLM server unreachable at %s — cooldown active for %.0f s",
+                self._base_url,
+                self._cooldown_sec,
+            )
+            return False
+        except requests.exceptions.HTTPError:
+            self._offline_until = 0.0
+            logger.info(
+                "LLM server reachable at %s (/models returned HTTP error — may be OK)",
+                self._base_url,
+            )
+            return True
 
     def classify(
         self,
@@ -268,6 +319,10 @@ class SignalClassifier:
             On server error or malformed response, returns a fallback
             result with signal_type="unavailable" and confidence="low".
         """
+        # Fast-fail during cooldown — no network call if server known-offline
+        if time.time() < self._offline_until:
+            return self._offline_result()
+
         system_prompt = self._build_system_prompt()
         user_prompt = self._build_user_prompt(
             fingerprint, neighbours, acma_allocations=acma_allocations
@@ -295,19 +350,27 @@ class SignalClassifier:
             response.raise_for_status()
 
             raw = response.json()["choices"][0]["message"]["content"]
+            self._offline_until = 0.0  # Server is back — clear cooldown
             logger.debug("LLM raw response: %s", raw)
             return self._parse_response(raw)
 
         except requests.exceptions.ConnectionError:
-            logger.warning("LLM server unreachable at %s", self._base_url)
-            return self._fallback_result(
-                "LLM server unreachable — connection refused. "
-                "Check that the local LLM server is running."
+            self._offline_until = time.time() + self._cooldown_sec
+            logger.warning(
+                "LLM server unreachable at %s — cooldown active for %.0f s",
+                self._base_url,
+                self._cooldown_sec,
             )
+            return self._offline_result()
         except requests.exceptions.Timeout:
             logger.warning(
                 "LLM server timed out after %s seconds", self._REQUEST_TIMEOUT_SEC
             )
+            # NOTE: Timeout does NOT trigger cooldown — only ConnectionError does.
+            # This asymmetry means a timeout will return "unavailable" but not block
+            # subsequent requests for the cooldown period. This is intentional per
+            # Phase 22 spec: only ConnectionError sets cooldown; Timeout is treated
+            # as a transient error without blocking future requests.
             return self._fallback_result(
                 f"LLM server unreachable — request timed out after "
                 f"{self._REQUEST_TIMEOUT_SEC} seconds."
@@ -323,6 +386,33 @@ class SignalClassifier:
         except Exception as err:
             logger.warning("LLM classification failed unexpectedly: %s", err)
             return self._fallback_result(f"Classification unavailable — {err}")
+
+    def _offline_result(self) -> ClassificationResult:
+        """Return a ClassificationResult indicating the LLM server is offline.
+
+        Used when the LLM server is unreachable (ConnectionError) or when the
+        classifier is in cooldown after a recent connection failure. This
+        provides a graceful fallback that allows the pipeline to continue
+        operating without crashing.
+
+        The result includes a human-readable reasoning message that explains
+        the offline status and suggests checking the LLM server status.
+        """
+        return ClassificationResult(
+            signal_type=self._OFFLINE_SIGNAL_TYPE,
+            confidence="low",
+            confidence_score=0.0,
+            novel=False,
+            reasoning=(
+                f"LLM server offline at {self._base_url}. "
+                f"Cooldown active — next retry in "
+                f"{max(0.0, self._offline_until - time.time()):.0f} s. "
+                f"Check yubaba is running and Mimir is on the home network."
+            ),
+            au_legal_status="verify_before_use",
+            frequency_band="unknown",
+            raw_response="",
+        )
 
     # ── Prompt construction ────────────────────────────────────────────────────
 

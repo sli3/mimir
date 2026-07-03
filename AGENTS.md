@@ -207,9 +207,10 @@ uv run python tools/seed_chromadb.py
 | 19c | classifier.py — ChromaDB distance threshold recalibration | ✅ Complete | 517 (375 pytest + 142 Vitest) |
 | 20 | Live Capture to Vector Store Ingestion Tool | ✅ Complete | 526 (384 pytest + 142 Vitest) |
 | 21 | ADS-B Frame Inspector + SIGNAL INTERCEPT rename | ✅ Complete | 538 (390 pytest + 148 Vitest) |
+| 22 | LLM Offline Handling — health check + cooldown system | ✅ Complete | 548 (399 pytest + 149 Vitest) |
 
-**Total passing: 538 passing (390 pytest + 148 Vitest), 0 failures**
-- Note: All pre-existing pytest failures resolved. Updated 2026-06-29 after Phase 21.
+**Total passing: 548 passing (399 pytest + 149 Vitest), 0 failures**
+- Note: All pre-existing pytest failures resolved. Updated 2026-07-03 after Phase 22.
 
 ---
 
@@ -384,6 +385,7 @@ Do not apply this pre-emptively — only if context problems are observed.
 | ~~RTL-ML sample rate in seed_chromadb.py~~ | ~~`compute_psd` called at 1,024,000 Hz (RTL-ML rate) — `bandwidth_hz`/`occupied_bins` dimension-corrupted vs live 2,000,000 Hz vectors.~~ Fixed pre-Phase 20: `seed_chromadb.py` now uses `MIMIR_SAMPLE_RATE = 2_000_000`. | ~~pre-Phase 20~~ ✅ seed hotfix |
 | Missing ADS-B / NOAA_APT ChromaDB entries | Both classes absent from RTL-ML dataset — 0 records in production vectorstore for these bands until live capture runs via `tools/capture_to_vectorstore.py`. | Pending live capture window |
 | ~~Phase 19b/19c governance rows missing~~ | ~~Phase tracker entries for 19b and 19c were never written — checkpoint mode was off for both builds.~~ Added this session. | ~~This session~~ ✅ RESOLVED |
+| **SIGNAL_THRESHOLD_DB discrepancy** | Field log reported 21 dB threshold, project memory says 27 dB. Value lives in `core/pipeline/features.py`. Needs verification against live file before next calibration run. | Future calibration |
 
 ---
 

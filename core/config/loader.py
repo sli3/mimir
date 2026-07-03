@@ -26,6 +26,8 @@ class MimirConfig:
     amp_enable: bool = False
     queue_maxsize: int = 20
     llm_url: str = "http://192.168.0.66:8080/v1"
+    llm_cooldown_sec: float = 60.0  # seconds to suppress LLM retries after connection failure
+    llm_connect_timeout_sec: float = 5.0  # timeout in seconds for the startup health-check probe
     dashboard_host: str = "127.0.0.1"
     dashboard_port: int = 5000
 
@@ -82,6 +84,9 @@ def load_config(path: str = "config/mimir.yaml") -> MimirConfig:
                 f"expected {expected_type.__name__ if hasattr(expected_type, '__name__') else expected_type}"
             )
 
+    llm_cooldown_sec = float(scanner.get("llm_cooldown_sec", 60.0))
+    llm_connect_timeout_sec = float(scanner.get("llm_connect_timeout_sec", 5.0))
+
     dashboard_required = {
         "host": str,
         "port": int,
@@ -110,6 +115,8 @@ def load_config(path: str = "config/mimir.yaml") -> MimirConfig:
         amp_enable=bool(scanner["amp_enable"]),
         queue_maxsize=int(scanner["queue_maxsize"]),
         llm_url=str(scanner["llm_url"]),
+        llm_cooldown_sec=llm_cooldown_sec,
+        llm_connect_timeout_sec=llm_connect_timeout_sec,
         dashboard_host=str(dashboard["host"]),
         dashboard_port=int(dashboard["port"]),
     )

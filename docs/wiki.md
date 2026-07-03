@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: "20"
+last_updated_phase: "22"
 ---
 
 # Mimir Wiki
@@ -76,6 +76,106 @@ Step  Function / Component          What it does
 ## Phase Log
 
 Phases are listed newest-first so the current phase is always at the top.
+
+---
+
+### Phase 22 — LLM Offline Handling ✓ DONE
+
+**What:** Added offline resilience to the LLM classifier. The classifier now:
+
+1. **Health check at startup** — `scan.py` calls `classifier.check_connection()` before
+   starting the scan loop. This probes the LLM server at `/models` and sets a cooldown
+   if unreachable.
+
+2. **Cooldown protection** — After a connection failure, the classifier enters a
+   configurable cooldown period (default 60 seconds). During cooldown, `classify()`
+   fast-fails and returns an offline result without making network calls.
+
+3. **Graceful offline results** — When offline, the classifier returns a
+   `ClassificationResult` with `signal_type="llm_offline"`, confidence "low", and
+   a human-readable reasoning message explaining the offline status and suggesting
+   checks.
+
+4. **Configurable timeouts** — Added `llm_cooldown_sec` and `llm_connect_timeout_sec`
+   configuration fields in `config/mimir.yaml` and `MimirConfig` dataclass.
+
+**Changes:**
+
+1. **`config/mimir.yaml`** — Added `llm_cooldown_sec: 60` and `llm_connect_timeout_sec: 5`
+    under the `scanner:` section.
+
+2. **`core/config/loader.py`** — Updated `MimirConfig` dataclass with
+    `llm_cooldown_sec: float = 60.0` and `llm_connect_timeout_sec: float = 5.0`.
+    Updated `load_config()` to parse these fields with defaults.
+
+3. **`llm/classifier.py`** — Added `import time`. Added `_OFFLINE_SIGNAL_TYPE = "llm_offline"`
+    class constant. Updated `SignalClassifier.__init__()` with `cooldown_sec` and
+    `connect_timeout_sec` parameters. Added `check_connection()` public method
+    (probes `/models`, never raises, returns bool). Added `_offline_result()` private
+    method returning offline `ClassificationResult`. Modified `classify()` to fast-fail
+    during cooldown and set cooldown on `ConnectionError`. Updated
+    `ClassificationResult.signal_type` docstring to distinguish "unavailable" from
+    "llm_offline".
+
+4. **`scan.py`** — Passes `cooldown_sec` and `connect_timeout_sec` to `SignalClassifier`.
+    Calls `classifier.check_connection()` at startup before creating `ScanRunner`.
+    Does not exit/raise on failure.
+
+5. **`dashboard/frontend/src/components/AIReasoningPanel.jsx`** — Added `llm_offline`
+    display case: amber colour, "LLM OFFLINE" label, renders backend reasoning.
+
+6. **`dashboard/frontend/src/components/SignalHistoryLog.jsx`** — Added amber colour for
+    `llm_offline` signal_type in history rows.
+
+7. **`tests/llm/test_classifier_offline.py`** — New file with 9 pytest tests covering
+    `check_connection()` and classify() offline/cooldown behaviour.
+
+8. **`tests/llm/test_phase4_classifier.py`** — Renamed `test_llm_unavailable_returns_fallback`
+    to `test_llm_connection_error_returns_offline` and updated assertion.
+
+9. **`dashboard/frontend/src/tests/AIReasoningPanel.test.jsx`** — Added 1 Vitest test for
+    `llm_offline` display state.
+
+**Why:** The LLM server on yubaba can be temporarily unavailable (network issues,
+maintenance, or startup delays). Previously, connection failures would cause the
+entire scanner to fail. Now the classifier gracefully handles offline periods,
+allowing the pipeline to continue operating with informative offline results.
+
+**Key functions:**
+
+`SignalClassifier.check_connection()` — Probes the LLM server at `/models` and sets
+an offline cooldown if unreachable. Never raises. Returns True if reachable, False
+otherwise. Used by `scan.py` at startup to pre-warm connection state.
+
+`SignalClassifier._offline_result()` — Returns a `ClassificationResult` indicating
+LLM server is offline. Used when server is unreachable or classifier is in cooldown.
+Provides graceful fallback that allows pipeline to continue without crashing.
+
+**Functions:**
+
+- `check_connection()` — Public method that probes the LLM server at startup and sets cooldown if unreachable. Never raises. Returns True if the server is reachable, False otherwise. An HTTP error (e.g. 404 from /models) is treated as reachable because not every build exposes that endpoint. This is called by scan.py at startup to pre-warm the connection state. If the server is unreachable, the classifier enters a cooldown period and will return offline results for any classification requests until the cooldown expires.
+
+- `_offline_result()` — Private method that returns a ClassificationResult indicating the LLM server is offline. Used when the LLM server is unreachable (ConnectionError) or when the classifier is in cooldown after a recent connection failure. This provides a graceful fallback that allows the pipeline to continue operating without crashing. The result includes a human-readable reasoning message that explains the offline status and suggests checks.
+
+**Deferred items:**
+
+1. **`scanner.py` `_llm_call_count` inflation during offline/cooldown** — Pre-existing
+    metric issue. The AI loop increments `_llm_call_count` even when `classify()`
+    fast-fails during cooldown, which can inflate the count. Consider fixing in a
+    future phase.
+
+2. **Timeout in `classify()` does not trigger cooldown** — Per the explicit Phase 22
+    spec, only `ConnectionError` in `classify()` sets cooldown; `Timeout` still returns
+    `unavailable`. `check_connection()` does treat Timeout as offline. This asymmetry
+    could be addressed in a future robustness pass.
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None — all changes are passive receive-only classifier resilience
+  improvements. No RF interaction.
+
+**Test counts:** 548 passing (399 pytest + 149 Vitest). New: 9 pytest tests for
+classifier offline handling, 1 updated pytest test, 1 new Vitest test.
 
 ---
 

@@ -65,7 +65,14 @@ def main() -> None:
         "MIMIR_LLM_URL",
         config.llm_url,
     )
-    classifier = SignalClassifier(base_url=llm_url)
+    classifier = SignalClassifier(
+        base_url=llm_url,
+        cooldown_sec=config.llm_cooldown_sec,
+        connect_timeout_sec=config.llm_connect_timeout_sec,
+    )
+
+    logger.info("Checking LLM server connectivity at startup...")
+    classifier.check_connection()
 
     scanner = ScanRunner(device, embedder, store, classifier, config)
 
