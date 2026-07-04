@@ -490,4 +490,14 @@ Do not apply this pre-emptively — only if context problems are observed.
   documented as provisional in inline TODOs. | ✅ Phase 19a (calibrate_thresholds.py);
   diagnose_fingerprints.py deferred
 
+- **BUG-02 (RESOLVED — this session):** `tools/calibrate_thresholds.py` was calling
+  `fingerprint_spectrum(psd_result)` without passing `signal_threshold_db`, so all
+  bands fell back to the module constant 24.0 dB instead of using their per-band
+  production thresholds (e.g. ADS-B 3.0 dB, AIS 5.0 dB, FM 21.0 dB). Fixed by
+  importing `BAND_PROFILES` from `dashboard.shared_state`, adding
+  `signal_threshold_db` to every `CALIBRATION_TARGETS` entry, and passing it at the
+  call site. This aligns calibration vectors with the live dashboard and removes a
+  plausible cause of `bandwidth_hz=0` / `occupied_bins=0` in field logs.
+  Commit: `d012f01`.
+
 ---
