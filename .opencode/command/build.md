@@ -51,6 +51,7 @@ flag is NOT part of the task; it only drives the Step 9 phase-tracker gate.
 | @deep-bug-hunter | Senior QA | Deep root-cause analysis (heavy) |
 | @review-second | Reviewer (2nd voice) | Independent code review |
 | @deep-analyst | Senior Analyst | Deep code review (heavy) |
+| @frontend-reviewer | Frontend Lead | React/JSX-specific review, dashboard/frontend/ only |
 | @doc-writer | Documentation | Docstrings + deferred items |
 | @memo-writer | Project Records | Session memo (always) + phase tracker & ROADMAP (checkpoint-gated) |
 
@@ -165,11 +166,34 @@ at once. Wait for both to complete.
     still cannot be made green → hard stop.
 
 
+### STEP 6B — FRONTEND REVIEW GATE (conditional)
+Check whether this build touched any file under dashboard/frontend/.
+
+If NO frontend files were changed → skip this step entirely, proceed to Step 7.
+
+If frontend files WERE changed → call @frontend-reviewer as Frontend Lead,
+handing it ONLY the diff/contents of the changed dashboard/frontend/ files
+(not the full build diff — it does not review backend Python). It checks
+hook correctness, missing dependency arrays, unnecessary re-renders, and
+WebSocket cleanup on unmount.
+
+  a. If @frontend-reviewer returns zero findings → proceed to Step 7.
+  b. If it flags a hard stop (AGENTS.md UI-convention contradiction, or a
+     TX-related surface it happened to notice) → stop and report.
+  c. Otherwise, apply one fix pass for its findings, rerun the relevant
+     Vitest suite to confirm still green, and proceed to Step 7. If that fix
+     pass breaks the suite, re-enter Step 5 for a SINGLE corrective
+     iteration only; if it still cannot be made green → hard stop.
+
+@frontend-reviewer is invoked BY NAME here — do not rely on automatic
+subagent triggering for this gate.
+
 ### STEP 7 — PM AUDIT
-As Project Manager, review the full output of Steps 1–6 before anything is
+As Project Manager, review the full output of Steps 1–6B before anything is
 presented. Check:
   - Were all reviewer and QA findings either actioned or explicitly accepted?
   - Was any reviewer conflict from Step 6 properly adjudicated and recorded?
+  - If Step 6B ran, were @frontend-reviewer's findings actioned or accepted?
   - Did any step produce a partial, skipped, or "good enough" result?
   - Does the build match what was planned in Step 1?
   - Does anything touch TX, AU/SA legal, or AGENTS.md constraints?
@@ -178,6 +202,7 @@ If the audit is CLEAN → proceed to Step 8.
 
 If the audit FLAGS an issue → re-enter ONLY the affected step(s):
   - Missed/ignored code-review finding → re-run from Step 6
+  - Missed/ignored frontend-review finding → re-run from Step 6B
   - Test failure or QA gap → re-run from Step 5
   - Code defect → re-run from Step 4
   - Plan/spec mismatch → re-run from Step 1
@@ -259,6 +284,8 @@ Produce a structured summary containing:
   @deep-bug-hunter was escalated to)
 - Code-review findings (@review-second and @deep-analyst separately, plus any
   conflict and how you adjudicated it)
+- Frontend-review findings (@frontend-reviewer), if Step 6B ran — state
+  explicitly if it was skipped because no dashboard/frontend/ files changed
 - PM audit result (clean, or what was flagged and how the re-entry resolved)
 - Project memo (@memo-writer) — which governance docs were touched, and whether
   the phase tracker was updated (it must have moved ONLY if the checkpoint flag
