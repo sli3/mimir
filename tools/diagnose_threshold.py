@@ -21,6 +21,7 @@ import numpy as np
 from core.pipeline.capture import capture_iq
 from core.pipeline.features import fingerprint_spectrum
 from core.pipeline.fft import compute_psd
+from dashboard.shared_state import BAND_PROFILES
 
 THRESHOLD_CANDIDATES = [3, 5, 8, 10, 12, 15, 18, 21, 24, 27]
 
@@ -28,8 +29,8 @@ BAND_SWEEP = [
     {
         "name": "FM Broadcast",
         "freq_hz": 98_900_000,
-        "lna_gain_db": 24,
-        "vga_gain_db": 26,
+        "lna_gain_db": BAND_PROFILES["fm_broadcast"]["lna_gain_db"],
+        "vga_gain_db": BAND_PROFILES["fm_broadcast"]["vga_gain_db"],
         "target_bw_hz": 200_000,
         "sample_rate_hz": 2_000_000,
         "num_samples": 256_000,
@@ -37,8 +38,8 @@ BAND_SWEEP = [
     {
         "name": "Aviation VHF",
         "freq_hz": 127_000_000,
-        "lna_gain_db": 16,
-        "vga_gain_db": 20,
+        "lna_gain_db": BAND_PROFILES["aviation"]["lna_gain_db"],
+        "vga_gain_db": BAND_PROFILES["aviation"]["vga_gain_db"],
         "target_bw_hz": 8_300,
         "sample_rate_hz": 2_000_000,
         "num_samples": 256_000,
@@ -46,8 +47,8 @@ BAND_SWEEP = [
     {
         "name": "ACARS",
         "freq_hz": 129_125_000,
-        "lna_gain_db": 16,
-        "vga_gain_db": 20,
+        "lna_gain_db": BAND_PROFILES["acars"]["lna_gain_db"],
+        "vga_gain_db": BAND_PROFILES["acars"]["vga_gain_db"],
         "target_bw_hz": 12_500,
         "sample_rate_hz": 2_000_000,
         "num_samples": 256_000,
@@ -55,8 +56,8 @@ BAND_SWEEP = [
     {
         "name": "APRS",
         "freq_hz": 145_175_000,
-        "lna_gain_db": 24,
-        "vga_gain_db": 26,
+        "lna_gain_db": BAND_PROFILES["aprs"]["lna_gain_db"],
+        "vga_gain_db": BAND_PROFILES["aprs"]["vga_gain_db"],
         "target_bw_hz": 12_500,
         "sample_rate_hz": 2_000_000,
         "num_samples": 256_000,
@@ -64,8 +65,8 @@ BAND_SWEEP = [
     {
         "name": "ISM / LoRa",
         "freq_hz": 915_000_000,
-        "lna_gain_db": 24,
-        "vga_gain_db": 26,
+        "lna_gain_db": BAND_PROFILES["ism"]["lna_gain_db"],
+        "vga_gain_db": BAND_PROFILES["ism"]["vga_gain_db"],
         "target_bw_hz": 500_000,
         "sample_rate_hz": 2_000_000,
         "num_samples": 256_000,
@@ -73,13 +74,16 @@ BAND_SWEEP = [
     {
         "name": "ADS-B",
         "freq_hz": 1_090_000_000,
-        "lna_gain_db": 24,
-        "vga_gain_db": 24,
+        "lna_gain_db": BAND_PROFILES["adsb"]["lna_gain_db"],
+        "vga_gain_db": BAND_PROFILES["adsb"]["vga_gain_db"],
         "target_bw_hz": 1_000_000,
         "sample_rate_hz": 2_000_000,
         "num_samples": 256_000,
     },
 ]
+
+# NOTE: BAND_SWEEP has no AIS entry (pre-existing). Future enhancement:
+# add AIS to BAND_SWEEP if threshold-sweeping AIS is desired.
 
 BAND_KEYS = {b["name"].lower().replace(" / ", "_").replace("-", "_").replace(" ", "_"): b for b in BAND_SWEEP}
 

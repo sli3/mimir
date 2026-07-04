@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: "22"
+last_updated_phase: "BUG-03"
 ---
 
 # Mimir Wiki
@@ -176,6 +176,78 @@ Provides graceful fallback that allows pipeline to continue without crashing.
 
 **Test counts:** 548 passing (399 pytest + 149 Vitest). New: 9 pytest tests for
 classifier offline handling, 1 updated pytest test, 1 new Vitest test.
+
+---
+
+### BUG-03 — Tooling: Gains/Thresholds Sourced from BAND_PROFILES ✓ DONE
+
+**What:** Updated four diagnostic tools to source gain and threshold values from
+`dashboard.shared_state.BAND_PROFILES` instead of hardcoded values, ensuring
+consistency across the toolchain. This is a maintenance bugfix that aligns the
+tools with the live dashboard configuration.
+
+**Changes:**
+
+1. **`tools/capture_to_vectorstore.py`** — Added `BAND_PROFILES` import. `CAPTURE_TARGETS`
+     now reads `lna_gain_db`, `vga_gain_db`, `signal_threshold_db` from
+     `dashboard.shared_state.BAND_PROFILES`.
+
+2. **`tools/calibrate_thresholds.py`** — `CALIBRATION_TARGETS` gains now read from
+     `BAND_PROFILES` (thresholds already live).
+
+3. **`tools/diagnose_fingerprints.py`** — `TARGETS` gains now read from
+     `BAND_PROFILES` except `noise_floor`, which remains intentionally hardcoded
+     (16,20) with a clarified comment.
+
+4. **`tools/diagnose_threshold.py`** — Added `BAND_PROFILES` import. `BAND_SWEEP` gains
+     now read from `BAND_PROFILES`. Added note about missing AIS entry (pre-existing).
+
+5. **`tests/tools/test_capture_to_vectorstore.py`** — Updated `test_build_metadata`;
+     added `test_capture_targets_match_band_profiles`.
+
+6. **`tests/tools/test_diagnose_threshold.py`** — Added `test_band_sweep_gains_match_band_profiles`.
+
+7. **`tests/tools/test_calibrate_thresholds.py`** (new) — Guard test for `CALIBRATION_TARGETS`.
+
+8. **`tests/tools/test_diagnose_fingerprints.py`** (new) — Guard tests for `TARGETS`,
+     including intentional `noise_floor` divergence.
+
+**Why:** Hardcoded gain and threshold values in diagnostic tools could drift from
+the live dashboard configuration, leading to inconsistent behavior. Sourcing from
+`BAND_PROFILES` ensures all tools use the same per-band settings as the dashboard.
+
+**Key functions:**
+
+- `CAPTURE_TARGETS` in `capture_to_vectorstore.py` — Now reads gains and thresholds from
+  `BAND_PROFILES`. Ensures live capture vectors match dashboard configuration.
+
+- `CALIBRATION_TARGETS` in `calibrate_thresholds.py` — Now reads gains from `BAND_PROFILES`.
+  Ensures calibration vectors match dashboard configuration.
+
+- `TARGETS` in `diagnose_fingerprints.py` — Now reads gains from `BAND_PROFILES` except
+  `noise_floor` (intentionally divergent for diagnostic visibility). Ensures diagnostic
+  captures reflect live settings.
+
+- `BAND_SWEEP` in `diagnose_threshold.py` — Now reads gains from `BAND_PROFILES`.
+  Ensures threshold sweep uses live gain settings.
+
+**Deferred items:**
+
+1. **`diagnose_fingerprints.py` top-level loop** — Pre-existing issue: the module executes
+   its capture loop at import time (no `main()` guard). This was worked around in tests
+   by mocking hardware before import. Future refactor: wrap the top-level loop in
+   `if __name__ == "__main__":`.
+
+2. **`diagnose_threshold.py` missing AIS entry** — Pre-existing: `BAND_SWEEP` has no AIS
+   entry, unlike the other three tools. This is out of scope for BUG-03. Future enhancement:
+   add AIS to `BAND_SWEEP` if threshold-sweeping AIS is desired.
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None — all changes are passive receive-only tooling improvements.
+  No RF interaction.
+
+**Test counts:** 408 passed, 1 warning (was 402). No failures.
 
 ---
 

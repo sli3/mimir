@@ -9,6 +9,10 @@ Run this after reseeding or whenever live vectors are needed to refresh the
 SignalStore used by the LLM classifier. After adding live vectors, re-run
 ``tools/calibrate_thresholds.py`` to update distance thresholds.
 
+Gain and threshold values (lna_gain_db, vga_gain_db, signal_threshold_db) are
+read live from ``dashboard.shared_state.BAND_PROFILES`` so they stay in sync
+with the live dashboard configuration.
+
 Legal: Receive-only. Radiocommunications Act 1992 (Cth).
        No transmission. Jurisdiction: AU/SA. Authority: ACMA.
 """
@@ -16,6 +20,7 @@ Legal: Receive-only. Radiocommunications Act 1992 (Cth).
 from core.pipeline.capture import capture_iq
 from core.pipeline.fft import compute_psd
 from core.pipeline.features import fingerprint_spectrum
+from dashboard.shared_state import BAND_PROFILES
 from embeddings.embedder import SpectrumEmbedder
 from embeddings.store import SignalStore
 
@@ -65,16 +70,18 @@ ANTENNA_PROFILES: dict[str, dict] = {
     },
 }
 
-# Per-band capture configuration. Gain values match shared_state.py BAND_PROFILES.
+# Per-band capture configuration. Values are read live from
+# dashboard/shared_state.BAND_PROFILES so they stay in sync with the live
+# dashboard thresholds and gains.
 CAPTURE_TARGETS: list[dict] = [
     {
         "label": "FM_broadcast",
         "freq_hz": 98_900_000,
         "sample_rate_hz": 2_000_000,
         "num_samples": 256_000,
-        "lna_gain_db": 24,
-        "vga_gain_db": 26,
-        "signal_threshold_db": 21.0,
+        "lna_gain_db": BAND_PROFILES["fm_broadcast"]["lna_gain_db"],
+        "vga_gain_db": BAND_PROFILES["fm_broadcast"]["vga_gain_db"],
+        "signal_threshold_db": BAND_PROFILES["fm_broadcast"]["signal_threshold_db"],
         "captures": 5,
     },
     {
@@ -82,9 +89,9 @@ CAPTURE_TARGETS: list[dict] = [
         "freq_hz": 127_000_000,
         "sample_rate_hz": 2_000_000,
         "num_samples": 256_000,
-        "lna_gain_db": 16,
-        "vga_gain_db": 20,
-        "signal_threshold_db": 6.0,
+        "lna_gain_db": BAND_PROFILES["aviation"]["lna_gain_db"],
+        "vga_gain_db": BAND_PROFILES["aviation"]["vga_gain_db"],
+        "signal_threshold_db": BAND_PROFILES["aviation"]["signal_threshold_db"],
         "captures": 5,
     },
     {
@@ -92,9 +99,9 @@ CAPTURE_TARGETS: list[dict] = [
         "freq_hz": 129_125_000,
         "sample_rate_hz": 2_000_000,
         "num_samples": 256_000,
-        "lna_gain_db": 16,
-        "vga_gain_db": 20,
-        "signal_threshold_db": 6.0,
+        "lna_gain_db": BAND_PROFILES["acars"]["lna_gain_db"],
+        "vga_gain_db": BAND_PROFILES["acars"]["vga_gain_db"],
+        "signal_threshold_db": BAND_PROFILES["acars"]["signal_threshold_db"],
         "captures": 5,
     },
     {
@@ -102,9 +109,9 @@ CAPTURE_TARGETS: list[dict] = [
         "freq_hz": 145_175_000,
         "sample_rate_hz": 2_000_000,
         "num_samples": 256_000,
-        "lna_gain_db": 24,
-        "vga_gain_db": 26,
-        "signal_threshold_db": 10.0,
+        "lna_gain_db": BAND_PROFILES["aprs"]["lna_gain_db"],
+        "vga_gain_db": BAND_PROFILES["aprs"]["vga_gain_db"],
+        "signal_threshold_db": BAND_PROFILES["aprs"]["signal_threshold_db"],
         "captures": 5,
     },
     {
@@ -112,9 +119,9 @@ CAPTURE_TARGETS: list[dict] = [
         "freq_hz": 162_000_000,
         "sample_rate_hz": 2_000_000,
         "num_samples": 256_000,
-        "lna_gain_db": 16,
-        "vga_gain_db": 20,
-        "signal_threshold_db": 5.0,
+        "lna_gain_db": BAND_PROFILES["ais"]["lna_gain_db"],
+        "vga_gain_db": BAND_PROFILES["ais"]["vga_gain_db"],
+        "signal_threshold_db": BAND_PROFILES["ais"]["signal_threshold_db"],
         "captures": 5,
     },
     {
@@ -122,9 +129,9 @@ CAPTURE_TARGETS: list[dict] = [
         "freq_hz": 915_000_000,
         "sample_rate_hz": 2_000_000,
         "num_samples": 256_000,
-        "lna_gain_db": 24,
-        "vga_gain_db": 26,
-        "signal_threshold_db": 3.0,
+        "lna_gain_db": BAND_PROFILES["ism"]["lna_gain_db"],
+        "vga_gain_db": BAND_PROFILES["ism"]["vga_gain_db"],
+        "signal_threshold_db": BAND_PROFILES["ism"]["signal_threshold_db"],
         "captures": 5,
     },
     {
@@ -132,9 +139,9 @@ CAPTURE_TARGETS: list[dict] = [
         "freq_hz": 1_090_000_000,
         "sample_rate_hz": 2_000_000,
         "num_samples": 256_000,
-        "lna_gain_db": 24,
-        "vga_gain_db": 24,
-        "signal_threshold_db": 3.0,
+        "lna_gain_db": BAND_PROFILES["adsb"]["lna_gain_db"],
+        "vga_gain_db": BAND_PROFILES["adsb"]["vga_gain_db"],
+        "signal_threshold_db": BAND_PROFILES["adsb"]["signal_threshold_db"],
         "captures": 5,
     },
 ]

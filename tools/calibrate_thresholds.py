@@ -18,6 +18,10 @@ is split into two halves so each half fits a normal terminal width.
 The script stores calibration vectors in a SEPARATE ChromaDB collection at
 "data/calibration_vectorstore" — it does NOT touch data/vectorstore/ (production).
 
+Gain and threshold values (lna_gain_db, vga_gain_db, signal_threshold_db) are
+read live from ``dashboard.shared_state.BAND_PROFILES`` so calibration vectors
+always match the live dashboard configuration.
+
 Usage:
     python tools/calibrate_thresholds.py
 
@@ -140,22 +144,17 @@ def _print_band_warning(label: str) -> None:
 # =============================================================================
 # SECTION 1 — CALIBRATION_TARGETS config block
 # =============================================================================
-# Gain and signal_threshold_db values match shared_state.py BAND_PROFILES exactly.
-# FM_broadcast (24/26, 21.0 dB): calibrated telescopic whip, Phase 9C-Threshold.
-# ADS_B (24/24, 3.0 dB): updated Phase 17 recalibration (was 32/38 stock-stub).
-# Aviation_VHF (16/20, 6.0 dB), ACARS (16/20, 6.0 dB), AIS (16/20, 5.0 dB):
-#   VHF maritime/aviation, not yet validated with telescopic whip — provisional.
-# APRS (24/26, 10.0 dB): calibrated, diagnose_threshold.py Phase 11.
-# ISM_LoRa (24/26, 3.0 dB): calibrated, diagnose_threshold.py Phase 11.
-# noise_floor (0/0, 10.0 dB): zero-gain baseline for reference measurement.
+# Gain, signal_threshold_db, and lna/vga values are read live from
+# dashboard.shared_state.BAND_PROFILES so calibration vectors always match
+# the live dashboard configuration.
 CALIBRATION_TARGETS: list[dict] = [
     {
         "label": "FM_broadcast",
         "freq_hz": 98_900_000,
         "sample_rate_hz": 2_000_000,
         "num_samples": 256_000,
-        "lna_gain_db": 24,  # calibrated: telescopic whip, Phase 9C-Threshold
-        "vga_gain_db": 26,
+        "lna_gain_db": BAND_PROFILES["fm_broadcast"]["lna_gain_db"],
+        "vga_gain_db": BAND_PROFILES["fm_broadcast"]["vga_gain_db"],
         "signal_threshold_db": BAND_PROFILES["fm_broadcast"]["signal_threshold_db"],
         "captures": 2,
     },
@@ -164,8 +163,8 @@ CALIBRATION_TARGETS: list[dict] = [
         "freq_hz": 1_090_000_000,
         "sample_rate_hz": 2_000_000,
         "num_samples": 256_000,
-        "lna_gain_db": 24,  # Matches shared_state.py BAND_PROFILES adsb (Phase 17 recalibration)
-        "vga_gain_db": 24,
+        "lna_gain_db": BAND_PROFILES["adsb"]["lna_gain_db"],
+        "vga_gain_db": BAND_PROFILES["adsb"]["vga_gain_db"],
         "signal_threshold_db": BAND_PROFILES["adsb"]["signal_threshold_db"],
         "captures": 2,
     },
@@ -174,8 +173,8 @@ CALIBRATION_TARGETS: list[dict] = [
         "freq_hz": 127_000_000,
         "sample_rate_hz": 2_000_000,
         "num_samples": 256_000,
-        "lna_gain_db": 16,  # matches shared_state.py BAND_PROFILES aviation
-        "vga_gain_db": 20,
+        "lna_gain_db": BAND_PROFILES["aviation"]["lna_gain_db"],
+        "vga_gain_db": BAND_PROFILES["aviation"]["vga_gain_db"],
         "signal_threshold_db": BAND_PROFILES["aviation"]["signal_threshold_db"],
         "captures": 2,
     },
@@ -184,8 +183,8 @@ CALIBRATION_TARGETS: list[dict] = [
         "freq_hz": 129_125_000,
         "sample_rate_hz": 2_000_000,
         "num_samples": 256_000,
-        "lna_gain_db": 16,  # matches shared_state.py BAND_PROFILES acars
-        "vga_gain_db": 20,
+        "lna_gain_db": BAND_PROFILES["acars"]["lna_gain_db"],
+        "vga_gain_db": BAND_PROFILES["acars"]["vga_gain_db"],
         "signal_threshold_db": BAND_PROFILES["acars"]["signal_threshold_db"],
         "captures": 2,
     },
@@ -194,8 +193,8 @@ CALIBRATION_TARGETS: list[dict] = [
         "freq_hz": 145_175_000,
         "sample_rate_hz": 2_000_000,
         "num_samples": 256_000,
-        "lna_gain_db": 24,  # matches shared_state.py BAND_PROFILES aprs (calibrated)
-        "vga_gain_db": 26,
+        "lna_gain_db": BAND_PROFILES["aprs"]["lna_gain_db"],
+        "vga_gain_db": BAND_PROFILES["aprs"]["vga_gain_db"],
         "signal_threshold_db": BAND_PROFILES["aprs"]["signal_threshold_db"],
         "captures": 2,
     },
@@ -204,8 +203,8 @@ CALIBRATION_TARGETS: list[dict] = [
         "freq_hz": 162_000_000,
         "sample_rate_hz": 2_000_000,
         "num_samples": 256_000,
-        "lna_gain_db": 16,  # matches shared_state.py BAND_PROFILES ais
-        "vga_gain_db": 20,
+        "lna_gain_db": BAND_PROFILES["ais"]["lna_gain_db"],
+        "vga_gain_db": BAND_PROFILES["ais"]["vga_gain_db"],
         "signal_threshold_db": BAND_PROFILES["ais"]["signal_threshold_db"],
         "captures": 2,
     },
@@ -214,8 +213,8 @@ CALIBRATION_TARGETS: list[dict] = [
         "freq_hz": 915_000_000,
         "sample_rate_hz": 2_000_000,
         "num_samples": 256_000,
-        "lna_gain_db": 24,  # matches shared_state.py BAND_PROFILES ism (calibrated)
-        "vga_gain_db": 26,
+        "lna_gain_db": BAND_PROFILES["ism"]["lna_gain_db"],
+        "vga_gain_db": BAND_PROFILES["ism"]["vga_gain_db"],
         "signal_threshold_db": BAND_PROFILES["ism"]["signal_threshold_db"],
         "captures": 2,
     },
@@ -224,8 +223,8 @@ CALIBRATION_TARGETS: list[dict] = [
         "freq_hz": 433_000_000,
         "sample_rate_hz": 2_000_000,
         "num_samples": 256_000,
-        "lna_gain_db": 0,   # zero-gain baseline
-        "vga_gain_db": 0,
+        "lna_gain_db": BAND_PROFILES["noise_floor"]["lna_gain_db"],
+        "vga_gain_db": BAND_PROFILES["noise_floor"]["vga_gain_db"],
         "signal_threshold_db": BAND_PROFILES["noise_floor"]["signal_threshold_db"],
         "captures": 2,
     },

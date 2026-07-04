@@ -9,6 +9,7 @@
 
 | Phase | Name                              | Status         | Tests    |
 |-------|-----------------------------------|----------------|----------|
+| BUG-03 | Tool gain/threshold sync to BAND_PROFILES | ✅ Complete | 557 (408 pytest + 149 Vitest) |
 | 0     | Hardware Safety Gate              | ✅ Complete    | 25/25    |
 | 1     | IQ Capture Pipeline               | ✅ Complete    | 5/5      |
 | 2     | FFT + Feature Extraction          | ✅ Complete    | 21/21    |
@@ -61,6 +62,35 @@
 | 20 | Live Capture to Vector Store Ingestion Tool | ✅ Complete | 526 (384 pytest + 142 Vitest) |
 | 22 | LLM Offline Handling — health check + cooldown system | ✅ Complete | 548 (399 pytest + 149 Vitest) |
 | 22-Hotfix | LLM offline emit rate-limit (SocketIO flood fix) | ✅ Complete | 551 (402 pytest + 149 Vitest) |
+
+### BUG-03 — Tool Gain/Threshold Sync to BAND_PROFILES ✅
+
+**What:** Wired four diagnostic/calibration tools to read per-band `lna_gain_db`,
+`vga_gain_db`, and (where applicable) `signal_threshold_db` from
+`dashboard.shared_state.BAND_PROFILES` instead of hardcoded literals.
+
+**Files changed:**
+- `tools/capture_to_vectorstore.py` — `CAPTURE_TARGETS` now reads all three fields from `BAND_PROFILES`.
+- `tools/calibrate_thresholds.py` — `CALIBRATION_TARGETS` gains now read from `BAND_PROFILES` (thresholds already live).
+- `tools/diagnose_fingerprints.py` — `TARGETS` gains now read from `BAND_PROFILES`; `noise_floor` intentionally stays at (16, 20).
+- `tools/diagnose_threshold.py` — `BAND_SWEEP` gains now read from `BAND_PROFILES`.
+- `tests/tools/test_capture_to_vectorstore.py` — updated metadata test; added guard test.
+- `tests/tools/test_diagnose_threshold.py` — added guard test.
+- `tests/tools/test_calibrate_thresholds.py` — new guard test file.
+- `tests/tools/test_diagnose_fingerprints.py` — new guard test file.
+
+**Key behavioural fix:** `tools/diagnose_fingerprints.py` AIS gains corrected from
+hardcoded (24, 26) to `BAND_PROFILES['ais']` (16, 20), matching production capture.
+
+**Deferred items:**
+1. `diagnose_fingerprints.py` runs its capture loop at module import time. Future refactor: add `if __name__ == "__main__":` guard.
+2. `diagnose_threshold.py` `BAND_SWEEP` has no AIS entry (pre-existing).
+
+**RF/Legal notes:** No TX surfaces; all changes passive RX-only.
+
+**Test counts:** 557 passing (408 pytest + 149 Vitest), 0 failures.
+
+---
 
 ### Phase 11 Hotfix — Broadcast Defaults + FM Threshold + Startup Guard ✅
 
@@ -969,8 +999,7 @@ seeding the production store with fresh live vectors.
    `--wipe` flag documented; recommended tool workflow updated (by @doc-writer).
 
 **Known debt / deferred items:**
-- `tools/diagnose_fingerprints.py` still uses legacy ADS-B gain (32/38) —
-  deferred to a future phase.
+- `tools/diagnose_fingerprints.py` gain values now read from `BAND_PROFILES` — resolved in BUG-03.
 - ChromaDB distance reference stale (Phase 13) remains open; tool prints
   a reminder to re-run `tools/calibrate_thresholds.py` after capture.
 - `--wipe` flag prints a warning but has no interactive confirmation
@@ -1000,7 +1029,7 @@ seeding the production store with fresh live vectors.
 2. **scanner.py `_llm_call_count` inflation during offline/cooldown**: The AI loop increments `_llm_call_count` even when `classify()` fast-fails during cooldown, inflating the metric. Consider fixing in a future phase.
 3. **Timeout in `classify()` does not trigger cooldown**: Per explicit Phase 22 spec, only `ConnectionError` in `classify()` sets cooldown; `Timeout` still returns `unavailable`. `check_connection()` does treat Timeout as offline. Asymmetry could be addressed in a future robustness pass.
 
-**Test counts:** 551 (402 pytest + 149 Vitest), 0 failures
+**Test counts:** 557 (408 pytest + 149 Vitest), 0 failures
 
 ---
 
@@ -1011,5 +1040,6 @@ seeding the production store with fresh live vectors.
 | `config/mimir.yaml` not loaded | Runtime config loading not yet implemented | Phase 2+ |
 | ~~`scan.py` startup message~~ | ~~Misleading "Scanning N frequencies" in single-freq mode~~ | ~~Post 8C~~ ✅ |
 | ~~MED-01: scan.py fatal error exit~~ | ~~`except Exception` sets fatal_error=True but no test verifies exit code 1~~ | ~~PHASE-TECH-DEBT-1~~ ✅ |
-| ~~ADS-B gain divergence~~ | ~~`calibrate_thresholds.py` and `diagnose_fingerprints.py` use (32/38) for ADS-B gain, shared_state.py uses (24/24)~~. `calibrate_thresholds.py` resolved in Phase 19a (gain aligned to 24/24). `diagnose_fingerprints.py` retains legacy (32/38) — out of scope, provisional in TODOs. | ~~Live ADS-B test~~ ✅ Phase 19a (calibrate_thresholds.py); diagnose_fingerprints.py deferred |
+| ~~ADS-B gain divergence~~ | ~~`calibrate_thresholds.py` and `diagnose_fingerprints.py` used (32/38) for ADS-B gain, `shared_state.py` uses (24/24)~~. All four tools now read gains from `BAND_PROFILES`. `calibrate_thresholds.py` resolved in Phase 19a; `diagnose_fingerprints.py` resolved in BUG-03. | ✅ Phase 19a + BUG-03 |
+| **BUG-03** | **Four tools wired to BAND_PROFILES for gains/thresholds; `diagnose_fingerprints.py` AIS gains corrected from (24, 26) to (16, 20).** | **This session ✅** |
 | ~~Frontend/backend AIS frequency mismatch~~ | ~~Frontend hardcodes 161.975 MHz (CH1). BAND_PROFILES expects 162.000 MHz (dual-channel centre). `get_band_for_freq(161_975_000)` returns None, so AIS threshold/gains not applied. HackRF retunes correctly (unconditional), so reception works but band profile config is stale.~~ Fixed across Phase 15 (BAND_GROUPS, OVERVIEW_BANDS, isTuned, focusFrequency) and Phase 15b (STRIP_CONFIGS, FREQ_COLOUR_MAP, isAisFreq, FREQ_CONFIGS). All frontend AIS references now use 162.000 MHz. | ~~Post-Phase 14~~ ✅ Phase 15 + 15b |

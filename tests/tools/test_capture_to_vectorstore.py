@@ -10,6 +10,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from embeddings.store import SignalStore
+from dashboard.shared_state import BAND_PROFILES
 from tools import capture_to_vectorstore
 from tools.capture_to_vectorstore import (
     ANTENNA_PROFILES,
@@ -66,7 +67,7 @@ def test_build_metadata():
     target = {
         "freq_hz": 98_900_000,
         "sample_rate_hz": 2_000_000,
-        "signal_threshold_db": 21.0,
+        "signal_threshold_db": BAND_PROFILES["fm_broadcast"]["signal_threshold_db"],
     }
     fingerprint = {
         "peak_power_db": -45.5,
@@ -80,7 +81,7 @@ def test_build_metadata():
     assert metadata["freq_hz"] == 98_900_000
     assert metadata["sample_rate_hz"] == 2_000_000
     assert metadata["capture_origin"] == "Adelaide, SA, AU"
-    assert metadata["signal_threshold_db"] == 21.0
+    assert metadata["signal_threshold_db"] == BAND_PROFILES["fm_broadcast"]["signal_threshold_db"]
     assert isinstance(metadata["timestamp"], str)
     assert metadata["peak_power_db"] == -45.5
     assert metadata["snr_db"] == 18.3
@@ -223,3 +224,20 @@ def test_signal_threshold_passed_and_stored(tmp_path):
     assert all(t == expected_threshold for t in seen_thresholds)
     for meta in store._collection.get(include=["metadatas"])["metadatas"]:
         assert meta["signal_threshold_db"] == expected_threshold
+
+
+def test_capture_targets_match_band_profiles():
+    LABEL_TO_KEY = {
+        "FM_broadcast": "fm_broadcast",
+        "Aviation_VHF": "aviation",
+        "ACARS": "acars",
+        "APRS": "aprs",
+        "AIS": "ais",
+        "ISM_LoRa": "ism",
+        "ADS_B": "adsb",
+    }
+    for target in CAPTURE_TARGETS:
+        profile = BAND_PROFILES[LABEL_TO_KEY[target["label"]]]
+        assert target["lna_gain_db"] == profile["lna_gain_db"]
+        assert target["vga_gain_db"] == profile["vga_gain_db"]
+        assert target["signal_threshold_db"] == profile["signal_threshold_db"]

@@ -8,19 +8,21 @@ from core.pipeline.fft import compute_psd
 from core.pipeline.features import fingerprint_spectrum
 from dashboard.shared_state import BAND_PROFILES
 
-# Gain values and per-band thresholds match production BAND_PROFILES in
-# dashboard/shared_state.py. signal_threshold_db is read from BAND_PROFILES
-# so the fingerprint output reflects what the live dashboard actually uses.
-# noise_floor uses moderate gain (16/20) for diagnostic visibility.
+# Gain values (except noise_floor) are read live from
+# dashboard.shared_state.BAND_PROFILES so diagnostic captures use the same
+# gains as the live dashboard. signal_threshold_db is also read from
+# BAND_PROFILES so the fingerprint output reflects live settings.
+# noise_floor uses moderate gain (16/20) for diagnostic visibility and is
+# intentionally NOT sourced from BAND_PROFILES['noise_floor'] (0/0).
 TARGETS = [
-    ("FM_broadcast",  98_900_000,     24, 26, BAND_PROFILES["fm_broadcast"]["signal_threshold_db"]),
-    ("Aviation_VHF",  127_000_000,    16, 20, BAND_PROFILES["aviation"]["signal_threshold_db"]),
-    ("ACARS",         129_125_000,    16, 20, BAND_PROFILES["acars"]["signal_threshold_db"]),
-    ("APRS",          145_175_000,    24, 26, BAND_PROFILES["aprs"]["signal_threshold_db"]),
-    ("AIS",           162_000_000,    24, 26, BAND_PROFILES["ais"]["signal_threshold_db"]),
-    ("ISM_LoRa",      915_000_000,    24, 26, BAND_PROFILES["ism"]["signal_threshold_db"]),
-    ("ADS_B",         1_090_000_000,  24, 24, BAND_PROFILES["adsb"]["signal_threshold_db"]),
-    ("noise_floor",   433_000_000,    16, 20, 10.0),  # fixed reference — not a signal threshold
+    ("FM_broadcast",  98_900_000,     BAND_PROFILES["fm_broadcast"]["lna_gain_db"], BAND_PROFILES["fm_broadcast"]["vga_gain_db"], BAND_PROFILES["fm_broadcast"]["signal_threshold_db"]),
+    ("Aviation_VHF",  127_000_000,    BAND_PROFILES["aviation"]["lna_gain_db"], BAND_PROFILES["aviation"]["vga_gain_db"], BAND_PROFILES["aviation"]["signal_threshold_db"]),
+    ("ACARS",         129_125_000,    BAND_PROFILES["acars"]["lna_gain_db"], BAND_PROFILES["acars"]["vga_gain_db"], BAND_PROFILES["acars"]["signal_threshold_db"]),
+    ("APRS",          145_175_000,    BAND_PROFILES["aprs"]["lna_gain_db"], BAND_PROFILES["aprs"]["vga_gain_db"], BAND_PROFILES["aprs"]["signal_threshold_db"]),
+    ("AIS",           162_000_000,    BAND_PROFILES["ais"]["lna_gain_db"], BAND_PROFILES["ais"]["vga_gain_db"], BAND_PROFILES["ais"]["signal_threshold_db"]),
+    ("ISM_LoRa",      915_000_000,    BAND_PROFILES["ism"]["lna_gain_db"], BAND_PROFILES["ism"]["vga_gain_db"], BAND_PROFILES["ism"]["signal_threshold_db"]),
+    ("ADS_B",         1_090_000_000,  BAND_PROFILES["adsb"]["lna_gain_db"], BAND_PROFILES["adsb"]["vga_gain_db"], BAND_PROFILES["adsb"]["signal_threshold_db"]),
+    ("noise_floor",   433_000_000,    16, 20, 10.0),  # intentionally NOT from BAND_PROFILES['noise_floor'] (0,0)
 ]
 
 for label, freq_hz, lna, vga, threshold in TARGETS:
@@ -38,3 +40,7 @@ for label, freq_hz, lna, vga, threshold in TARGETS:
     print(f"  {'-'*40}")
     for k, v in fp.items():
         print(f"  {k:<22} {v}")
+
+# NOTE: The top-level loop runs on import (pre-existing). Wrap in
+# if __name__ == "__main__": in a future refactor to avoid hardware
+# capture during testing.

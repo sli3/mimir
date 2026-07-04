@@ -189,8 +189,9 @@ event rate, gap detection, and a PASS/FAIL summary. Use `--duration 60` minimum
 | 20 | Live Capture → Vector Store Ingestion Tool | ✅ Complete | 526/526 (384 pytest + 142 Vitest) |
 | 22 | LLM Offline Handling — health check + cooldown system | ✅ Complete | 548/548 (399 pytest + 149 Vitest) |
 | 22-Hotfix | LLM offline emit rate-limit (SocketIO flood fix) | ✅ Complete | 551/551 (402 pytest + 149 Vitest) |
+| BUG-03 | Four tools wired to BAND_PROFILES for gains/thresholds; AIS gains corrected | ✅ Complete | 557/557 (408 pytest + 149 Vitest) |
 
-**Total: 551 passing (402 pytest + 149 Vitest), 0 failures**
+**Total: 557 passing (408 pytest + 149 Vitest), 0 failures**
 
 > **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector
 > store (`data/vectorstore/`) must be re-seeded after deploying this build.
@@ -218,6 +219,8 @@ PYTHONPATH=. python tools/diagnose_fingerprints.py
 
 Output: a table of feature values printed to stdout for each band — FM broadcast (98.9 MHz), ADS-B (1090 MHz), Aviation VHF (127 MHz), and a noise floor reference (433 MHz).
 
+**Note:** Gain values (except noise_floor) are now sourced live from `dashboard.shared_state.BAND_PROFILES` so diagnostic captures use the same gains as the live dashboard. The noise_floor band intentionally uses moderate gain (16/20) for diagnostic visibility and is not sourced from BAND_PROFILES['noise_floor'] (0/0).
+
 ---
 
 ### `tools/diagnose_threshold.py`
@@ -237,6 +240,8 @@ PYTHONPATH=. python tools/diagnose_threshold.py --band adsb
 Valid `--band` values: `fm_broadcast`, `aviation_vhf`, `acars`, `aprs`, `ism_lora`, `ads_b`.
 
 Output: per-band tables of threshold → bandwidth → bins, a recommended value for each band, and a summary table. Take the recommended values and update `signal_threshold_db` in `BAND_PROFILES` (dashboard/shared_state.py).
+
+**Note:** Gain values (lna_gain_db, vga_gain_db) are now sourced live from `dashboard.shared_state.BAND_PROFILES` so threshold sweeps use the same gains as the live dashboard. The AIS band is not included in the sweep (pre-existing limitation).
 
 ---
 
@@ -271,6 +276,10 @@ Output: antenna selection prompt, per-band captures (with warnings for ADS-B, AC
 AIS), coloured pairwise distance matrix (green = strong match, yellow = possible match,
 red = different type) split into halves if needed, followed by a threshold analysis
 block with recommended values.
+
+**Note:** Gain and threshold values (lna_gain_db, vga_gain_db, signal_threshold_db) are
+sourced live from `dashboard.shared_state.BAND_PROFILES` so calibration vectors
+always match the live dashboard configuration.
 
 ---
 

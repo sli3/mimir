@@ -482,13 +482,11 @@ Do not apply this pre-emptively — only if context problems are observed.
   require mocking `ScanRunner.run()` to raise a generic exception. Deferred because this build
   explicitly forbade test file changes.
 
-- **~~ADS-B gain divergence (tools vs production)~~:** ~~`tools/calibrate_thresholds.py` and
-  `tools/diagnose_fingerprints.py` use (32/38) for ADS-B gain (lna/vga) while
-  `dashboard/shared_state.py` BAND_PROFILES uses (24/24).~~ `calibrate_thresholds.py`
-  resolved in Phase 19a (ADS-B gain aligned to 24/24, matching BAND_PROFILES).
-  `diagnose_fingerprints.py` retains legacy (32/38) — out of scope for Phase 19a,
-  documented as provisional in inline TODOs. | ✅ Phase 19a (calibrate_thresholds.py);
-  diagnose_fingerprints.py deferred
+- **~~ADS-B gain divergence (tools vs production)~~:** ~~`tools/calibrate_thresholds.py`
+  and `tools/diagnose_fingerprints.py` used (32/38) for ADS-B gain (lna/vga) while
+  `dashboard.shared_state.py` BAND_PROFILES uses (24/24).~~ All four tools now read
+  gains directly from `BAND_PROFILES`. `calibrate_thresholds.py` resolved in Phase 19a;
+  `diagnose_fingerprints.py` resolved in BUG-03. | ✅ Phase 19a + BUG-03
 
 - **BUG-02 (RESOLVED — this session):** `tools/calibrate_thresholds.py` was calling
   `fingerprint_spectrum(psd_result)` without passing `signal_threshold_db`, so all
@@ -499,5 +497,14 @@ Do not apply this pre-emptively — only if context problems are observed.
   call site. This aligns calibration vectors with the live dashboard and removes a
   plausible cause of `bandwidth_hz=0` / `occupied_bins=0` in field logs.
   Commit: `d012f01`.
+
+- **BUG-03 (RESOLVED — this session):** Wired four diagnostic/calibration tools to
+  `dashboard.shared_state.BAND_PROFILES` for gains and thresholds:
+  `tools/capture_to_vectorstore.py`, `tools/calibrate_thresholds.py`,
+  `tools/diagnose_fingerprints.py`, and `tools/diagnose_threshold.py`. All four now
+  read lna/vga gain values and signal_threshold_db live from BAND_PROFILES instead
+  of using module constants or legacy defaults. Additionally, `diagnose_fingerprints.py`
+  AIS gains were corrected from (24, 26) to match BAND_PROFILES['ais'] (16, 20).
+  Test counts: 557 passing (408 pytest + 149 Vitest), 0 failures.
 
 ---

@@ -13,6 +13,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
+from dashboard.shared_state import BAND_PROFILES
 from tools import diagnose_threshold
 
 
@@ -73,3 +74,18 @@ class TestDiagnoseThreshold:
         for band in diagnose_threshold.BAND_SWEEP:
             key = band["name"].lower().replace(" / ", "_").replace("-", "_").replace(" ", "_")
             assert key in diagnose_threshold.BAND_KEYS, f"{band['name']} missing from BAND_KEYS"
+
+    def test_band_sweep_gains_match_band_profiles(self):
+        """BAND_SWEEP gain values must match dashboard.shared_state.BAND_PROFILES."""
+        NAME_TO_KEY = {
+            "FM Broadcast": "fm_broadcast",
+            "Aviation VHF": "aviation",
+            "ACARS": "acars",
+            "APRS": "aprs",
+            "ISM / LoRa": "ism",
+            "ADS-B": "adsb",
+        }
+        for band in diagnose_threshold.BAND_SWEEP:
+            profile = BAND_PROFILES[NAME_TO_KEY[band["name"]]]
+            assert band["lna_gain_db"] == profile["lna_gain_db"]
+            assert band["vga_gain_db"] == profile["vga_gain_db"]
