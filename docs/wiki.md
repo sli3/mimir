@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: "BUG-03"
+last_updated_phase: "BUG-04"
 ---
 
 # Mimir Wiki
@@ -79,103 +79,65 @@ Phases are listed newest-first so the current phase is always at the top.
 
 ---
 
-### Phase 22 Hotfix — LLM Offline Emit Rate-Limit ▶ ACTIVE
+### Phase 23 — ChromaDB Vector Space 3D Visualisation (isolated side page) ▶ ACTIVE
 
-**What:** Added offline resilience to the LLM classifier. The classifier now:
-
-1. **Health check at startup** — `scan.py` calls `classifier.check_connection()` before
-   starting the scan loop. This probes the LLM server at `/models` and sets a cooldown
-   if unreachable.
-
-2. **Cooldown protection** — After a connection failure, the classifier enters a
-   configurable cooldown period (default 60 seconds). During cooldown, `classify()`
-   fast-fails and returns an offline result without making network calls.
-
-3. **Graceful offline results** — When offline, the classifier returns a
-   `ClassificationResult` with `signal_type="llm_offline"`, confidence "low", and
-   a human-readable reasoning message explaining the offline status and suggesting
-   checks.
-
-4. **Configurable timeouts** — Added `llm_cooldown_sec` and `llm_connect_timeout_sec`
-   configuration fields in `config/mimir.yaml` and `MimirConfig` dataclass.
+**What:** Added an isolated vector-space visualisation page at `/vectordb` that renders all stored ChromaDB embeddings as an interactive 3D scatter plot. The page is separate from the main dashboard to avoid clutter and provides a focused view of the vector space structure.
 
 **Changes:**
 
-1. **`config/mimir.yaml`** — Added `llm_cooldown_sec: 60` and `llm_connect_timeout_sec: 5`
-    under the `scanner:` section.
+1. **`embeddings/store.py`** — Added `SignalStore.get_all_embeddings()` method that returns all stored records with their embedding vectors and metadata. This provides the raw data needed for the visualisation endpoint.
 
-2. **`core/config/loader.py`** — Updated `MimirConfig` dataclass with
-    `llm_cooldown_sec: float = 60.0` and `llm_connect_timeout_sec: float = 5.0`.
-    Updated `load_config()` to parse these fields with defaults.
+2. **`dashboard/server.py`** — Added `_get_signal_store()` (lazy singleton) to provide a shared SignalStore instance across the dashboard and scan.py. Added `vector_space_page()` (Flask route `/vectordb`) that serves the React app for the isolated vector-space visualisation page. Added `api_vectorstore_points()` (GET `/api/vectorstore/points`) that returns all stored ChromaDB embeddings projected into 3D using PCA or t-SNE dimensionality reduction.
 
-3. **`llm/classifier.py`** — Added `import time`. Added `_OFFLINE_SIGNAL_TYPE = "llm_offline"`
-    class constant. Updated `SignalClassifier.__init__()` with `cooldown_sec` and
-    `connect_timeout_sec` parameters. Added `check_connection()` public method
-    (probes `/models`, never raises, returns bool). Added `_offline_result()` private
-    method returning offline `ClassificationResult`. Modified `classify()` to fast-fail
-    during cooldown and set cooldown on `ConnectionError`. Updated
-    `ClassificationResult.signal_type` docstring to distinguish "unavailable" from
-    "llm_offline".
+3. **`dashboard/frontend/src/main.jsx`** — Added conditional render for `/vectordb` vs main App. When the URL path is `/vectordb`, the VectorSpacePage React component is rendered instead of the main dashboard App.
 
-4. **`scan.py`** — Passes `cooldown_sec` and `connect_timeout_sec` to `SignalClassifier`.
-    Calls `classifier.check_connection()` at startup before creating `ScanRunner`.
-    Does not exit/raise on failure.
+4. **`dashboard/frontend/src/pages/VectorSpacePage.jsx`** — New VectorSpacePage React component with 3D scatter plot using @react-three/fiber and @react-three/drei. Includes helpers `VECTOR_COLOUR_MAP`, `normaliseLabel`, and `getPointColour`. Provides loading, error, and empty states with informative messaging.
 
-5. **`dashboard/frontend/src/components/AIReasoningPanel.jsx`** — Added `llm_offline`
-    display case: amber colour, "LLM OFFLINE" label, renders backend reasoning.
+5. **`dashboard/frontend/src/pages/VectorSpacePage.css`** — Isolated cyberpunk styles for the vector space page.
 
-6. **`dashboard/frontend/src/components/SignalHistoryLog.jsx`** — Added amber colour for
-    `llm_offline` signal_type in history rows.
+6. **`tests/dashboard/test_server_api.py`** — Added `TestApiVectorstorePoints` class with tests for the new `/api/vectorstore/points` endpoint covering PCA/t-SNE selection, metadata passthrough, cache behaviour, and error handling.
 
-7. **`tests/llm/test_classifier_offline.py`** — New file with 9 pytest tests covering
-    `check_connection()` and classify() offline/cooldown behaviour.
+7. **`tests/embeddings/test_phase3_embedding.py`** — Added tests for `SignalStore.get_all_embeddings()` covering empty store, record retrieval, and metadata passthrough.
 
-8. **`tests/llm/test_phase4_classifier.py`** — Renamed `test_llm_unavailable_returns_fallback`
-    to `test_llm_connection_error_returns_offline` and updated assertion.
+8. **`dashboard/frontend/src/tests/VectorSpacePage.test.jsx`** — New test file with Vitest tests for VectorSpacePage component covering loading, empty, ready, and error states.
 
-9. **`dashboard/frontend/src/tests/AIReasoningPanel.test.jsx`** — Added 1 Vitest test for
-    `llm_offline` display state.
+9. **`pyproject.toml` / `uv.lock`** — Added scikit-learn dependency for PCA/t-SNE dimensionality reduction.
 
-**Why:** The LLM server on yubaba can be temporarily unavailable (network issues,
-maintenance, or startup delays). Previously, connection failures would cause the
-entire scanner to fail. Now the classifier gracefully handles offline periods,
-allowing the pipeline to continue operating with informative offline results.
+10. **`dashboard/frontend/package.json` / `package-lock.json`** — Added three, @react-three/fiber@8, and @react-three/drei@9 dependencies for 3D visualisation.
+
+**Why:** The vector space visualisation provides a powerful way to explore the structure of stored signal embeddings. It helps operators understand clustering patterns, identify outliers, and verify that different signal types are well-separated in the embedding space. The isolated page keeps the main dashboard focused on real-time monitoring while providing a dedicated space for vector analysis.
 
 **Key functions:**
 
-`SignalClassifier.check_connection()` — Probes the LLM server at `/models` and sets
-an offline cooldown if unreachable. Never raises. Returns True if reachable, False
-otherwise. Used by `scan.py` at startup to pre-warm connection state.
+`SignalStore.get_all_embeddings()` — Returns every stored record with its embedding vector and metadata. Uses `collection.get(include=["embeddings", "metadatas"])` to retrieve raw 7-dimensional vectors required by the vector-space visualisation endpoint. An empty collection returns a dict with empty lists, never an exception.
 
-`SignalClassifier._offline_result()` — Returns a `ClassificationResult` indicating
-LLM server is offline. Used when server is unreachable or classifier is in cooldown.
-Provides graceful fallback that allows pipeline to continue without crashing.
+`vector_space_page()` — Flask route `/vectordb` that serves the React app for the isolated vector-space visualisation page. The route is reached directly; the React entry point then inspects `window.location.pathname` and renders VectorSpacePage instead of the main dashboard App.
 
-**Functions:**
+`api_vectorstore_points()` — REST API endpoint that returns all stored ChromaDB embeddings projected into 3D. Applies scikit-learn dimensionality reduction (PCA for small datasets, t-SNE for larger ones) and normalises coordinates to roughly [-10, 10] on each axis for stable camera framing.
 
-- `check_connection()` — Public method that probes the LLM server at startup and sets cooldown if unreachable. Never raises. Returns True if the server is reachable, False otherwise. An HTTP error (e.g. 404 from /models) is treated as reachable because not every build exposes that endpoint. This is called by scan.py at startup to pre-warm the connection state. If the server is unreachable, the classifier enters a cooldown period and will return offline results for any classification requests until the cooldown expires.
+**Frontend Stack:**
 
-- `_offline_result()` — Private method that returns a ClassificationResult indicating the LLM server is offline. Used when the LLM server is unreachable (ConnectionError) or when the classifier is in cooldown after a recent connection failure. This provides a graceful fallback that allows the pipeline to continue operating without crashing. The result includes a human-readable reasoning message that explains the offline status and suggests checks.
+- **3D Library:** three.js via @react-three/fiber and @react-three/drei
+- **State Management:** React hooks (useState, useEffect, useMemo)
+- **HTTP Client:** fetch API with AbortController for cancellation
+- **Styling:** Isolated CSS module with cyberpunk theme
+- **Testing:** Vitest with React Testing Library mocks
 
 **Deferred items:**
 
-1. **`scanner.py` `_llm_call_count` inflation during offline/cooldown** — Pre-existing
-    metric issue. The AI loop increments `_llm_call_count` even when `classify()`
-    fast-fails during cooldown, which can inflate the count. Consider fixing in a
-    future phase.
+1. **Count-keyed projection cache invalidates frequently** — The cache key is based on record count, so during live capture when records are added, the cache refreshes frequently. Acceptable for a debug page.
 
-2. **Timeout in `classify()` does not trigger cooldown** — Per the explicit Phase 22
-    spec, only `ConnectionError` in `classify()` sets cooldown; `Timeout` still returns
-    `unavailable`. `check_connection()` does treat Timeout as offline. This asymmetry
-    could be addressed in a future robustness pass.
+2. **Route duplication** — `/vectordb` Flask route duplicates the index.html serving logic from the root route. Cosmetic duplication.
+
+3. **No pagination on get_all_embeddings()** — Current store size is small enough that pagination is not a concern.
+
+4. **Frontend production bundle growth** — Three.js adds ~300 kB gzipped, acceptable because the page is isolated and has no nav link yet.
 
 **RF/Legal Notes:**
 - TX safety incidents: None
-- AU legal flags: None — all changes are passive receive-only classifier resilience
-  improvements. No RF interaction.
+- AU legal flags: None — all changes are passive receive-only visualisation improvements. No RF interaction.
 
-**Test counts:** 548 passing (399 pytest + 149 Vitest). New: 9 pytest tests for
-classifier offline handling, 1 updated pytest test, 1 new Vitest test.
+**Test counts:** 419 passing (402 pytest + 162 Vitest). New: 1 Vitest test file for VectorSpacePage, 1 new pytest test for get_all_embeddings, 1 new test class for api_vectorstore_points.
 
 ---
 

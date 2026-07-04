@@ -115,3 +115,30 @@ class SignalStore:
             if meta and "label" in meta:
                 labels.add(str(meta["label"]))
         return sorted(labels)
+
+    def get_all_embeddings(self) -> dict:
+        """
+        Return every stored record with its embedding vector and metadata.
+
+        Uses ``collection.get(include=["embeddings", "metadatas"])`` so the
+        returned dict contains the raw 7-dimensional vectors required by the
+        vector-space visualisation endpoint.  An empty collection returns a
+        dict with empty lists, never an exception.
+
+        Returns:
+            Dict with keys ``ids``, ``embeddings``, and ``metadatas``.
+        """
+        result = self._collection.get(include=["embeddings", "metadatas"])
+
+        ids = result.get("ids")
+        embeddings = result.get("embeddings")
+        metadatas = result.get("metadatas")
+
+        if embeddings is not None and hasattr(embeddings, "tolist"):
+            embeddings = embeddings.tolist()
+
+        return {
+            "ids": ids if ids is not None else [],
+            "embeddings": embeddings if embeddings is not None else [],
+            "metadatas": metadatas if metadatas is not None else [],
+        }

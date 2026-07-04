@@ -62,6 +62,36 @@
 | 20 | Live Capture to Vector Store Ingestion Tool | ✅ Complete | 526 (384 pytest + 142 Vitest) |
 | 22 | LLM Offline Handling — health check + cooldown system | ✅ Complete | 548 (399 pytest + 149 Vitest) |
 | 22-Hotfix | LLM offline emit rate-limit (SocketIO flood fix) | ✅ Complete | 551 (402 pytest + 149 Vitest) |
+| 23 | ChromaDB Vector Space 3D Visualisation (isolated side page) | ✅ Complete | 581/581 (419 pytest + 162 Vitest) |
+
+### BUG-04 — /vectordb Tooltip Frequency Field Mismatch ✅
+
+**What:** The /vectordb hover tooltip showed FREQ as '---' for seeded ChromaDB
+records because `api_vectorstore_points()` read `meta.get("freq_hz")` while
+`tools/seed_chromadb.py` writes the frequency under `"center_freq_hz"`.
+
+**Files changed:**
+- `dashboard/server.py` — `api_vectorstore_points()` now uses
+  `meta.get("center_freq_hz", meta.get("freq_hz"))` so both seeded records and
+  live captures resolve correctly.
+- `tests/dashboard/test_server_api.py` — added
+  `test_center_freq_hz_metadata_key_populates_frequency_hz` covering the seed-key
+  path, precedence over `freq_hz` when both keys are present, and null
+  snr_db/peak_power_db/timestamp for seed records.
+
+**Investigation outcomes:**
+- TASK 2 (colour case): No mismatch. `normaliseLabel()` in `VectorSpacePage.jsx`
+  lowercases labels before indexing `VECTOR_COLOUR_MAP`, so uppercase stored
+  labels resolve correctly.
+- TASK 3 (live-capture keys): No mismatch. `tools/capture_to_vectorstore.py`
+  writes `freq_hz`, `snr_db`, `peak_power_db`, and `timestamp` — matching the
+  endpoint keys.
+
+**RF/Legal notes:** No TX surfaces; all changes passive RX-only.
+
+**Test counts:** 582 passing (420 pytest + 162 Vitest), 0 failures.
+
+---
 
 ### BUG-03 — Tool Gain/Threshold Sync to BAND_PROFILES ✅
 
@@ -1043,3 +1073,37 @@ seeding the production store with fresh live vectors.
 | ~~ADS-B gain divergence~~ | ~~`calibrate_thresholds.py` and `diagnose_fingerprints.py` used (32/38) for ADS-B gain, `shared_state.py` uses (24/24)~~. All four tools now read gains from `BAND_PROFILES`. `calibrate_thresholds.py` resolved in Phase 19a; `diagnose_fingerprints.py` resolved in BUG-03. | ✅ Phase 19a + BUG-03 |
 | **BUG-03** | **Four tools wired to BAND_PROFILES for gains/thresholds; `diagnose_fingerprints.py` AIS gains corrected from (24, 26) to (16, 20).** | **This session ✅** |
 | ~~Frontend/backend AIS frequency mismatch~~ | ~~Frontend hardcodes 161.975 MHz (CH1). BAND_PROFILES expects 162.000 MHz (dual-channel centre). `get_band_for_freq(161_975_000)` returns None, so AIS threshold/gains not applied. HackRF retunes correctly (unconditional), so reception works but band profile config is stale.~~ Fixed across Phase 15 (BAND_GROUPS, OVERVIEW_BANDS, isTuned, focusFrequency) and Phase 15b (STRIP_CONFIGS, FREQ_COLOUR_MAP, isAisFreq, FREQ_CONFIGS). All frontend AIS references now use 162.000 MHz. | ~~Post-Phase 14~~ ✅ Phase 15 + 15b |
+| ~~BUG-04 `/vectordb` tooltip frequency field mismatch~~ | ~~Seeded records use `center_freq_hz`, live captures use `freq_hz`. Tooltip shows null for seeds.~~ Fixed in Phase 23: api_vectorstore_points() now uses `meta.get("center_freq_hz", meta.get("freq_hz"))`. Null SNR/peak/timestamp preserved for legacy seeds. Tests: 420 pytest + 162 Vitest = 582 passing. | ✅ Resolved Phase 23 |
+
+---
+
+### BUG-04 Detail Section
+
+#### Summary
+Tooltip frequency field null for legacy seeded records due to metadata key mismatch between seeding workflow and live capture pipeline. Live captures use `freq_hz`, seeded data uses `center_freq_hz`. Tooltip showed null when querying `/vectordb` with legacy seed keys.
+
+#### Root Cause
+- Seeded ChromaDB points: metadata key `center_freq_hz` (from RTL-ML dataset)
+- Live capture points: metadata key `freq_hz` (from ScanResult pipeline)
+- Tooltip component: hardcoded to query `freq_hz` field
+- Result: legacy seeds returned null in tooltip frequency display
+
+#### Fix Applied
+Modified `api_vectorstore_points()` in `dashboard/server.py`:
+```python
+meta.get("center_freq_hz", meta.get("freq_hz"))
+```
+
+This provides fallback precedence: `center_freq_hz` (seeds) over `freq_hz` (live). Null SNR/peak/timestamp values preserved for legacy seeded records to maintain data integrity.
+
+#### Testing
+- 420 pytest + 162 Vitest = 582 tests passing, 0 failures
+- Verified tooltip displays frequency correctly for both seed and live-capture vectors
+- Legacy seeds retain null SNR/peak/timestamp fields as expected
+
+#### Impact
+No phase tracker entry required. This is a targeted bug fix within Phase 23 scope. Preceded by Phase 22 LLM offline handling work. Follows successful completion of Phase 17 (focused decode panel) and Phase 18 (raw ADS-B hex decode view). Resolved after Phase 22 hotfix for rate-limiting SocketIO flood during LLM offline state.
+
+---
+
+## Deferred Items

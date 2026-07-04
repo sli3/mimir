@@ -186,12 +186,18 @@ event rate, gap detection, and a PASS/FAIL summary. Use `--duration 60` minimum
 | 17 | Feature A: focused decode panel | ✅ Complete | 496/496 (373 pytest + 123 Vitest) |
 | 18 | Feature B: Raw ADS-B Hex Decode View | ✅ Complete | 507/507 (373 pytest + 134 Vitest) |
 | 18b | Raw Decode Log — ACARS and AIS | ✅ Complete | 517/517 (375 pytest + 142 Vitest) |
+| 19a | calibrate_thresholds.py — missing bands + ADS-B gain fix | ✅ Complete | 517/517 (375 pytest + 142 Vitest) |
+| 19b | calibrate_thresholds.py — antenna selection, single-band prompt, matrix split | ✅ Complete | 517/517 (375 pytest + 142 Vitest) |
+| 19c | classifier.py — ChromaDB distance threshold recalibration | ✅ Complete | 517/517 (375 pytest + 142 Vitest) |
 | 20 | Live Capture → Vector Store Ingestion Tool | ✅ Complete | 526/526 (384 pytest + 142 Vitest) |
+| 21 | ADS-B Frame Inspector + SIGNAL INTERCEPT rename | ✅ Complete | 538/538 (390 pytest + 148 Vitest) |
 | 22 | LLM Offline Handling — health check + cooldown system | ✅ Complete | 548/548 (399 pytest + 149 Vitest) |
 | 22-Hotfix | LLM offline emit rate-limit (SocketIO flood fix) | ✅ Complete | 551/551 (402 pytest + 149 Vitest) |
+| 23 | ChromaDB Vector Space 3D Visualisation (isolated side page) | ✅ Complete | 581/581 (419 pytest + 162 Vitest) |
 | BUG-03 | Four tools wired to BAND_PROFILES for gains/thresholds; AIS gains corrected | ✅ Complete | 557/557 (408 pytest + 149 Vitest) |
+| BUG-04 | /vectordb tooltip frequency field mismatch (seeded vs live metadata keys) | ✅ Complete | 582/582 (420 pytest + 162 Vitest) |
 
-**Total: 557 passing (408 pytest + 149 Vitest), 0 failures**
+**Total: 582 passing (420 pytest + 162 Vitest), 0 failures**
 
 > **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector
 > store (`data/vectorstore/`) must be re-seeded after deploying this build.
@@ -350,6 +356,50 @@ Then open your browser at `http://localhost:5000`. The cyberpunk dashboard will 
 The scanner starts automatically when the server starts. It cycles through the configured frequency bands continuously.
 
 If the HackRF is not connected, `scan.py` logs a clear error message and exits with code 1 (no traceback).
+
+### Vector Space Visualisation
+
+A separate vector space visualisation page is available at `http://localhost:5000/vectordb`. This page provides an interactive 3D scatter plot of all stored ChromaDB embeddings, helping you explore the structure of signal fingerprints and identify clustering patterns. The page is isolated from the main dashboard to avoid clutter and provides a focused view of the vector space.
+
+**Note:** The vector space page requires scikit-learn and React Three.js dependencies. These are automatically installed when running `uv sync --all-extras` or `setup.sh`.
+
+### Dependencies
+
+The project uses UV for dependency management. The following Python dependencies are required:
+
+- numpy>=1.26.0
+- PyYAML>=6.0
+- requests>=2.31.0
+- chromadb>=0.5.0
+- flask>=3.0.0
+- flask-socketio>=5.3.0
+- python-engineio>=4.8.0
+- python-socketio[client]>=5.11.0
+- huggingface-hub>=0.24.0
+- scipy>=1.12.0
+- pyais>=3.0.0
+- pyModeS>=3.0
+- scikit-learn>=1.9.0
+
+Frontend dependencies are managed via npm:
+
+- @react-three/fiber^8.18.0
+- @react-three/drei^9.122.0
+- react^18.3.1
+- react-dom^18.3.1
+- socket.io-client^4.7.5
+- three^0.185.1
+
+To install all dependencies:
+
+```bash
+# Using UV (recommended for development)
+uv sync --all-extras
+
+# Or using setup.sh (auto-detects OS)
+chmod +x setup.sh
+./setup.sh
+```
 
 ---
 

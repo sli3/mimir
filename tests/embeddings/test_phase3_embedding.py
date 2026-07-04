@@ -261,3 +261,22 @@ class TestSignalStore:
         query_vec = embedder.embed(_make_fingerprint(peak_freq_hz=95_000_000.0))
         results = store.query(query_vec, n_results=3)
         assert len(results["ids"][0]) == 3
+
+    def test_get_all_embeddings_empty_store(self, store):
+        """get_all_embeddings must return empty lists for a fresh store."""
+        result = store.get_all_embeddings()
+        assert result == {"ids": [], "embeddings": [], "metadatas": []}
+
+    def test_get_all_embeddings_returns_records(self, store, embedder, fingerprint):
+        """get_all_embeddings must return ids, embeddings, and metadata."""
+        record = embedder.embed_fingerprint(
+            fingerprint,
+            metadata={"label": "fm_broadcast", "freq_hz": 98_000_000},
+        )
+        store.add(record)
+        result = store.get_all_embeddings()
+        assert len(result["ids"]) == 1
+        assert result["ids"][0] == record["id"]
+        assert len(result["embeddings"][0]) == len(record["embedding"])
+        assert result["metadatas"][0]["label"] == "fm_broadcast"
+        assert result["metadatas"][0]["freq_hz"] == 98_000_000

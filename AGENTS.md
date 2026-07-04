@@ -209,9 +209,10 @@ uv run python tools/seed_chromadb.py
 | 21 | ADS-B Frame Inspector + SIGNAL INTERCEPT rename | ✅ Complete | 538 (390 pytest + 148 Vitest) |
 | 22 | LLM Offline Handling — health check + cooldown system | ✅ Complete | 548 (399 pytest + 149 Vitest) |
 | 22-Hotfix | LLM offline emit rate-limit (SocketIO flood fix) | ✅ Complete | 551 (402 pytest + 149 Vitest) |
+| 23 | ChromaDB Vector Space 3D Visualisation (isolated side page) | ✅ Complete | 581 (419 pytest + 162 Vitest) |
 
-**Total passing: 551 passing (402 pytest + 149 Vitest), 0 failures**
-- Note: All pre-existing pytest failures resolved. Updated 2026-07-03 after Phase 22 Hotfix.
+**Total passing: 581 passing (419 pytest + 162 Vitest), 0 failures**
+- Note: Phase 23 added 2026-07-04. All pre-existing pytest failures resolved. Updated after Phase 22 Hotfix.
 
 ---
 
@@ -387,6 +388,7 @@ Do not apply this pre-emptively — only if context problems are observed.
 | Missing ADS-B / NOAA_APT ChromaDB entries | Both classes absent from RTL-ML dataset — 0 records in production vectorstore for these bands until live capture runs via `tools/capture_to_vectorstore.py`. | Pending live capture window |
 | ~~Phase 19b/19c governance rows missing~~ | ~~Phase tracker entries for 19b and 19c were never written — checkpoint mode was off for both builds.~~ Added this session. | ~~This session~~ ✅ RESOLVED |
 | **SIGNAL_THRESHOLD_DB discrepancy** | Field log reported 21 dB threshold, project memory says 27 dB. Value lives in `core/pipeline/features.py`. Needs verification against live file before next calibration run. | Future calibration |
+| ~~BUG-04 `/vectordb` tooltip frequency field mismatch~~ | ~~Seeded records use `center_freq_hz`, live captures use `freq_hz`. Tooltip shows null for seeds.~~ Fixed in Phase 23: api_vectorstore_points() now uses `meta.get("center_freq_hz", meta.get("freq_hz"))`. Null SNR/peak/timestamp preserved for legacy seeds. Tests: 420 pytest + 162 Vitest = 582 passing. | ✅ Resolved Phase 23 |
 
 ---
 
@@ -506,5 +508,14 @@ Do not apply this pre-emptively — only if context problems are observed.
   of using module constants or legacy defaults. Additionally, `diagnose_fingerprints.py`
   AIS gains were corrected from (24, 26) to match BAND_PROFILES['ais'] (16, 20).
   Test counts: 557 passing (408 pytest + 149 Vitest), 0 failures.
+
+- **BUG-04 (RESOLVED — this session):** `/vectordb` tooltip showed FREQ as '---'
+  for seeded ChromaDB records because `api_vectorstore_points()` read
+  `meta.get("freq_hz")` while the seed script writes `"center_freq_hz"`. Fixed by
+  using `meta.get("center_freq_hz", meta.get("freq_hz"))` so both seeded records
+  and live captures resolve correctly. Added
+  `test_center_freq_hz_metadata_key_populates_frequency_hz` to cover the seed-key
+  path and the precedence rule. Colour case (TASK 2) and live-capture key names
+  (TASK 3) required no changes. Test counts: 582 passing (420 pytest + 162 Vitest).
 
 ---

@@ -11,6 +11,7 @@ Run with:
 import json
 import sys
 import os
+from unittest.mock import patch
 
 import pytest
 
@@ -157,3 +158,229 @@ class TestApiFrequenciesErrorHandling:
             assert response.status_code == 500
             data = response.get_json()
             assert "error" in data
+
+
+class _FakeSignalStore:
+    """In-memory stand-in for SignalStore used by /api/vectorstore/points tests."""
+
+    def __init__(self, records):
+        self._records = records
+        self.get_all_embeddings_call_count = 0
+
+    def count(self):
+        return len(self._records)
+
+    def get_all_embeddings(self):
+        self.get_all_embeddings_call_count += 1
+        return {
+            "ids": [r["id"] for r in self._records],
+            "embeddings": [r["embedding"] for r in self._records],
+            "metadatas": [r["metadata"] for r in self._records],
+        }
+
+
+class TestApiVectorstorePoints:
+    """Tests for GET /api/vectorstore/points."""
+
+    def test_empty_store_returns_empty_response(self, client):
+        """An empty ChromaDB collection returns status 'empty' and no points."""
+        fake_store = _FakeSignalStore([])
+        with patch("dashboard.server._get_signal_store", return_value=fake_store), \
+             patch.dict("dashboard.server._VECTORSTORE_CACHE",
+                        {"count": -1, "points": None, "method": None}, clear=True):
+            response = client.get("/api/vectorstore/points")
+            assert response.status_code == 200
+            data = response.get_json()
+            assert data["status"] == "empty"
+            assert data["count"] == 0
+            assert data["points"] == []
+            assert data["method"] is None
+
+    def test_small_store_uses_pca(self, client):
+        """Fewer than 5 records uses PCA and reports method 'pca'."""
+        records = [
+            {"id": "r1", "embedding": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7],
+             "metadata": {"label": "FM_broadcast"}},
+            {"id": "r2", "embedding": [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8],
+             "metadata": {"label": "Aviation_VHF"}},
+            {"id": "r3", "embedding": [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9],
+             "metadata": {"label": "ACARS"}},
+        ]
+        with patch("dashboard.server._get_signal_store", return_value=_FakeSignalStore(records)), \
+             patch.dict("dashboard.server._VECTORSTORE_CACHE",
+                        {"count": -1, "points": None, "method": None}, clear=True):
+            response = client.get("/api/vectorstore/points")
+            assert response.status_code == 200
+            data = response.get_json()
+            assert data["status"] == "ok"
+            assert data["method"] == "pca"
+            assert data["count"] == 3
+            assert len(data["points"]) == 3
+            for point in data["points"]:
+                assert "x" in point and "y" in point and "z" in point
+
+    def test_two_record_store_pads_to_three_dimensions(self, client):
+        """A 2-record store must not crash; PCA is padded to 3D coordinates."""
+        records = [
+            {"id": "r1", "embedding": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7],
+             "metadata": {"label": "FM_broadcast"}},
+            {"id": "r2", "embedding": [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1],
+             "metadata": {"label": "Aviation_VHF"}},
+        ]
+        with patch("dashboard.server._get_signal_store", return_value=_FakeSignalStore(records)), \
+             patch.dict("dashboard.server._VECTORSTORE_CACHE",
+                        {"count": -1, "points": None, "method": None}, clear=True):
+            response = client.get("/api/vectorstore/points")
+            assert response.status_code == 200
+            data = response.get_json()
+            assert data["status"] == "ok"
+            assert data["method"] == "pca"
+            assert data["count"] == 2
+            assert len(data["points"]) == 2
+            for point in data["points"]:
+                assert "x" in point and "y" in point and "z" in point
+
+    def test_four_record_store_uses_pca(self, client):
+        """A 4-record store uses PCA with 3 components."""
+        records = [
+            {"id": f"r{i}", "embedding": [i / 10.0 + j / 100.0 for j in range(7)],
+             "metadata": {"label": f"label_{i}"}}
+            for i in range(4)
+        ]
+        with patch("dashboard.server._get_signal_store", return_value=_FakeSignalStore(records)), \
+             patch.dict("dashboard.server._VECTORSTORE_CACHE",
+                        {"count": -1, "points": None, "method": None}, clear=True):
+            response = client.get("/api/vectorstore/points")
+            assert response.status_code == 200
+            data = response.get_json()
+            assert data["status"] == "ok"
+            assert data["method"] == "pca"
+            assert data["count"] == 4
+            assert len(data["points"]) == 4
+
+    def test_large_store_uses_tsne_with_perplexity_guard(self, client):
+        """5+ records uses t-SNE and caps perplexity at n - 1."""
+        records = [
+            {"id": f"r{i}", "embedding": [i / 10.0] * 7,
+             "metadata": {"label": f"label_{i}"}}
+            for i in range(5)
+        ]
+        with patch("dashboard.server._get_signal_store", return_value=_FakeSignalStore(records)), \
+             patch.dict("dashboard.server._VECTORSTORE_CACHE",
+                        {"count": -1, "points": None, "method": None}, clear=True):
+            response = client.get("/api/vectorstore/points")
+            assert response.status_code == 200
+            data = response.get_json()
+            assert data["status"] == "ok"
+            assert data["method"] == "tsne"
+            assert data["count"] == 5
+            assert len(data["points"]) == 5
+
+    def test_metadata_passthrough(self, client):
+        """Metadata fields are surfaced safely on each point."""
+        records = [
+            {"id": "r1", "embedding": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7],
+             "metadata": {
+                 "label": "AIS",
+                 "freq_hz": 162_000_000,
+                 "snr_db": 12.5,
+                 "peak_power_db": -45.0,
+                 "timestamp": "2026-07-04T10:00:00",
+             }},
+        ]
+        with patch("dashboard.server._get_signal_store", return_value=_FakeSignalStore(records)), \
+             patch.dict("dashboard.server._VECTORSTORE_CACHE",
+                        {"count": -1, "points": None, "method": None}, clear=True):
+            response = client.get("/api/vectorstore/points")
+            assert response.status_code == 200
+            data = response.get_json()
+            assert data["status"] == "ok"
+            assert data["method"] == "pca"
+            point = data["points"][0]
+            assert point["label"] == "AIS"
+            assert point["frequency_hz"] == 162_000_000
+            assert point["snr_db"] == 12.5
+            assert point["peak_power_db"] == -45.0
+            assert point["timestamp"] == "2026-07-04T10:00:00"
+
+    def test_center_freq_hz_metadata_key_populates_frequency_hz(self, client):
+        """Seed records use 'center_freq_hz' — endpoint must resolve it."""
+        records = [
+            {"id": "r1", "embedding": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7],
+             "metadata": {
+                 "label": "APRS",
+                 "center_freq_hz": 145_175_000,
+                 "freq_hz": 999_999_999,
+                 "source": "rtl-ml-dataset",
+             }},
+        ]
+        with patch("dashboard.server._get_signal_store", return_value=_FakeSignalStore(records)), \
+             patch.dict("dashboard.server._VECTORSTORE_CACHE",
+                        {"count": -1, "points": None, "method": None}, clear=True):
+            response = client.get("/api/vectorstore/points")
+            assert response.status_code == 200
+            data = response.get_json()
+            assert data["status"] == "ok"
+            point = data["points"][0]
+            assert point["label"] == "APRS"
+            # center_freq_hz takes precedence over the live-capture freq_hz key.
+            assert point["frequency_hz"] == 145_175_000
+            # Seed records do not have snr/peak/timestamp keys — these must stay null.
+            assert point["snr_db"] is None
+            assert point["peak_power_db"] is None
+            assert point["timestamp"] is None
+
+    def test_missing_metadata_fields_use_defaults(self, client):
+        """Records without metadata keys do not raise KeyError."""
+        records = [
+            {"id": "r1", "embedding": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7],
+             "metadata": {}},
+        ]
+        with patch("dashboard.server._get_signal_store", return_value=_FakeSignalStore(records)), \
+             patch.dict("dashboard.server._VECTORSTORE_CACHE",
+                        {"count": -1, "points": None, "method": None}, clear=True):
+            response = client.get("/api/vectorstore/points")
+            assert response.status_code == 200
+            data = response.get_json()
+            point = data["points"][0]
+            assert point["label"] == "unknown"
+            assert point["frequency_hz"] is None
+            assert point["snr_db"] is None
+            assert point["peak_power_db"] is None
+            assert point["timestamp"] is None
+
+    def test_store_failure_returns_500(self, client):
+        """An exception during SignalStore access returns a JSON 500 error."""
+        def raise_error():
+            raise RuntimeError("store unavailable")
+
+        with patch("dashboard.server._get_signal_store", side_effect=raise_error), \
+             patch.dict("dashboard.server._VECTORSTORE_CACHE",
+                        {"count": -1, "points": None, "method": None}, clear=True):
+            response = client.get("/api/vectorstore/points")
+            assert response.status_code == 500
+            data = response.get_json()
+            assert "error" in data
+
+    def test_cache_returns_same_points_without_recompute(self, client):
+        """A second request with the same record count returns cached points."""
+        records = [
+            {"id": "r1", "embedding": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7],
+             "metadata": {"label": "FM_broadcast"}},
+            {"id": "r2", "embedding": [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8],
+             "metadata": {"label": "Aviation_VHF"}},
+            {"id": "r3", "embedding": [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9],
+             "metadata": {"label": "ACARS"}},
+        ]
+        fake_store = _FakeSignalStore(records)
+        with patch("dashboard.server._get_signal_store", return_value=fake_store), \
+             patch.dict("dashboard.server._VECTORSTORE_CACHE",
+                        {"count": -1, "points": None, "method": None}, clear=True):
+            response1 = client.get("/api/vectorstore/points")
+            data1 = response1.get_json()
+            response2 = client.get("/api/vectorstore/points")
+            data2 = response2.get_json()
+            assert data1 == data2
+            assert response1.status_code == response2.status_code == 200
+            assert fake_store.get_all_embeddings_call_count == 1
+

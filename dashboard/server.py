@@ -36,10 +36,12 @@ import re
 import threading
 import time
 
+import numpy as np
 from flask import Flask, jsonify, request
 from flask_socketio import SocketIO
 
 from core.pipeline.scan_result import ScanResult
+from embeddings.store import SignalStore
 from modules.acars.message import AcarsMessage
 from modules.adsb.message import AdsbMessage
 from modules.adsb.constants import AU_ADSB_FREQUENCY_HZ, FREQ_TOLERANCE_HZ
@@ -67,6 +69,37 @@ _scanner_ref = None
 _last_hw_error_time = 0.0
 _focused_freq_hz: float | None = None
 _focused_freq_lock = threading.Lock()
+
+# In-process cache for the vector-space 3D projection.  Keyed on record count
+# so repeated page loads don't recompute t-SNE, which is CPU-intensive.
+_VECTORSTORE_CACHE = {
+    "count": -1,
+    "points": None,
+    "method": None,
+}
+_VECTORSTORE_CACHE_LOCK = threading.Lock()
+
+_signal_store = None
+_signal_store_lock = threading.Lock()
+
+
+def _get_signal_store():
+    """Return the shared SignalStore instance, creating it lazily.
+
+    The dashboard and scan.py run in the same process and share the same
+    ChromaDB path.  Using a single PersistentClient avoids re-opening the
+    SQLite backing store on every request and reduces "database is locked"
+    pressure during live capture.
+
+    Returns:
+        SignalStore: The singleton SignalStore instance.
+    """
+    global _signal_store
+    if _signal_store is None:
+        with _signal_store_lock:
+            if _signal_store is None:
+                _signal_store = SignalStore()
+    return _signal_store
 
 
 @socketio.on("set_focus_frequency")
@@ -576,3 +609,150 @@ def api_adsb_parse():
             logger.debug("Field extraction failed for typecode %d: %s", typecode, exc)
 
     return jsonify(response), 200
+
+
+@app.route("/vectordb")
+def vector_space_page():
+    """Serve the React app for the isolated vector-space visualisation page.
+
+    The /vectordb route is reached directly; the React entry point then
+    inspects window.location.pathname and renders VectorSpacePage instead
+    of the main dashboard App.
+
+    Returns:
+        Flask response: The index.html file for the VectorSpacePage React app.
+    """
+    from flask import send_from_directory
+    return send_from_directory(
+        os.path.join(os.path.dirname(__file__), "static"),
+        "index.html"
+    )
+
+
+@app.route("/api/vectorstore/points")
+def api_vectorstore_points():
+    """Return all stored ChromaDB embeddings projected into 3D.
+
+    This endpoint is read-only: it pulls existing vectors and metadata from
+    the SignalStore and applies scikit-learn dimensionality reduction so the
+    frontend can render the vector space as an interactive 3D scatter plot.
+
+    Reduction strategy:
+        * n == 0        -> empty response (no computation).
+        * 1 <= n < 5    -> PCA to 3 components (t-SNE is unstable this small).
+        * n >= 5        -> t-SNE with fixed random_state=42 for reproducible
+                          demo layouts; perplexity is capped at min(30, n-1)
+                          because t-SNE requires perplexity < n_samples.
+
+    The resulting 3D coordinates are normalised to roughly [-10, 10] on each
+    axis so the camera framing is stable regardless of raw magnitudes.
+
+    Frequency metadata handling:
+        * Seed data (RTL-ML) uses "center_freq_hz" key
+        * Live captures (capture_to_vectorstore.py) use "freq_hz" key
+        * The endpoint reads "center_freq_hz" first, falling back to "freq_hz"
+          to support both record types and ensure the /vectordb tooltip FREQ field
+          displays correctly for seeded records.
+
+    Returns:
+        JSON: {"status": "ok"|"empty", "count": int, "method": str|null,
+               "points": [{id, x, y, z, label, frequency_hz, snr_db,
+               peak_power_db, timestamp}, ...]}
+    """
+    try:
+        store = _get_signal_store()
+
+        with _VECTORSTORE_CACHE_LOCK:
+            cached_count = _VECTORSTORE_CACHE["count"]
+            cached_points = _VECTORSTORE_CACHE["points"]
+            cached_method = _VECTORSTORE_CACHE["method"]
+            if cached_count >= 0 and cached_points is not None:
+                return jsonify({
+                    "status": "ok",
+                    "count": cached_count,
+                    "method": cached_method,
+                    "points": cached_points,
+                }), 200
+
+        # Cache miss: read embeddings and compute the projection.  This runs
+        # under the cache lock so concurrent requests don't start multiple
+        # expensive t-SNE jobs.
+        with _VECTORSTORE_CACHE_LOCK:
+            raw = store.get_all_embeddings()
+            ids = raw["ids"]
+            embeddings = raw["embeddings"]
+            metadatas = raw["metadatas"]
+            n = len(ids)
+
+            if n == 0:
+                return jsonify({
+                    "status": "empty",
+                    "count": 0,
+                    "method": None,
+                    "points": [],
+                }), 200
+
+            matrix = np.array(embeddings, dtype=float)
+
+            # Lazy import scikit-learn so scan.py startup is not penalised for
+            # a visualisation endpoint that is rarely hit.
+            from sklearn.decomposition import PCA
+            from sklearn.manifold import TSNE
+
+            if n == 1:
+                projected = np.zeros((1, 3), dtype=float)
+                method = "pca"
+            elif n < 5:
+                n_components = min(3, n)
+                reducer = PCA(n_components=n_components, random_state=42)
+                method = "pca"
+                projected = reducer.fit_transform(matrix)
+                if projected.shape[1] < 3:
+                    projected = np.pad(
+                        projected,
+                        ((0, 0), (0, 3 - projected.shape[1])),
+                        mode="constant",
+                    )
+            else:
+                reducer = TSNE(
+                    n_components=3,
+                    random_state=42,
+                    perplexity=min(30, n - 1),
+                )
+                method = "tsne"
+                projected = reducer.fit_transform(matrix)
+
+            max_abs = np.max(np.abs(projected))
+            if max_abs > 0:
+                projected = (projected / max_abs) * 10.0
+
+            points = []
+            for i, record_id in enumerate(ids):
+                meta = metadatas[i] or {}
+                points.append({
+                    "id": record_id,
+                    "x": float(projected[i, 0]),
+                    "y": float(projected[i, 1]),
+                    "z": float(projected[i, 2]),
+                    "label": str(meta.get("label") or "unknown"),
+                    # Seed data uses "center_freq_hz"; live captures use "freq_hz".
+                    "frequency_hz": meta.get("center_freq_hz", meta.get("freq_hz")),
+                    "snr_db": meta.get("snr_db"),
+                    "peak_power_db": meta.get("peak_power_db"),
+                    "timestamp": meta.get("timestamp"),
+                })
+
+            _VECTORSTORE_CACHE["count"] = n
+            _VECTORSTORE_CACHE["points"] = points
+            _VECTORSTORE_CACHE["method"] = method
+
+            return jsonify({
+                "status": "ok",
+                "count": n,
+                "method": method,
+                "points": points,
+            }), 200
+
+    except Exception as exc:
+        logger.exception("Vector store projection failed: %s", exc)
+        return jsonify({"error": "Vector store projection failed"}), 500
