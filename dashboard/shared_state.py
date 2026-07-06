@@ -113,7 +113,7 @@ BAND_PROFILES: dict = {
         "center_freq_hz":      98_000_000,
         "lna_gain_db":         24,  # Telescopic whip has poor FM coupling — gain required
         "vga_gain_db":         26,
-        "signal_threshold_db": 21.0,   # Calibrated live FM Adelaide, telescopic whip, lna=24/vga=26
+        "signal_threshold_db": 27.0,   # Calibrated live FM Adelaide, telescopic whip, lna=24/vga=26
     },
     "aviation": {
         "center_freq_hz":      127_000_000,
@@ -131,7 +131,7 @@ BAND_PROFILES: dict = {
         "center_freq_hz":      145_175_000,
         "lna_gain_db":         24,
         "vga_gain_db":         26,
-        "signal_threshold_db": 10.0,    # Calibrated: telescopic whip, 2026-06-24, diagnose_threshold.py x2 runs
+        "signal_threshold_db": 18.0,    # Calibrated: telescopic whip, 2026-06-24, diagnose_threshold.py x2 runs
     },
     "ais": {
         "center_freq_hz": 162_000_000,  # was 161_975_000 — demodulator centres at 162 MHz, channels at ±25 kHz
