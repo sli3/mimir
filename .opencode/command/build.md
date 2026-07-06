@@ -96,12 +96,20 @@ Before calling @plan-reviewer, establish prior session context:
 Load the `code-preflight` skill (verify the skill name resolves; if it does
 not, report rather than proceeding silently).
 Call @plan-reviewer as Planning Lead with your proposed approach, including
-the prior session context extracted above.
+the prior session context extracted above. If the plan touches an
+unfamiliar library, API, or ChromaDB/SoapySDR behaviour, @plan-reviewer
+should use its context7 MCP tool for live documentation rather than relying
+on training data alone — consistent with this project's verify-before-build
+principle.
 Wait for completion. If a hard stop is raised → stop and report.
 
 ### STEP 2 — RESEARCH
 Call @researcher as Knowledge Lead for background on any library, API,
-regulation, or concept the implementation needs.
+regulation, or concept the implementation needs. @researcher has the
+context7 MCP tool available and should use it for live library/API
+documentation lookups (e.g. ChromaDB, SoapySDR, pyModeS, pyais) rather than
+relying on training data alone — this project's verify-before-build principle
+applies to research as much as to code.
 Wait for completion before writing any code.
 
 **Output gate:** If @researcher surfaces a regulation conflict, a TX-capable
@@ -171,19 +179,83 @@ Check whether this build touched any file under dashboard/frontend/.
 
 If NO frontend files were changed → skip this step entirely, proceed to Step 7.
 
-If frontend files WERE changed → call @frontend-reviewer as Frontend Lead,
-handing it ONLY the diff/contents of the changed dashboard/frontend/ files
-(not the full build diff — it does not review backend Python). It checks
-hook correctness, missing dependency arrays, unnecessary re-renders, and
-WebSocket cleanup on unmount.
+If frontend files WERE changed, @frontend-reviewer will need the live Vite dev
+server to observe rendering via Playwright. @frontend-reviewer cannot start or
+stop this itself — its `bash` permission is denied by design (read-only
+reviewer). You (PM/build agent) own the server lifecycle for this step:
 
-  a. If @frontend-reviewer returns zero findings → proceed to Step 7.
+**6B.1 — Check if the dev server is already running:**
+```
+curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/ --max-time 2
+```
+- Output `200` → set `server_already_running = true`, skip to 6B.3.
+- Anything else (fails, times out, non-200) → set `server_already_running = false`,
+  continue to 6B.2.
+
+**6B.2 — Start the dev server and wait for readiness:**
+```
+nohup npm run dev --prefix dashboard/frontend > /tmp/mimir-vite-dev.log 2>&1 &
+```
+Poll every 2 seconds, maximum 12 attempts (24 seconds total):
+```
+curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/ --max-time 2
+```
+- Returns `200` at any attempt → proceed to 6B.3.
+- Still not `200` after 12 attempts → this is a STEP 6B FAILURE, not a build
+  HARD STOP (do not treat it as one of the conditions in HARD STOP CONDITIONS
+  above). Print the last 20 lines of /tmp/mimir-vite-dev.log, then go to
+  6B.4 for teardown before proceeding to Step 7 — the start attempt may still
+  be running in the background even though it never became ready, so
+  teardown must still run. Note in the Step 10 report that frontend review
+  was skipped because the dev server failed to start.
+
+**6B.3 — Invoke @frontend-reviewer:**
+Call @frontend-reviewer as Frontend Lead, handing it ONLY the diff/contents of
+the changed dashboard/frontend/ files (not the full build diff — it does not
+review backend Python). It checks hook correctness, missing dependency
+arrays, unnecessary re-renders, and WebSocket cleanup on unmount, plus live
+browser observation against http://localhost:5173/ if useful for this change.
+
+  a. If @frontend-reviewer returns zero findings → proceed to 6B.4.
   b. If it flags a hard stop (AGENTS.md UI-convention contradiction, or a
-     TX-related surface it happened to notice) → stop and report.
+     TX-related surface it happened to notice) → proceed to 6B.4 (teardown),
+     then stop and report.
   c. Otherwise, apply one fix pass for its findings, rerun the relevant
-     Vitest suite to confirm still green, and proceed to Step 7. If that fix
+     Vitest suite to confirm still green, then proceed to 6B.4. If that fix
      pass breaks the suite, re-enter Step 5 for a SINGLE corrective
-     iteration only; if it still cannot be made green → hard stop.
+     iteration only; if it still cannot be made green → hard stop (after
+     6B.4 teardown still runs first).
+
+**6B.4 — Teardown (mandatory, runs regardless of 6B.2/6B.3's outcome):**
+- If `server_already_running = true` → do nothing. It was running before
+  this step and may be in use elsewhere.
+- If `server_already_running = false` (we attempted to start it in 6B.2,
+  whether or not it became ready) → stop whatever process is bound to port
+  5173. Do NOT track this by PID from the `nohup` command: `npm run dev`
+  spawns Vite as a child process, and killing the `npm` wrapper's own PID
+  does not reliably terminate that child, leaving an orphaned dev server on
+  the port. Instead, target the port directly:
+  ```
+  lsof -ti:5173 | xargs -r kill
+  ```
+  Wait 2 seconds, then confirm:
+  ```
+  curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/ --max-time 2
+  ```
+  If this still returns `200`, escalate once with a stronger signal, still
+  scoped to the same port (never broaden to a name-based `pkill`, which
+  risks killing an unrelated process on this machine):
+  ```
+  lsof -ti:5173 | xargs -r kill -9
+  ```
+  Confirm again. If port 5173 is still responding after both attempts, note
+  in the Step 10 report that the dev server needs manual cleanup — do not
+  attempt further kills.
+  (Requires `lsof` — standard on Fedora Workstation. If missing, report this
+  as a tooling gap rather than falling back to `pkill` by name.)
+
+Proceed to Step 7 once 6B.4 has completed (whether or not Step 6B itself
+raised a hard stop or a step-6B-only failure — teardown always runs first).
 
 @frontend-reviewer is invoked BY NAME here — do not rely on automatic
 subagent triggering for this gate.
@@ -285,7 +357,14 @@ Produce a structured summary containing:
 - Code-review findings (@review-second and @deep-analyst separately, plus any
   conflict and how you adjudicated it)
 - Frontend-review findings (@frontend-reviewer), if Step 6B ran — state
-  explicitly if it was skipped because no dashboard/frontend/ files changed
+  explicitly if it was skipped because no dashboard/frontend/ files changed,
+  or if it could not run because the Vite dev server failed to start. Note
+  whether the dev server was already running, started and stopped cleanly,
+  or needs manual cleanup. **If Step 6B failed to start the dev server,
+  state clearly at the top of this report section: "Frontend review was NOT
+  completed this build. Run `/review-frontend` manually to review the
+  dashboard/frontend/ changes above."** This build still completes and
+  reports normally — a Step 6B tooling failure does not block Steps 7–10.
 - PM audit result (clean, or what was flagged and how the re-entry resolved)
 - Project memo (@memo-writer) — which governance docs were touched, and whether
   the phase tracker was updated (it must have moved ONLY if the checkpoint flag
