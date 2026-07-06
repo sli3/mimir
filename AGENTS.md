@@ -218,12 +218,133 @@ uv run python tools/seed_chromadb.py
 
 ## MCP Servers
 
-Two MCP servers are configured in `opencode.json` and active in all OpenCode sessions.
+Four MCP servers are configured in `opencode.json` and active in all OpenCode sessions.
 
 | Server | Type | Transport | Purpose |
 |---|---|---|---|
 | `local-files` | local | npx @modelcontextprotocol/server-filesystem | Read/write access to `/home/sli3/Repository/mimir` |
 | `github` | remote | https://api.githubcopilot.com/mcp/ | GitHub repo access — commits, issues, file history |
+| `context7` | remote | https://mcp.context7.com/mcp | Live library/API docs lookup (e.g. ChromaDB `collection.get()` syntax). Free tier, 1,000 calls/month, no auth required. |
+| `playwright` | local | npx @playwright/mcp@latest --headless | Browser automation to observe the live Vite dev server. RX-equivalent — view-only, no interaction with RF/SDR hardware. |
+
+### Context7 MCP — scoping
+
+Context7 tools are **denied globally** and re-enabled only for the two agents
+that plausibly need library/API docs lookups, via the standard OpenCode
+global-deny + per-agent-override pattern:
+
+```json
+"permission": {
+  "context7_*": "deny"
+}
+```
+
+```json
+"researcher": {
+  "tools": { "context7_*": true }
+}
+```
+```json
+"plan-reviewer": {
+  "tools": { "context7_*": true }
+}
+```
+
+All other agents (main, analyst, deep-analyst, security-analyst, doc-writer,
+memo-writer, deep-bug-hunter, local-reviewer, frontend-reviewer) have no
+Context7 access. Live-tested 2026-07: correctly resolved ChromaDB's library ID
+and returned real `collection.get()` API docs including `where`/`where_document`
+filter syntax.
+
+### Playwright MCP — scoping and Chromium dependency
+
+Playwright tools are **denied globally** and re-enabled only for
+`frontend-reviewer`, using the modern `permission` key for the global block and
+`tools` for the per-agent MCP wildcard override (this is the one place `tools`
+is still correct — MCP wildcard re-enablement uses `tools`, built-in
+permissions like `edit`/`bash`/`webfetch` use `permission`):
+
+```json
+"permission": {
+  "playwright_*": "deny"
+}
+```
+
+```json
+"frontend-reviewer": {
+  "tools": { "playwright_*": true },
+  "permission": {
+    "edit": "deny", "bash": "deny", "webfetch": "allow", "websearch": "allow"
+  }
+}
+```
+
+**Machine-level dependency (not in opencode.json):** Playwright MCP needs a
+Chromium binary to drive, which is not bundled with the npm package. Install
+once per machine:
+
+```bash
+npx playwright install chromium --only-shell
+```
+
+- Downloads to `~/.cache/ms-playwright/` (Chrome for Testing + Chrome Headless
+  Shell + FFmpeg).
+- Fedora is not an officially supported Playwright platform — install will show
+  `BEWARE: your OS is not officially supported; downloading fallback build for
+  ubuntu24.04-x64`. This is expected, not an error.
+- Binary download and standalone launch confirmed working on Fedora 44
+  (2026-07-06) via `npx playwright screenshot https://example.com /tmp/test.png`
+  — no missing shared-library errors.
+- If a future machine (or the macOS iMac) hits `Host system is missing
+  dependencies to run browsers` with a list of `.so` files, `npx playwright
+  install-deps` will **not** self-heal on Fedora (it shells out to `apt-get`,
+  which doesn't exist). Install the equivalent Fedora packages manually via
+  `dnf` — match missing library names against Fedora 44 package names rather
+  than guessing a fixed list.
+
+**Confirmed working `playwright` MCP entry in `opencode.json` (2026-07-06):**
+
+```json
+"playwright": {
+  "type": "local",
+  "command": [
+    "npx",
+    "@playwright/mcp@latest",
+    "--headless",
+    "--executable-path",
+    "/home/sli3/.cache/ms-playwright/chromium_headless_shell-1228/chrome-headless-shell-linux64/chrome-headless-shell",
+    "--no-sandbox"
+  ],
+  "enabled": true,
+  "timeout": 30000
+}
+```
+
+Two flags were required beyond the plain `--headless` config, discovered when
+`@frontend-reviewer` first tried to observe the live Vite dev server:
+
+- **`--executable-path`** — Playwright MCP's default `chrome` channel looks
+  for a system Google Chrome install at `/opt/google/chrome/chrome`, which
+  does not exist on this machine. Pointing `--executable-path` directly at the
+  downloaded `chrome-headless-shell` binary bypasses that lookup entirely.
+  `frontend-reviewer` attempted a `sudo ln -sf` workaround to symlink the
+  binary into the expected location first — this failed (no terminal for sudo
+  password) and is unnecessary; `--executable-path` is the correct fix and
+  does not require root.
+- **`--no-sandbox`** — disables Chrome's OS-level process sandbox. This is a
+  documented, standard Playwright MCP flag (not a security workaround
+  specific to this project) and is commonly required on Linux where the
+  sandbox needs kernel namespace permissions not always available to
+  unprivileged processes. Low-risk in this context: the browser is
+  headless, driven only by `frontend-reviewer`, and only ever navigates to
+  `localhost:5173` (our own dev server) — not arbitrary internet content.
+  Revisit if `frontend-reviewer`'s scope ever expands to browsing untrusted
+  external URLs.
+- `frontend-reviewer` needed a JSON entry in `opencode.json`'s `agent` block in
+  addition to its `.opencode/agents/frontend-reviewer.md` file — the markdown
+  alone is not enough for the main agent to discover and delegate to it. The
+  markdown supplies the system prompt; the JSON entry supplies
+  routing/model/permissions.
 
 ### GitHub MCP — setup notes
 
