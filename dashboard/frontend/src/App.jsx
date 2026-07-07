@@ -625,6 +625,48 @@ export default function App() {
                 )}
               </div>
             ))}
+            <div style={{
+              borderTop: '1px solid #0F2030',
+              marginTop: '8px',
+              paddingTop: '8px',
+              display: 'flex',
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: '10px',
+              height: '28px',
+            }}>
+              <div style={{
+                width: '28px',
+                height: '28px',
+                border: '1px solid var(--neon-cyan)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '9px',
+                color: 'var(--neon-cyan)',
+                letterSpacing: '1px',
+                fontFamily: 'var(--font-data)',
+              }}>
+                OP
+              </div>
+              <span style={{
+                fontSize: '11px',
+                color: 'var(--text-dim)',
+                fontFamily: 'var(--font-data)',
+              }}>
+                OPERATOR — MONITORING
+              </span>
+              <span style={{
+                marginLeft: 'auto',
+                fontSize: '10px',
+                color: 'var(--neon-red)',
+                letterSpacing: '1px',
+                fontFamily: 'var(--font-data)',
+                visibility: 'hidden',
+              }}>
+                ⚠ ANOMALY
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -870,46 +912,6 @@ export default function App() {
                     </span>
                   </div>
                 </div>
-              </div>
-              <div style={{
-                marginTop: '8px',
-                display: 'flex',
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: '10px',
-                height: '28px',
-              }}>
-                <div style={{
-                  width: '28px',
-                  height: '28px',
-                  border: '1px solid var(--neon-cyan)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '9px',
-                  color: 'var(--neon-cyan)',
-                  letterSpacing: '1px',
-                  fontFamily: 'var(--font-data)',
-                }}>
-                  OP
-                </div>
-                <span style={{
-                  fontSize: '11px',
-                  color: 'var(--text-dim)',
-                  fontFamily: 'var(--font-data)',
-                }}>
-                  OPERATOR — MONITORING
-                </span>
-                <span style={{
-                  marginLeft: 'auto',
-                  fontSize: '10px',
-                  color: 'var(--neon-red)',
-                  letterSpacing: '1px',
-                  fontFamily: 'var(--font-data)',
-                  visibility: 'hidden',
-                }}>
-                  ⚠ ANOMALY
-                </span>
               </div>
             </div>
           </div>
