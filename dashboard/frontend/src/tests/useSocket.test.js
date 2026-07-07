@@ -52,6 +52,7 @@ describe('useSocket', () => {
       chroma_distance: null,
       signal_threshold_db: null,
       snr_margin_db: null,
+      novel: null,
     })
   })
 
@@ -133,6 +134,7 @@ describe('useSocket', () => {
       chroma_distance: null,
       signal_threshold_db: null,
       snr_margin_db: null,
+      novel: null,
     })
   })
 
@@ -174,6 +176,7 @@ describe('useSocket', () => {
       chroma_distance: null,
       signal_threshold_db: null,
       snr_margin_db: null,
+      novel: null,
     })
   })
 
@@ -221,6 +224,7 @@ describe('useSocket', () => {
       chroma_distance: 0.456,
       signal_threshold_db: null,
       snr_margin_db: null,
+      novel: null,
     })
   })
 
@@ -268,6 +272,30 @@ describe('useSocket', () => {
     })
 
     expect(result.current.aiReasoning.signal_type).toBeNull()
+  })
+
+  it('scan_result propagates novel field into aiReasoning', () => {
+    const { result } = renderHook(() => useSocket())
+    const handler = eventHandlers['scan_result'][0]
+
+    act(() => {
+      result.current.focusFrequency(98000000)
+    })
+
+    act(() => {
+      handler({
+        center_freq_hz: 98000000,
+        signal_type: 'unknown_signal',
+        confidence: 'low',
+        confidence_score: 0.3,
+        au_legal_status: 'verify_before_use',
+        reasoning: 'Signal does not match known fingerprints',
+        timestamp: '2026-06-03T12:00:00.000Z',
+        novel: true,
+      })
+    })
+
+    expect(result.current.aiReasoning.novel).toBe(true)
   })
 
   it('disconnects socket on unmount', () => {

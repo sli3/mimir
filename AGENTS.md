@@ -210,9 +210,10 @@ uv run python tools/seed_chromadb.py
 | 22 | LLM Offline Handling — health check + cooldown system | ✅ Complete | 548 (399 pytest + 149 Vitest) |
 | 22-Hotfix | LLM offline emit rate-limit (SocketIO flood fix) | ✅ Complete | 551 (402 pytest + 149 Vitest) |
 | 23 | ChromaDB Vector Space 3D Visualisation (isolated side page) | ✅ Complete | 581 (419 pytest + 162 Vitest) |
+| 24 | OPERATOR Live Anomaly Readout — 4-state badge, novel exposure, tooltip | ✅ Complete | 591 (420 pytest + 171 Vitest) |
 
-**Total passing: 581 passing (419 pytest + 162 Vitest), 0 failures**
-- Note: Phase 23 added 2026-07-04. All pre-existing pytest failures resolved. Updated after Phase 22 Hotfix.
+**Total passing: 591 passing (420 pytest + 171 Vitest), 0 failures**
+- Note: Phase 24 added 2026-07-07. Mascot/CharacterPanel.jsx wiring deferred to a future phase (pending art asset).
 
 ---
 
@@ -638,5 +639,11 @@ Do not apply this pre-emptively — only if context problems are observed.
   `test_center_freq_hz_metadata_key_populates_frequency_hz` to cover the seed-key
   path and the precedence rule. Colour case (TASK 2) and live-capture key names
   (TASK 3) required no changes. Test counts: 582 passing (420 pytest + 162 Vitest).
+
+- **Mascot/CharacterPanel.jsx wiring deferred:** `CharacterPanel.jsx` component exists
+  in `dashboard/frontend/src/components/` but is not yet wired into the live operator
+  state system. Integration will connect mascot display to OPERATOR_STATE_CONFIG
+  transitions (MONITORING/NORMAL/VERIFY/ANOMALY) with appropriate visual states.
+  Deferred to next session when mascot assets and animation framework are ready.
 
 ---

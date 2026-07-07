@@ -3,6 +3,9 @@ import { io } from 'socket.io-client'
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000'
 
+/** Initial state for the AI reasoning slot. Every field is null at startup
+ *  and is populated from `scan_result` events by the LLM pipeline.
+ *  @type {{ [key: string]: null }} */
 const INITIAL_AI_REASONING = {
   freq_hz: null,
   signal_type: null,
@@ -19,6 +22,7 @@ const INITIAL_AI_REASONING = {
   chroma_distance: null,
   signal_threshold_db: null,
   snr_margin_db: null,
+  novel: null,
 }
 
 export function useSocket() {
@@ -81,6 +85,7 @@ export function useSocket() {
           chroma_distance: data.chroma_distance ?? null,
           signal_threshold_db: data.signal_threshold_db ?? null,
           snr_margin_db: data.snr_margin_db ?? null,
+          novel: data.novel ?? null,
         })
       }
     })

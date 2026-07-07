@@ -17,12 +17,14 @@ const INITIAL_AI_REASONING = {
   reasoning: null,
   timestamp: null,
   peak_power_db: null,
+  peak_bin_power_db: null,
   snr_db: null,
   bandwidth_hz: null,
   spectral_flatness: null,
   chroma_distance: null,
   signal_threshold_db: null,
   snr_margin_db: null,
+  novel: null,
 }
 
 const BAND_GROUPS = [
@@ -147,6 +149,48 @@ function isAisTuned(freq) {
   return isTuned(freq, 162000000, 100000)
 }
 
+/** Colour and label configuration for the OPERATOR status badge.
+ *  Each state maps to a display colour and a tooltip label shown in the
+ *  body of the SIGNAL DETAILS panel. The `color` is used for the
+ *  badge text; `opColor` outlines the OP icon.
+ *  @type {{ MONITORING: {...}, NORMAL: {...}, VERIFY: {...}, ANOMALY: {...} }} */
+const OPERATOR_STATE_CONFIG = {
+  MONITORING: {
+    label: 'OPERATOR — MONITORING',
+    color: 'var(--text-dim)',
+    opColor: 'var(--neon-cyan)',
+  },
+  NORMAL: {
+    label: 'OPERATOR — NORMAL',
+    color: '#00D9FF',
+    opColor: '#00D9FF',
+  },
+  VERIFY: {
+    label: 'OPERATOR — VERIFY',
+    color: '#FFB020',
+    opColor: '#FFB020',
+  },
+  ANOMALY: {
+    label: 'OPERATOR — ANOMALY',
+    color: '#FF2840',
+    opColor: '#FF2840',
+  },
+}
+
+/** Derive the OPERATOR status from the current AI reasoning slot.
+ *  The state machine is evaluated in order: no signal (MONITORING), then
+ *  novel/unseen (ANOMALY), then explicitly legal (NORMAL), otherwise
+ *  VERIFY. Used by the OPERATOR badge in the SIGNAL DETAILS panel and
+ *  the ANOMALY warning indicator.
+ *  @param {object|null} aiReasoning - current AI reasoning slot from useSocket
+ *  @returns {'MONITORING'|'NORMAL'|'VERIFY'|'ANOMALY'} */
+export function getOperatorState(aiReasoning) {
+  if (aiReasoning?.freq_hz === null) return 'MONITORING'
+  if (aiReasoning?.novel === true) return 'ANOMALY'
+  if (aiReasoning?.novel === false && aiReasoning?.au_legal_status === 'legal_rx') return 'NORMAL'
+  return 'VERIFY'
+}
+
 function getFirstSeen(signalType, scanResults) {
   if (!signalType || !scanResults) return '---'
   for (let i = scanResults.length - 1; i >= 0; i--) {
@@ -182,6 +226,10 @@ export default function App() {
   const displayed = useFrozenDisplay(aiReasoning)
   const [customInput, setCustomInput] = useState('')
   const [pinnedReasoning, setPinnedReasoning] = useState(null)
+  const [operatorTooltipVisible, setOperatorTooltipVisible] = useState(false)
+  const [operatorFocused, setOperatorFocused] = useState(false)
+  const operatorState = getOperatorState(aiReasoning)
+  const operatorConfig = OPERATOR_STATE_CONFIG[operatorState]
   const pinnedTimestamp = pinnedReasoning ? pinnedReasoning.timestamp : null
 
   const handlePinReasoning = useCallback((entry) => {
@@ -635,34 +683,80 @@ export default function App() {
               gap: '10px',
               height: '28px',
             }}>
-              <div style={{
-                width: '28px',
-                height: '28px',
-                border: '1px solid var(--neon-cyan)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '9px',
-                color: 'var(--neon-cyan)',
-                letterSpacing: '1px',
-                fontFamily: 'var(--font-data)',
-              }}>
-                OP
+              <div
+                tabIndex={0}
+                aria-label={`OPERATOR status: ${operatorState.toLowerCase()}${aiReasoning?.reasoning ? `. ${aiReasoning.reasoning}` : ''}`}
+                onMouseEnter={() => setOperatorTooltipVisible(true)}
+                onMouseLeave={() => setOperatorTooltipVisible(false)}
+                onFocus={() => {
+                  setOperatorFocused(true)
+                  setOperatorTooltipVisible(true)
+                }}
+                onBlur={() => {
+                  setOperatorFocused(false)
+                  setOperatorTooltipVisible(false)
+                }}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: '10px',
+                  position: 'relative',
+                  outline: operatorFocused ? '1px solid var(--neon-cyan)' : 'none',
+                  outlineOffset: '2px',
+                  cursor: operatorState !== 'MONITORING' ? 'help' : 'default',
+                }}
+              >
+                <div style={{
+                  width: '28px',
+                  height: '28px',
+                  border: `1px solid ${operatorConfig.opColor}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '9px',
+                  color: operatorConfig.opColor,
+                  letterSpacing: '1px',
+                  fontFamily: 'var(--font-data)',
+                }}>
+                  OP
+                </div>
+                <span style={{
+                  fontSize: '11px',
+                  color: operatorConfig.color,
+                  fontFamily: 'var(--font-data)',
+                }}>
+                  {operatorConfig.label}
+                </span>
+                {operatorTooltipVisible && operatorState !== 'MONITORING' && aiReasoning?.reasoning && (
+                  <div style={{
+                    position: 'absolute',
+                    bottom: '100%',
+                    left: 0,
+                    marginBottom: '8px',
+                    width: '320px',
+                    padding: '8px 10px',
+                    background: 'var(--bg-header)',
+                    border: '1px solid var(--border)',
+                    color: 'var(--text-primary)',
+                    fontSize: '11px',
+                    fontFamily: 'var(--font-data)',
+                    lineHeight: '1.4',
+                    zIndex: 10,
+                    pointerEvents: 'none',
+                    boxShadow: '0 0 8px rgba(0,0,0,0.5)',
+                  }}>
+                    {aiReasoning.reasoning}
+                  </div>
+                )}
               </div>
-              <span style={{
-                fontSize: '11px',
-                color: 'var(--text-dim)',
-                fontFamily: 'var(--font-data)',
-              }}>
-                OPERATOR — MONITORING
-              </span>
               <span style={{
                 marginLeft: 'auto',
                 fontSize: '10px',
                 color: 'var(--neon-red)',
                 letterSpacing: '1px',
                 fontFamily: 'var(--font-data)',
-                visibility: 'hidden',
+                visibility: operatorState === 'ANOMALY' ? 'visible' : 'hidden',
               }}>
                 ⚠ ANOMALY
               </span>

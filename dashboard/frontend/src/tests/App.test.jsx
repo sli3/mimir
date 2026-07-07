@@ -21,6 +21,7 @@ vi.mock('../hooks/useSocket.js', () => ({
       au_legal_status: null,
       reasoning: null,
       timestamp: null,
+      novel: null,
     },
     aisVessels: [],
     adsbAircraft: {},

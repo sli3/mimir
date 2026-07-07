@@ -196,8 +196,9 @@ event rate, gap detection, and a PASS/FAIL summary. Use `--duration 60` minimum
 | 23 | ChromaDB Vector Space 3D Visualisation (isolated side page) | ✅ Complete | 581/581 (419 pytest + 162 Vitest) |
 | BUG-03 | Four tools wired to BAND_PROFILES for gains/thresholds; AIS gains corrected | ✅ Complete | 557/557 (408 pytest + 149 Vitest) |
 | BUG-04 | /vectordb tooltip frequency field mismatch (seeded vs live metadata keys) | ✅ Complete | 582/582 (420 pytest + 162 Vitest) |
+| 24 | OPERATOR Live Anomaly Readout — 4-state badge, novel exposure, tooltip | ✅ Complete | 591/591 (420 pytest + 171 Vitest) |
 
-**Total: 582 passing (420 pytest + 162 Vitest), 0 failures**
+**Total: 591 passing (420 pytest + 171 Vitest), 0 failures**
 
 > **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector
 > store (`data/vectorstore/`) must be re-seeded after deploying this build.
