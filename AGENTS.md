@@ -43,6 +43,83 @@ every code change, without exception.
 
 ---
 
+## 🔒 SUBAGENT DELEGATION BOUNDARIES — READ BEFORE EVERY SESSION
+
+These rules are not optional. Added 2026-07-07 after a confirmed incident
+pattern: a task addressed to a specific named subagent (e.g.
+`@frontend-reviewer`) whose permissions denied the requested action was
+NOT reported back to the user. The primary/orchestrator agent instead
+silently resolved it itself, across three separate test runs, using three
+different bypass paths:
+
+1. Read the file and edited it directly with its own `edit` tool,
+   bypassing the subagent's `edit: deny`.
+2. Reached for the `github` MCP server (`github_get_file_contents` →
+   `github_create_or_update_file`) to edit the file via a direct commit
+   to the GitHub remote — bypassing both the subagent's restriction AND
+   the local `git-workflow` process entirely. This call was interrupted
+   before it landed; confirmed via `git log --oneline origin/main` that
+   no unreviewed commit reached the remote. It would have if allowed to
+   complete.
+3. (Third run, correct behaviour, included for contrast) Correctly routed
+   to `@frontend-reviewer` via the Task tool and received a clean refusal
+   — confirming the fix below is achievable, not just aspirational.
+
+### Non-negotiable rules for all agents
+1. **If a message explicitly addresses a specific named subagent**
+   (`@agent-name`) and that subagent's permissions do not allow the
+   requested action: STOP. Report which subagent was addressed, what was
+   requested, and which permission blocked it. Ask the user how to
+   proceed. Do not guess at intent or complete the task "helpfully."
+2. **Never substitute a different tool or MCP server** to perform the
+   same action the named subagent was denied. This includes the native
+   `edit`/`write` tool, any `local-files_*` write tool (`write_file`,
+   `edit_file`, `create_directory`, `move_file`), any `github_*` write
+   tool (`create_or_update_file`, `delete_file`, `push_files`, or any
+   tool that commits to a remote), and any future MCP tool not named
+   here that can create, modify, or delete a file, directory, or remote
+   resource.
+3. **Only proceed yourself if the user explicitly confirms** they want
+   you — not the named subagent — to do it.
+4. **This applies regardless of orchestrator model.** Confirmed reproduced
+   under both `kimi-for-coding/k2p7` and a DeepSeek V4 swap used for
+   token-cost savings. Do not assume a model swap changes this behaviour
+   without a direct retest.
+5. The GitHub PAT's own scope (Contents read/write, Mimir repo only —
+   see MCP Servers section) limits blast radius to this repo but does
+   **not** prevent an unreviewed commit to `main`. Token-level scoping is
+   not a substitute for this rule.
+
+### What this does NOT restrict
+- Normal `/build` pipeline routing (Steps 3, 5, 5c, 6, 6B, 7, 8, 9), where
+  the Project Manager step invokes a reviewer/analyst agent as part of
+  its own established step logic. That is standing delegation, not a
+  case of "user addressed X and X can't do it."
+- Any subagent completing a task within its own granted permissions.
+- The orchestrator doing direct work itself when no specific subagent was
+  named in the request.
+- If a `/build` Step 6B or equivalent gate genuinely cannot complete
+  because the assigned reviewer lacks a needed permission: follow the
+  existing "STEP FAILURE" convention (Step 6B is non-blocking by design,
+  reported as "STEP 6B FAILURE," with `/review-frontend` as the manual
+  fallback) — surface it, do not route around it.
+
+### Unconfirmed, worth testing
+Per OpenCode's own docs, invoking a subagent via the TUI's `@`
+autocomplete/mention picker is a hard route that bypasses the primary
+agent's own Task-tool reasoning — even overriding a `permission.task`
+deny for that agent. Typed plain text naming an agent does not carry the
+same guarantee; the primary model still reads it as ordinary text and can
+reinterpret intent. Not yet confirmed against this project's actual
+setup — the incidents above all involved typed `@agent-name` text, not
+verified use of the picker. If confirmed, using the real mention picker
+is a stronger structural guard than this prompt rule, since it removes
+the primary model's discretion rather than asking it to behave. The rule
+above is required either way, since it also governs the automated
+`/build` pipeline case, where no picker is involved.
+
+---
+
 ## Hardware
 
 | Item | Detail |
