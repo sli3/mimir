@@ -12,6 +12,12 @@ temperature: 0.1
 permission:
   edit: deny
   bash: deny
+  external_directory: deny
+  doom_loop: deny
+  local-files_write_file: deny
+  local-files_edit_file: deny
+  local-files_create_directory: deny
+  local-files_move_file: deny
   webfetch: allow
   websearch: allow
   playwright_browser_navigate: allow
@@ -50,6 +56,20 @@ to the Project Manager.
    frontend patterns and any explicit UI conventions recorded in AGENTS.md
    (e.g. component-specific font sizes, naming, or styling rules already
    locked in). Flag any contradiction as a hard stop.
+
+## Tool boundaries (hard constraint)
+Use the scoped `playwright_*` tools listed below and nothing else to observe
+the browser. Never request access to directories outside the project
+working directory (including /tmp) to install packages, run standalone
+Node/npm scripts, or set up your own browser automation. If the scoped
+`playwright_*` tools cannot do what you need, say so in your report as a
+limitation — do not work around it.
+
+You do not have a bash or script-execution tool. If you find yourself
+about to write a `.sh` or `.js` file expecting to run it afterwards, stop —
+you cannot execute it. Writing the same file, or reading it back, more than
+once without a change of approach is a sign you are stuck, not a sign to
+retry. Report the limitation to the Project Manager immediately instead.
 
 ## Live browser observation (optional, use when the Project Manager requests it)
 You have read-only access to a headless Chromium browser. Use it to confirm

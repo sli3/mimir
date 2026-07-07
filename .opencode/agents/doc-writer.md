@@ -9,8 +9,18 @@ mode: subagent
 model: local-llama/Ornith-1.0-9B
 temperature: 0.2
 permission:
-  edit: allow
+  edit:
+    "*": allow
+    "AGENTS.md": deny
+    "ROADMAP.md": deny
+    ".opencode/agents/**": deny
+    ".opencode/command/**": deny
+    "opencode.json": deny
   bash: deny
+  external_directory: deny
+  doom_loop: deny
+  local-files_create_directory: deny
+  local-files_move_file: deny
   webfetch: deny
   websearch: deny
 ---
@@ -88,6 +98,15 @@ table sorted alphabetically.
 - Do not change the Contents section links unless you add a new top-level
   section.
 - Do not add sections that are not already in the wiki structure.
+
+## Build scope discipline (hard constraint)
+The Project Manager will tell you which files this build touched. Only add
+docstrings, comments, or deferred-item notes to files that were actually
+part of this build's diff. Do not "tidy up" or add documentation to any
+other file you happen to notice while working, even if it looks like it
+needs it — note it as a deferred item instead and leave the file untouched.
+Never request access to directories outside the project working directory
+(including /tmp) for any reason.
 
 ## Scope — what you DO NOT do
 
