@@ -60,6 +60,18 @@ MATRIX_SPLIT_THRESHOLD = 8
 # strong-match ceiling from rounding to 0.000 on very clean captures.
 SEPARABILITY_FACTOR = 2.5
 STRONG_MATCH_FLOOR = 0.002
+# CROSS_TYPE_MIN_FLOOR is an ABSOLUTE floor below which cross_type_min is treated
+# as "no real separation measured", independent of the SEPARABILITY_FACTOR ratio.
+# The ratio test alone passes on noise-vs-noise runs: if a burst band (ADS-B,
+# ACARS, AIS) is captured with nothing overhead, same-type and cross-type
+# distances both collapse into the noise floor, where the ratio can still hold by
+# coincidence (e.g. cross=0.0005 > 2.5 * same=0.0001) while both magnitudes are
+# meaningless jitter. Real cross-type separation observed in clean runs is ~0.012;
+# a degenerate noise run measured ~0.0005. 0.005 sits an order of magnitude below
+# real separation and an order above noise, so it rejects dead captures without
+# risking valid ones. Global constant — revisit if ever calibrating a band with
+# genuinely tight (<0.005) cross-type separation.
+CROSS_TYPE_MIN_FLOOR = 0.005
 
 # Antenna-to-band mappings. Labels must match CALIBRATION_TARGETS exactly.
 ANTENNA_PROFILES: dict[str, dict] = {
@@ -125,15 +137,34 @@ def derive_thresholds(same_type_spread: float, cross_type_min: float) -> dict:
     set exists; ``ok`` is False and the numeric fields are still returned for
     diagnostics but MUST NOT be presented as paste-ready.
     """
-    ok = cross_type_min > SEPARABILITY_FACTOR * same_type_spread
+    # Two independent conditions must hold for a usable threshold set:
+    #   (1) absolute: cross_type_min must clear CROSS_TYPE_MIN_FLOOR, else no real
+    #       cross-class separation was measured (a near-noise / dead capture).
+    #   (2) ratio: cross_type_min must exceed SEPARABILITY_FACTOR * same_type_spread,
+    #       else same-type and cross-type captures overlap.
+    # (1) is checked first because it is the more fundamental failure: when both
+    # magnitudes are in the noise the ratio can pass by coincidence.
+    floor_ok = cross_type_min >= CROSS_TYPE_MIN_FLOOR
+    ratio_ok = cross_type_min > SEPARABILITY_FACTOR * same_type_spread
+    ok = floor_ok and ratio_ok
     strong = max(round(same_type_spread * 2, 3), STRONG_MATCH_FLOOR)
     possible = round((same_type_spread * 2 + cross_type_min) / 2, 3)
     different = round(cross_type_min * 0.9, 3)
-    reason = None if ok else (
-        f'same_type_spread ({same_type_spread:.4f}) is not < cross_type_min '
-        f'({cross_type_min:.4f}) / {SEPARABILITY_FACTOR}: the calibration '
-        f'captures overlap, so no monotonic threshold set exists.'
-    )
+    if ok:
+        reason = None
+    elif not floor_ok:
+        reason = (
+            f'cross_type_min ({cross_type_min:.4f}) is below CROSS_TYPE_MIN_FLOOR '
+            f'({CROSS_TYPE_MIN_FLOOR}): no real cross-class separation was measured. '
+            f'The capture was almost certainly noise-only (no live signal in one or '
+            f'more bands), so the distances are meaningless jitter.'
+        )
+    else:
+        reason = (
+            f'same_type_spread ({same_type_spread:.4f}) is not < cross_type_min '
+            f'({cross_type_min:.4f}) / {SEPARABILITY_FACTOR}: the calibration '
+            f'captures overlap, so no monotonic threshold set exists.'
+        )
     return {
         'ok': ok, 'strong_match': strong, 'possible_match': possible,
         'different_type': different, 'novel_signal': different, 'reason': reason,
@@ -703,7 +734,7 @@ def main() -> None:
     print("Cross-type min distance:  {}".format(_colour("{:.4f}".format(cross_type_min), _ct_colour)))
     if noise_min > cross_type_min:
         _nf_colour = ANSI_GREEN
-    elif noise_min > same_type_max:
+    elif noise_min > same_type_spread:
         _nf_colour = ANSI_YELLOW
     else:
         _nf_colour = ANSI_RED
@@ -716,16 +747,17 @@ def main() -> None:
         print()
         print(derived["reason"])
         print()
-        print("The ADS-B captures in this run likely caught a near-noise window")
-        print("with no aircraft overhead. Same-type and cross-type distances overlap,")
-        print("so any pasted thresholds would collapse strong/possible/different/novel")
-        print("classification into a single bucket.")
+        print("Any thresholds derived from this run would collapse the")
+        print("strong/possible/different/novel bands into a single bucket.")
         print()
-        print("REMEDIATION: recapture ADS-B with aircraft overhead. Do NOT paste any")
-        print("thresholds from this run into llm/classifier.py.")
+        print("REMEDIATION: recapture the affected band(s) with a live signal")
+        print("present. Burst bands (ADS-B, ACARS, AIS) need aircraft or vessels")
+        print("in range — check flightradar24 / marinetraffic before recapturing.")
+        print("Do NOT paste any thresholds from this run into llm/classifier.py.")
         print()
         print("=" * 70)
-        logger.warning("Calibration overlap detected; thresholds not usable.")
+        logger.warning("Calibration unusable (%s); thresholds not emitted.",
+                       "near-noise" if cross_type_min < CROSS_TYPE_MIN_FLOOR else "overlap")
         raise SystemExit(1)
     print("SUGGESTED THRESHOLDS — update TWO locations in llm/classifier.py:")
     print("-" * 70)

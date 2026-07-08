@@ -10,6 +10,7 @@ import pytest
 from dashboard.shared_state import BAND_PROFILES
 from tools.calibrate_thresholds import (
     CALIBRATION_TARGETS,
+    CROSS_TYPE_MIN_FLOOR,
     SEPARABILITY_FACTOR,
     STRONG_MATCH_FLOOR,
     derive_thresholds,
@@ -132,3 +133,51 @@ def test_p90_empty_same_type_set_falls_back_to_zero():
     same_type_pairs = []
     spread = float(np.percentile(same_type_pairs, 90)) if same_type_pairs else 0.0
     assert spread == 0.0
+
+
+def test_derive_thresholds_near_noise_run_fails_on_floor():
+    """The 2026-07-08 degenerate live run: cross_type_min collapsed into the
+    noise floor (0.0005). The ratio gate passes by coincidence (0.0005 > 2.5 *
+    0.0001) but the absolute floor must reject it — this is the run that
+    previously slipped through and emitted 0.000 thresholds.
+    """
+    result = derive_thresholds(0.0001, 0.0005)
+    assert result["ok"] is False
+    assert result["reason"] is not None
+    assert "CROSS_TYPE_MIN_FLOOR" in result["reason"]
+
+
+def test_derive_thresholds_floor_fails_even_when_ratio_passes():
+    """Floor is independent of the ratio: a run can satisfy
+    cross > SEPARABILITY_FACTOR * same yet still fail because cross is below
+    the absolute floor. Guards against the floor being short-circuited by the
+    ratio check.
+    """
+    same, cross = 0.0001, 0.0040
+    assert cross > SEPARABILITY_FACTOR * same  # ratio alone would pass
+    result = derive_thresholds(same, cross)
+    assert result["ok"] is False
+    assert "CROSS_TYPE_MIN_FLOOR" in result["reason"]
+
+
+def test_derive_thresholds_at_cross_type_min_floor_is_ok():
+    """A run with cross exactly at the floor (and a clean same-type spread)
+    passes: the floor uses >=, so the boundary value is acceptable.
+    """
+    result = derive_thresholds(0.0010, CROSS_TYPE_MIN_FLOOR)
+    assert result["ok"] is True
+    assert result["reason"] is None
+
+
+def test_derive_thresholds_floor_and_overlap_reasons_are_distinct():
+    """A near-noise (floor) failure and an overlap (ratio) failure must produce
+    different reason strings, so the operator can tell a dead capture from
+    genuinely overlapping classes.
+    """
+    floor_fail = derive_thresholds(0.0001, 0.0005)
+    overlap_fail = derive_thresholds(0.0179, 0.0143)
+    assert floor_fail["ok"] is False
+    assert overlap_fail["ok"] is False
+    assert floor_fail["reason"] != overlap_fail["reason"]
+    assert "CROSS_TYPE_MIN_FLOOR" in floor_fail["reason"]
+    assert "overlap" in overlap_fail["reason"].lower()
