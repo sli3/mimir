@@ -44,12 +44,16 @@ def compute_psd(
                         Used to compute absolute frequencies for each FFT bin.
         nfft: FFT size, must be a power of 2. Default is 2048. Larger values
               give better frequency resolution (e.g., nfft=2048 gives bins
-              ~97.6 Hz apart at 2 MHz sample rate) but require more samples.
+              ~976.6 Hz apart at 2 MHz sample rate) but require more samples.
 
     Returns:
         Dictionary containing:
           - frequencies_hz: Array of absolute frequencies for each bin
           - psd_db: Power spectral density in dBFS for each frequency
+                    (averaged across chunks; correct for continuous signals)
+          - psd_max_hold_db: Per-bin maximum power across chunks in dBFS,
+                             used for burst signals where averaging would
+                             dilute a short transmission
           - center_freq_hz: The centre frequency parameter (passed through)
           - sample_rate_hz: The sample rate parameter (passed through)
           - nfft: FFT size parameter (passed through)
@@ -72,6 +76,7 @@ def compute_psd(
         return {
             "frequencies_hz": np.array([], dtype=np.float64),
             "psd_db": np.array([], dtype=np.float64),
+            "psd_max_hold_db": np.array([], dtype=np.float64),
             "center_freq_hz": center_freq_hz,
             "sample_rate_hz": sample_rate_hz,
             "nfft": nfft,
@@ -92,6 +97,7 @@ def compute_psd(
         return {
             "frequencies_hz": np.array([], dtype=np.float64),
             "psd_db": np.array([], dtype=np.float64),
+            "psd_max_hold_db": np.array([], dtype=np.float64),
             "center_freq_hz": center_freq_hz,
             "sample_rate_hz": sample_rate_hz,
             "nfft": nfft,
@@ -121,6 +127,7 @@ def compute_psd(
 
     # Average across all chunks
     averaged_power = np.mean(chunk_psd_list, axis=0)
+    max_hold_power = np.max(chunk_psd_list, axis=0)
 
     # Normalise against window power — produces true dBFS referenced to ADC full scale.
     # Dividing by (nfft * window_power) is the standard Welch periodogram normalisation.
@@ -130,6 +137,7 @@ def compute_psd(
     # Compute the hottest single-chunk peak before averaging, in dBFS
     chunk_peak_db = 10 * np.log10(max_single_chunk_power / (nfft * window_power) + 1e-12)
     psd_db = 10 * np.log10(averaged_power / (nfft * window_power) + 1e-12)
+    psd_max_hold_db = 10 * np.log10(max_hold_power / (nfft * window_power) + 1e-12)
 
     # Compute frequency array with absolute frequencies
     # fftfreq gives offsets from 0, fftshift centers them around 0
@@ -146,6 +154,7 @@ def compute_psd(
     return {
         "frequencies_hz": frequencies_hz,
         "psd_db": psd_db,
+        "psd_max_hold_db": psd_max_hold_db,
         "center_freq_hz": center_freq_hz,
         "sample_rate_hz": sample_rate_hz,
         "nfft": nfft,

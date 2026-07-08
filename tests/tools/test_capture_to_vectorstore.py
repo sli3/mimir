@@ -33,7 +33,7 @@ def test_capture_targets_structure():
     }
     assert len(CAPTURE_TARGETS) == 7
     for target in CAPTURE_TARGETS:
-        assert set(target.keys()) == required_keys
+        assert required_keys.issubset(set(target.keys()))
         assert isinstance(target["label"], str)
         assert isinstance(target["freq_hz"], int)
         assert isinstance(target["sample_rate_hz"], int)
@@ -203,9 +203,9 @@ def test_signal_threshold_passed_and_stored(tmp_path):
     real_fingerprint_spectrum = capture_to_vectorstore.fingerprint_spectrum
     seen_thresholds = []
 
-    def threshold_checking_fingerprint(psd_result, signal_threshold_db=None):
+    def threshold_checking_fingerprint(psd_result, signal_threshold_db=None, trace_key='psd_db'):
         seen_thresholds.append(signal_threshold_db)
-        return real_fingerprint_spectrum(psd_result, signal_threshold_db=signal_threshold_db)
+        return real_fingerprint_spectrum(psd_result, signal_threshold_db=signal_threshold_db, trace_key=trace_key)
 
     with (
         patch("tools.capture_to_vectorstore.capture_iq", return_value=samples),
@@ -241,3 +241,74 @@ def test_capture_targets_match_band_profiles():
         assert target["lna_gain_db"] == profile["lna_gain_db"]
         assert target["vga_gain_db"] == profile["vga_gain_db"]
         assert target["signal_threshold_db"] == profile["signal_threshold_db"]
+
+
+def test_capture_targets_adsb_only_uses_max_hold():
+    """Only the ADS_B target carries the psd_max_hold_db trace key."""
+    for target in CAPTURE_TARGETS:
+        if target["label"] == "ADS_B":
+            assert target.get("trace_key") == "psd_max_hold_db"
+        else:
+            assert "trace_key" not in target
+
+
+def test_trace_key_forwarded_to_fingerprint_spectrum(tmp_path):
+    """run_capture_loop passes trace_key=target.get('trace_key', 'psd_db') to fingerprint_spectrum."""
+    store = SignalStore(str(tmp_path))
+    embedder = capture_to_vectorstore.SpectrumEmbedder()
+    adsb_target = next(t for t in CAPTURE_TARGETS if t["label"] == "ADS_B")
+    samples = np.ones(adsb_target["num_samples"], dtype=np.complex64)
+
+    real_fingerprint_spectrum = capture_to_vectorstore.fingerprint_spectrum
+    seen_trace_keys = []
+
+    def trace_key_checking_fingerprint(psd_result, signal_threshold_db=None, trace_key='psd_db'):
+        seen_trace_keys.append(trace_key)
+        return real_fingerprint_spectrum(psd_result, signal_threshold_db=signal_threshold_db, trace_key=trace_key)
+
+    with (
+        patch("tools.capture_to_vectorstore.capture_iq", return_value=samples),
+        patch("tools.capture_to_vectorstore.fingerprint_spectrum", side_effect=trace_key_checking_fingerprint),
+    ):
+        run_capture_loop(
+            store=store,
+            embedder=embedder,
+            selected_targets=[adsb_target],
+            antenna_name="Spiral discone",
+            input_func=lambda _prompt: "",
+            sleep_func=lambda _secs: None,
+        )
+
+    assert store.count() == 5
+    assert all(t == "psd_max_hold_db" for t in seen_trace_keys)
+
+
+def test_trace_key_defaults_to_psd_db_for_non_adsb(tmp_path):
+    """A non-ADS_B target does not forward psd_max_hold_db."""
+    store = SignalStore(str(tmp_path))
+    embedder = capture_to_vectorstore.SpectrumEmbedder()
+    fm_target = next(t for t in CAPTURE_TARGETS if t["label"] == "FM_broadcast")
+    samples = np.ones(fm_target["num_samples"], dtype=np.complex64)
+
+    real_fingerprint_spectrum = capture_to_vectorstore.fingerprint_spectrum
+    seen_trace_keys = []
+
+    def trace_key_checking_fingerprint(psd_result, signal_threshold_db=None, trace_key='psd_db'):
+        seen_trace_keys.append(trace_key)
+        return real_fingerprint_spectrum(psd_result, signal_threshold_db=signal_threshold_db, trace_key=trace_key)
+
+    with (
+        patch("tools.capture_to_vectorstore.capture_iq", return_value=samples),
+        patch("tools.capture_to_vectorstore.fingerprint_spectrum", side_effect=trace_key_checking_fingerprint),
+    ):
+        run_capture_loop(
+            store=store,
+            embedder=embedder,
+            selected_targets=[fm_target],
+            antenna_name="Telescopic whip",
+            input_func=lambda _prompt: "",
+            sleep_func=lambda _secs: None,
+        )
+
+    assert store.count() == 5
+    assert all(t == "psd_db" for t in seen_trace_keys)

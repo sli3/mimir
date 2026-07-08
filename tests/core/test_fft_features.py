@@ -46,10 +46,71 @@ class TestComputePsd:
         return 2048
 
     def test_output_keys_present(self, samples, sample_rate, center_freq, nfft):
-        """Result dict contains all 7 required keys."""
+        """Result dict contains all required keys."""
         result = compute_psd(samples, sample_rate, center_freq, nfft)
-        expected_keys = {"frequencies_hz", "psd_db", "center_freq_hz", "sample_rate_hz", "nfft", "num_chunks", "chunk_peak_db"}
+        expected_keys = {"frequencies_hz", "psd_db", "psd_max_hold_db", "center_freq_hz", "sample_rate_hz", "nfft", "num_chunks", "chunk_peak_db"}
         assert set(result.keys()) == expected_keys
+
+    def test_frequencies_shape(self, samples, sample_rate, center_freq, nfft):
+        """frequencies_hz has shape (nfft,)."""
+        result = compute_psd(samples, sample_rate, center_freq, nfft)
+        assert result["frequencies_hz"].shape == (nfft,)
+
+    def test_psd_shape(self, samples, sample_rate, center_freq, nfft):
+        """psd_db has shape (nfft,)."""
+        result = compute_psd(samples, sample_rate, center_freq, nfft)
+        assert result["psd_db"].shape == (nfft,)
+
+    def test_psd_max_hold_db_key_present(self, samples, sample_rate, center_freq, nfft):
+        """Result dict contains psd_max_hold_db key."""
+        result = compute_psd(samples, sample_rate, center_freq, nfft)
+        assert "psd_max_hold_db" in result
+
+    def test_psd_max_hold_db_shape(self, samples, sample_rate, center_freq, nfft):
+        """psd_max_hold_db has shape (nfft,)."""
+        result = compute_psd(samples, sample_rate, center_freq, nfft)
+        assert result["psd_max_hold_db"].shape == (nfft,)
+
+    def test_psd_max_hold_db_gte_averaged(self, samples, sample_rate, center_freq, nfft):
+        """Max-hold trace is always >= averaged trace pointwise."""
+        result = compute_psd(samples, sample_rate, center_freq, nfft)
+        assert np.all(result["psd_max_hold_db"] >= result["psd_db"])
+
+    def test_psd_max_hold_db_empty_too_few_samples(self, sample_rate, center_freq, nfft):
+        """Early return (len < nfft) includes an empty psd_max_hold_db array."""
+        few_samples = np.random.randn(512).astype(np.float32) + 1j * np.random.randn(512).astype(np.float32)
+        result = compute_psd(few_samples, sample_rate, center_freq, nfft)
+        assert "psd_max_hold_db" in result
+        assert result["psd_max_hold_db"].shape == (0,)
+
+    def test_psd_max_hold_db_empty_num_chunks_zero(self, sample_rate, center_freq, nfft):
+        """Early return (num_chunks == 0) includes an empty psd_max_hold_db array."""
+        # len(samples) is exactly nfft - 1, so num_chunks == 0 after the initial check
+        samples = np.random.randn(nfft - 1).astype(np.float32) + 1j * np.random.randn(nfft - 1).astype(np.float32)
+        result = compute_psd(samples, sample_rate, center_freq, nfft)
+        assert "psd_max_hold_db" in result
+        assert result["psd_max_hold_db"].shape == (0,)
+
+    def test_psd_db_unchanged_by_max_hold_addition(self, sample_rate, center_freq, nfft):
+        """psd_db values are identical to a reference snapshot for a fixed synthetic input."""
+        num_chunks = 4
+        t = np.arange(nfft * num_chunks)
+        tone = np.exp(1j * 2 * np.pi * 10 * t / nfft).astype(np.complex64)
+        np.random.seed(42)
+        noise = (np.random.randn(len(t)) * 0.01).astype(np.float32) + \
+                1j * (np.random.randn(len(t)) * 0.01).astype(np.float32)
+        samples = tone + noise
+        result = compute_psd(samples, sample_rate, center_freq, nfft)
+        expected_psd_db = np.array([
+            -69.10545119, -71.49487071, -75.14477691, -71.34085955,
+            -73.19596439, -70.70552243, -69.73676076, -67.97820771,
+            -68.18218690, -7.77752153, -1.76198389, -7.77628199,
+            -67.57857694, -70.80011497, -69.69375993, -68.50839083,
+            -67.58642583, -70.07266844, -73.19570543, -71.44535042,
+        ])
+        peak_index = np.argmax(result["psd_db"])
+        assert peak_index == nfft // 2 + 10
+        assert np.allclose(result["psd_db"][peak_index - 10 : peak_index + 10], expected_psd_db, atol=1e-6)
 
     def test_frequencies_shape(self, samples, sample_rate, center_freq, nfft):
         """frequencies_hz has shape (nfft,)."""
@@ -383,15 +444,73 @@ class TestFingerprintSpectrum:
         result = fingerprint_spectrum(psd)
         assert result["peak_bin_power_db"] >= result["peak_power_db"]
 
-    def test_peak_bin_power_db_fallback_no_chunk_key(self):
-        """When psd_result has no 'chunk_peak_db' key, peak_bin_power_db equals peak_power_db (fallback path)."""
-        synthetic_psd = {
-            "frequencies_hz": np.linspace(97_000_000, 99_000_000, 2048),
-            "psd_db": np.full(2048, -50.0),
-            "center_freq_hz": 98_000_000,
-            "sample_rate_hz": 2_000_000,
-            "nfft": 2048,
+    def test_trace_key_default_matches_psd_db(self, fm_psd):
+        """fingerprint_spectrum with default trace_key behaves identically to pre-change."""
+        result_default = fingerprint_spectrum(fm_psd)
+        result_explicit = fingerprint_spectrum(fm_psd, trace_key='psd_db')
+        assert result_default == result_explicit
+
+    def test_trace_key_max_hold_selects_psd_max_hold_db(self):
+        """Passing trace_key='psd_max_hold_db' reads the max-hold array from psd_result."""
+        freqs = np.linspace(97_000_000, 99_000_000, 2048)
+        averaged = np.full(2048, -50.0)
+        max_hold = np.full(2048, -30.0)
+        psd_result = {
+            'frequencies_hz': freqs,
+            'psd_db': averaged,
+            'psd_max_hold_db': max_hold,
+            'center_freq_hz': 98_000_000,
+            'sample_rate_hz': 2_000_000,
+            'nfft': 2048,
         }
-        result = fingerprint_spectrum(synthetic_psd)
-        assert result["peak_bin_power_db"] == result["peak_power_db"]
+        result_avg = fingerprint_spectrum(psd_result)
+        result_max = fingerprint_spectrum(psd_result, trace_key='psd_max_hold_db')
+        assert result_avg['peak_power_db'] == -50.0
+        assert result_max['peak_power_db'] == -30.0
+
+    def test_missing_trace_key_raises_key_error(self):
+        """Passing a trace_key that does not exist in psd_result raises KeyError."""
+        psd_result = {
+            'frequencies_hz': np.linspace(97_000_000, 99_000_000, 2048),
+            'psd_db': np.full(2048, -50.0),
+            'center_freq_hz': 98_000_000,
+            'sample_rate_hz': 2_000_000,
+            'nfft': 2048,
+        }
+        with pytest.raises(KeyError):
+            fingerprint_spectrum(psd_result, trace_key='missing_trace')
+
+    def test_max_hold_trace_reveals_burst_signal(self):
+        """A burst visible only in max-hold produces higher bandwidth/occupied_bins/snr than averaged."""
+        nfft = 2048
+        num_chunks = 125
+        sample_rate_hz = 2_000_000
+        num_samples = nfft * num_chunks
+        t = np.arange(num_samples)
+
+        # ADS-B-like burst: strong PPM tone in a single chunk, noise elsewhere
+        burst_start = nfft * 60
+        burst_end = burst_start + nfft
+        signal = np.zeros(num_samples, dtype=np.complex64)
+        signal[burst_start:burst_end] = np.exp(
+            1j * 2 * np.pi * 10 * np.arange(nfft) / nfft
+        ).astype(np.complex64) * 0.5
+
+        noise = (np.random.randn(num_samples) * 0.05).astype(np.float32) + \
+                1j * (np.random.randn(num_samples) * 0.05).astype(np.float32)
+        samples = signal + noise
+
+        psd_result = compute_psd(
+            samples,
+            sample_rate_hz=sample_rate_hz,
+            center_freq_hz=1_090_000_000,
+            nfft=nfft,
+        )
+
+        avg = fingerprint_spectrum(psd_result, signal_threshold_db=5.0)
+        max_hold = fingerprint_spectrum(psd_result, signal_threshold_db=5.0, trace_key='psd_max_hold_db')
+
+        assert max_hold['snr_db'] > avg['snr_db']
+        assert max_hold['occupied_bins'] >= avg['occupied_bins']
+        assert max_hold['bandwidth_hz'] >= avg['bandwidth_hz']
 

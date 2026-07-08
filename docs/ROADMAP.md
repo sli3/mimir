@@ -1064,6 +1064,53 @@ seeding the production store with fresh live vectors.
 
 ---
 
+### Phase 25 — Max-hold Burst Fingerprinting for ADS-B ✅
+
+**Goal:** Add a max-hold PSD trace to `compute_psd()` so short ADS-B Mode S Extended
+Squitter bursts (~120 μs at 1090 MHz) are not diluted by the existing averaged
+Welch trace. Only ADS-B switches to the max-hold trace in this phase; all
+continuous bands remain on the averaged trace.
+
+**Delivered:**
+1. **`core/pipeline/fft.py`** — `compute_psd()` now returns `psd_max_hold_db`
+   alongside `psd_db`. Both traces use identical Welch periodogram normalisation
+   (`/ (nfft * window_power)`). Empty-array early-return paths preserve the new
+   key. Docstring frequency-resolution corrected to ~976.6 Hz at nfft=2048 and
+   2 MSa/s.
+
+2. **`core/pipeline/features.py`** — `fingerprint_spectrum()` gains an optional
+   `trace_key` parameter defaulting to `'psd_db'`. All downstream feature maths
+   (peak, noise floor, SNR, bandwidth, occupied bins) operate on whichever
+   trace is selected.
+
+3. **Tool wiring (ADS-B only):**
+   - `tools/capture_to_vectorstore.py` — ADS_B target carries
+     `trace_key='psd_max_hold_db'`; call site forwards
+     `target.get('trace_key', 'psd_db')`.
+   - `tools/calibrate_thresholds.py` — Same ADS_B-only max-hold pattern.
+   - `tools/diagnose_threshold.py` — ADS-B band entry carries max-hold key.
+   - `tools/diagnose_fingerprints.py` — `TARGETS` converted to dicts; ADS_B entry
+     carries max-hold key.
+   ACARS, AIS, and all continuous bands remain on the averaged trace.
+
+4. **Tests** — Added coverage for `psd_max_hold_db` key/shape/invariant,
+   early-return empty arrays, `psd_db` regression snapshot, `trace_key` selection,
+   missing-key error, and ADS-B-only max-hold configuration across all four tools.
+
+**Field-session notes / deferred items:**
+- Max-hold raises the apparent noise floor. The operator must run
+  `diagnose_threshold.py` for ADS_B first, update `BAND_PROFILES['adsb']['signal_threshold_db']`,
+  and only then run `capture_to_vectorstore.py` for ADS-B. Existing ADS_B vectors
+  in the store are on the averaged basis and are not directly comparable to new
+  max-hold vectors; consider clearing the existing ADS_B cluster before re-capturing.
+- ACARS and AIS share the burst characteristic with ADS-B but are intentionally
+  left on the averaged trace. Extending max-hold to them must be bundled with
+  their own field threshold recalibration.
+
+**Test counts:** 606 (435 pytest + 171 Vitest), 0 failures
+
+---
+
 ## Known Tech Debt
 
 | Item | Detail | Fix in |

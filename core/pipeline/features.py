@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 def fingerprint_spectrum(
     psd_result: dict,
     signal_threshold_db: float | None = None,
+    trace_key: str = 'psd_db',
 ) -> dict[str, float | int]:
     """
     Extract spectral fingerprint features from a PSD result dictionary.
@@ -51,11 +52,15 @@ def fingerprint_spectrum(
 
     Args:
         psd_result: Dictionary returned by ``compute_psd`` containing
-                    at minimum the keys ``frequencies_hz``, ``psd_db``,
-                    ``center_freq_hz``, ``sample_rate_hz``, and ``nfft``.
+                    at minimum the keys ``frequencies_hz``, the trace selected
+                    by ``trace_key`` (default ``psd_db``), ``center_freq_hz``,
+                    ``sample_rate_hz``, and ``nfft``.
         signal_threshold_db: Per-band threshold override. If ``None``,
                              the module-level ``SIGNAL_THRESHOLD_DB``
                              (24.0 dB) is used as the fallback.
+        trace_key: Key in ``psd_result`` to use as the input PSD. Default is
+                   ``'psd_db'`` (averaged trace, correct for continuous signals).
+                   Pass ``'psd_max_hold_db'`` for burst signals such as ADS-B.
 
     Returns:
         Dictionary containing:
@@ -74,7 +79,7 @@ def fingerprint_spectrum(
                               peak_power_db. For pulsed signals it will be significantly
                               higher (gap >= PEAK_BURST_MARGIN_DB indicates bursty signal).
     """
-    psd_db = psd_result["psd_db"]
+    psd_db = psd_result[trace_key]
 
     # Resolve the effective threshold — per-band override or global fallback
     effective_threshold = (

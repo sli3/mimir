@@ -142,6 +142,7 @@ CAPTURE_TARGETS: list[dict] = [
         "lna_gain_db": BAND_PROFILES["adsb"]["lna_gain_db"],
         "vga_gain_db": BAND_PROFILES["adsb"]["vga_gain_db"],
         "signal_threshold_db": BAND_PROFILES["adsb"]["signal_threshold_db"],
+        "trace_key": "psd_max_hold_db",
         "captures": 5,
     },
 ]
@@ -342,6 +343,7 @@ def run_capture_loop(
                 fingerprint = fingerprint_spectrum(
                     psd_result,
                     signal_threshold_db=signal_threshold_db,
+                    trace_key=target.get('trace_key', 'psd_db'),
                 )
 
                 vector = embedder.embed(fingerprint)

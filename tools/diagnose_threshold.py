@@ -79,6 +79,7 @@ BAND_SWEEP = [
         "target_bw_hz": 1_000_000,
         "sample_rate_hz": 2_000_000,
         "num_samples": 256_000,
+        "trace_key": "psd_max_hold_db",
     },
 ]
 
@@ -123,7 +124,11 @@ def sweep_band(band: dict) -> dict:
 
     rows = []
     for thr in THRESHOLD_CANDIDATES:
-        fp = fingerprint_spectrum(psd_result, signal_threshold_db=float(thr))
+        fp = fingerprint_spectrum(
+            psd_result,
+            signal_threshold_db=float(thr),
+            trace_key=band.get('trace_key', 'psd_db'),
+        )
         bw = fp["bandwidth_hz"]
         bins = fp["occupied_bins"]
         rows.append((thr, bw, bins))

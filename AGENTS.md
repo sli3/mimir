@@ -288,8 +288,9 @@ uv run python tools/seed_chromadb.py
 | 22-Hotfix | LLM offline emit rate-limit (SocketIO flood fix) | ✅ Complete | 551 (402 pytest + 149 Vitest) |
 | 23 | ChromaDB Vector Space 3D Visualisation (isolated side page) | ✅ Complete | 581 (419 pytest + 162 Vitest) |
 | 24 | OPERATOR Live Anomaly Readout — 4-state badge, novel exposure, tooltip | ✅ Complete | 591 (420 pytest + 171 Vitest) |
+| 25 | Max-hold burst fingerprinting for ADS-B | ✅ Complete | 606 (435 pytest + 171 Vitest) |
 
-**Total passing: 591 passing (420 pytest + 171 Vitest), 0 failures**
+**Total passing: 606 passing (435 pytest + 171 Vitest), 0 failures**
 - Note: Phase 24 added 2026-07-07. Mascot/CharacterPanel.jsx wiring deferred to a future phase (pending art asset).
 
 ---
@@ -588,6 +589,9 @@ Do not apply this pre-emptively — only if context problems are observed.
 | ~~Phase 19b/19c governance rows missing~~ | ~~Phase tracker entries for 19b and 19c were never written — checkpoint mode was off for both builds.~~ Added this session. | ~~This session~~ ✅ RESOLVED |
 | **SIGNAL_THRESHOLD_DB discrepancy** | Field log reported 21 dB threshold, project memory says 27 dB. Value lives in `core/pipeline/features.py`. Needs verification against live file before next calibration run. | Future calibration |
 | ~~BUG-04 `/vectordb` tooltip frequency field mismatch~~ | ~~Seeded records use `center_freq_hz`, live captures use `freq_hz`. Tooltip shows null for seeds.~~ Fixed in Phase 23: api_vectorstore_points() now uses `meta.get("center_freq_hz", meta.get("freq_hz"))`. Null SNR/peak/timestamp preserved for legacy seeds. Tests: 420 pytest + 162 Vitest = 582 passing. | ✅ Resolved Phase 23 |
+| ADS-B max-hold field recalibration | Max-hold raises the apparent noise floor. Existing ADS_B `signal_threshold_db` in `BAND_PROFILES` was calibrated against the averaged trace and must be re-calibrated against the max-hold trace before running `capture_to_vectorstore.py` for ADS-B. | Field session |
+| ADS-B vector store single-basis caveat | Existing ADS_B vectors already in the store were computed on the averaged trace and are not directly comparable to new max-hold vectors. Operator must decide whether to clear existing ADS_B vectors before re-capturing. | Field session |
+| Deferred ACARS/AIS max-hold extension | ACARS and AIS share the burst characteristic with ADS-B but are NOT switched to max-hold in this phase. Extending max-hold to ACARS/AIS must be bundled with their own field threshold recalibration. | Future phase |
 
 ---
 

@@ -29,3 +29,12 @@ def test_calibration_targets_match_band_profiles():
         assert target["lna_gain_db"] == profile["lna_gain_db"]
         assert target["vga_gain_db"] == profile["vga_gain_db"]
         assert target["signal_threshold_db"] == profile["signal_threshold_db"]
+
+
+def test_calibration_targets_adsb_only_uses_max_hold():
+    """Only the ADS_B calibration target carries the psd_max_hold_db trace key."""
+    for target in CALIBRATION_TARGETS:
+        if target["label"] == "ADS_B":
+            assert target.get("trace_key") == "psd_max_hold_db"
+        else:
+            assert "trace_key" not in target

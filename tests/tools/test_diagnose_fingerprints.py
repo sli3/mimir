@@ -51,24 +51,35 @@ def targets():
 
 
 def test_targets_gains_match_band_profiles(targets):
-    for label, _freq_hz, lna, vga, _threshold in targets:
-        if label == "noise_floor":
+    for target in targets:
+        if target["label"] == "noise_floor":
             continue
-        profile = BAND_PROFILES[LABEL_TO_KEY[label]]
-        assert (lna, vga) == (profile["lna_gain_db"], profile["vga_gain_db"])
+        profile = BAND_PROFILES[LABEL_TO_KEY[target["label"]]]
+        assert (target["lna_gain_db"], target["vga_gain_db"]) == (profile["lna_gain_db"], profile["vga_gain_db"])
 
 
 def test_noise_floor_intentionally_diverges(targets):
-    noise_floor = next(t for t in targets if t[0] == "noise_floor")
-    lna, vga = noise_floor[2], noise_floor[3]
+    noise_floor = next(t for t in targets if t["label"] == "noise_floor")
+    lna = noise_floor["lna_gain_db"]
+    vga = noise_floor["vga_gain_db"]
     noise_profile = BAND_PROFILES["noise_floor"]
     assert (lna, vga) != (noise_profile["lna_gain_db"], noise_profile["vga_gain_db"])
 
 
 def test_signal_thresholds_match_band_profiles(targets):
-    for label, _freq_hz, _lna, _vga, threshold in targets:
-        if label == "noise_floor":
-            assert threshold == 10.0
+    for target in targets:
+        if target["label"] == "noise_floor":
+            assert target["signal_threshold_db"] == 10.0
             continue
-        profile = BAND_PROFILES[LABEL_TO_KEY[label]]
-        assert threshold == profile["signal_threshold_db"]
+        profile = BAND_PROFILES[LABEL_TO_KEY[target["label"]]]
+        assert target["signal_threshold_db"] == profile["signal_threshold_db"]
+
+
+def test_adsb_only_uses_max_hold(targets):
+    """Only the ADS_B target carries the psd_max_hold_db trace key."""
+    for target in targets:
+        if target["label"] == "ADS_B":
+            assert target.get("trace_key") == "psd_max_hold_db"
+        else:
+            assert "trace_key" not in target
+

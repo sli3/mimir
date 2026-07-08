@@ -43,6 +43,7 @@ class TestDiagnoseThreshold:
                     num_bins,
                 ),
                 "psd_db": psd,
+                "psd_max_hold_db": psd + 5.0,
                 "center_freq_hz": center_freq_hz,
                 "sample_rate_hz": sample_rate_hz,
                 "nfft": nfft,
@@ -89,3 +90,47 @@ class TestDiagnoseThreshold:
             profile = BAND_PROFILES[NAME_TO_KEY[band["name"]]]
             assert band["lna_gain_db"] == profile["lna_gain_db"]
             assert band["vga_gain_db"] == profile["vga_gain_db"]
+
+    def test_adsb_sweep_uses_max_hold_trace(self, monkeypatch):
+        """sweep_band passes trace_key='psd_max_hold_db' for the ADS-B band."""
+        seen_trace_keys = []
+
+        def mock_capture_iq(**kwargs):
+            num_samples = kwargs.get("num_samples", 256_000)
+            return (
+                np.random.randn(num_samples).astype(np.float32)
+                + 1j * np.random.randn(num_samples).astype(np.float32)
+            )
+
+        def mock_compute_psd(samples, sample_rate_hz, center_freq_hz, nfft=2048):
+            num_bins = nfft
+            psd = np.full(num_bins, -40.0, dtype=np.float32)
+            psd[num_bins // 2 - 10 : num_bins // 2 + 10] = 0.0
+            return {
+                "frequencies_hz": np.linspace(
+                    center_freq_hz - sample_rate_hz / 2,
+                    center_freq_hz + sample_rate_hz / 2,
+                    num_bins,
+                ),
+                "psd_db": psd,
+                "psd_max_hold_db": psd + 5.0,
+                "center_freq_hz": center_freq_hz,
+                "sample_rate_hz": sample_rate_hz,
+                "nfft": nfft,
+                "num_chunks": 4,
+            }
+
+        def trace_checking_fingerprint(psd_result, signal_threshold_db=None, trace_key='psd_db'):
+            seen_trace_keys.append(trace_key)
+            from core.pipeline.features import fingerprint_spectrum as real_fp
+            return real_fp(psd_result, signal_threshold_db=signal_threshold_db, trace_key=trace_key)
+
+        monkeypatch.setattr(diagnose_threshold, "capture_iq", mock_capture_iq)
+        monkeypatch.setattr(diagnose_threshold, "compute_psd", mock_compute_psd)
+        monkeypatch.setattr(diagnose_threshold, "fingerprint_spectrum", trace_checking_fingerprint)
+
+        adsb_band = next(b for b in diagnose_threshold.BAND_SWEEP if b["name"] == "ADS-B")
+        diagnose_threshold.sweep_band(adsb_band)
+
+        assert all(t == "psd_max_hold_db" for t in seen_trace_keys)
+
