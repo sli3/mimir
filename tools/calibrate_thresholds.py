@@ -38,6 +38,7 @@ from embeddings.store import SignalStore
 
 import itertools
 import logging
+import numpy as np
 import time
 from datetime import datetime
 from pathlib import Path
@@ -101,8 +102,12 @@ def _colour(text: str, code: str) -> str:
     return f"{code}{text}{ANSI_RESET}"
 
 
-def derive_thresholds(same_type_max: float, cross_type_min: float) -> dict:
+def derive_thresholds(same_type_spread: float, cross_type_min: float) -> dict:
     """Derive classifier thresholds from calibration distance statistics.
+
+    ``same_type_spread`` is the p90 of all same-type pair distances. It
+    replaces the previous max reducer so that a single outlier capture window
+    (common for burst signals such as ADS-B) cannot dominate the class spread.
 
     Returns a dict:
         {
@@ -115,17 +120,17 @@ def derive_thresholds(same_type_max: float, cross_type_min: float) -> dict:
         }
 
     Monotonicity of the derived set requires
-    ``cross_type_min > SEPARABILITY_FACTOR * same_type_max``. When that fails the
+    ``cross_type_min > SEPARABILITY_FACTOR * same_type_spread``. When that fails the
     same-type captures overlap the cross-type captures and no usable threshold
     set exists; ``ok`` is False and the numeric fields are still returned for
     diagnostics but MUST NOT be presented as paste-ready.
     """
-    ok = cross_type_min > SEPARABILITY_FACTOR * same_type_max
-    strong = max(round(same_type_max * 2, 3), STRONG_MATCH_FLOOR)
-    possible = round((same_type_max * 2 + cross_type_min) / 2, 3)
+    ok = cross_type_min > SEPARABILITY_FACTOR * same_type_spread
+    strong = max(round(same_type_spread * 2, 3), STRONG_MATCH_FLOOR)
+    possible = round((same_type_spread * 2 + cross_type_min) / 2, 3)
     different = round(cross_type_min * 0.9, 3)
     reason = None if ok else (
-        f'same_type_max ({same_type_max:.4f}) is not < cross_type_min '
+        f'same_type_spread ({same_type_spread:.4f}) is not < cross_type_min '
         f'({cross_type_min:.4f}) / {SEPARABILITY_FACTOR}: the calibration '
         f'captures overlap, so no monotonic threshold set exists.'
     )
@@ -208,7 +213,7 @@ CALIBRATION_TARGETS: list[dict] = [
         "vga_gain_db": BAND_PROFILES["adsb"]["vga_gain_db"],
         "signal_threshold_db": BAND_PROFILES["adsb"]["signal_threshold_db"],
         "trace_key": "psd_max_hold_db",
-        "captures": 2,
+        "captures": 5,
     },
     {
         "label": "Aviation_VHF",
@@ -574,10 +579,10 @@ def main() -> None:
             _cross_type_dists.append(dist)
         # noise_floor pairs are excluded from matrix threshold computation.
 
-    _col_same_type_max = max(_same_type_dists) if _same_type_dists else 0.0
+    _col_same_type_spread = float(np.percentile(_same_type_dists, 90)) if _same_type_dists else 0.0
     _col_cross_type_min = min(_cross_type_dists) if _cross_type_dists else 1.0
 
-    _derived = derive_thresholds(_col_same_type_max, _col_cross_type_min)
+    _derived = derive_thresholds(_col_same_type_spread, _col_cross_type_min)
     STRONG_MATCH = _derived["strong_match"]
     POSSIBLE_MATCH = _derived["possible_match"]
     DIFFERENT_TYPE = _derived["different_type"]
@@ -662,14 +667,16 @@ def main() -> None:
         elif is_noise_a or is_noise_b:
             noise_pairs.append(dist)
 
-    # Compute statistics
-    same_type_max = max(same_type_pairs) if same_type_pairs else 0.0
+    # Compute statistics using the p90 of same-type distances so a single
+    # outlier window (e.g. a near-noise ADS-B capture) does not define the
+    # class spread. Cross-type distances keep the genuine worst-case min.
+    same_type_spread = float(np.percentile(same_type_pairs, 90)) if same_type_pairs else 0.0
     cross_type_min = min(cross_type_pairs) if cross_type_pairs else 1.0
     noise_min = min(noise_pairs) if noise_pairs else 1.0
 
     # Suggested thresholds for _DISTANCE_SCALE_REFERENCE and _build_user_prompt()
     # in llm/classifier.py.
-    derived = derive_thresholds(same_type_max, cross_type_min)
+    derived = derive_thresholds(same_type_spread, cross_type_min)
     STRONG_MATCH = derived["strong_match"]
     POSSIBLE_MATCH = derived["possible_match"]
     DIFFERENT_TYPE = derived["different_type"]
@@ -680,16 +687,16 @@ def main() -> None:
     print(f"  cross_type_pairs:      {len(cross_type_pairs)} pairs")
     print(f"  noise_floor_pairs:     {len(noise_pairs)} pairs")
     print()
-    if same_type_max < cross_type_min / SEPARABILITY_FACTOR:
+    if same_type_spread < cross_type_min / SEPARABILITY_FACTOR:
         _st_colour = ANSI_GREEN
-    elif same_type_max < cross_type_min:
+    elif same_type_spread < cross_type_min:
         _st_colour = ANSI_YELLOW
     else:
         _st_colour = ANSI_RED
-    print("Same-type max distance:   {}".format(_colour("{:.4f}".format(same_type_max), _st_colour)))
-    if cross_type_min > SEPARABILITY_FACTOR * same_type_max:
+    print("Same-type spread (p90):   {}".format(_colour("{:.4f}".format(same_type_spread), _st_colour)))
+    if cross_type_min > SEPARABILITY_FACTOR * same_type_spread:
         _ct_colour = ANSI_GREEN
-    elif cross_type_min > same_type_max:
+    elif cross_type_min > same_type_spread:
         _ct_colour = ANSI_YELLOW
     else:
         _ct_colour = ANSI_RED
