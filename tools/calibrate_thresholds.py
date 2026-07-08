@@ -53,6 +53,13 @@ ANSI_RESET = "\033[0m"
 # Matrix is split into two halves when there are more than this many entries.
 MATRIX_SPLIT_THRESHOLD = 8
 
+# Threshold-derivation constants. SEPARABILITY_FACTOR sets how far the
+# cross-type nearest neighbour must be from the same-type furthest neighbour
+# for a monotonic threshold set to exist. STRONG_MATCH_FLOOR prevents the
+# strong-match ceiling from rounding to 0.000 on very clean captures.
+SEPARABILITY_FACTOR = 2.5
+STRONG_MATCH_FLOOR = 0.002
+
 # Antenna-to-band mappings. Labels must match CALIBRATION_TARGETS exactly.
 ANTENNA_PROFILES: dict[str, dict] = {
     "1": {
@@ -92,6 +99,40 @@ ANTENNA_PROFILES: dict[str, dict] = {
 def _colour(text: str, code: str) -> str:
     """Wrap text in an ANSI colour code."""
     return f"{code}{text}{ANSI_RESET}"
+
+
+def derive_thresholds(same_type_max: float, cross_type_min: float) -> dict:
+    """Derive classifier thresholds from calibration distance statistics.
+
+    Returns a dict:
+        {
+            'ok': bool,
+            'strong_match': float,
+            'possible_match': float,
+            'different_type': float,
+            'novel_signal': float,
+            'reason': str | None,
+        }
+
+    Monotonicity of the derived set requires
+    ``cross_type_min > SEPARABILITY_FACTOR * same_type_max``. When that fails the
+    same-type captures overlap the cross-type captures and no usable threshold
+    set exists; ``ok`` is False and the numeric fields are still returned for
+    diagnostics but MUST NOT be presented as paste-ready.
+    """
+    ok = cross_type_min > SEPARABILITY_FACTOR * same_type_max
+    strong = max(round(same_type_max * 2, 3), STRONG_MATCH_FLOOR)
+    possible = round((same_type_max * 2 + cross_type_min) / 2, 3)
+    different = round(cross_type_min * 0.9, 3)
+    reason = None if ok else (
+        f'same_type_max ({same_type_max:.4f}) is not < cross_type_min '
+        f'({cross_type_min:.4f}) / {SEPARABILITY_FACTOR}: the calibration '
+        f'captures overlap, so no monotonic threshold set exists.'
+    )
+    return {
+        'ok': ok, 'strong_match': strong, 'possible_match': possible,
+        'different_type': different, 'novel_signal': different, 'reason': reason,
+    }
 
 
 def _print_band_warning(label: str) -> None:
@@ -523,25 +564,24 @@ def main() -> None:
     entry_labels = {e["id"]: e["label"] for e in entries}
     _same_type_dists = []
     _cross_type_dists = []
-    _noise_dists = []
 
     for a_id, b_id, dist in distance_pairs:
         a_lbl = entry_labels[a_id]
         b_lbl = entry_labels[b_id]
         if a_lbl == b_lbl:
             _same_type_dists.append(dist)
-        elif "noise_floor" in (a_lbl, b_lbl):
-            _noise_dists.append(dist)
-        else:
+        elif "noise_floor" not in (a_lbl, b_lbl):
             _cross_type_dists.append(dist)
+        # noise_floor pairs are excluded from matrix threshold computation.
 
     _col_same_type_max = max(_same_type_dists) if _same_type_dists else 0.0
     _col_cross_type_min = min(_cross_type_dists) if _cross_type_dists else 1.0
 
-    STRONG_MATCH = round(_col_same_type_max * 2, 3)
-    POSSIBLE_MATCH = round((_col_same_type_max * 2 + _col_cross_type_min) / 2, 3)
-    DIFFERENT_TYPE = round(_col_cross_type_min * 0.9, 3)
-    NOVEL_SIGNAL = DIFFERENT_TYPE
+    _derived = derive_thresholds(_col_same_type_max, _col_cross_type_min)
+    STRONG_MATCH = _derived["strong_match"]
+    POSSIBLE_MATCH = _derived["possible_match"]
+    DIFFERENT_TYPE = _derived["different_type"]
+    NOVEL_SIGNAL = _derived["novel_signal"]
 
     # ─────────────────────────────────────────────────────────────────────────
     # Print formatted distance matrix
@@ -608,18 +648,18 @@ def main() -> None:
             if e["id"] == b_id:
                 b_label = e["label"]
 
-        is_same_type = a_label == b_label
         is_noise_a = a_label == "noise_floor"
         is_noise_b = b_label == "noise_floor"
+        is_same_type = a_label == b_label
         is_cross_type = (
             not is_same_type and not is_noise_a and not is_noise_b
         )
 
         if is_same_type:
             same_type_pairs.append(dist)
-        if is_cross_type:
+        elif is_cross_type:
             cross_type_pairs.append(dist)
-        if is_noise_a or is_noise_b:
+        elif is_noise_a or is_noise_b:
             noise_pairs.append(dist)
 
     # Compute statistics
@@ -629,39 +669,57 @@ def main() -> None:
 
     # Suggested thresholds for _DISTANCE_SCALE_REFERENCE and _build_user_prompt()
     # in llm/classifier.py.
-    STRONG_MATCH = round(same_type_max * 2, 3)
-    POSSIBLE_MATCH = round((same_type_max * 2 + cross_type_min) / 2, 3)
-    DIFFERENT_TYPE = round(cross_type_min * 0.9, 3)
-    NOVEL_SIGNAL = DIFFERENT_TYPE
+    derived = derive_thresholds(same_type_max, cross_type_min)
+    STRONG_MATCH = derived["strong_match"]
+    POSSIBLE_MATCH = derived["possible_match"]
+    DIFFERENT_TYPE = derived["different_type"]
+    NOVEL_SIGNAL = derived["novel_signal"]
 
     print("\nComputed statistics:")
     print(f"  same_type_pairs:       {len(same_type_pairs)} pairs")
     print(f"  cross_type_pairs:      {len(cross_type_pairs)} pairs")
     print(f"  noise_floor_pairs:     {len(noise_pairs)} pairs")
     print()
-    if same_type_max <= 0.010:
+    if same_type_max < cross_type_min / SEPARABILITY_FACTOR:
         _st_colour = ANSI_GREEN
-    elif same_type_max <= 0.022:
+    elif same_type_max < cross_type_min:
         _st_colour = ANSI_YELLOW
     else:
         _st_colour = ANSI_RED
     print("Same-type max distance:   {}".format(_colour("{:.4f}".format(same_type_max), _st_colour)))
-    if cross_type_min >= 0.031:
+    if cross_type_min > SEPARABILITY_FACTOR * same_type_max:
         _ct_colour = ANSI_GREEN
-    elif cross_type_min >= 0.022:
+    elif cross_type_min > same_type_max:
         _ct_colour = ANSI_YELLOW
     else:
         _ct_colour = ANSI_RED
     print("Cross-type min distance:  {}".format(_colour("{:.4f}".format(cross_type_min), _ct_colour)))
-    if noise_min >= 0.031:
+    if noise_min > cross_type_min:
         _nf_colour = ANSI_GREEN
-    elif noise_min >= 0.022:
+    elif noise_min > same_type_max:
         _nf_colour = ANSI_YELLOW
     else:
         _nf_colour = ANSI_RED
     print("Noise floor min distance: {}".format(_colour("{:.4f}".format(noise_min), _nf_colour)))
     print()
     print("-" * 70)
+    if not derived["ok"]:
+        print("CALIBRATION FAILED — THRESHOLDS NOT PASTE-READY")
+        print("-" * 70)
+        print()
+        print(derived["reason"])
+        print()
+        print("The ADS-B captures in this run likely caught a near-noise window")
+        print("with no aircraft overhead. Same-type and cross-type distances overlap,")
+        print("so any pasted thresholds would collapse strong/possible/different/novel")
+        print("classification into a single bucket.")
+        print()
+        print("REMEDIATION: recapture ADS-B with aircraft overhead. Do NOT paste any")
+        print("thresholds from this run into llm/classifier.py.")
+        print()
+        print("=" * 70)
+        logger.warning("Calibration overlap detected; thresholds not usable.")
+        raise SystemExit(1)
     print("SUGGESTED THRESHOLDS — update TWO locations in llm/classifier.py:")
     print("-" * 70)
     print()
@@ -672,8 +730,7 @@ def main() -> None:
     print("   Update the if/elif distance comparisons that label each neighbour.")
     print()
 
-    _diff_type_gap = cross_type_min - same_type_max
-    _diff_type_colour = ANSI_GREEN if _diff_type_gap > 0.010 else ANSI_RED
+    _diff_type_colour = ANSI_GREEN if derived["ok"] else ANSI_RED
 
     print(f"STRONG_MATCH     = {_colour(f'{STRONG_MATCH:.3f}', ANSI_GREEN)}")
     print(f"                 → Same-type signals within this distance are strong matches")

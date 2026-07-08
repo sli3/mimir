@@ -2,13 +2,18 @@
 Tests for tools/calibrate_thresholds.py
 
 Guard tests that verify CALIBRATION_TARGETS stays in sync with
-BAND_PROFILES.
+BAND_PROFILES, and unit tests for the pure threshold-derivation helper.
 """
 
 import pytest
 
 from dashboard.shared_state import BAND_PROFILES
-from tools.calibrate_thresholds import CALIBRATION_TARGETS
+from tools.calibrate_thresholds import (
+    CALIBRATION_TARGETS,
+    SEPARABILITY_FACTOR,
+    STRONG_MATCH_FLOOR,
+    derive_thresholds,
+)
 
 
 LABEL_TO_KEY = {
@@ -38,3 +43,58 @@ def test_calibration_targets_adsb_only_uses_max_hold():
             assert target.get("trace_key") == "psd_max_hold_db"
         else:
             assert "trace_key" not in target
+
+
+@pytest.mark.parametrize(
+    "same_type_max, cross_type_min",
+    [
+        (0.0002, 0.0124),
+        (0.0056, 0.0177),
+        (0.001, 0.030),
+        (0.010, 0.030),
+    ],
+)
+def test_derive_thresholds_is_monotonic_for_separable_inputs(
+    same_type_max, cross_type_min
+):
+    """When cross_type_min is well above SEPARABILITY_FACTOR * same_type_max the
+    derived set is monotonic: STRONG < POSSIBLE < DIFFERENT.
+    """
+    result = derive_thresholds(same_type_max, cross_type_min)
+    assert result["ok"] is True
+    assert result["reason"] is None
+    assert result["strong_match"] < result["possible_match"]
+    assert result["possible_match"] < result["different_type"]
+    assert result["different_type"] == result["novel_signal"]
+
+
+def test_derive_thresholds_overlap_run_is_not_ok_and_explains_reason():
+    """The 2026-07-08 inverted ADS-B run: same_type_max > cross_type_min/2.5."""
+    same_type_max = 0.0179
+    cross_type_min = 0.0143
+    result = derive_thresholds(same_type_max, cross_type_min)
+    assert result["ok"] is False
+    assert result["reason"] is not None
+    assert str(same_type_max) in result["reason"]
+    assert str(cross_type_min) in result["reason"]
+    assert "overlap" in result["reason"].lower()
+
+
+def test_derive_thresholds_strong_match_floor():
+    """Very clean same-type distances must not round STRONG_MATCH down to 0.000."""
+    result = derive_thresholds(0.0002, 0.0124)
+    assert result["strong_match"] == STRONG_MATCH_FLOOR
+
+
+def test_derive_thresholds_floor_overrides_only_when_needed():
+    """When same_type_max * 2 is above the floor the helper keeps the computed value."""
+    result = derive_thresholds(0.0056, 0.0177)
+    assert result["strong_match"] > STRONG_MATCH_FLOOR
+
+
+def test_derive_thresholds_exact_boundary_is_not_ok():
+    """Strict separability: equality at C == SEPARABILITY_FACTOR * S is NOT ok."""
+    s = 0.01
+    c = SEPARABILITY_FACTOR * s
+    result = derive_thresholds(s, c)
+    assert result["ok"] is False
