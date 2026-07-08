@@ -52,7 +52,12 @@ Verify all frequencies mentioned are legal to receive passively in Australia:
 
 Review the plan against AGENTS.md. Check:
 1. Does the plan match the current phase goals?
-2. Are file names, function names, and import paths correct?
+2. Are file names, function names, and import paths correct? For any
+   named library (ChromaDB, SoapySDR, pyModeS, pyais, Flask-SocketIO,
+   or similar), call Context7 (resolve-library-id then
+   get-library-docs) to verify against current documentation before
+   passing or flagging this item. Do not verify from training data
+   alone.
 3. Are there logic errors, wrong data formats, or incorrect assumptions?
 4. Does the plan use SoapySDR RX direction (1) only — never TX direction (0)?
 
