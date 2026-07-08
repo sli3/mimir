@@ -86,7 +86,9 @@ BAND_SWEEP = [
 # NOTE: BAND_SWEEP has no AIS entry (pre-existing). Future enhancement:
 # add AIS to BAND_SWEEP if threshold-sweeping AIS is desired.
 
-BAND_KEYS = {b["name"].lower().replace(" / ", "_").replace("-", "_").replace(" ", "_"): b for b in BAND_SWEEP}
+# ADS-B is the only hyphenated band; strip the hyphen (not sub with "_") so the
+# CLI key is "adsb", matching both the docstring example and BAND_PROFILES["adsb"].
+BAND_KEYS = {b["name"].lower().replace(" / ", "_").replace("-", "").replace(" ", "_"): b for b in BAND_SWEEP}
 
 
 def sweep_band(band: dict) -> dict:
@@ -137,6 +139,30 @@ def sweep_band(band: dict) -> dict:
             f"bandwidth={bw:>8.0f} Hz  bins={bins:>5}  "
             f"[target: {band['target_bw_hz']} Hz]"
         )
+
+    # Guard against a no-signal capture. If NO threshold produced any occupied
+    # bandwidth, there was nothing in the band and the "closest to target" search
+    # below would otherwise emit a confident but meaningless recommendation
+    # (typically the lowest threshold). This is the total-dead case only; a few
+    # noise spikes at low thresholds can still slip past, so for burst bands the
+    # real check remains confirming live traffic overhead before trusting output.
+    if all(bw == 0 for _, bw, _ in rows):
+        print(
+            f"\n⚠ NO OCCUPIED BANDWIDTH at any threshold for {band['name']} — "
+            f"no signal was present in this capture."
+        )
+        print(
+            "  Recommendation suppressed. For burst bands (ADS-B, ACARS, AIS) "
+            "confirm live traffic (flightradar24 / marinetraffic) and re-run."
+        )
+        print()
+        return {
+            "name": band["name"],
+            "freq_hz": band["freq_hz"],
+            "recommended_thr": None,
+            "recommended_bw": None,
+            "rows": rows,
+        }
 
     diffs = [(abs(bw - band["target_bw_hz"]), thr, bw) for thr, bw, _ in rows]
     best = min(diffs, key=lambda x: x[0])

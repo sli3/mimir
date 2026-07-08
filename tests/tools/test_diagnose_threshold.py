@@ -71,10 +71,22 @@ class TestDiagnoseThreshold:
         assert len(result["rows"]) == len(diagnose_threshold.THRESHOLD_CANDIDATES)
 
     def test_band_keys_covers_all_sweep_bands(self):
-        """BAND_KEYS must map every BAND_SWEEP entry by a valid CLI key."""
+        """Every BAND_SWEEP entry must be reachable via exactly one CLI key.
+
+        Asserts the invariant (each band is uniquely reachable) rather than
+        recomputing the key transform here — duplicating the transform in the
+        test couples it to the implementation and silently breaks whenever the
+        key derivation changes (as it did when ADS-B's key moved ads_b -> adsb).
+        """
+        # Every band object in BAND_SWEEP must be present as a value in BAND_KEYS.
+        mapped_bands = list(diagnose_threshold.BAND_KEYS.values())
         for band in diagnose_threshold.BAND_SWEEP:
-            key = band["name"].lower().replace(" / ", "_").replace("-", "_").replace(" ", "_")
-            assert key in diagnose_threshold.BAND_KEYS, f"{band['name']} missing from BAND_KEYS"
+            assert band in mapped_bands, f"{band['name']} missing from BAND_KEYS"
+        # And the mapping must be 1:1 — no two bands collapsing to the same key.
+        assert len(diagnose_threshold.BAND_KEYS) == len(diagnose_threshold.BAND_SWEEP)
+        # ADS-B specifically must be reachable as 'adsb' (matches docstring + BAND_PROFILES).
+        assert "adsb" in diagnose_threshold.BAND_KEYS
+        assert diagnose_threshold.BAND_KEYS["adsb"]["name"] == "ADS-B"
 
     def test_band_sweep_gains_match_band_profiles(self):
         """BAND_SWEEP gain values must match dashboard.shared_state.BAND_PROFILES."""
@@ -133,4 +145,3 @@ class TestDiagnoseThreshold:
         diagnose_threshold.sweep_band(adsb_band)
 
         assert all(t == "psd_max_hold_db" for t in seen_trace_keys)
-
