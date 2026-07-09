@@ -7,7 +7,7 @@ description: >
   Part of the standard analysis team — pairs with @deep-analyst for complex
   investigations. Read-only — never modifies files.
 mode: subagent
-model: local-llama/Ornith-1.0-9B
+model: zai-coding-plan/glm-4.7
 temperature: 0.2
 tools:
   write: false
