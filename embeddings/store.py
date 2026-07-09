@@ -99,6 +99,27 @@ class SignalStore:
         self._client.delete_collection(name=COLLECTION_NAME)
         logger.info("SignalStore collection deleted")
 
+    def delete_by_label(self, label: str) -> int:
+        """Delete all records whose metadata ``label`` matches ``label``.
+
+        Wraps ChromaDB's ``collection.get(where=...)`` and
+        ``collection.delete(ids=...)`` to provide a targeted delete by label.
+
+        Args:
+            label: The label value to match.
+
+        Returns:
+            Number of records deleted (0 if no records match).
+        """
+        matching = self._collection.get(where={"label": label})
+        ids = matching.get("ids") or []
+        count = len(ids)
+        if count == 0:
+            return 0
+        self._collection.delete(ids=ids)
+        logger.info("Deleted %d record(s) with label '%s'", count, label)
+        return count
+
     def list_labels(self) -> list[str]:
         """
         Return a sorted list of unique label strings from stored metadata.

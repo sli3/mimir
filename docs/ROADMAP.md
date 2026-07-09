@@ -64,6 +64,45 @@
 | 22-Hotfix | LLM offline emit rate-limit (SocketIO flood fix) | ✅ Complete | 551 (402 pytest + 149 Vitest) |
 | 23 | ChromaDB Vector Space 3D Visualisation (isolated side page) | ✅ Complete | 581/581 (419 pytest + 162 Vitest) |
 | 24 | OPERATOR Live Anomaly Readout — 4-state badge, novel exposure, tooltip | ✅ Complete | 591/591 (420 pytest + 171 Vitest) |
+| 25 | Max-hold burst fingerprinting for ADS-B | ✅ Complete | 606 (435 pytest + 171 Vitest) |
+| 28 | Cross-session calibration merge + antenna groups + persistence | ✅ Complete | 634 (463 pytest + 171 Vitest) |
+
+### Phase 28 — Cross-session Calibration Merge ✅
+
+**Goal:** Make `calibrate_thresholds.py` persist the calibration vectorstore across
+runs so per-band thresholds survive restarts, exclude stale bands from the merged
+ladder, and drive antenna selection by band group rather than a single hardcoded value.
+
+**Delivered:**
+
+1. **`embeddings/store.py`** — `SignalStore.delete_by_label(label)` for targeted
+   deletion of stored calibration entries by band label.
+
+2. **`tools/calibrate_thresholds.py`** — Full rewrite:
+   - Calibration vectorstore persists across runs (no longer wiped at startup).
+   - `--wipe` CLI flag for full re-baseline.
+   - `STALENESS_DAYS = 14` constant and `_compute_band_freshness()` helper; stale
+     bands excluded from the merged ladder.
+   - Startup summary prints each stored band's age and FRESH/STALE status.
+   - Replace-per-band logic: `delete_by_label` for each band before writing new
+     captures.
+   - Merge logic: fresh captures + stored non-stale records for bands not captured
+     this run.
+   - Band-driven antenna groups replace single hardcoded antenna selection, with
+     mid-run antenna-swap prompts.
+   - Cross-type minimum pair reporting in threshold analysis.
+   - Testable helpers `_merge_stored_entries` and `_find_cross_type_min_pair`.
+
+3. **Tests** — 11 new pytest tests (3 `delete_by_label` + 8 staleness/merge/cross-type).
+
+**Test counts:** 634 (463 pytest + 171 Vitest), 0 failures
+
+**Field-session notes / deferred items:**
+- Real multi-antenna merged calibration run (telescopic + spiral) still pending.
+- `llm/classifier.py` `_DISTANCE_SCALE_REFERENCE` update after real merged run.
+- ADS_B `signal_threshold_db` field recalibration against max-hold trace still pending.
+
+---
 
 ### BUG-04 — /vectordb Tooltip Frequency Field Mismatch ✅
 
@@ -1117,6 +1156,8 @@ continuous bands remain on the averaged trace.
 |---|---|---|
 | `config/mimir.yaml` not loaded | Runtime config loading not yet implemented | Phase 2+ |
 | ~~`scan.py` startup message~~ | ~~Misleading "Scanning N frequencies" in single-freq mode~~ | ~~Post 8C~~ ✅ |
+| ~~Calibration store wiped at every startup~~ | ~~`tools/calibrate_thresholds.py` deleted the vectorstore on each run, losing cross-session calibration data~~ — replaced with persistent storage across runs, `--wipe` flag for full re-baseline, and `STALENESS_DAYS = 14` exclusion from merged ladder. Resolved in Phase 28. | ~~Pre-Phase 28~~ ✅ PHASE-28-CROSS-SESSION-MERGE |
+| ~~Inline single-antenna selection~~ | ~~`calibrate_thresholds.py` used a single hardcoded antenna for all bands, ignoring per-band antenna group requirements~~ — replaced with band-driven antenna groups and mid-run antenna-swap prompts. Resolved in Phase 28. | ~~Pre-Phase 28~~ ✅ PHASE-28-CROSS-SESSION-MERGE |
 | ~~MED-01: scan.py fatal error exit~~ | ~~`except Exception` sets fatal_error=True but no test verifies exit code 1~~ | ~~PHASE-TECH-DEBT-1~~ ✅ |
 | ~~ADS-B gain divergence~~ | ~~`calibrate_thresholds.py` and `diagnose_fingerprints.py` used (32/38) for ADS-B gain, `shared_state.py` uses (24/24)~~. All four tools now read gains from `BAND_PROFILES`. `calibrate_thresholds.py` resolved in Phase 19a; `diagnose_fingerprints.py` resolved in BUG-03. | ✅ Phase 19a + BUG-03 |
 | **BUG-03** | **Four tools wired to BAND_PROFILES for gains/thresholds; `diagnose_fingerprints.py` AIS gains corrected from (24, 26) to (16, 20).** | **This session ✅** |

@@ -1,5 +1,4 @@
-"""
-tests/embeddings/test_phase3_embedding.py
+"""tests/embeddings/test_phase3_embedding.py
 Mimir RF Scanner — Phase 3 Embedding + Vector Store Tests
 
 PURPOSE
@@ -280,3 +279,38 @@ class TestSignalStore:
         assert len(result["embeddings"][0]) == len(record["embedding"])
         assert result["metadatas"][0]["label"] == "fm_broadcast"
         assert result["metadatas"][0]["freq_hz"] == 98_000_000
+
+    def test_delete_by_label_removes_only_matching_records(self, store, embedder):
+        """delete_by_label must remove only records whose metadata label matches."""
+        store.add(embedder.embed_fingerprint(
+            _make_fingerprint(), metadata={"label": "fm_broadcast"}
+        ))
+        store.add(embedder.embed_fingerprint(
+            _make_fingerprint(peak_freq_hz=100_000_000.0),
+            metadata={"label": "adsb"},
+        ))
+        deleted = store.delete_by_label("fm_broadcast")
+        assert deleted == 1
+        assert store.count() == 1
+        labels = store.list_labels()
+        assert "fm_broadcast" not in labels
+        assert "adsb" in labels
+
+    def test_delete_by_label_returns_zero_when_label_absent(self, store, embedder):
+        """delete_by_label must return 0 and leave records untouched when no match."""
+        store.add(embedder.embed_fingerprint(
+            _make_fingerprint(), metadata={"label": "fm_broadcast"}
+        ))
+        deleted = store.delete_by_label("adsb")
+        assert deleted == 0
+        assert store.count() == 1
+
+    def test_delete_by_label_ignores_records_without_label(self, store, embedder):
+        """Records without a label key must not be deleted by delete_by_label."""
+        store.add(embedder.embed_fingerprint(_make_fingerprint()))
+        store.add(embedder.embed_fingerprint(
+            _make_fingerprint(), metadata={"label": "fm_broadcast"}
+        ))
+        deleted = store.delete_by_label("fm_broadcast")
+        assert deleted == 1
+        assert store.count() == 1

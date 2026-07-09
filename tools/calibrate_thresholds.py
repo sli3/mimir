@@ -7,13 +7,20 @@ computes pairwise distance statistics to suggest threshold values for use in
 llm/classifier.py's _DISTANCE_SCALE_REFERENCE constant and _build_user_prompt()
 threshold block.
 
-At startup the operator selects the connected antenna; only bands within that
-antenna's usable range are captured. Per-band warnings are shown before the
-first capture of ADS-B, ACARS, and AIS because those bands require live aircraft
-or vessel signals to produce meaningful vectors.
+By default the script loads prior calibration vectors from a separate
+ChromaDB collection at "data/calibration_vectorstore" and merges them with
+newly captured vectors before deriving the ladder. A band is considered stale
+if its newest stored capture is older than STALENESS_DAYS; stale bands are
+excluded from the merged ladder unless recaptured. Use the --wipe flag to
+fully reset the store and start from empty.
 
-If the total number of captured entries exceeds 8, the pairwise distance matrix
-is split into two halves so each half fits a normal terminal width.
+The operator is prompted to connect the appropriate antenna for each group of
+bands that need calibration. Per-band warnings are shown before the first
+capture of ADS-B, ACARS, and AIS because those bands require live aircraft or
+vessel signals to produce meaningful vectors.
+
+If the total number of captured entries exceeds 8, the pairwise distance
+matrix is split into two halves so each half fits a normal terminal width.
 
 The script stores calibration vectors in a SEPARATE ChromaDB collection at
 "data/calibration_vectorstore" — it does NOT touch data/vectorstore/ (production).
@@ -24,6 +31,7 @@ always match the live dashboard configuration.
 
 Usage:
     python tools/calibrate_thresholds.py
+    python tools/calibrate_thresholds.py --wipe
 
 Legal: Receive-only. Radiocommunications Act 1992 (Cth).
        No transmission. Jurisdiction: AU/SA. Authority: ACMA.
@@ -36,6 +44,7 @@ from dashboard.shared_state import BAND_PROFILES
 from embeddings.embedder import SpectrumEmbedder
 from embeddings.store import SignalStore
 
+import argparse
 import itertools
 import logging
 import numpy as np
@@ -50,6 +59,11 @@ ANSI_GREEN = "\033[92m"
 ANSI_YELLOW = "\033[93m"
 ANSI_RED = "\033[91m"
 ANSI_RESET = "\033[0m"
+
+# Maximum age of a stored calibration record before its band is considered stale
+# and excluded from the merged ladder input. Fail-safe: malformed or missing
+# timestamps are treated as stale.
+STALENESS_DAYS = 14
 
 # Matrix is split into two halves when there are more than this many entries.
 MATRIX_SPLIT_THRESHOLD = 8
@@ -216,6 +230,157 @@ def _print_band_warning(label: str) -> None:
     for line in body_lines:
         print(line)
     print()
+
+
+def _compute_band_freshness(
+    stored: dict, reference: datetime | None = None
+) -> dict[str, tuple[bool, float, str]]:
+    """Return freshness metadata for each stored band.
+
+    For each label present in ``stored``, find the newest valid ISO-8601
+    timestamp. Return a mapping from label to ``(is_fresh, age_days,
+    newest_timestamp)`` where ``is_fresh`` is True when the newest capture is
+    no older than ``STALENESS_DAYS``.
+
+    Records with missing or malformed timestamps are ignored when searching
+    for the newest timestamp; if no valid timestamp exists for a label, that
+    label is omitted from the result (treated as stale/missing by callers).
+    """
+    if reference is None:
+        reference = datetime.now()
+    newest_by_label: dict[str, tuple[datetime, str]] = {}
+    for meta in (stored.get("metadatas") or []):
+        if not meta:
+            continue
+        label = meta.get("label")
+        ts_str = meta.get("timestamp")
+        if not label or not ts_str:
+            continue
+        try:
+            ts = datetime.fromisoformat(ts_str)
+        except (ValueError, TypeError):
+            continue
+        if label not in newest_by_label or ts > newest_by_label[label][0]:
+            newest_by_label[label] = (ts, ts_str)
+    result: dict[str, tuple[bool, float, str]] = {}
+    for label, (ts, ts_str) in newest_by_label.items():
+        age_days = (reference - ts).total_seconds() / 86400
+        is_fresh = age_days <= STALENESS_DAYS
+        result[label] = (is_fresh, age_days, ts_str)
+    return result
+
+
+def _print_startup_summary(freshness: dict[str, tuple[bool, float, str]]) -> None:
+    """Print the current calibration-store status before capturing."""
+    print("\n" + "=" * 70)
+    print("CALIBRATION STORE STATUS")
+    print("=" * 70)
+    if not freshness:
+        print("No prior calibration data — starting fresh.")
+        return
+    for label in sorted(freshness):
+        is_fresh, age_days, ts_str = freshness[label]
+        status = "FRESH" if is_fresh else "STALE, excluded unless recaptured"
+        age_word = "today" if age_days < 1 else f"{int(age_days)} days ago"
+        print(f"{label:12} — last calibrated {age_word:12} ({ts_str[:10]}) — {status}")
+    print()
+
+
+def _prompt_recapture_fresh_bands(fresh_labels: set[str]) -> set[str]:
+    """Ask which fresh bands the operator wants to recapture.
+
+    Returns a set of labels the operator chose to recapture. Empty input or
+    Ctrl+C defaults to skipping all fresh bands.
+    """
+    if not fresh_labels:
+        return set()
+    print("\n" + "=" * 70)
+    print("FRESH BANDS ALREADY CALIBRATED")
+    print("=" * 70)
+    print(
+        f"Fresh bands (within last {STALENESS_DAYS} days): "
+        f"{', '.join(sorted(fresh_labels))}"
+    )
+    print("Enter comma-separated band names to recapture, or press ENTER to skip:")
+    try:
+        recapture_input = input("> ").strip()
+    except KeyboardInterrupt:
+        print()
+        return set()
+    chosen = {b.strip() for b in recapture_input.split(",") if b.strip()}
+    return {b for b in chosen if b in fresh_labels}
+
+
+def _build_antenna_groups(labels_to_capture: set[str]) -> dict[str, list[str]]:
+    """Group bands by the first antenna profile that covers them.
+
+    Ensures each band is assigned to exactly one antenna group even if it
+    appears in multiple profiles.
+    """
+    label_to_antenna: dict[str, str] = {}
+    for key, profile in ANTENNA_PROFILES.items():
+        for band in profile["bands"]:
+            if band not in label_to_antenna:
+                label_to_antenna[band] = key
+    groups: dict[str, list[str]] = {key: [] for key in ANTENNA_PROFILES}
+    for label in sorted(labels_to_capture):
+        key = label_to_antenna.get(label)
+        if key is not None:
+            groups[key].append(label)
+    return groups
+
+
+def _merge_stored_entries(
+    entries: list[dict],
+    store: SignalStore,
+    freshness: dict[str, tuple[bool, float, str]],
+    captured_bands: set[str],
+) -> list[dict]:
+    """Append stored non-stale records for bands not captured this run.
+
+    Vectors from bands that were captured this run are excluded because their
+    fresh vectors are already in ``entries``. Stale stored vectors are excluded
+    to prevent outdated calibration data from corrupting the ladder.
+    """
+    all_stored = store.get_all_embeddings()
+    all_stored_metas = all_stored.get("metadatas") or []
+    for idx, meta in enumerate(all_stored_metas):
+        if not meta:
+            continue
+        lbl = meta.get("label")
+        if lbl is None or lbl in captured_bands:
+            continue
+        if lbl in freshness and freshness[lbl][0]:
+            entries.append({
+                "id": all_stored["ids"][idx],
+                "label": lbl,
+                "embedding": all_stored["embeddings"][idx],
+            })
+    return entries
+
+
+def _find_cross_type_min_pair(
+    distance_pairs: list[tuple[str, str, float]],
+    entry_labels: dict[str, str],
+) -> tuple[float, tuple[str, str] | None]:
+    """Return the minimum cross-type distance and the labels that produced it.
+
+    Same-type pairs and pairs involving ``noise_floor`` are excluded, matching
+    the ladder logic in ``derive_thresholds``.
+    """
+    cross_type_min = 1.0
+    cross_type_min_pair: tuple[str, str] | None = None
+    for a_id, b_id, dist in distance_pairs:
+        a_label = entry_labels[a_id]
+        b_label = entry_labels[b_id]
+        is_noise = "noise_floor" in (a_label, b_label)
+        is_same_type = a_label == b_label
+        if is_same_type or is_noise:
+            continue
+        if dist < cross_type_min:
+            cross_type_min = dist
+            cross_type_min_pair = (a_label, b_label)
+    return cross_type_min, cross_type_min_pair
 
 
 # =============================================================================
@@ -396,182 +561,230 @@ def main() -> None:
     """
     Main calibration workflow.
 
-    1. Prompt user to select connected antenna; filter bands accordingly.
-    2. Initialise calibration vectorstore (overwrites any existing).
-    3. Capture IQ samples for each target, run through pipeline, store vectors.
-       Per-band warnings for ADS-B, ACARS, and AIS fire before the first
-       capture of each such band.
-    4. Compute pairwise distance matrix between all stored vectors. Split the
+    1. Load the existing calibration vectorstore (persists across runs unless
+       --wipe is supplied).
+    2. Determine which bands are stale or missing and group them by antenna.
+    3. Prompt the operator to connect each antenna and capture the bands it
+       covers. Per-band warnings for ADS-B, ACARS, and AIS fire before the
+       first capture of each such band.
+    4. Merge freshly captured vectors with stored non-stale vectors from bands
+       not captured this run.
+    5. Compute pairwise distance matrix between all merged vectors. Split the
        matrix into two halves if there are more than 8 capture entries.
-    5. Analyse distances to suggest threshold values for classifier.
+    6. Analyse distances to suggest threshold values for classifier.
 
     All capture and processing is RX-only — no transmit functionality.
     """
     logger.info("Starting Mimir calibration workflow")
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Step A — Antenna selection at startup
+    # Step A — Parse CLI arguments
     # ─────────────────────────────────────────────────────────────────────────
-    print("\n" + "=" * 70)
-    print("ANTENNA SELECTION")
-    print("=" * 70)
-    print()
-    print("Select the antenna connected to the HackRF.")
-    print("This determines which frequency bands will be captured.")
-    print()
-    print("  1. Telescopic whip    (75 MHz – 700 MHz)")
-    print("  2. V-dipole 533mm     (130 MHz – 145 MHz)")
-    print("  3. Spiral discone     (800 MHz – 8500 MHz)")
-    print()
-
-    antenna_choice = None
-    while antenna_choice not in ANTENNA_PROFILES:
-        try:
-            antenna_choice = input("Enter choice (1/2/3) or Ctrl+C to abort: ").strip()
-        except KeyboardInterrupt:
-            logger.info("User aborted calibration at antenna selection")
-            print()
-            raise SystemExit(0)
-        if antenna_choice not in ANTENNA_PROFILES:
-            print("Invalid choice. Please enter 1, 2, or 3.")
-
-    profile = ANTENNA_PROFILES[antenna_choice]
-    selected_bands = set(profile["bands"])
-    selected_targets = [t for t in CALIBRATION_TARGETS if t["label"] in selected_bands]
-
-    skipped_labels = sorted(
-        t["label"] for t in CALIBRATION_TARGETS if t["label"] not in selected_bands
+    parser = argparse.ArgumentParser(
+        description="Calibrate Mimir classifier thresholds from real RF captures."
     )
-
-    print()
-    print(f"Antenna: {profile['name']}")
-    print(f"Bands to capture: {', '.join(t['label'] for t in selected_targets)}")
-    if skipped_labels:
-        print(f"Skipping: {', '.join(skipped_labels)} (outside this antenna's range)")
-    print()
-    print(
-        "NOTE: ADS-B, ACARS, and AIS require live aircraft or vessel signals. "
-        "You will be prompted before each of those bands."
+    parser.add_argument(
+        "--wipe",
+        action="store_true",
+        help="Wipe the calibration vectorstore before starting (full re-baseline).",
     )
+    args = parser.parse_args()
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Step B — Store initialisation (overwrite on every run)
+    # Step B — Store initialisation (persists across runs; --wipe overrides)
     # ─────────────────────────────────────────────────────────────────────────
     store_path = Path("data/calibration_vectorstore")
     store_path.mkdir(parents=True, exist_ok=True)
 
     store = SignalStore(path=str(store_path))
-    store.delete_collection()
-    store = SignalStore(path=str(store_path))
+    if args.wipe:
+        store.delete_collection()
+        store = SignalStore(path=str(store_path))
+        print("Calibration store wiped — starting from empty")
 
     embedder = SpectrumEmbedder()
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Step C — Capture loop
+    # Step C — Load stored records and decide what needs calibration
     # ─────────────────────────────────────────────────────────────────────────
-    total_expected = sum(t["captures"] for t in selected_targets)
-    captured_count = 0
+    stored = store.get_all_embeddings()
+    freshness = _compute_band_freshness(stored)
+    _print_startup_summary(freshness)
 
+    all_labels = {t["label"] for t in CALIBRATION_TARGETS}
+    stored_labels = set(freshness.keys())
+    fresh_labels = {lbl for lbl, (is_fresh, _, _) in freshness.items() if is_fresh}
+    stale_labels = {lbl for lbl, (is_fresh, _, _) in freshness.items() if not is_fresh}
+    missing_labels = all_labels - stored_labels
+
+    labels_to_capture = (missing_labels | stale_labels) & all_labels
+    recapture = _prompt_recapture_fresh_bands(fresh_labels & all_labels)
+    labels_to_capture |= recapture
+
+    if not labels_to_capture:
+        print("\nAll bands are fresh — nothing to capture. Exiting.")
+        raise SystemExit(0)
+
+    antenna_groups = _build_antenna_groups(labels_to_capture)
+    active_groups = {k: v for k, v in antenna_groups.items() if v}
+
+    print("\n" + "=" * 70)
+    print("ANTENNA CAPTURE PLAN")
+    print("=" * 70)
+    for key, profile in ANTENNA_PROFILES.items():
+        bands = active_groups.get(key, [])
+        if not bands:
+            continue
+        print(f"{profile['name']:<22} ({profile['range']}): {', '.join(bands)}")
+    print()
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Step D — Capture loop, grouped by antenna
+    # ─────────────────────────────────────────────────────────────────────────
+    captured_count = 0
+    captured_bands: set[str] = set()
     entries: list[dict] = []
 
-    for idx, target in enumerate(selected_targets):
-        for cap_idx in range(target["captures"]):
-            label = target["label"]
+    for key, profile in ANTENNA_PROFILES.items():
+        bands = active_groups.get(key, [])
+        if not bands:
+            continue
+
+        print("\n" + "=" * 70)
+        print(f"ANTENNA: {profile['name']} ({profile['range']})")
+        print("=" * 70)
+        prompt = (
+            f"Connect {profile['name']} now. "
+            "Press ENTER when connected, or Ctrl+C to skip these bands: "
+        )
+        try:
+            input(prompt)
+        except KeyboardInterrupt:
+            logger.info("User skipped antenna %s", profile['name'])
+            print(f"\n  Skipped {profile['name']} bands: {', '.join(bands)}")
+            continue
+
+        for label in sorted(bands):
+            target = next(t for t in CALIBRATION_TARGETS if t["label"] == label)
             freq_hz = target["freq_hz"]
             num_samples = target["num_samples"]
             sample_rate_hz = target["sample_rate_hz"]
             lna_gain_db = target["lna_gain_db"]
             vga_gain_db = target["vga_gain_db"]
 
-            record_id = f"{label}_{cap_idx}"
-
-            print(f"\n[{idx + 1}/{len(selected_targets)}] Capturing: {label}")
+            print(f"\nCapturing: {label}")
             print(f"  Frequency: {freq_hz / 1e6:.3f} MHz")
             print(f"  Samples: {num_samples:,}")
-            print(f"  Capture #{cap_idx + 1}/{target['captures']}")
 
             # Per-band warning fires once, before the first capture of the band.
-            if cap_idx == 0 and label in ("ADS_B", "ACARS", "AIS"):
+            if label in ("ADS_B", "ACARS", "AIS"):
                 _print_band_warning(label)
                 try:
                     input("Press ENTER to continue or Ctrl+C to skip this band: ")
                 except KeyboardInterrupt:
                     logger.info("User skipped %s band", label)
                     print(f"\n  Skipping {label} — no captures stored for this band.")
-                    break
+                    continue
 
-            try:
-                # Capture IQ samples from HackRF (RX-only)
-                samples = capture_iq(
-                    freq_hz=freq_hz,
-                    num_samples=num_samples,
-                    sample_rate_hz=sample_rate_hz,
-                    lna_gain_db=lna_gain_db,
-                    vga_gain_db=vga_gain_db,
-                )
+            # Replace any prior vectors for this band before writing new captures.
+            deleted = store.delete_by_label(label)
+            if deleted:
+                print(f"  Replaced {deleted} prior calibration record(s) for {label}")
 
-                # Run through pipeline: FFT → features → embedding
-                psd_result = compute_psd(
-                    samples=samples,
-                    sample_rate_hz=sample_rate_hz,
-                    center_freq_hz=freq_hz,
-                )
+            band_captured = False
+            for cap_idx in range(target["captures"]):
+                record_id = f"{label}_{cap_idx}"
+                print(f"  Capture #{cap_idx + 1}/{target['captures']}")
 
-                fingerprint = fingerprint_spectrum(
-                    psd_result,
-                    signal_threshold_db=target["signal_threshold_db"],
-                    trace_key=target.get('trace_key', 'psd_db'),
-                )
-                vector = embedder.embed(fingerprint)
+                try:
+                    # Capture IQ samples from HackRF (RX-only)
+                    samples = capture_iq(
+                        freq_hz=freq_hz,
+                        num_samples=num_samples,
+                        sample_rate_hz=sample_rate_hz,
+                        lna_gain_db=lna_gain_db,
+                        vga_gain_db=vga_gain_db,
+                    )
 
-                # Build record dict with required structure
-                record = {
-                    "id": record_id,
-                    "embedding": vector,
-                    "label": label,
-                    "metadata": {
+                    # Run through pipeline: FFT → features → embedding
+                    psd_result = compute_psd(
+                        samples=samples,
+                        sample_rate_hz=sample_rate_hz,
+                        center_freq_hz=freq_hz,
+                    )
+
+                    fingerprint = fingerprint_spectrum(
+                        psd_result,
+                        signal_threshold_db=target["signal_threshold_db"],
+                        trace_key=target.get('trace_key', 'psd_db'),
+                    )
+                    vector = embedder.embed(fingerprint)
+
+                    # Build record dict with required structure
+                    record = {
+                        "id": record_id,
+                        "embedding": vector,
                         "label": label,
-                        "capture_index": cap_idx,
-                        "freq_hz": freq_hz,
-                        "timestamp": datetime.now().isoformat(),
-                        "peak_power_db": fingerprint["peak_power_db"],
-                        "snr_db": fingerprint["snr_db"],
-                    },
-                }
+                        "metadata": {
+                            "label": label,
+                            "capture_index": cap_idx,
+                            "freq_hz": freq_hz,
+                            "timestamp": datetime.now().isoformat(),
+                            "peak_power_db": fingerprint["peak_power_db"],
+                            "snr_db": fingerprint["snr_db"],
+                        },
+                    }
 
-                store.add(record)
-                captured_count += 1
+                    store.add(record)
+                    captured_count += 1
+                    band_captured = True
 
-                # Print one-line summary
-                print(
-                    f"  ✓ Stored: peak={fingerprint['peak_power_db']:.2f} dB, "
-                    f"SNR={fingerprint['snr_db']:.2f} dB"
+                    # Print one-line summary
+                    print(
+                        f"    ✓ Stored: peak={fingerprint['peak_power_db']:.2f} dB, "
+                        f"SNR={fingerprint['snr_db']:.2f} dB"
+                    )
+
+                    entries.append({"id": record_id, "label": label, "embedding": vector})
+
+                except RuntimeError as err:
+                    logger.error(
+                        "Capture failed for %s (capture %d): %s", label, cap_idx, err
+                    )
+                    print(f"    ✗ FAILED: {err}")
+                    continue
+
+                is_last = (
+                    not any(
+                        active_groups.get(k)
+                        for k in list(ANTENNA_PROFILES.keys())[
+                            list(ANTENNA_PROFILES.keys()).index(key) + 1:
+                        ]
+                    )
+                    and label == sorted(bands)[-1]
+                    and cap_idx == target["captures"] - 1
                 )
+                if not is_last:
+                    logger.info("Waiting 5 seconds before next capture")
+                    time.sleep(5)
 
-                entries.append({"id": record_id, "label": label, "embedding": vector})
-
-            except RuntimeError as err:
-                logger.error("Capture failed for %s (capture %d): %s", label, cap_idx, err)
-                print(f"  ✗ FAILED: {err}")
-                continue
-
-            is_last = (
-                idx == len(selected_targets) - 1
-                and cap_idx == target["captures"] - 1
-            )
-            if not is_last:
-                logger.info("Waiting 5 seconds before next capture")
-                time.sleep(5)
+            if band_captured:
+                captured_bands.add(label)
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Step D — Distance matrix computation
+    # Step E — Merge stored non-stale vectors for bands not captured this run
     # ─────────────────────────────────────────────────────────────────────────
-    if captured_count < 2:
+    entries = _merge_stored_entries(entries, store, freshness, captured_bands)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Step F — Distance matrix computation
+    # ─────────────────────────────────────────────────────────────────────────
+    if len(entries) < 2:
         logger.error(
-            "Insufficient captures: %d (need at least 2 for distance analysis)",
-            captured_count,
+            "Insufficient entries: %d (need at least 2 for distance analysis)",
+            len(entries),
         )
-        print("\nERROR: Fewer than 2 entries stored. Cannot compute distance matrix.")
+        print("\nERROR: Fewer than 2 entries available. Cannot compute distance matrix.")
         raise SystemExit(1)
 
     # Compute pairwise distances and store them
@@ -596,7 +809,7 @@ def main() -> None:
             logger.warning("Could not find pair (%s, %s) in store", a_id, b_id)
             continue
 
-    # Compute thresholds for colouring distance cells (same formulas as Step E)
+    # Compute thresholds for colouring distance cells (same formulas as Step G)
     entry_labels = {e["id"]: e["label"] for e in entries}
     _same_type_dists = []
     _cross_type_dists = []
@@ -664,37 +877,25 @@ def main() -> None:
         )
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Step E — Threshold analyser
+    # Step G — Threshold analyser
     # ─────────────────────────────────────────────────────────────────────────
     print("\n" + "=" * 70)
     print("THRESHOLD ANALYSIS")
     print("=" * 70)
 
     same_type_pairs = []
-    cross_type_pairs = []
     noise_pairs = []
 
     for a_id, b_id, dist in distance_pairs:
-        # Find labels for these ids
-        a_label = None
-        b_label = None
-        for e in entries:
-            if e["id"] == a_id:
-                a_label = e["label"]
-            if e["id"] == b_id:
-                b_label = e["label"]
+        a_label = entry_labels[a_id]
+        b_label = entry_labels[b_id]
 
         is_noise_a = a_label == "noise_floor"
         is_noise_b = b_label == "noise_floor"
         is_same_type = a_label == b_label
-        is_cross_type = (
-            not is_same_type and not is_noise_a and not is_noise_b
-        )
 
         if is_same_type:
             same_type_pairs.append(dist)
-        elif is_cross_type:
-            cross_type_pairs.append(dist)
         elif is_noise_a or is_noise_b:
             noise_pairs.append(dist)
 
@@ -702,7 +903,9 @@ def main() -> None:
     # outlier window (e.g. a near-noise ADS-B capture) does not define the
     # class spread. Cross-type distances keep the genuine worst-case min.
     same_type_spread = float(np.percentile(same_type_pairs, 90)) if same_type_pairs else 0.0
-    cross_type_min = min(cross_type_pairs) if cross_type_pairs else 1.0
+    cross_type_min, cross_type_min_pair = _find_cross_type_min_pair(
+        distance_pairs, entry_labels
+    )
     noise_min = min(noise_pairs) if noise_pairs else 1.0
 
     # Suggested thresholds for _DISTANCE_SCALE_REFERENCE and _build_user_prompt()
@@ -732,6 +935,8 @@ def main() -> None:
     else:
         _ct_colour = ANSI_RED
     print("Cross-type min distance:  {}".format(_colour("{:.4f}".format(cross_type_min), _ct_colour)))
+    if cross_type_min_pair:
+        print(f"                          ({cross_type_min_pair[0]} vs {cross_type_min_pair[1]})")
     if noise_min > cross_type_min:
         _nf_colour = ANSI_GREEN
     elif noise_min > same_type_spread:

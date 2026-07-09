@@ -1,18 +1,26 @@
 """Tests for tools/calibrate_thresholds.py
 
 Guard tests that verify CALIBRATION_TARGETS stays in sync with
-BAND_PROFILES, and unit tests for the pure threshold-derivation helper.
+BAND_PROFILES, and unit tests for the pure threshold-derivation helper and
+cross-session merge helpers.
 """
+
+from datetime import datetime, timedelta
 
 import numpy as np
 import pytest
 
 from dashboard.shared_state import BAND_PROFILES
+from embeddings.store import SignalStore
 from tools.calibrate_thresholds import (
     CALIBRATION_TARGETS,
     CROSS_TYPE_MIN_FLOOR,
     SEPARABILITY_FACTOR,
+    STALENESS_DAYS,
     STRONG_MATCH_FLOOR,
+    _compute_band_freshness,
+    _find_cross_type_min_pair,
+    _merge_stored_entries,
     derive_thresholds,
 )
 
@@ -181,3 +189,165 @@ def test_derive_thresholds_floor_and_overlap_reasons_are_distinct():
     assert floor_fail["reason"] != overlap_fail["reason"]
     assert "CROSS_TYPE_MIN_FLOOR" in floor_fail["reason"]
     assert "overlap" in overlap_fail["reason"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Cross-type min pair reporting tests
+# ---------------------------------------------------------------------------
+
+def test_find_cross_type_min_pair_reports_actual_minimum():
+    """The reported pair must be the cross-type pair with the smallest distance."""
+    distance_pairs = [
+        ("a1", "b1", 0.05),
+        ("a2", "b2", 0.02),
+        ("a3", "a4", 0.01),
+        ("a5", "n1", 0.001),
+    ]
+    entry_labels = {
+        "a1": "FM_broadcast",
+        "b1": "Aviation_VHF",
+        "a2": "FM_broadcast",
+        "b2": "ACARS",
+        "a3": "ADS_B",
+        "a4": "ADS_B",
+        "a5": "FM_broadcast",
+        "n1": "noise_floor",
+    }
+    cross_type_min, pair = _find_cross_type_min_pair(distance_pairs, entry_labels)
+    assert cross_type_min == pytest.approx(0.02)
+    assert pair == ("FM_broadcast", "ACARS")
+
+
+# ---------------------------------------------------------------------------
+# Staleness helper tests
+# ---------------------------------------------------------------------------
+
+def _freshness_stored(timestamp: str) -> dict:
+    return {
+        "ids": ["r1"],
+        "embeddings": [[0.1]],
+        "metadatas": [{"label": "FM_broadcast", "timestamp": timestamp}],
+    }
+
+
+def test_compute_band_freshness_fresh_record():
+    """A record newer than STALENESS_DAYS is FRESH."""
+    now = datetime.now()
+    ts = (now - timedelta(days=STALENESS_DAYS - 1)).isoformat()
+    freshness = _compute_band_freshness(_freshness_stored(ts), reference=now)
+    assert freshness["FM_broadcast"][0] is True
+
+
+def test_compute_band_freshness_stale_record():
+    """A record older than STALENESS_DAYS is STALE."""
+    now = datetime.now()
+    ts = (now - timedelta(days=STALENESS_DAYS + 1)).isoformat()
+    freshness = _compute_band_freshness(_freshness_stored(ts), reference=now)
+    assert freshness["FM_broadcast"][0] is False
+
+
+def test_compute_band_freshness_boundary_is_fresh():
+    """A record exactly STALENESS_DAYS old is treated as FRESH (<= cutoff)."""
+    now = datetime.now()
+    ts = (now - timedelta(days=STALENESS_DAYS)).isoformat()
+    freshness = _compute_band_freshness(_freshness_stored(ts), reference=now)
+    assert freshness["FM_broadcast"][0] is True
+
+
+def test_compute_band_freshness_malformed_timestamp_is_stale():
+    """Malformed timestamps are ignored; the band is treated as stale/missing."""
+    now = datetime.now()
+    stored = {
+        "ids": ["r1"],
+        "embeddings": [[0.1]],
+        "metadatas": [{"label": "FM_broadcast", "timestamp": "not-a-timestamp"}],
+    }
+    freshness = _compute_band_freshness(stored, reference=now)
+    assert "FM_broadcast" not in freshness
+
+
+def test_compute_band_freshness_missing_timestamp_is_stale():
+    """Missing timestamps are ignored; the band is treated as stale/missing."""
+    now = datetime.now()
+    stored = {
+        "ids": ["r1"],
+        "embeddings": [[0.1]],
+        "metadatas": [{"label": "FM_broadcast"}],
+    }
+    freshness = _compute_band_freshness(stored, reference=now)
+    assert "FM_broadcast" not in freshness
+
+
+# ---------------------------------------------------------------------------
+# Merge assembly tests
+# ---------------------------------------------------------------------------
+
+def test_merge_stored_entries_includes_fresh_non_captured_and_excludes_stale():
+    """Fresh stored bands not captured this run are merged; stale ones are not."""
+    store = SignalStore(path=":memory:")
+    now = datetime.now()
+
+    # Fresh non-captured band.
+    store.add({
+        "id": "fresh_fm",
+        "embedding": [0.1, 0.2],
+        "label": "FM_broadcast",
+        "metadata": {
+            "label": "FM_broadcast",
+            "timestamp": now.isoformat(),
+        },
+    })
+
+    # Stale non-captured band.
+    stale_ts = (now - timedelta(days=STALENESS_DAYS + 1)).isoformat()
+    store.add({
+        "id": "stale_aviation",
+        "embedding": [0.3, 0.4],
+        "label": "Aviation_VHF",
+        "metadata": {
+            "label": "Aviation_VHF",
+            "timestamp": stale_ts,
+        },
+    })
+
+    # Captured band (fresh vectors already in entries).
+    store.add({
+        "id": "fresh_adsb",
+        "embedding": [0.5, 0.6],
+        "label": "ADS_B",
+        "metadata": {
+            "label": "ADS_B",
+            "timestamp": now.isoformat(),
+        },
+    })
+
+    freshness = _compute_band_freshness(store.get_all_embeddings())
+    entries = [{"id": "new_adsb", "label": "ADS_B", "embedding": [0.9, 0.9]}]
+    merged = _merge_stored_entries(entries, store, freshness, {"ADS_B"})
+
+    labels = {e["label"] for e in merged}
+    assert "FM_broadcast" in labels
+    assert "Aviation_VHF" not in labels
+    assert "ADS_B" in labels
+    assert len(merged) == 2
+    store.delete_collection()
+
+
+def test_merge_stored_entries_empty_when_all_captured_or_stale():
+    """When no stored bands are fresh and non-captured, merge adds nothing."""
+    store = SignalStore(path=":memory:")
+    now = datetime.now()
+    stale_ts = (now - timedelta(days=STALENESS_DAYS + 1)).isoformat()
+    store.add({
+        "id": "stale_fm",
+        "embedding": [0.1, 0.2],
+        "label": "FM_broadcast",
+        "metadata": {"label": "FM_broadcast", "timestamp": stale_ts},
+    })
+
+    freshness = _compute_band_freshness(store.get_all_embeddings())
+    entries = [{"id": "new_fm", "label": "FM_broadcast", "embedding": [0.9, 0.9]}]
+    merged = _merge_stored_entries(entries, store, freshness, {"FM_broadcast"})
+
+    assert len(merged) == 1
+    store.delete_collection()

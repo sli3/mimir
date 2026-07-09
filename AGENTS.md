@@ -289,8 +289,9 @@ uv run python tools/seed_chromadb.py
 | 23 | ChromaDB Vector Space 3D Visualisation (isolated side page) | ✅ Complete | 581 (419 pytest + 162 Vitest) |
 | 24 | OPERATOR Live Anomaly Readout — 4-state badge, novel exposure, tooltip | ✅ Complete | 591 (420 pytest + 171 Vitest) |
 | 25 | Max-hold burst fingerprinting for ADS-B | ✅ Complete | 606 (435 pytest + 171 Vitest) |
+| 28 | Cross-session calibration merge + antenna groups + persistence | ✅ Complete | 634 (463 pytest + 171 Vitest) |
 
-**Total passing: 606 passing (435 pytest + 171 Vitest), 0 failures**
+**Total passing: 634 passing (463 pytest + 171 Vitest), 0 failures**
 - Note: Phase 24 added 2026-07-07. Mascot/CharacterPanel.jsx wiring deferred to a future phase (pending art asset).
 
 ---
@@ -566,6 +567,7 @@ Do not apply this pre-emptively — only if context problems are observed.
 | ~~CORS wildcard~~ | ~~`cors_allowed_origins="*"` in server.py~~ | ~~Pre-prod~~ ✅ PHASE-CORS-FIX |
 | Queue max hard-coded | `020` in SystemStatsPanel — should read from systemStats | Phase 7B |
 | ~~`sampleRateHz` dead param~~ | ~~Accepted by `useWaterfall.js` but unused~~ | ~~Post 7B~~ ✅ RESOLVED in PHASE-TECH-DEBT-1 |
+| ~~Calibration store wiped at every startup~~ | ~~`tools/calibrate_thresholds.py` deleted the vectorstore on each run, losing cross-session calibration data~~ — replaced with persistent storage across runs, `--wipe` flag for full re-baseline, and `STALENESS_DAYS = 14` exclusion from merged ladder. Resolved in Phase 28. | ~~Pre-Phase 28~~ ✅ PHASE-28-CROSS-SESSION-MERGE |
 | Queue drain pattern | `_scan_loop()` drains queue before every insert ('latest wins'). AI loop always classifies freshest scan. Queue depth at steady state: 0–1 items. Introduced: 2026-06-16. | — |
 | ~~`psd_db` uncalibrated~~ | ~~FFT missing nfft normalisation~~ — fixed in Phase 9B-Hotfix (true dBFS) | ~~Post 7B~~ ✅ 9B-Hotfix |
 | ~~scan.py startup message~~ | ~~"Scanning N frequencies" is misleading now that single-freq focus mode is active~~ | ~~Post 8C cosmetic~~ ✅ PHASE-TECH-DEBT-1 |
@@ -574,6 +576,7 @@ Do not apply this pre-emptively — only if context problems are observed.
 | SignalHistoryLog memoisation | `React.memo` with custom comparator — compares `pinnedTimestamp` + `scanResults` content equality | ✅ PHASE-BUILD-3 |
 | BAND_PROFILES dict ordering dependency | `fm_broadcast` and `noise_floor` both at 98 MHz; `get_band_for_freq` relies on dict insertion order (`fm_broadcast` first). Documented in docstring. | — (tracked) |
 | Clear-focus path does not reset current_band | `handle_set_focus(None)` leaves `shared_state.current_band` pointing to the last tuned band. Acceptable under single-frequency-focus architecture. | — (tracked) |
+| ~~Inline single-antenna selection~~ | ~~`calibrate_thresholds.py` used a single hardcoded antenna for all bands, ignoring per-band antenna group requirements~~ — replaced with band-driven antenna groups and mid-run antenna-swap prompts. Resolved in Phase 28. | ~~Pre-Phase 28~~ ✅ PHASE-28-CROSS-SESSION-MERGE |
 | Thread-safety stress test blind spot | `test_get_band_for_freq_concurrent` doesn't exercise `current_band_lock` write path (test frequencies don't match BAND_PROFILES). | — (advisory) |
 | ~~Classifier schema missing acars/ais~~ | ~~`llm/classifier.py` _JSON_SCHEMA and _AU_BAND_REFERENCE don't list "acars" or "ais" as valid signal_type values.~~ | ~~— (tracked)~~ ✅ RESOLVED in PHASE-CLASSIFIER-SCHEMA-FIX |
 | ~~AIS BAND_PROFILES centre vs demodulator centre mismatch~~ | ~~BAND_PROFILES centre_freq_hz (161.975 MHz = CH1) differs from AIS demodulator expected centre (162.000 MHz for dual-channel).~~ Backend resolved in Phase 14: BAND_PROFILES now uses 162.000 MHz. Frontend fully aligned in Phase 16. | ~~— (tracked)~~ ✅ Phase 16 (frontend + backend fully aligned) |
