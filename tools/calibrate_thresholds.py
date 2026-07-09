@@ -301,6 +301,13 @@ def _prompt_recapture_fresh_bands(fresh_labels: set[str]) -> set[str]:
         f"Fresh bands (within last {STALENESS_DAYS} days): "
         f"{', '.join(sorted(fresh_labels))}"
     )
+    print("\nValid band names:")
+    _label_width = max(len(t["label"]) for t in CALIBRATION_TARGETS)
+    for target in CALIBRATION_TARGETS:
+        print(
+            f"  {target['label']:<{_label_width}}   "
+            f"({target['freq_hz'] / 1e6:.3f} MHz)"
+        )
     print("Enter comma-separated band names to recapture, or press ENTER to skip:")
     try:
         recapture_input = input("> ").strip()
@@ -357,6 +364,39 @@ def _merge_stored_entries(
                 "embedding": all_stored["embeddings"][idx],
             })
     return entries
+
+
+def _classify_distance_pairs(
+    distance_pairs: list[tuple[str, str, float]],
+    entry_labels: dict[str, str],
+) -> tuple[list[float], list[float], list[float]]:
+    """Partition distance pairs into same-type, cross-type, and noise buckets.
+
+    Each pair is classified by the labels in entry_labels:
+      - same_type_pairs:    both endpoints share a label (e.g. FM vs FM)
+      - cross_type_pairs:   endpoints have different non-noise labels
+                            (e.g. FM vs ACARS)
+      - noise_pairs:        at least one endpoint is "noise_floor"
+
+    Returns three lists of distance floats in the order pairs were encountered.
+    """
+    same_type_pairs: list[float] = []
+    cross_type_pairs: list[float] = []
+    noise_pairs: list[float] = []
+    for a_id, b_id, dist in distance_pairs:
+        a_label = entry_labels[a_id]
+        b_label = entry_labels[b_id]
+        is_noise_a = a_label == "noise_floor"
+        is_noise_b = b_label == "noise_floor"
+        is_same_type = a_label == b_label
+        is_cross_type = not is_same_type and not is_noise_a and not is_noise_b
+        if is_same_type:
+            same_type_pairs.append(dist)
+        elif is_cross_type:
+            cross_type_pairs.append(dist)
+        elif is_noise_a or is_noise_b:
+            noise_pairs.append(dist)
+    return same_type_pairs, cross_type_pairs, noise_pairs
 
 
 def _find_cross_type_min_pair(
@@ -883,21 +923,9 @@ def main() -> None:
     print("THRESHOLD ANALYSIS")
     print("=" * 70)
 
-    same_type_pairs = []
-    noise_pairs = []
-
-    for a_id, b_id, dist in distance_pairs:
-        a_label = entry_labels[a_id]
-        b_label = entry_labels[b_id]
-
-        is_noise_a = a_label == "noise_floor"
-        is_noise_b = b_label == "noise_floor"
-        is_same_type = a_label == b_label
-
-        if is_same_type:
-            same_type_pairs.append(dist)
-        elif is_noise_a or is_noise_b:
-            noise_pairs.append(dist)
+    same_type_pairs, cross_type_pairs, noise_pairs = _classify_distance_pairs(
+        distance_pairs, entry_labels
+    )
 
     # Compute statistics using the p90 of same-type distances so a single
     # outlier window (e.g. a near-noise ADS-B capture) does not define the

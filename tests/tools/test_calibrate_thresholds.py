@@ -18,6 +18,7 @@ from tools.calibrate_thresholds import (
     SEPARABILITY_FACTOR,
     STALENESS_DAYS,
     STRONG_MATCH_FLOOR,
+    _classify_distance_pairs,
     _compute_band_freshness,
     _find_cross_type_min_pair,
     _merge_stored_entries,
@@ -216,6 +217,82 @@ def test_find_cross_type_min_pair_reports_actual_minimum():
     cross_type_min, pair = _find_cross_type_min_pair(distance_pairs, entry_labels)
     assert cross_type_min == pytest.approx(0.02)
     assert pair == ("FM_broadcast", "ACARS")
+
+
+def test_classify_distance_pairs_partitions_all_three_buckets():
+    """Step G in main() prints len(cross_type_pairs); the helper must actually
+    build the cross-type list. Regression guard for the NameError that shipped
+    when the cross-type branch was dropped from the inline loop in main().
+
+    The (n1, n2) pair is same-type under the original loop's `is_same_type =
+    a_label == b_label` rule (both endpoints are "noise_floor") and therefore
+    lands in same_type_pairs, NOT noise_pairs. noise_pairs only catches pairs
+    where exactly one endpoint is noise_floor.
+    """
+    distance_pairs = [
+        ("fm1", "fm2", 0.0010),
+        ("fm1", "av1", 0.0340),
+        ("ac1", "fm1", 0.0280),
+        ("ac1", "ac2", 0.0012),
+        ("fm1", "n1",  0.0500),
+        ("n1",  "n2",  0.0400),
+        ("av1", "ap1", 0.0410),
+    ]
+    entry_labels = {
+        "fm1": "FM_broadcast", "fm2": "FM_broadcast",
+        "av1": "Aviation_VHF",
+        "ac1": "ACARS",        "ac2": "ACARS",
+        "ap1": "APRS",
+        "n1":  "noise_floor",  "n2":  "noise_floor",
+    }
+
+    same_type_pairs, cross_type_pairs, noise_pairs = _classify_distance_pairs(
+        distance_pairs, entry_labels
+    )
+
+    assert same_type_pairs == [0.0010, 0.0012, 0.0400]
+    assert cross_type_pairs == [0.0340, 0.0280, 0.0410]
+    assert noise_pairs == [0.0500]
+
+
+def test_classify_distance_pairs_handles_all_same_type():
+    """All-same-type input must leave the cross-type and noise lists empty."""
+    distance_pairs = [("a1", "a2", 0.01), ("a3", "a4", 0.02)]
+    entry_labels = {"a1": "ADS_B", "a2": "ADS_B", "a3": "ADS_B", "a4": "ADS_B"}
+
+    same_type_pairs, cross_type_pairs, noise_pairs = _classify_distance_pairs(
+        distance_pairs, entry_labels
+    )
+
+    assert same_type_pairs == [0.01, 0.02]
+    assert cross_type_pairs == []
+    assert noise_pairs == []
+
+
+def test_classify_distance_pairs_handles_empty_input():
+    """Empty input must not raise and must return three empty lists."""
+    same_type_pairs, cross_type_pairs, noise_pairs = _classify_distance_pairs([], {})
+
+    assert same_type_pairs == []
+    assert cross_type_pairs == []
+    assert noise_pairs == []
+
+
+def test_classify_distance_pairs_noise_floor_partner_excludes_cross_type():
+    """A pair where one endpoint is noise_floor is NOT a cross-type pair,
+    even though its two labels differ. Confirms the noise check is applied
+    before the cross-type classification in the if/elif chain.
+    """
+    distance_pairs = [("fm1", "n1", 0.07)]
+    entry_labels = {"fm1": "FM_broadcast", "n1": "noise_floor"}
+
+    same_type_pairs, cross_type_pairs, noise_pairs = _classify_distance_pairs(
+        distance_pairs, entry_labels
+    )
+
+    assert same_type_pairs == []
+    assert cross_type_pairs == []
+    assert noise_pairs == [0.07]
 
 
 # ---------------------------------------------------------------------------
