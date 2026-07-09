@@ -44,6 +44,7 @@ flag is NOT part of the task; it only drives the Step 9 phase-tracker gate.
 | Agent | Role | Reports on |
 |---|---|---|
 | You (main) | Project Manager | Delegation, audit, final report |
+| @senior-dev | Senior Developer | All code + test writing, applies all fixes |
 | @plan-reviewer | Planning Lead | Implementation plan + AU legal/TX gate |
 | @researcher | Knowledge Lead | Library/API/regulation background |
 | @security-analyst | Security & Legal Lead | AU law, TX safety, attack surface |
@@ -124,10 +125,20 @@ risk, and attack surface introduced by the change.
 Wait for completion. If a hard stop is raised → stop and report.
 
 ### STEP 4 — CODE
-Implement the solution following the `python-style` skill and all AGENTS.md
-conventions. Never produce transmit code, TX flags, or TX configuration.
-HardwareTransmitError must be raised on any TX function call.
-Write the implementation and its tests together.
+Delegate implementation to @senior-dev as Senior Developer. Hand it: the
+approved plan, the prior session context, the relevant research findings from
+Step 2, and the explicit list of files this task covers (its scope). Instruct
+it to follow the `python-style` skill and all AGENTS.md conventions, and to
+write the implementation and its tests together.
+
+You (PM) do NOT write code yourself — you have no edit tool. If @senior-dev
+reports it cannot complete the work within its stated scope, or surfaces a
+TX/legal concern, do not attempt the change yourself or route around it —
+follow the delegation and hard-stop rules. Never produce transmit code, TX
+flags, or TX configuration. HardwareTransmitError must be raised on any TX
+function call.
+
+Wait for @senior-dev to complete before proceeding to Step 5.
 
 ### STEP 5 — FIX LOOP (up to 3 iterations, early exit)
 This loop has ONE job: get the test suite green. It does not perform code-quality
@@ -142,7 +153,11 @@ Otherwise, for each iteration (max 3):
        stack traces.
      - Round 3 (only if failures persist): escalate to @deep-bug-hunter as
        Senior QA for deep root-cause analysis.
-  b. Apply the fixes and rerun pytest.
+     (Both @analyst and @deep-bug-hunter are read-only — they diagnose, they
+     do not edit. They hand you the fix; @senior-dev applies it.)
+  b. Hand the diagnosed fix to @senior-dev to apply. You (PM) then rerun the
+     pytest suite yourself (pytest is on your allowed command list). Do not
+     apply the fix yourself — you have no edit tool.
   c. Evaluate the rerun result:
      - PASSING → exit the loop and proceed to Step 6.
      - FAILING and iterations remain → start the next iteration.
@@ -163,10 +178,11 @@ at once. Wait for both to complete.
      flags an issue the other does not, or they disagree on severity) → you,
      as PM, adjudicate. Document the conflict and your resolution. Do not
      silently pick one. If your resolution calls for a change, apply it through
-     the fix pass in (d); if it calls for accepting the code as-is, record that
-     and proceed to Step 7.
+     the fix pass in (d) (delegated to @senior-dev); if it calls for accepting
+     the code as-is, record that and proceed to Step 7.
   d. Otherwise (agreed findings, or a fix mandated by an adjudication in c)
-    apply one fix pass, rerun pytest to confirm still green, and proceed
+    hand the fix to @senior-dev to apply one fix pass, then rerun pytest
+    yourself to confirm still green, and proceed
     IMMEDIATELY and AUTOMATICALLY to Step 7 without pausing or waiting for
     user input. Do not surface a summary or prompt at this point — continue
     the workflow. If that fix pass breaks the suite, re-enter Step 5 for a
@@ -220,8 +236,9 @@ browser observation against http://localhost:5173/ if useful for this change.
   b. If it flags a hard stop (AGENTS.md UI-convention contradiction, or a
      TX-related surface it happened to notice) → proceed to 6B.4 (teardown),
      then stop and report.
-  c. Otherwise, apply one fix pass for its findings, rerun the relevant
-     Vitest suite to confirm still green, then proceed to 6B.4. If that fix
+  c. Otherwise, hand @frontend-reviewer's findings to @senior-dev to apply
+     one fix pass, then rerun the relevant Vitest suite yourself to confirm
+     still green, then proceed to 6B.4. If that fix
      pass breaks the suite, re-enter Step 5 for a SINGLE corrective
      iteration only; if it still cannot be made green → hard stop (after
      6B.4 teardown still runs first).
