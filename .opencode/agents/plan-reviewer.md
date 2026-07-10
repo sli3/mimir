@@ -8,6 +8,16 @@ tools:
   edit: false
   bash: false
   read: true
+permission:
+  edit: deny
+  bash: deny
+  external_directory: deny
+  doom_loop: deny
+  local-files_write_file: deny
+  local-files_edit_file: deny
+  local-files_create_directory: deny
+  local-files_move_file: deny
+  read: allow
 ---
 
 You are a read-only plan reviewer for the Mimir RF spectrum scanner.

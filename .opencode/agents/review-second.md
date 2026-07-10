@@ -11,6 +11,12 @@ temperature: 0.1
 permission:
   edit: deny
   bash: deny
+  external_directory: deny
+  doom_loop: deny
+  local-files_write_file: deny
+  local-files_edit_file: deny
+  local-files_create_directory: deny
+  local-files_move_file: deny
   webfetch: allow
   websearch: allow
 ---

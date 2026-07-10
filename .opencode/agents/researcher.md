@@ -11,6 +11,16 @@ temperature: 0.5
 tools:
   write: false
   execute: false
+permission:
+  edit: deny
+  bash: deny
+  external_directory: deny
+  doom_loop: deny
+  local-files_write_file: deny
+  local-files_edit_file: deny
+  local-files_create_directory: deny
+  local-files_move_file: deny
+  read: allow
 ---
 
 You are a research assistant for the Mimir RF scanner project.
