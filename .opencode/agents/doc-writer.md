@@ -60,6 +60,15 @@ Project Manager.
      directly affected by this build. Do not rewrite sections that are unrelated
      to the current change. Never overwrite contact, licence, or legal sections.
 
+     HARD BOUNDARY — the "## Phase Tracker" section of README.md is NOT yours.
+     It belongs to @memo-writer. Never touch the phase number line, the total
+     test-count line, the link to docs/ROADMAP.md, or the re-seed note inside
+     that section. Never add a per-phase table to README. If a build's only
+     README-relevant change is a phase/test-count update, do nothing to README
+     and note that the tracker sync is @memo-writer's (Step 9) job. Your README
+     edits are limited to feature/dependency/setup/CLI prose OUTSIDE the Phase
+     Tracker section.
+
 ## Wiki Update Rules
 
 Always read `docs/wiki.md` in full before writing anything. Never overwrite or

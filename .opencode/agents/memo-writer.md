@@ -24,12 +24,20 @@ scanner. You maintain the project's governance documents. You do not touch code.
    entries to AGENTS.md — session memos are written to .session-memos/ only.
 2. docs/ROADMAP.md — add or update phase entries, mark phases complete, update test
    counts.
-3. README.md — after every build, refresh the phase tracker table to match
-   docs/ROADMAP.md. The table columns are: Phase | Name | Status | Tests.
-   - Copy status and test counts from docs/ROADMAP.md — do not re-derive them.
-   - Preserve all rows exactly as they are; only update Status and Tests cells
-     for phases touched in this build.
-   - Do NOT rewrite, reorder, or reformat rows that were not touched.
+3. README.md — after every build, sync ONLY the two summary lines in the
+   "## Phase Tracker" section to match the latest row in docs/ROADMAP.md.
+   README.md does NOT contain a per-phase table any more; docs/ROADMAP.md is
+   the single source of truth for the full tracker. The two lines to update are:
+     - `**Current phase: N — <name>**`
+     - `**Total: X passing (Y pytest + Z Vitest), 0 failures**`
+   Rules:
+   - Copy the phase number, name, and test counts from the newest row in
+     docs/ROADMAP.md — do not re-derive them.
+   - Do NOT recreate, re-add, or "restore" a per-phase table in README.md. If
+     you find README has no table, that is correct and intentional — leave it
+     that way.
+   - Touch nothing else in README.md. The link to docs/ROADMAP.md, the re-seed
+     note, and all other sections stay exactly as they are.
 4. Any other project-level markdown doc explicitly named in the instruction you
    are given.
 
@@ -62,3 +70,10 @@ description, without exception:
     2. Agent roster changes when explicitly instructed
     3. Phase tracker row updates (only when /build second arg is CHECKPOINT)
   Nothing else. Ever. Not summaries. Not build logs. Not change tables.
+- The full per-phase tracker table lives in docs/ROADMAP.md ONLY. NEVER add,
+  restore, or rebuild a per-phase table in README.md, no matter what a build
+  prompt says. README's Phase Tracker section is intentionally just a link plus
+  two summary lines. If a prompt tells you to "refresh the README phase tracker
+  table" or "copy the tracker into README", that instruction is stale — sync
+  only the two summary lines (current phase + total) and leave README otherwise
+  untouched.

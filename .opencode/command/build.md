@@ -54,11 +54,14 @@ flag is NOT part of the task; it only drives the Step 9 phase-tracker gate.
 | @deep-analyst | Senior Analyst | Deep code review (heavy) |
 | @frontend-reviewer | Frontend Lead | React/JSX-specific review, dashboard/frontend/ only |
 | @doc-writer | Documentation | Docstrings + deferred items |
-| @memo-writer | Project Records | Session memo (always) + phase tracker & ROADMAP (checkpoint-gated) |
+| @memo-writer | Project Records | Session memo (always) + AGENTS.md/docs/ROADMAP.md phase tracker & README summary lines (checkpoint-gated) |
 
 **Note on @memo-writer:** it runs in Step 9, after docs. It cannot run bash,
-search, or fetch — it only edits governance docs (AGENTS.md, ROADMAP.md) from
-what you hand it. It must never touch code, tests, opencode.json, or
+search, or fetch — it only edits governance docs (AGENTS.md, docs/ROADMAP.md,
+and README.md's two Phase Tracker summary lines) from what you hand it.
+docs/ROADMAP.md is the single source of truth for the full phase tracker;
+README carries only a link plus a phase line and a total-tests line, never a
+table. It must never touch code, tests, opencode.json, or
 `.opencode/agents/*.md`. The separate `opencode-memo` workflow remains available
 for memos outside a build; do not run both for the same build, or you will
 double-write the governance docs.
@@ -311,11 +314,15 @@ Call @doc-writer as Documentation. Hand it explicitly:
   - Update docs/wiki.md: phase log, function entries, frontend stack, and
     acronym glossary as needed
   - Update README.md: any user-facing changes introduced by this build
-    (new features, new dependencies, changed setup steps, changed CLI usage)
+    (new features, new dependencies, changed setup steps, changed CLI usage),
+    but ONLY in prose sections OUTSIDE the "## Phase Tracker" section. The
+    Phase Tracker section (its link, phase line, and total-tests line) is
+    @memo-writer's in Step 9 — @doc-writer must never touch it or add a table.
 
 @doc-writer may modify source docstrings, inline comments, docs/wiki.md,
-and README.md only. It must NOT touch: test files, AGENTS.md, ROADMAP.md, or any other
-governance doc — those belong to @memo-writer in Step 9.
+and README.md prose outside the Phase Tracker section only. It must NOT touch:
+test files, AGENTS.md, docs/ROADMAP.md, README's Phase Tracker section, or any
+other governance doc — those belong to @memo-writer in Step 9.
 
 ### STEP 9 — PROJECT MEMO
 Call @memo-writer as Project Records to record this build in the governance
@@ -325,17 +332,23 @@ what you give it. Instruct it to:
      session-memo section, phase tracker, and tech debt table. It must not
      contradict or silently overwrite existing entries; write as a continuation.
    2. Read docs/ROADMAP.md before touching it, for the same reason.
-   3. Read README.md and update its phase tracker table to match
-      docs/ROADMAP.md. Use only the test counts handed to you by the PM — do
-      not run pytest or infer counts from context.
+   3. Read README.md and sync ONLY the two summary lines in its "## Phase
+      Tracker" section to match the newest row in docs/ROADMAP.md: the
+      "Current phase: N — <name>" line and the "Total: X passing (Y pytest +
+      Z Vitest)" line. README.md has NO per-phase table — docs/ROADMAP.md is
+      the single source of truth for the full tracker. Do NOT add, restore, or
+      rebuild a per-phase table in README.md under any circumstances. Use only
+      the test counts handed to you by the PM — do not run pytest or infer
+      counts from context.
 
 You must also hand it explicitly:
   - a concise summary of what this build changed (files, functions)
   - the current test counts taken from the Step 5/6 runs (it cannot run pytest)
   - any tech debt or deferred items surfaced during the build
 
-ALWAYS: refresh the test counts in docs/ROADMAP.md and README.md. Do NOT add session memo prose blocks 
-to AGENTS.md.
+ALWAYS: refresh the test counts in docs/ROADMAP.md (the full tracker) and in
+README.md's two Phase Tracker summary lines only (never a table). Do NOT add
+session memo prose blocks to AGENTS.md.
 
 PHASE-TRACKER GATE — deterministic, driven solely by the checkpoint flag
 captured in the TASK block above:
