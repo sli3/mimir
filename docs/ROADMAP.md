@@ -65,6 +65,8 @@
 | 23 | ChromaDB Vector Space 3D Visualisation (isolated side page) | ✅ Complete | 581/581 (419 pytest + 162 Vitest) |
 | 24 | OPERATOR Live Anomaly Readout — 4-state badge, novel exposure, tooltip | ✅ Complete | 591/591 (420 pytest + 171 Vitest) |
 | 25 | Max-hold burst fingerprinting for ADS-B | ✅ Complete | 606 (435 pytest + 171 Vitest) |
+| 26 | calibrate_thresholds.py — derive_thresholds() pure helper, ordering guard, mutually-exclusive noise classification, relative colours, STRONG_MATCH_FLOOR | ✅ Complete | 620 (449 pytest + 171 Vitest) |
+| 27 | calibrate_thresholds.py — ADS-B captures raised to 5, p90 same-type spread, CROSS_TYPE_MIN_FLOOR, check_thresholds_cli.py | ✅ Complete | 624 (453 pytest + 171 Vitest) |
 | 28 | Cross-session calibration merge + antenna groups + persistence | ✅ Complete | 634 (463 pytest + 171 Vitest) |
 | 29 | Live capture loop — forward per-band signal_threshold_db to fingerprint_spectrum() | ✅ Complete | 640 (469 pytest + 171 Vitest) |
 
@@ -1203,6 +1205,120 @@ continuous bands remain on the averaged trace.
   their own field threshold recalibration.
 
 **Test counts:** 606 (435 pytest + 171 Vitest), 0 failures
+
+---
+
+### Phase 26 — calibrate_thresholds.py Ordering Guard + Relative Colours + Strong-Match Floor ✅
+
+**Goal:** `calibrate_thresholds.py` had two independent copies of the STRONG_MATCH /
+POSSIBLE_MATCH / DIFFERENT_TYPE / NOVEL_SIGNAL derivation logic (one in the matrix
+column-stats block, one in the pairwise-stats block), used stale absolute-distance
+colour cutoffs left over from the 6D embedding era (Phase 13 moved to 7D), double
+counted `noise_floor` pairs against both same-type and cross-type buckets, and could
+silently emit `STRONG_MATCH = 0.000` on very clean captures — none of which was
+caught because nothing checked whether `cross_type_min` was actually large enough
+relative to `same_type_max` for the four thresholds to stay monotonic.
+
+**Delivered:**
+
+1. **`tools/calibrate_thresholds.py`** —
+   - New pure helper `derive_thresholds(same_type_max, cross_type_min) -> dict`
+     replacing both inline derivation sites. Returns `ok`, `strong_match`,
+     `possible_match`, `different_type`, `novel_signal`, `reason`.
+   - `SEPARABILITY_FACTOR = 2.5` — ordering guard requires
+     `cross_type_min > SEPARABILITY_FACTOR * same_type_max` for a monotonic
+     threshold set to exist. When it fails, the distance matrix and stats still
+     print (for diagnosis) but a FAIL banner replaces the paste-ready threshold
+     block, `logger.warning()` fires, and the tool exits non-zero — no
+     bad thresholds can be silently pasted into `llm/classifier.py`.
+   - `STRONG_MATCH_FLOOR = 0.002` — floors `strong_match` so a very clean
+     same-type capture set can't round the strong-match ceiling down to
+     `0.000` (which would make every future capture register as "strong match"
+     regardless of actual distance).
+   - Pair classification made mutually exclusive (`if / elif / elif` instead of
+     three independent `if`s): a `noise_floor` pair is now noise-only, never
+     also double-counted into cross-type. `noise_min` now measures genuine
+     noise-to-signal separation instead of an inflated mixed bucket.
+   - Summary-stat terminal colours (green/yellow/red) now computed relative to
+     the run's own `same_type_max` / `cross_type_min` values via the
+     `SEPARABILITY_FACTOR` ratio, retiring the stale hardcoded 6D-era absolute
+     cutoffs (`0.010` / `0.022` / `0.031`).
+
+2. **Tests** — 5 new tests in `tests/tools/test_calibrate_thresholds.py`:
+   monotonic-output parametrised case, the 2026-07-08 real inverted-ADS-B
+   overlap run reproduced as a regression test, strong-match floor engaging,
+   floor NOT overriding when the computed value already clears it, and the
+   exact-boundary (`cross == SEPARABILITY_FACTOR * same`) case correctly
+   failing under strict inequality.
+
+**Field-session origin:** Found via a live ADS-B calibration run on 2026-07-08
+where `same_type_max` (0.0179) exceeded `cross_type_min / 2.5` (0.0143), meaning
+the ADS-B same-type captures were less self-similar than they were to other
+signal types — a genuinely unusable calibration that the tool would previously
+have turned into paste-ready (but meaningless) thresholds without complaint.
+
+**Deferred items:**
+- The ordering guard uses `same_type_max` (worst-case), which one noisy capture
+  can dominate. Addressed in Phase 27 by switching to the 90th percentile.
+
+**Test counts:** 620 (449 pytest + 171 Vitest), 0 failures
+
+---
+
+### Phase 27 — ADS-B Captures Raised to 5 + p90 Same-Type Spread + Absolute Noise Floor ✅
+
+**Goal:** Phase 26's ordering guard closed the silent-bad-threshold hole, but two
+gaps remained from the same 2026-07-08 field session: (1) `same_type_max` is a
+worst-case statistic — a single near-noise ADS-B capture window (no aircraft
+overhead) can dominate and fail the guard even when most captures were clean;
+(2) the `SEPARABILITY_FACTOR` ratio gate can pass by coincidence on a fully
+degenerate run where both `same_type` and `cross_type` distances have collapsed
+into noise-level jitter, since the ratio only compares them to each other, not
+to any absolute floor.
+
+**Delivered:**
+
+1. **`tools/calibrate_thresholds.py`** —
+   - `CALIBRATION_TARGETS` ADS-B capture count raised from 2 to 5, reducing the
+     odds that a single near-noise window (no aircraft in range during capture)
+     dominates the same-type statistic.
+   - `derive_thresholds()` same-type metric changed from `max()` to the 90th
+     percentile (`np.percentile(same_type_dists, 90)`), both at the matrix
+     column-stats call site and the pairwise-stats call site — a lone outlier
+     capture no longer single-handedly fails the ordering guard.
+   - `CROSS_TYPE_MIN_FLOOR = 0.005` — a new **absolute** floor, independent of
+     the `SEPARABILITY_FACTOR` ratio. Catches the case found in the live
+     2026-07-08 degenerate run where `cross_type_min` collapsed to noise-level
+     (~0.0005) and the ratio gate passed by coincidence (both values were tiny)
+     even though neither number carried real signal — the run that had
+     previously produced meaningless near-zero pasted thresholds.
+   - FAIL banner text de-hardcoded from ADS-B-specific wording to generic,
+     band-agnostic remediation guidance (applies to any band's degenerate run).
+   - `cross_type_min` itself is unchanged — still the worst-case `min()`, since
+     for cross-type separation the worst case (closest pair) is the one that
+     actually matters for classifier safety.
+
+2. **`tools/check_thresholds_cli.py`** (new file) — standalone harness for the
+   pure `derive_thresholds()` guard logic, independent of any live capture.
+   Two modes: a self-check suite of fixed test cases, and `--eval SAME CROSS`
+   for evaluating an arbitrary pair by hand. Intended for pre-commit sanity
+   checks and field verification without needing the HackRF connected.
+
+3. **Tests** — 4 new tests in `tests/tools/test_calibrate_thresholds.py`
+   covering the floor gate: the exact 2026-07-08 degenerate run now correctly
+   fails via `CROSS_TYPE_MIN_FLOOR` (not just the ratio), a case where the
+   ratio alone would pass but the absolute floor still correctly fails it, the
+   floor boundary (`cross == CROSS_TYPE_MIN_FLOOR`) passing under `>=`, and
+   floor-failure vs. overlap-failure producing distinct, distinguishable
+   `reason` strings so an operator can tell "dead capture" from "genuinely
+   overlapping classes" at a glance.
+
+**Independent of** the separate `BAND_PROFILES['fm_broadcast']['signal_threshold_db']`
+recalibration (27.0 → 21.0 dB) done via `diagnose_threshold.py` in the same
+field session — that was a live hardware calibration value change, not a
+`calibrate_thresholds.py` guard-logic change, and is not part of this phase.
+
+**Test counts:** 624 (453 pytest + 171 Vitest), 0 failures
 
 ---
 

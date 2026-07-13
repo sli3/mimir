@@ -145,60 +145,12 @@ event rate, gap detection, and a PASS/FAIL summary. Use `--duration 60` minimum
 
 ## Phase Tracker
 
-| Phase | Name | Status | Tests |
-|---|---|---|---|
-| 0 | Hardware Safety Gate | ✅ Complete | 25/25 |
-| 1 | IQ Capture Pipeline | ✅ Complete | 5/5 |
-| 2 | FFT + Feature Extraction | ✅ Complete | 21/21 |
-| 3 | Embedding + Vector Store | ✅ Complete | 24/24 |
-| 4 | LLM Classification | ✅ Complete | 24/24 |
-| 5 | Live Dashboard | ✅ Complete | — |
-| 6 | Live AI Classification + Dashboard | ✅ Complete | 108/108 |
-| 7A | Cyberpunk Dashboard — Scaffold | ✅ Complete | 158/158 |
-| Data Layer | ACMA frequency reference + RTL-ML ChromaDB seeding | ✅ Complete | 188/188 |
-| — | UV migration (pip to pyproject.toml + uv.lock) | ✅ Complete | — |
-| 7B | Cyberpunk Dashboard — AI + Polish | ✅ Complete | 233/233 |
-| 8A | ACMA reference wiring into LLM classifier | ✅ Complete | 251/251 |
-| 8B | Live system_stats + event table fix | ✅ Complete | 259/259 |
-| 8C | Single-frequency focus mode + LLM tuning | ✅ Complete | 260/260 |
-| 9A | ACMA Ref Expansion + /api/frequencies | ✅ Complete | 278/278 |
-| 9B | BUG-01 fix: bandwidth_hz/occupied_bins zero | ✅ Complete | 278/278 |
-| 9B-Hotfix | BUG-01 true root cause: fft.py normalisation | ✅ Complete | 278/278 |
-| pre-9C | Latent gain defaults cleanup (housekeeping) | ✅ Complete | 278/278 |
-| pre-9C-seed-autowipe | seed_chromadb.py auto-wipe before seeding | ✅ Complete | 279/279 |
-| 9C | ACARS Decoder + Setup Infrastructure | ✅ Complete | 290/290 |
-| 9D | ACARS Pure-Python Decoder Subscriber | ✅ Complete | 305/305 |
-| 9C-Threshold | Calibrate SIGNAL_THRESHOLD_DB | ✅ Complete | — |
-| 10 | Dashboard UI Redesign | ✅ Complete | — |
-| 11 | Per-band signal thresholds | ✅ Complete | — |
-| 11-Hotfix | Broadcast fields + FM threshold + scan.py guard | ✅ Complete | 428/428 |
-| PHASE-TECH-DEBT-1 | Housekeeping: startup message, stale comments, test coverage | ✅ Complete | 437/437 |
-| PHASE-TECH-DEBT-2 | Frontend small fixes: ??, null guard, colour map, overview bands, test mock | ✅ Complete | 439/439 |
-| PHASE-BUILD-3 | AIS waterfall config, tuned-state test coverage, SignalHistoryLog memoisation, ACARS dual-frequency fix | ✅ Complete | 446/446 (334 pytest + 112 Vitest) |
-| PHASE-BUILD-4 | Tech debt: setup.sh rewrite (uv sync + uv export), requirements.txt removed, PYTHONPATH=. documented | ✅ Complete | 446/446 (334 pytest + 112 Vitest) |
-| PHASE-BAND-PROFILE-FIX | Wire band profile into handle_set_focus for per-band thresholds on frequency switch | ✅ Complete | 452/452 (340 pytest + 112 Vitest) |
-| PHASE-CLASSIFIER-ACCURACY-FIX | ACMA reference entries for ACARS and AIS + AIS band profile in BAND_PROFILES | ✅ Complete | 456/456 (344 pytest + 112 Vitest) |
-| PHASE-12 | Decoder-driven ADS-B classification (bypass LLM for confirmed decodes) | ✅ Complete | 456/456 (344 pytest + 112 Vitest) |
-| PHASE-13 | Spectral flatness embedding expansion (6D to 7D vectors) | ✅ Complete | 489/489 (368 pytest + 121 Vitest) |
-| PHASE-14 | CHECKPOINT Parser Fix + AIS Band Profile | ✅ Complete | 492/492 (371 pytest + 121 Vitest) |
-| 15 | Frontend AIS Consistency + Nav Bar Completion | ✅ Complete | 493/493 (371 pytest + 122 Vitest) |
-| 15b | AIS Waterfall Frequency Migration Completion | ✅ Complete | 493/493 (371 pytest + 122 Vitest) |
-| 17 | Feature A: focused decode panel | ✅ Complete | 496/496 (373 pytest + 123 Vitest) |
-| 18 | Feature B: Raw ADS-B Hex Decode View | ✅ Complete | 507/507 (373 pytest + 134 Vitest) |
-| 18b | Raw Decode Log — ACARS and AIS | ✅ Complete | 517/517 (375 pytest + 142 Vitest) |
-| 19a | calibrate_thresholds.py — missing bands + ADS-B gain fix | ✅ Complete | 517/517 (375 pytest + 142 Vitest) |
-| 19b | calibrate_thresholds.py — antenna selection, single-band prompt, matrix split | ✅ Complete | 517/517 (375 pytest + 142 Vitest) |
-| 19c | classifier.py — ChromaDB distance threshold recalibration | ✅ Complete | 517/517 (375 pytest + 142 Vitest) |
-| 20 | Live Capture → Vector Store Ingestion Tool | ✅ Complete | 526/526 (384 pytest + 142 Vitest) |
-| 21 | ADS-B Frame Inspector + SIGNAL INTERCEPT rename | ✅ Complete | 538/538 (390 pytest + 148 Vitest) |
-| 22 | LLM Offline Handling — health check + cooldown system | ✅ Complete | 548/548 (399 pytest + 149 Vitest) |
-| 22-Hotfix | LLM offline emit rate-limit (SocketIO flood fix) | ✅ Complete | 551/551 (402 pytest + 149 Vitest) |
-| 23 | ChromaDB Vector Space 3D Visualisation (isolated side page) | ✅ Complete | 581/581 (419 pytest + 162 Vitest) |
-| BUG-03 | Four tools wired to BAND_PROFILES for gains/thresholds; AIS gains corrected | ✅ Complete | 557/557 (408 pytest + 149 Vitest) |
-| BUG-04 | /vectordb tooltip frequency field mismatch (seeded vs live metadata keys) | ✅ Complete | 582/582 (420 pytest + 162 Vitest) |
-| 24 | OPERATOR Live Anomaly Readout — 4-state badge, novel exposure, tooltip | ✅ Complete | 591/591 (420 pytest + 171 Vitest) |
+Full phase-by-phase history lives in [`docs/ROADMAP.md`](./docs/ROADMAP.md), which is the
+single source of truth for phase status and test counts. This section shows
+only a quick-glance summary — update `docs/ROADMAP.md` first, then sync this block.
 
-**Total: 591 passing (420 pytest + 171 Vitest), 0 failures**
+**Current phase: 29 — Live capture loop forwards per-band `signal_threshold_db`**
+**Total: 640 passing (469 pytest + 171 Vitest), 0 failures**
 
 > **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector
 > store (`data/vectorstore/`) must be re-seeded after deploying this build.
@@ -495,5 +447,5 @@ mimir/
 │       └── test_diagnose_live.py      ← 34 tests
 └── docs/
     ├── au-legal-reference.md
-    └── MIMIR_ROADMAP.md
+    └── ROADMAP.md
 ```
