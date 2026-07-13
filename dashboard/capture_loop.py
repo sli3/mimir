@@ -117,7 +117,10 @@ async def run_shared_capture_loop() -> None:
 
                 frame_count += 1
                 if frame_count % FINGERPRINT_EVERY_N_FRAMES == 0:
-                    fingerprint = fingerprint_spectrum(psd_result)
+                    fingerprint = fingerprint_spectrum(
+                        psd_result,
+                        signal_threshold_db=band.get("signal_threshold_db"),
+                    )
                     if not fingerprint_queue.full():
                         fingerprint_queue.put_nowait(fingerprint)
 
