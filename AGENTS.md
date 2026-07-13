@@ -290,8 +290,9 @@ uv run python tools/seed_chromadb.py
 | 24 | OPERATOR Live Anomaly Readout — 4-state badge, novel exposure, tooltip | ✅ Complete | 591 (420 pytest + 171 Vitest) |
 | 25 | Max-hold burst fingerprinting for ADS-B | ✅ Complete | 606 (435 pytest + 171 Vitest) |
 | 28 | Cross-session calibration merge + antenna groups + persistence | ✅ Complete | 634 (463 pytest + 171 Vitest) |
+| 29 | Live capture loop — forward per-band signal_threshold_db to fingerprint_spectrum() | ✅ Complete | 640 (469 pytest + 171 Vitest) |
 
-**Total passing: 634 passing (463 pytest + 171 Vitest), 0 failures**
+**Total passing: 640 passing (469 pytest + 171 Vitest), 0 failures**
 - Note: Phase 24 added 2026-07-07. Mascot/CharacterPanel.jsx wiring deferred to a future phase (pending art asset).
 
 ---
@@ -591,10 +592,13 @@ Do not apply this pre-emptively — only if context problems are observed.
 | Missing ADS-B / NOAA_APT ChromaDB entries | Both classes absent from RTL-ML dataset — 0 records in production vectorstore for these bands until live capture runs via `tools/capture_to_vectorstore.py`. | Pending live capture window |
 | ~~Phase 19b/19c governance rows missing~~ | ~~Phase tracker entries for 19b and 19c were never written — checkpoint mode was off for both builds.~~ Added this session. | ~~This session~~ ✅ RESOLVED |
 | **SIGNAL_THRESHOLD_DB discrepancy** | Field log reported 21 dB threshold, project memory says 27 dB. Value lives in `core/pipeline/features.py`. Needs verification against live file before next calibration run. | Future calibration |
+| ~~capture_loop.py not passing signal_threshold_db~~ | ~~Live dashboard fingerprinting always used the 24.0 dB module-level fallback regardless of band~~ — now forwards `band.get("signal_threshold_db")` to `fingerprint_spectrum()`. | ~~Phase 29~~ ✅ PHASE-29 |
+| capture_loop.py not passing trace_key | Live ADS-B path still uses averaged trace (`psd_db`) instead of max-hold (`psd_max_hold_db`). Intentionally deferred until the ADS-B max-hold field recalibration is complete (see Phase 25 deferred items and Phase 28 session memo). | Pending ADS-B recalibration |
 | ~~BUG-04 `/vectordb` tooltip frequency field mismatch~~ | ~~Seeded records use `center_freq_hz`, live captures use `freq_hz`. Tooltip shows null for seeds.~~ Fixed in Phase 23: api_vectorstore_points() now uses `meta.get("center_freq_hz", meta.get("freq_hz"))`. Null SNR/peak/timestamp preserved for legacy seeds. Tests: 420 pytest + 162 Vitest = 582 passing. | ✅ Resolved Phase 23 |
 | ADS-B max-hold field recalibration | Max-hold raises the apparent noise floor. Existing ADS_B `signal_threshold_db` in `BAND_PROFILES` was calibrated against the averaged trace and must be re-calibrated against the max-hold trace before running `capture_to_vectorstore.py` for ADS-B. Phase 27 made the calibration tool robust (p90 over >=5 captures) so the field recalibration is now unblocked. | Field session |
 | ADS-B vector store single-basis caveat | Existing ADS_B vectors already in the store were computed on the averaged trace and are not directly comparable to new max-hold vectors. Operator must decide whether to clear existing ADS_B vectors before re-capturing. | Field session |
 | Deferred ACARS/AIS max-hold extension | ACARS and AIS share the burst characteristic with ADS-B but are NOT switched to max-hold in this phase. Extending max-hold to ACARS/AIS must be bundled with their own field threshold recalibration. | Future phase |
+| fingerprint_queue orphaned in capture_loop | `capture_loop.py:121-125` writes fingerprints to `fingerprint_queue` (defined in `dashboard/shared_state.py:39`) every 20 frames, but no production code consumes it. The live AI loop is fed via the parallel `ScanRunner._scan_loop` path. Pre-existing — not introduced by Phase 29. The Phase 29 fix (forwarding per-band threshold to fingerprint_spectrum) is still correct, but its operator-visible effect on the capture_loop path is currently nil. | Future cleanup |
 
 ---
 

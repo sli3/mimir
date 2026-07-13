@@ -66,6 +66,7 @@
 | 24 | OPERATOR Live Anomaly Readout — 4-state badge, novel exposure, tooltip | ✅ Complete | 591/591 (420 pytest + 171 Vitest) |
 | 25 | Max-hold burst fingerprinting for ADS-B | ✅ Complete | 606 (435 pytest + 171 Vitest) |
 | 28 | Cross-session calibration merge + antenna groups + persistence | ✅ Complete | 634 (463 pytest + 171 Vitest) |
+| 29 | Live capture loop — forward per-band signal_threshold_db to fingerprint_spectrum() | ✅ Complete | 640 (469 pytest + 171 Vitest) |
 
 ### Phase 28 — Cross-session Calibration Merge ✅
 
@@ -101,6 +102,61 @@ ladder, and drive antenna selection by band group rather than a single hardcoded
 - Real multi-antenna merged calibration run (telescopic + spiral) still pending.
 - `llm/classifier.py` `_DISTANCE_SCALE_REFERENCE` update after real merged run.
 - ADS_B `signal_threshold_db` field recalibration against max-hold trace still pending.
+
+---
+
+### Phase 29 — Live capture loop forwards per-band signal_threshold_db to fingerprint_spectrum() ✅
+
+**Goal:** Make the live dashboard capture loop honour the per-band
+`signal_threshold_db` values already defined in `BAND_PROFILES` when it
+fingerprints each spectrum frame. Previously the loop called
+`fingerprint_spectrum(psd_result)` with no `signal_threshold_db` kwarg, so
+every band (FM 21 dB, ADS-B 3 dB, AIS 5 dB, etc.) was fingerprinted against
+the module-level fallback of 24.0 dB. This over-suppressed weak bands
+(`occupied_bins`/`bandwidth_hz` stuck at zero for anything below 24 dB SNR)
+and made the live fingerprints dimensionally inconsistent with the offline
+capture tool (`tools/capture_to_vectorstore.py`), which already passes the
+per-band threshold.
+
+**Delivered:**
+
+- `dashboard/capture_loop.py` — one-line change at the fingerprint call site:
+  `fingerprint_spectrum(psd_result)` →
+  `fingerprint_spectrum(psd_result, signal_threshold_db=band.get("signal_threshold_db"))`.
+  `band` is the per-iteration band snapshot taken under `current_band_lock`
+  (line 49); `band.get()` returns `None` defensively if the key is ever
+  absent, in which case `fingerprint_spectrum` falls back to 24.0 dB — no crash.
+- `tests/dashboard/test_capture_loop.py` (NEW) — 2 tests using
+  `asyncio.run()` directly (no pytest-asyncio dependency). A shared helper
+  drives `run_shared_capture_loop` through exactly one fingerprint iteration
+  via the real event loop + default ThreadPoolExecutor, with
+  `HackRFReceiver` / `compute_psd` / `fingerprint_spectrum` patched. A
+  `side_effect` captures the forwarded `signal_threshold_db`, then sets
+  `band_change_event` and `shutdown_event` so the loop exits cleanly. Tests:
+  - `test_fm_band_threshold_forwarded_to_fingerprint_spectrum` (expected 21.0)
+  - `test_adsb_band_threshold_forwarded_to_fingerprint_spectrum` (expected 3.0,
+    proving the forwarding is per-band, not a single value)
+
+**Out of scope (explicitly deferred per task spec):**
+
+- `trace_key` is NOT forwarded. The live ADS-B path stays on the averaged
+  trace (`psd_db`) until a field session recalibrates the ADS-B threshold
+  against the max-hold trace.
+- No changes to gains, centre frequencies, sample rate, `num_samples`,
+  `fingerprint_spectrum()` itself, `BAND_PROFILES` values, or the
+  occupied-bins/bandwidth cropping logic.
+
+**Test counts:** 640 (469 pytest + 171 Vitest), 0 failures
+
+**Red-then-green verification:** Both new tests confirmed to FAIL on the
+pre-change code (`got [None]` — bare call forwards no kwarg) and PASS on the
+patched code (`got [21.0]` / `got [3.0]`).
+
+**Deferred items:**
+
+- Forwarding `trace_key=band.get("trace_key", "psd_db")` to switch the live
+  ADS-B path to max-hold — blocked on the ADS-B max-hold field
+  recalibration (see Phase 25 deferred items and Phase 28 session memo).
 
 ---
 
