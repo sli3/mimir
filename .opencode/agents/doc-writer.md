@@ -13,6 +13,8 @@ permission:
     "*": allow
     "AGENTS.md": deny
     "ROADMAP.md": deny
+    "docs/ROADMAP.md": deny
+    "**/ROADMAP.md": deny
     ".opencode/agents/**": deny
     ".opencode/command/**": deny
     "opencode.json": deny
