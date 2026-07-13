@@ -514,3 +514,81 @@ class TestFingerprintSpectrum:
         assert max_hold['occupied_bins'] >= avg['occupied_bins']
         assert max_hold['bandwidth_hz'] >= avg['bandwidth_hz']
 
+    # ------------------------------------------------------------------
+    # Phase 30: spectral cropping (crop_half_width_hz)
+    # ------------------------------------------------------------------
+
+    @pytest.fixture
+    def two_signal_psd(self):
+        """Synthetic PSD with two separated signals for crop tests.
+
+        Signal A sits at centre (98 MHz, ±100 kHz, -50 dB).
+        Signal B sits 600 kHz away (98.6 MHz, ±100 kHz, -50 dB).
+        Noise floor is -80 dB across the full span.
+        """
+        nfft = 2048
+        freqs = np.linspace(97_000_000, 99_000_000, nfft)
+        psd_db = np.full(nfft, -80.0)
+        mask_a = np.abs(freqs - 98_000_000) <= 100_000
+        psd_db[mask_a] = -50.0
+        mask_b = np.abs(freqs - 98_600_000) <= 100_000
+        psd_db[mask_b] = -50.0
+        return {
+            'frequencies_hz': freqs,
+            'psd_db': psd_db,
+            'center_freq_hz': 98_000_000,
+            'sample_rate_hz': 2_000_000,
+            'nfft': nfft,
+        }
+
+    def test_crop_half_width_hz_none_matches_no_param(self, fm_psd):
+        """Passing crop_half_width_hz=None must produce identical output to
+        not passing the parameter at all (regression guard for Phase 30)."""
+        result_no_param = fingerprint_spectrum(fm_psd)
+        result_none = fingerprint_spectrum(fm_psd, crop_half_width_hz=None)
+        assert result_no_param == result_none
+
+    def test_two_signals_cropped_to_one_signal(self, two_signal_psd):
+        """With two signals in the span, cropping to ±200 kHz around centre
+        must restrict occupied_bins/bandwidth to only the centre signal."""
+        result_full = fingerprint_spectrum(two_signal_psd)
+        result_crop = fingerprint_spectrum(two_signal_psd, crop_half_width_hz=200_000)
+        # Full-span sees both signals
+        assert result_full["occupied_bins"] > result_crop["occupied_bins"]
+        assert result_full["bandwidth_hz"] > result_crop["bandwidth_hz"]
+        # Cropped peak must land within the crop window
+        assert abs(result_crop["peak_freq_hz"] - 98_000_000) <= 200_000
+
+    def test_noise_floor_unchanged_by_crop(self, fm_psd):
+        """The noise floor must use the full, uncropped psd_db — cropping
+        must not change noise_floor_db at all."""
+        result_full = fingerprint_spectrum(fm_psd)
+        result_crop = fingerprint_spectrum(fm_psd, crop_half_width_hz=200_000)
+        assert result_full["noise_floor_db"] == result_crop["noise_floor_db"]
+
+    def test_zero_bins_in_crop_returns_zeroed_dict(self):
+        """When the crop mask selects zero bins (centre freq outside the
+        frequency span), the function must return the zeroed-dict path
+        without raising."""
+        freqs = np.linspace(97_000_000, 99_000_000, 4)
+        psd_result = {
+            'frequencies_hz': freqs,
+            'psd_db': np.full(4, -80.0),
+            'center_freq_hz': 100_000_000,  # 1 MHz above the max freq (99 MHz)
+            'sample_rate_hz': 2_000_000,
+            'nfft': 4,
+        }
+        result = fingerprint_spectrum(psd_result, crop_half_width_hz=12_500)
+        assert result["peak_freq_hz"] == 0.0
+        assert result["occupied_bins"] == 0
+        assert result["bandwidth_hz"] == 0.0
+        assert result["peak_power_db"] == 0.0
+
+    def test_crop_narrows_bandwidth_hz(self, two_signal_psd):
+        """Cropping must produce bandwidth_hz <= full-span bandwidth_hz,
+        and strictly smaller when a second off-centre signal exists."""
+        result_full = fingerprint_spectrum(two_signal_psd)
+        result_crop = fingerprint_spectrum(two_signal_psd, crop_half_width_hz=200_000)
+        assert result_crop["bandwidth_hz"] <= result_full["bandwidth_hz"]
+        assert result_crop["bandwidth_hz"] < result_full["bandwidth_hz"]
+

@@ -447,3 +447,57 @@ class TestScanRunner:
             t.join(timeout=3)
 
             mock_emit.assert_called_once()
+
+    def test_scan_loop_forwards_crop_half_width_hz(self, scanner):
+        """_scan_loop must read band['crop_half_width_hz'] from shared_state
+        and forward it to fingerprint_spectrum() (Phase 30).
+
+        Patches features.fingerprint_spectrum with a capturing side_effect,
+        drives the scan loop for one cycle on the fm_broadcast band, and
+        asserts the forwarded crop_half_width_hz matches the BAND_PROFILES
+        value (112_500 for fm_broadcast).
+        """
+        import dashboard.shared_state as shared_state
+
+        # Snapshot and set current_band to fm_broadcast explicitly
+        with shared_state.current_band_lock:
+            original_band = dict(shared_state.current_band)
+            shared_state.current_band.clear()
+            shared_state.current_band.update(shared_state.BAND_PROFILES["fm_broadcast"])
+
+        captured = {}
+
+        def capture_fn(psd_result, **kwargs):
+            captured["crop_half_width_hz"] = kwargs.get("crop_half_width_hz")
+            # Return a minimal valid fingerprint so embedder does not choke
+            return {
+                "center_freq_hz": 98_000_000,
+                "peak_freq_hz": 98_000_000,
+                "peak_power_db": -10.0,
+                "noise_floor_db": -80.0,
+                "snr_db": 70.0,
+                "bandwidth_hz": 200_000,
+                "occupied_bins": 200,
+                "spectral_flatness": 0.5,
+                "signal_threshold_db": 21.0,
+                "snr_margin_db": 46.0,
+                "peak_bin_power_db": -10.0,
+            }
+
+        try:
+            with patch(
+                "core.pipeline.scanner.features.fingerprint_spectrum",
+                side_effect=capture_fn,
+            ):
+                scanner._running = True
+                t = threading.Thread(target=scanner._scan_loop, daemon=True)
+                t.start()
+                time.sleep(0.3)
+                scanner.stop()
+                t.join(timeout=3)
+
+            assert captured.get("crop_half_width_hz") == 112_500
+        finally:
+            with shared_state.current_band_lock:
+                shared_state.current_band.clear()
+                shared_state.current_band.update(original_band)
