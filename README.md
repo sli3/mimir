@@ -149,7 +149,7 @@ Full phase-by-phase history lives in [`docs/ROADMAP.md`](./docs/ROADMAP.md), whi
 single source of truth for phase status and test counts. This section shows
 only a quick-glance summary — update `docs/ROADMAP.md` first, then sync this block.
 
-**Current phase: 30 — Spectral cropping for fingerprint_spectrum()**
+**Current phase: 31 — Decoder panel tuned-state cleanup (isAdsbTuned() helper + dead-branch removal)**
 **Total: 646 passing (475 pytest + 171 Vitest), 0 failures**
 
 > **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector

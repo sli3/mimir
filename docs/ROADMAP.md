@@ -70,6 +70,7 @@
 | 28 | Cross-session calibration merge + antenna groups + persistence | ✅ Complete | 634 (463 pytest + 171 Vitest) |
 | 29 | Live capture loop — forward per-band signal_threshold_db to fingerprint_spectrum() | ✅ Complete | 640 (469 pytest + 171 Vitest) |
 | 30 | Spectral cropping for fingerprint_spectrum() — per-band crop_half_width_hz | ✅ Complete | 646 (475 pytest + 171 Vitest) |
+| 31 | Decoder panel tuned-state cleanup (isAdsbTuned() helper + Phase 17 dead-branch removal) | ✅ Complete | 646 (475 pytest + 171 Vitest) |
 
 ---
 
@@ -1338,26 +1339,45 @@ patched code (`got [21.0]` / `got [3.0]`).
 
 **Test counts:** 646 passing (475 pytest + 171 Vitest), 0 failures.
 
+---
+
+## Resolved Tech Debt — Historical
+
+> Migrated out of AGENTS.md's live Known Tech Debt table on 2026-07-13 to keep
+> the active tracker readable. Retained here for regression forensics.
+
+- **Waterfall scroll rate slow** — one row per dwell cycle; decoupled from the AI loop in the spectrum-broadcast fix (~4–5 Hz from the scan loop). *(Post-7B)*
+- **`FrequencyList.jsx:67` confidence_score null guard** — added. *(PHASE-TECH-DEBT-2)*
+- **CORS wildcard** — `cors_allowed_origins="*"` removed. *(PHASE-CORS-FIX)*
+- **`sampleRateHz` dead param** — removed from `useWaterfall.js`. *(PHASE-TECH-DEBT-1)*
+- **Calibration store wiped at every startup** — `calibrate_thresholds.py` deleted the vectorstore each run, losing cross-session data. Replaced with persistent storage, a `--wipe` flag for full re-baseline, and `STALENESS_DAYS = 14` exclusion from the merged ladder. *(Phase 28)*
+- **`psd_db` uncalibrated (fft.py normalisation)** — ROOT CAUSE: `compute_psd()` divided `averaged_power` by `max_power` before dBFS conversion, forcing the peak bin to always read 0.0 dBFS (the "gain red herring"). Fixed with standard Welch periodogram normalisation `/ (nfft * window_power)`. Any future fft.py normalisation change re-invalidates existing embeddings. *(Phase 9B-Hotfix)*
+- **scan.py startup message** — "Scanning N frequencies" corrected for single-freq focus mode. *(PHASE-TECH-DEBT-1)*
+- **Orphaned dashboard components** — `AIReasoningPanel.jsx` integrated in Phase 10; `SystemStatsPanel.jsx` deleted 2026-06-24 (replaced by inline stats JSX in `App.jsx`).
+- **test_server_stats.py strict dict equality** — full-dict equality broke on every new broadcast field; refactored.
+- **SignalHistoryLog memoisation** — `React.memo` with custom comparator on `pinnedTimestamp` + `scanResults` content equality. *(PHASE-BUILD-3)*
+- **Inline single-antenna selection** — `calibrate_thresholds.py` hardcoded one antenna for all bands; replaced with band-driven antenna groups + mid-run swap prompts. *(Phase 28)*
+- **Classifier schema missing acars/ais** — added to `_JSON_SCHEMA` and `_AU_BAND_REFERENCE`. *(PHASE-CLASSIFIER-SCHEMA-FIX)*
+- **AIS BAND_PROFILES centre vs demodulator mismatch** — profile centre (161.975 = CH1) differed from the dual-channel demod centre (162.000). Backend fixed Phase 14 (now 162.000); frontend fully aligned Phase 16.
+- **Frontend/backend AIS frequency mismatch** — frontend hardcoded 161.975; aligned to 162.000 across BAND_GROUPS, OVERVIEW_BANDS, isTuned(), STRIP_CONFIGS, FREQ_COLOUR_MAP, isAisFreq, FREQ_CONFIGS. *(Phase 15 + 15b)*
+- **CHECKPOINT arg parser failure** — `/build` `$2` positional silently dropped when `$1` was a long multi-line string. `build.md` PHASE-TRACKER GATE now accepts both `$2 CHECKPOINT` and `CHECKPOINT_MODE: ON` embedded in the body. *(Phase 14)*
+- **ADS-B subscriber flush gap** — `AdsbSubscriber.stop()` now calls `flush()` and broadcasts harvested bootstrap-held CPR positions before shutdown. *(PHASE-TECH-DEBT-1.5)*
+- **`config/mimir.yaml` stale comment** — "runtime loading not yet implemented" removed; `scan.py` already calls `load_config()`. *(2026-06-24)*
+- **RTL-ML sample rate in seed_chromadb.py** — `compute_psd` called at 1,024,000 Hz (RTL-ML) dimension-corrupted `bandwidth_hz`/`occupied_bins` vs live 2,000,000 Hz vectors. Fixed to `MIMIR_SAMPLE_RATE = 2_000_000`. *(seed hotfix, pre-Phase 20)*
+- **Phase 19b/19c governance rows missing** — tracker entries added retroactively (checkpoint was off for both builds).
+- **capture_loop.py not passing signal_threshold_db** — live fingerprinting always used the 24.0 dB module fallback; now forwards `band.get("signal_threshold_db")`. *(Phase 29)*
+- **BUG-04 `/vectordb` tooltip frequency mismatch** — seeds write `center_freq_hz`, live captures write `freq_hz`; tooltip showed null for seeds. Fixed with `meta.get("center_freq_hz", meta.get("freq_hz"))`. *(Phase 23)*
+- **Missing `isAdsbTuned()` helper** — ADS-B tuning check factored into a helper alongside `isAcarsTuned`/`isAisTuned`. *(Phase 31)*
+- **Inner NOT TUNED badge dead code** — six unreachable ternary else-branches (NOT TUNED badges + "TUNE TO ..." prompts) removed across the ADS-B/ACARS/AIS decoder panels; outer tuned-guards already gated them. *(Phase 31)*
+- **Queue max hard-coded `020` in SystemStatsPanel** — OBSOLETE: `SystemStatsPanel.jsx` was deleted 2026-06-24 and replaced by inline stats JSX in `App.jsx`, whose "IN QUEUE" readout reads `systemStats.queue_depth` live with no hard-coded max. No fix required. *(Verified 2026-07-13)*
+- **SIGNAL_THRESHOLD_DB discrepancy** — RECONCILED 2026-07-13: `core/pipeline/features.py:30` = `24.0` (documented conservative module-level fallback); the "21 dB" figure was the FM per-band value in `BAND_PROFILES`; the "27 dB" figure was stale memory. No code change — the debt row itself was the stale artefact. *(2026-07-13)*
+- **MED-01: scan.py fatal-error exit path** — `main()`'s `except Exception` sets `fatal_error=True` and exits code 1; test coverage for the exit-code-1 path added. *(PHASE-TECH-DEBT-1)*
+- **ADS-B gain divergence (tools vs production)** — `calibrate_thresholds.py` and `diagnose_fingerprints.py` used (32/38) for ADS-B gain while `shared_state.py` BAND_PROFILES uses (24/24); all four tools now read gains from BAND_PROFILES. *(Phase 19a + BUG-03)*
+- **BUG-03: diagnostic/calibration tools wired to BAND_PROFILES** — `capture_to_vectorstore.py`, `calibrate_thresholds.py`, `diagnose_fingerprints.py`, `diagnose_threshold.py` now read lna/vga gains + `signal_threshold_db` live from BAND_PROFILES; `diagnose_fingerprints.py` AIS gains corrected (24, 26) → (16, 20). *(this session)*
 
 ---
 
-## Known Tech Debt
-
-| Item | Detail | Fix in |
-|---|---|---|
-| `config/mimir.yaml` not loaded | Runtime config loading not yet implemented | Phase 2+ |
-| ~~`scan.py` startup message~~ | ~~Misleading "Scanning N frequencies" in single-freq mode~~ | ~~Post 8C~~ ✅ |
-| ~~Calibration store wiped at every startup~~ | ~~`tools/calibrate_thresholds.py` deleted the vectorstore on each run, losing cross-session calibration data~~ — replaced with persistent storage across runs, `--wipe` flag for full re-baseline, and `STALENESS_DAYS = 14` exclusion from merged ladder. Resolved in Phase 28. | ~~Pre-Phase 28~~ ✅ PHASE-28-CROSS-SESSION-MERGE |
-| ~~Inline single-antenna selection~~ | ~~`calibrate_thresholds.py` used a single hardcoded antenna for all bands, ignoring per-band antenna group requirements~~ — replaced with band-driven antenna groups and mid-run antenna-swap prompts. Resolved in Phase 28. | ~~Pre-Phase 28~~ ✅ PHASE-28-CROSS-SESSION-MERGE |
-| ~~MED-01: scan.py fatal error exit~~ | ~~`except Exception` sets fatal_error=True but no test verifies exit code 1~~ | ~~PHASE-TECH-DEBT-1~~ ✅ |
-| ~~ADS-B gain divergence~~ | ~~`calibrate_thresholds.py` and `diagnose_fingerprints.py` used (32/38) for ADS-B gain, `shared_state.py` uses (24/24)~~. All four tools now read gains from `BAND_PROFILES`. `calibrate_thresholds.py` resolved in Phase 19a; `diagnose_fingerprints.py` resolved in BUG-03. | ✅ Phase 19a + BUG-03 |
-| **BUG-03** | **Four tools wired to BAND_PROFILES for gains/thresholds; `diagnose_fingerprints.py` AIS gains corrected from (24, 26) to (16, 20).** | **This session ✅** |
-| ~~Frontend/backend AIS frequency mismatch~~ | ~~Frontend hardcodes 161.975 MHz (CH1). BAND_PROFILES expects 162.000 MHz (dual-channel centre). `get_band_for_freq(161_975_000)` returns None, so AIS threshold/gains not applied. HackRF retunes correctly (unconditional), so reception works but band profile config is stale.~~ Fixed across Phase 15 (BAND_GROUPS, OVERVIEW_BANDS, isTuned, focusFrequency) and Phase 15b (STRIP_CONFIGS, FREQ_COLOUR_MAP, isAisFreq, FREQ_CONFIGS). All frontend AIS references now use 162.000 MHz. | ~~Post-Phase 14~~ ✅ Phase 15 + 15b |
-| ~~BUG-04 `/vectordb` tooltip frequency field mismatch~~ | ~~Seeded records use `center_freq_hz`, live captures use `freq_hz`. Tooltip shows null for seeds.~~ Fixed in Phase 23: api_vectorstore_points() now uses `meta.get("center_freq_hz", meta.get("freq_hz"))`. Null SNR/peak/timestamp preserved for legacy seeds. Tests: 420 pytest + 162 Vitest = 582 passing. | ✅ Resolved Phase 23 |
-
----
-
-### BUG-04 Detail Section
+### BUG-04 Detail (Phase 23)
 
 #### Summary
 Tooltip frequency field null for legacy seeded records due to metadata key mismatch between seeding workflow and live capture pipeline. Live captures use `freq_hz`, seeded data uses `center_freq_hz`. Tooltip showed null when querying `/vectordb` with legacy seed keys.
