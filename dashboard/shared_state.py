@@ -114,48 +114,99 @@ BAND_PROFILES: dict = {
         "lna_gain_db":         24,  # Telescopic whip has poor FM coupling — gain required
         "vga_gain_db":         26,
         "signal_threshold_db": 21.0,   # Calibrated live FM Adelaide, telescopic whip, lna=24/vga=26
+        "crop_half_width_hz":  112_500,
+        # PLACEHOLDER-VERIFIED: real house capture 2026-07-13 (whip antenna,
+        # diagnose_threshold.py --band fm_broadcast) showed true single-station
+        # bandwidth converging toward ~200-230 kHz at threshold=27 dB across 4
+        # runs (199,219-251,953 Hz range); half-width chosen as midpoint of that
+        # observed range. Matches ACMA-confirmed 200 kHz FM channel spacing
+        # independently. Revisit if signal_threshold_db (currently 21.0) is ever
+        # recalibrated toward 27 dB, since that changes what "true" bandwidth
+        # looks like at the new operating threshold.
     },
     "aviation": {
         "center_freq_hz":      127_000_000,
         "lna_gain_db":         16,  # VHF aviation weaker than FM; moderate gain
         "vga_gain_db":         20,
         "signal_threshold_db": 6.0,    # VHF aviation weaker than FM
+        "crop_half_width_hz":  12_500,
+        # PLACEHOLDER — NOT field-verified. Estimated from 25 kHz VHF voice
+        # channel spacing convention. Needs live air-traffic capture to confirm.
     },
     "acars": {
         "center_freq_hz":      129_125_000,
         "lna_gain_db":         16,
         "vga_gain_db":         20,
         "signal_threshold_db": 6.0,
+        "crop_half_width_hz":  12_500,
+        # PLACEHOLDER — NOT field-verified. Same reasoning as aviation.
     },
     "aprs": {
         "center_freq_hz":      145_175_000,
         "lna_gain_db":         24,
         "vga_gain_db":         26,
         "signal_threshold_db": 18.0,    # Calibrated: telescopic whip, 2026-06-24, diagnose_threshold.py x2 runs
+        "crop_half_width_hz":  12_500,
+        # PLACEHOLDER-VERIFIED (band plan only, not a live-signal capture): WIA
+        # Australian Amateur Band Plan confirms 25 kHz FM channel spacing on 2m.
+        # Real house capture 2026-07-13 showed zero occupied bandwidth at the
+        # current calibrated threshold (18.0 dB) — likely no APRS traffic was
+        # on-air during capture, not a crop-relevant result. Revisit once a real
+        # APRS packet is captured live.
     },
     "ais": {
         "center_freq_hz": 162_000_000,  # was 161_975_000 — demodulator centres at 162 MHz, channels at ±25 kHz
         "lna_gain_db":         16,  # VHF maritime — consistent with aviation/ACARS
         "vga_gain_db":         20,
         "signal_threshold_db": 5.0,    # Provisional — needs live calibration with telescopic whip
+        "crop_half_width_hz": 50_000,
+        # PLACEHOLDER-CORRECTED 2026-07-13 (Phase 30 HIGH-01 fix): center_freq_hz
+        # (162.000 MHz) is the MIDPOINT between the two AIS channels, not a
+        # channel centre — CH1 161.975 MHz and CH2 162.025 MHz each sit ±25 kHz
+        # from it. A 12.5 kHz half-width cropped the dead gap between channels and
+        # zeroed both signals. 50 kHz half-width covers 161.950–162.050 MHz,
+        # capturing both channels with margin. Still NOT field-verified against a
+        # live AIS capture — revisit once a real vessel packet is received.
     },
     "ism": {
         "center_freq_hz":      915_000_000,
         "lna_gain_db":         24,
         "vga_gain_db":         26,
         "signal_threshold_db": 3.0,   # Calibrated: telescopic whip, 2026-06-24, diagnose_threshold.py x2 runs
+        "crop_half_width_hz":  250_000,
+        # PLACEHOLDER — NOT field-verified, genuinely uncertain. AU915 uses a
+        # mix of 125 kHz channels (64 of them) and 500 kHz channels (8 of them);
+        # BAND_PROFILES center_freq_hz (915.000 MHz) does not land on a real
+        # AU915 channel centre (they start at 915.2 MHz), so the current 2 MHz
+        # capture window likely spans 4-5 real channels at once. Real house
+        # capture 2026-07-13 showed only noise-level readings (no LoRa device
+        # was transmitting nearby) — inconclusive, not a real-signal
+        # measurement. Needs a capture during confirmed live LoRa traffic.
     },
     "adsb": {
         "center_freq_hz":      1_090_000_000,
         "lna_gain_db":         24,  # 1090 MHz ADS-B moderate strength
         "vga_gain_db":         24,
         "signal_threshold_db": 3.0,    # Calibrated live ADS-B 1090 MHz, diagnose_threshold.py x3 runs
+        "crop_half_width_hz":  900_000,
+        # PLACEHOLDER — NOT field-verified, deliberately conservative/wide.
+        # Sources disagree on ADS-B/Mode S occupied bandwidth (~1 MHz vs ~2 MHz)
+        # and the full capture window is only 2 MHz — an aggressive crop risks
+        # clipping real pulse energy. tools/diagnose_threshold.py's own
+        # BAND_SWEEP already assumes target_bw_hz=1_000_000 for ADS-B (a prior
+        # estimate, not a live measurement) — 900 kHz half-width stays inside
+        # that with a small margin. Needs a live-aircraft capture with the
+        # spiral discone to confirm or revise.
     },
     "noise_floor": {
         "center_freq_hz":      98_000_000,
         "lna_gain_db":         0,   # Reference measurement — zero gain baseline
         "vga_gain_db":         0,
         "signal_threshold_db": 10.0,   # noise floor baseline dB — not a signal threshold
+        "crop_half_width_hz":  None,
+        # Reference/baseline profile, not a real receivable band. Cropping does
+        # not apply — fingerprint_spectrum() must treat None as "no crop"
+        # (full-span behaviour), same as when crop_half_width_hz is absent.
     },
 }
 

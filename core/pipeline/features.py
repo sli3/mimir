@@ -36,6 +36,7 @@ def fingerprint_spectrum(
     psd_result: dict,
     signal_threshold_db: float | None = None,
     trace_key: str = 'psd_db',
+    crop_half_width_hz: float | None = None,
 ) -> dict[str, float | int]:
     """
     Extract spectral fingerprint features from a PSD result dictionary.
@@ -61,6 +62,19 @@ def fingerprint_spectrum(
         trace_key: Key in ``psd_result`` to use as the input PSD. Default is
                    ``'psd_db'`` (averaged trace, correct for continuous signals).
                    Pass ``'psd_max_hold_db'`` for burst signals such as ADS-B.
+        crop_half_width_hz: Per-band crop window half-width in Hz. When set,
+                            peak search (``peak_freq_hz`` / ``peak_power_db``)
+                            and occupied-bin counting (``occupied_bins`` /
+                            ``bandwidth_hz``) are restricted to bins within
+                            ``+/- crop_half_width_hz`` of ``center_freq_hz``.
+                            This prevents a second, off-centre signal in the
+                            same 2 MHz capture span from contaminating the
+                            reported bandwidth or stealing the peak bin
+                            (Phase 30). When ``None`` (default), full-span
+                            behaviour is preserved — identical to pre-Phase 30.
+                            The noise floor is ALWAYS computed on the full,
+                            uncropped ``psd_db`` so a narrow window does not
+                            bias it upward.
 
     Returns:
         Dictionary containing:
@@ -110,8 +124,43 @@ def fingerprint_spectrum(
     sample_rate_hz = psd_result["sample_rate_hz"]
     nfft = psd_result["nfft"]
 
-    # Peak bin — the index where psd_db is highest
-    peak_idx = int(np.argmax(psd_db))
+    # Crop mask (Phase 30) — restrict peak search and occupied-bin counting
+    # to a per-band window around the tuned centre frequency. The noise
+    # floor calculation further down still uses the full, uncropped psd_db
+    # — a narrow window would bias it upward since it would be dominated
+    # by signal-adjacent bins, not by open noise.
+    crop_mask = None
+    if crop_half_width_hz is not None:
+        crop_mask = np.abs(frequencies_hz - center_freq_hz) <= crop_half_width_hz
+        if not np.any(crop_mask):
+            logger.warning(
+                "crop_half_width_hz=%.1f Hz selected zero bins around centre "
+                "%.1f Hz — returning zeroed fingerprint",
+                crop_half_width_hz,
+                center_freq_hz,
+            )
+            return {
+                "center_freq_hz": float(center_freq_hz),
+                "peak_freq_hz": 0.0,
+                "peak_power_db": 0.0,
+                "noise_floor_db": 0.0,
+                "snr_db": 0.0,
+                "bandwidth_hz": 0.0,
+                "occupied_bins": 0,
+                "spectral_flatness": 0.0,
+                "signal_threshold_db": float(effective_threshold),
+                "snr_margin_db": 0.0,
+                "peak_bin_power_db": 0.0,
+            }
+
+    # Peak bin (cropped if crop_mask is set, else full-span)
+    psd_for_peak = psd_db[crop_mask] if crop_mask is not None else psd_db
+    peak_idx_local = int(np.argmax(psd_for_peak))
+    peak_idx = (
+        int(np.flatnonzero(crop_mask)[peak_idx_local])
+        if crop_mask is not None
+        else peak_idx_local
+    )
     peak_freq_hz = float(frequencies_hz[peak_idx])
     peak_power_db = float(psd_db[peak_idx])
 
@@ -127,8 +176,14 @@ def fingerprint_spectrum(
 
     # Bandwidth and occupied bin count
     # Bins are "occupied" when their power exceeds noise floor + effective_threshold dB
+    # (Phase 30: cropped to per-band window when crop_half_width_hz is set;
+    # noise floor above stays full-span).
     threshold = noise_floor_db + effective_threshold
-    occupied_mask = psd_db > threshold
+    threshold_mask = psd_db > threshold
+    if crop_mask is not None:
+        occupied_mask = threshold_mask & crop_mask
+    else:
+        occupied_mask = threshold_mask
     occupied_bins = int(np.sum(occupied_mask))
     hz_per_bin = sample_rate_hz / nfft
     bandwidth_hz = float(occupied_bins * hz_per_bin)
