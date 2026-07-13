@@ -149,8 +149,8 @@ Full phase-by-phase history lives in [`docs/ROADMAP.md`](./docs/ROADMAP.md), whi
 single source of truth for phase status and test counts. This section shows
 only a quick-glance summary — update `docs/ROADMAP.md` first, then sync this block.
 
-**Current phase: 29 — Live capture loop forwards per-band `signal_threshold_db`**
-**Total: 640 passing (469 pytest + 171 Vitest), 0 failures**
+**Current phase: 30 — Spectral cropping for fingerprint_spectrum()**
+**Total: 646 passing (475 pytest + 171 Vitest), 0 failures**
 
 > **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector
 > store (`data/vectorstore/`) must be re-seeded after deploying this build.
