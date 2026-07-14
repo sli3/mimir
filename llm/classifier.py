@@ -35,13 +35,29 @@ trustworthy rather than just a number.
 import json
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Optional
 
 import requests
 
 logger = logging.getLogger(__name__)
+
+
+# ── Deterministic confidence-cap thresholds ───────────────────────────────────
+# HEURISTIC and tunable — NOT field-calibrated. These are a deterministic
+# backstop applied AFTER the LLM returns (see _apply_confidence_caps). They exist
+# because confidence_score is set entirely by the LLM — there is no upstream
+# formula — so a frequency + ACMA match can talk the model into "high" even when
+# the live signal is weak or noise-shaped. These thresholds target that observed
+# false-positive shape while staying conservative enough not to suppress a
+# genuine weak-but-real signal. Revisit once live-aircraft captures give a real
+# picture of what a true weak signal's margin/bandwidth looks like on this
+# hardware (tracked alongside the ADS-B field-verification work).
+_MARGIN_FLOOR_DB: float = 6.0          # min SNR-above-threshold for full confidence
+_NEAR_ZERO_BINS: int = 1               # <= this many occupied bins = spike/noise
+_NOISE_FLATNESS: float = 0.9           # spectral flatness >= this = near-white noise
+_CAPPED_CONFIDENCE_SCORE: float = 0.4  # ceiling applied when any cap triggers
 
 
 @dataclass
@@ -301,7 +317,12 @@ class SignalClassifier:
             fingerprint : Signal fingerprint dict from Phase 2
                           fingerprint_spectrum(). Must contain at minimum:
                           center_freq_hz, peak_power_db, snr_db,
-                          spectral_flatness, timestamp.
+                          spectral_flatness, timestamp. Also uses, when present:
+                          bandwidth_hz, occupied_bins, snr_margin_db,
+                          peak_bin_power_db — fed to the prompt as measured
+                          evidence and used by _apply_confidence_caps(). Missing
+                          optional fields degrade gracefully (labelled "unknown",
+                          and the corresponding cap simply does not fire).
 
             neighbours  : List of neighbour dicts from Phase 3
                           SignalStore.query(). Each dict must contain
@@ -352,7 +373,8 @@ class SignalClassifier:
             raw = response.json()["choices"][0]["message"]["content"]
             self._offline_until = 0.0  # Server is back — clear cooldown
             logger.debug("LLM raw response: %s", raw)
-            return self._parse_response(raw)
+            result = self._parse_response(raw)
+            return self._apply_confidence_caps(result, fingerprint)
 
         except requests.exceptions.ConnectionError:
             self._offline_until = time.time() + self._cooldown_sec
@@ -414,6 +436,84 @@ class SignalClassifier:
             raw_response="",
         )
 
+    # ── Deterministic confidence caps ──────────────────────────────────────────
+
+    def _apply_confidence_caps(
+        self, result: ClassificationResult, fingerprint: dict
+    ) -> ClassificationResult:
+        """Clamp confidence when the measured signal looks weak or noise-like.
+
+        The LLM sets confidence_score itself — there is no upstream formula — so
+        a frequency + ACMA match can push it to "high" even for a signal that is
+        barely above the noise floor or occupies no real bandwidth. This method
+        is a deterministic backstop the prompt wording cannot be reasoned past.
+
+        SAFETY: this runs on the FINGERPRINT classification path only. Confirmed
+        ADS-B decodes are emitted by emit_adsb_scan_result() as ground truth
+        (source="decode") and never call classify(), so these caps cannot dim a
+        real decoded aircraft. Confirm that caller separation holds before relying
+        on this property.
+
+        When any cap triggers, confidence_score is clamped to
+        _CAPPED_CONFIDENCE_SCORE, the tier is set to "low", and a note is appended
+        to reasoning explaining why. signal_type is left untouched — this gates
+        confidence, it does not re-classify.
+        """
+        snr_margin_db = fingerprint.get("snr_margin_db")
+        occupied_bins = fingerprint.get("occupied_bins")
+        flatness = fingerprint.get("spectral_flatness")
+
+        reasons: list[str] = []
+
+        # Cap 1 — marginal SNR. snr_margin_db is SNR above the per-band calibrated
+        # detection threshold. A small margin means the signal is barely clearing
+        # the noise floor, whatever its absolute SNR.
+        if snr_margin_db is not None and snr_margin_db < _MARGIN_FLOOR_DB:
+            reasons.append(
+                f"SNR margin {snr_margin_db:.1f} dB below the "
+                f"{_MARGIN_FLOOR_DB:.0f} dB confidence floor "
+                f"(barely above detection threshold)"
+            )
+
+        # Cap 2 — no real occupied bandwidth AND noise-shaped. A signal occupying
+        # at most one FFT bin AND with near-white spectral flatness is a
+        # spike/noise, not a modulated signal. The flatness condition deliberately
+        # protects genuine narrow tonal signals (low flatness), which are NOT
+        # capped by this rule.
+        if (
+            occupied_bins is not None
+            and flatness is not None
+            and occupied_bins <= _NEAR_ZERO_BINS
+            and flatness >= _NOISE_FLATNESS
+        ):
+            reasons.append(
+                f"occupies {occupied_bins} bin(s) with spectral flatness "
+                f"{flatness:.3f} (near-white) — no real occupied bandwidth"
+            )
+
+        if not reasons:
+            return result
+
+        capped_score = min(result.confidence_score, _CAPPED_CONFIDENCE_SCORE)
+        note = (
+            " [confidence capped by signal-quality gate: "
+            + "; ".join(reasons)
+            + "]"
+        )
+        logger.info(
+            "Confidence capped %.2f -> %.2f at %.3f MHz: %s",
+            result.confidence_score,
+            capped_score,
+            fingerprint.get("center_freq_hz", 0) / 1e6,
+            "; ".join(reasons),
+        )
+        return replace(
+            result,
+            confidence_score=capped_score,
+            confidence="low",
+            reasoning=result.reasoning + note,
+        )
+
     # ── Prompt construction ────────────────────────────────────────────────────
 
     def _build_system_prompt(self) -> str:
@@ -453,7 +553,21 @@ No code blocks. Raw JSON exactly matching this schema:
 
 If you cannot confidently classify the signal, use signal_type "unknown" \
 and set confidence to "low". If all neighbours have distances above 0.052, \
-set novel to true. Never invent data — only classify based on what you are given. /no_think"""
+set novel to true.
+
+EVIDENCE PRIORITY (important):
+A frequency or ACMA allocation match confirms only that a signal COULD legally \
+be present at this frequency — it is NOT evidence that a real signal IS present. \
+Noise sitting at an allocated frequency still matches the allocation. Base your \
+classification and confidence PRIMARILY on the measured signal characteristics \
+(SNR margin, occupied bandwidth, spectral flatness) and the \
+vector-store nearest neighbours, which describe what was actually received. \
+Treat frequency and ACMA allocation as a SECONDARY plausibility check only. \
+If the signal is weak (low SNR margin), occupies essentially no bandwidth \
+(single-bin), or is spectrally flat (noise-like), prefer signal_type "noise" \
+and set confidence "low" even when the frequency matches a known allocation.
+
+Never invent data — only classify based on what you are given. /no_think"""
 
     def _build_user_prompt(
         self,
@@ -482,6 +596,17 @@ set novel to true. Never invent data — only classify based on what you are giv
         snr_db = fingerprint.get("snr_db", 0.0)
         flatness = fingerprint.get("spectral_flatness", 0.0)
         timestamp = fingerprint.get("timestamp", datetime.now().isoformat())
+        # Phase 33: bandwidth_hz / occupied_bins / snr_margin_db were computed by
+        # fingerprint_spectrum() but never reached the LLM before — the blind spot
+        # that let single-bin noise at an allocated frequency pass as a real
+        # signal. (peak_bin_power_db / burst structure deliberately NOT surfaced:
+        # real FM broadcast trips the 10 dB chunk-vs-average "burst" gap due to
+        # audio dynamics, so it does not discriminate pulsed ADS-B from continuous
+        # FM as features.py assumes. Re-add only after real ADS-B + FM captures
+        # establish the true per-band gap distributions.)
+        bandwidth_hz = fingerprint.get("bandwidth_hz", 0.0)
+        occupied_bins = fingerprint.get("occupied_bins", 0)
+        snr_margin_db = fingerprint.get("snr_margin_db")
 
         # Annotate SNR with a plain-English quality label
         if snr_db >= 30:
@@ -508,6 +633,29 @@ set novel to true. Never invent data — only classify based on what you are giv
             flatness_label = "moderate = mixed or wideband signal"
         else:
             flatness_label = "high = noise-like or spread-spectrum signal"
+
+        # Annotate SNR margin — how far above the per-band CALIBRATED detection
+        # threshold this signal sits. Small/negative = barely detectable.
+        if snr_margin_db is None:
+            margin_str = "n/a"
+            margin_label = "unknown — margin not supplied"
+        else:
+            margin_str = f"{snr_margin_db:.1f}"
+            if snr_margin_db < 3:
+                margin_label = "very low — barely above detection threshold"
+            elif snr_margin_db < 10:
+                margin_label = "modest — above threshold but not strong"
+            else:
+                margin_label = "comfortable — well above detection threshold"
+
+        # Annotate occupied bandwidth. A real modulated signal occupies many bins;
+        # one or zero bins is a single spike (noise, or an unmodulated carrier).
+        if occupied_bins <= 1:
+            bandwidth_label = (
+                "essentially none — single-bin spike, not an occupied channel"
+            )
+        else:
+            bandwidth_label = f"{occupied_bins} occupied bins — a real channel width"
 
         # Build neighbours section
         if neighbours:
@@ -553,43 +701,51 @@ set novel to true. Never invent data — only classify based on what you are giv
                 acma_lines.append(line)
             acma_section = "\n".join(acma_lines) + "\n"
             acma_footer = (
-                "REGULATORY CONTEXT: The ACMA allocations above are authoritative "
-                "for this exact frequency. Your classification MUST be consistent "
-                "with the allocated services. If the signal frequency falls within "
-                "a known allocation, that allocation takes precedence over "
-                "nearest-neighbour labels from the vector store.\n"
+                "REGULATORY CONTEXT (plausibility check — NOT proof of a real "
+                "signal): the ACMA allocations above show what is LICENSED to "
+                "operate at this frequency. They confirm whether a classification "
+                "is plausible here; they do NOT confirm a real signal is present. "
+                "Noise at an allocated frequency still matches the allocation. If "
+                "the measured signal evidence is weak or noise-like, keep "
+                "confidence LOW even though the frequency sits in a known "
+                "allocation.\n"
             )
         else:
             acma_section = ""
             acma_footer = ""
 
-        freq_anchor = (
-            "IMPORTANT: The centre frequency above is the authoritative anchor for "
-            "classification. Nearest neighbours may come from different frequencies "
-            "and different signal types — do not let neighbour labels override the "
-            "frequency evidence. If a neighbour label contradicts the centre frequency "
-            "or its known allocation, prefer the frequency evidence.\n"
-        ) if acma_allocations else (
-            "IMPORTANT: The centre frequency above is the authoritative anchor for "
-            "classification. Nearest neighbours may come from different frequencies "
-            "and different signal types — do not let neighbour labels override the "
-            "frequency evidence.\n"
+        evidence_order = (
+            "HOW TO WEIGH THE EVIDENCE:\n"
+            "  1. PRIMARY — the measured signal characteristics (SNR margin, "
+            "occupied bandwidth, spectral flatness) and the "
+            "vector-store nearest neighbours. These describe what was actually "
+            "received.\n"
+            "  2. SECONDARY — the centre frequency and any ACMA allocation. These "
+            "describe what is expected or permitted here, not what is present.\n"
+            "A frequency or allocation match ALONE is not sufficient for high "
+            "confidence. High confidence requires the measured evidence to be "
+            "consistent with a real signal of the classified type. If the signal "
+            "is weak, single-bin, or noise-flat, classify accordingly (often "
+            '"noise") and set confidence LOW regardless of the frequency.\n'
         )
 
         return (
             f"New signal fingerprint:\n"
-            f"  Centre frequency : {freq_hz:,.0f} Hz ({freq_mhz:.3f} MHz)\n"
-            f"  Peak power       : {peak_db:.1f} dBFS  ({power_label})\n"
-            f"  SNR              : {snr_db:.1f} dB     ({snr_label})\n"
-            f"  Spectral flatness: {flatness:.3f}       ({flatness_label})\n"
-            f"  Captured         : {timestamp}\n"
+            f"  Centre frequency  : {freq_hz:,.0f} Hz ({freq_mhz:.3f} MHz)\n"
+            f"  Peak power        : {peak_db:.1f} dBFS  ({power_label})\n"
+            f"  SNR               : {snr_db:.1f} dB     ({snr_label})\n"
+            f"  SNR margin        : {margin_str} dB   ({margin_label})\n"
+            f"  Occupied bandwidth: {bandwidth_hz:,.0f} Hz  ({bandwidth_label})\n"
+            f"  Spectral flatness : {flatness:.3f}       ({flatness_label})\n"
+            f"  Captured          : {timestamp}\n"
+            f"\n"
+            f"PRIMARY EVIDENCE — ChromaDB nearest neighbours "
+            f"(top {len(neighbours)}, lower distance = more similar):\n"
+            f"{neighbours_section}\n"
             f"\n"
             f"{acma_section}"
             f"{acma_footer}"
-            f"ChromaDB nearest neighbours (top {len(neighbours)}):\n"
-            f"{neighbours_section}\n"
-            f"\n"
-            f"{freq_anchor}"
+            f"{evidence_order}"
             f"\n"
             f"Classify this signal. Respond with JSON only."
         )
