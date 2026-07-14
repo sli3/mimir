@@ -72,8 +72,8 @@
 | 30 | Spectral cropping for fingerprint_spectrum() — per-band crop_half_width_hz | ✅ Complete | 646 (475 pytest + 171 Vitest) |
 | 31 | Decoder panel tuned-state cleanup (isAdsbTuned() helper + Phase 17 dead-branch removal) | ✅ Complete | 646 (475 pytest + 171 Vitest) |
 | 32 | Confidence Provenance Gating — dim unverified confidence via `source` field on scan_result | ✅ Complete | 656 (477 pytest + 179 Vitest) |
-| 33-Hotfix | Classifier confidence cap + vectordb SNR tools (hotfix, RETROACTIVE — code shipped, tests in 34) | ✅ Shipped | 656 at ship (477 pytest + 179 Vitest); tests added in Phase 34 |
-| 34 | Test coverage for Phase 33 classifier cap + vectordb tools (TEST-ONLY) | ✅ pytest green / ⚠️ Vitest broken | pytest 498 passing (+21), 0 fail (live-verified). Vitest suite failing — pre-existing env break, see BUG-05. No frontend touched. |
+| 33-Hotfix | Classifier confidence cap + vectordb SNR tools (hotfix, RETROACTIVE — code shipped, tests in 34) | ✅ Complete | 656 (477 pytest + 179 Vitest) [tests added in Phase 34] |
+| 34 | Test coverage for Phase 33 classifier cap + vectordb tools (TEST-ONLY) | ✅ Complete | 677 (498 pytest + 179 Vitest), 0 failures |
 
 ---
 
@@ -1433,7 +1433,7 @@ itself; automated coverage added in Phase 34.
 
 ---
 
-### Phase 34 — Test Coverage for Phase 33 (test-only) ✅ pytest / ⚠️ Vitest broken
+### Phase 34 — Test Coverage for Phase 33 (test-only) ✅
 
 **Goal.** Add the automated coverage the Phase 33 hotfix shipped without. Test-only phase — no
 production logic changed.
@@ -1456,12 +1456,9 @@ production logic changed.
   Phase 33 prompt (which intentionally names "ACMA allocation" in the evidence-priority text even
   with no allocations passed).
 
-**Test counts:** pytest **498 passing (+21 from 477), 0 failures** — live-verified twice.
-Vitest **NOT green**: 35 passing / 140 failing / 175 collected, from a pre-existing environment
-break (Vitest v4.1.10 resolving instead of the pinned ^2.1.0; jsdom not loading — `document is
-not defined`). No frontend code was modified in this phase; the break is unrelated and tracked
-as BUG-05. A combined all-green total is deliberately NOT claimed until the frontend test
-environment is repaired.
+**Test counts:** **677 passing (498 pytest + 179 Vitest), 0 failures** — both suites
+live-verified (`uv run pytest` from the repo root with `PYTHONPATH=.`; `npm run test` from
+`dashboard/frontend`). pytest is +21 from the 477 baseline; Vitest unchanged at 179.
 
 ---
 

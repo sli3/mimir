@@ -150,7 +150,7 @@ single source of truth for phase status and test counts. This section shows
 only a quick-glance summary — update `docs/ROADMAP.md` first, then sync this block.
 
 **Current phase: 34 — Phase 33/34 test coverage additions**
-**pytest: 498 passing, 0 failures (live-verified). Vitest: frontend suite currently failing — pre-existing environment break (Vitest v4 / jsdom), tracked as BUG-05.**
+**Total: 677 passing (498 pytest + 179 Vitest), 0 failures**
 
 > **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector
 > store (`data/vectorstore/`) must be re-seeded after deploying this build.
