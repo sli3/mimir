@@ -44,6 +44,7 @@ describe('useSocket', () => {
       au_legal_status: null,
       reasoning: null,
       timestamp: null,
+      source: null,
       peak_power_db: null,
       peak_bin_power_db: null,
       snr_db: null,
@@ -126,6 +127,7 @@ describe('useSocket', () => {
       au_legal_status: null,
       reasoning: null,
       timestamp: null,
+      source: null,
       peak_power_db: null,
       peak_bin_power_db: null,
       snr_db: null,
@@ -177,6 +179,7 @@ describe('useSocket', () => {
       signal_threshold_db: null,
       snr_margin_db: null,
       novel: null,
+      source: null,
     })
   })
 
@@ -225,7 +228,58 @@ describe('useSocket', () => {
       signal_threshold_db: null,
       snr_margin_db: null,
       novel: null,
+      source: null,
     })
+  })
+
+  it('scan_result with source="decode" propagates to aiReasoning.source', () => {
+    const { result } = renderHook(() => useSocket())
+    const handler = eventHandlers['scan_result'][0]
+
+    act(() => {
+      result.current.focusFrequency(1090000000)
+    })
+
+    act(() => {
+      handler({
+        center_freq_hz: 1090000000,
+        signal_type: 'adsb',
+        confidence: 'high',
+        confidence_score: 1.0,
+        au_legal_status: 'LEGAL RX',
+        reasoning: 'Confirmed ADS-B decode',
+        timestamp: '2026-07-14T12:00:00.000Z',
+        source: 'decode',
+      })
+    })
+
+    expect(result.current.aiReasoning.source).toBe('decode')
+  })
+
+  it('scan_result with source="fingerprint" propagates to aiReasoning.source', () => {
+    const { result } = renderHook(() => useSocket())
+    const handler = eventHandlers['scan_result'][0]
+
+    act(() => {
+      result.current.focusFrequency(98000000)
+    })
+
+    act(() => {
+      handler({
+        center_freq_hz: 98000000,
+        signal_type: 'fm_broadcast',
+        confidence: 'high',
+        confidence_score: 0.95,
+        au_legal_status: 'LEGAL RX',
+        reasoning: 'Strong FM carrier',
+        timestamp: '2026-07-14T12:00:00.000Z',
+        source: 'fingerprint',
+        snr_db: 12.0,
+        bandwidth_hz: 200000,
+      })
+    })
+
+    expect(result.current.aiReasoning.source).toBe('fingerprint')
   })
 
   it('scan_result stores peak_bin_power_db in scanResults entry', () => {

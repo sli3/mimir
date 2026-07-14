@@ -415,3 +415,76 @@ class TestEmitAdsbScanResult:
         finally:
             import dashboard.server
             dashboard.server._focused_freq_hz = saved
+
+
+class TestScanResultSourceProvenance:
+    """Tests for Phase 32 — scan_result payloads carry 'source' for confidence gating."""
+
+    def setup_method(self):
+        self._saved_focused_freq = server._focused_freq_hz
+        server._focused_freq_hz = None
+
+    def teardown_method(self):
+        server._focused_freq_hz = self._saved_focused_freq
+
+    def _make_scan_result(self, freq_hz: float, fingerprint: dict | None = None) -> ScanResult:
+        return ScanResult(
+            center_freq_hz=freq_hz,
+            timestamp="2026-07-14T12:00:00",
+            fingerprint=fingerprint or {},
+            classification=ClassificationResult(
+                signal_type="test",
+                confidence="high",
+                confidence_score=0.9,
+                novel=False,
+                au_legal_status="LEGAL RX",
+                reasoning="test",
+                frequency_band="test",
+                raw_response="test",
+            ),
+        )
+
+    def test_broadcast_payload_includes_source_fingerprint(self):
+        """broadcast() emits 'source'='fingerprint' so the frontend can dim unverified confidence."""
+        from dashboard.server import start_server
+
+        with (
+            patch("dashboard.server.socketio.run"),
+            patch("threading.Thread.start"),
+        ):
+            broadcast = start_server("localhost", 5000, MagicMock())
+
+        with (
+            patch("dashboard.server._focused_freq_hz", None),
+            patch("dashboard.server.socketio.emit") as mock_emit,
+        ):
+            broadcast(self._make_scan_result(100e6))
+
+        mock_emit.assert_called_once()
+        event_name, payload = mock_emit.call_args[0]
+        assert event_name == "scan_result"
+        assert payload.get("source") == "fingerprint"
+
+    def test_emit_adsb_scan_result_payload_includes_source_decode(self):
+        """emit_adsb_scan_result() emits 'source'='decode' so the frontend keeps confirmed decodes bright."""
+        from dashboard.server import emit_adsb_scan_result
+        from datetime import datetime, timezone
+
+        msg = AdsbMessage(
+            icao="ABCDEF",
+            callsign="TEST123",
+            latitude=-34.0,
+            longitude=138.0,
+            altitude_ft=35000,
+            groundspeed=450.0,
+            track=180.0,
+            vertical_rate=0,
+            raw_hex="8D406B902015A678D4D220AA4BDA",
+            timestamp=datetime.now(timezone.utc),
+        )
+        with patch("dashboard.server.socketio.emit") as mock_emit:
+            emit_adsb_scan_result(msg)
+
+        mock_emit.assert_called_once()
+        data = mock_emit.call_args[0][1]
+        assert data.get("source") == "decode"

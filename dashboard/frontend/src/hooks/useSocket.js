@@ -4,7 +4,10 @@ import { io } from 'socket.io-client'
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000'
 
 /** Initial state for the AI reasoning slot. Every field is null at startup
- *  and is populated from `scan_result` events by the LLM pipeline.
+ *  and is populated from `scan_result` events by the LLM pipeline or the
+ *  decoder-driven path (Phase 32). The new ``source`` field indicates which
+ *  path produced the entry: ``"fingerprint"`` for LLM-classified scans or
+ *  ``"decode"`` for confirmed ADS-B decodes.
  *  @type {{ [key: string]: null }} */
 const INITIAL_AI_REASONING = {
   freq_hz: null,
@@ -14,6 +17,7 @@ const INITIAL_AI_REASONING = {
   au_legal_status: null,
   reasoning: null,
   timestamp: null,
+  source: null,
   peak_power_db: null,
   peak_bin_power_db: null,
   snr_db: null,
@@ -77,6 +81,7 @@ export function useSocket() {
           au_legal_status: data.au_legal_status || null,
           reasoning: data.reasoning || null,
           timestamp: data.timestamp || null,
+          source: data.source ?? null,
           peak_power_db: data.peak_power_db ?? null,
           peak_bin_power_db: data.peak_bin_power_db ?? null,
           snr_db: data.snr_db ?? null,

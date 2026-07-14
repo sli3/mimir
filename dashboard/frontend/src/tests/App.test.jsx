@@ -4,39 +4,42 @@ import React from 'react'
 
 const mockFocusFrequency = vi.fn()
 
-vi.mock('../hooks/useSocket.js', () => ({
-  useSocket: () => ({
-    scanResults: [],
-    spectrumUpdates: [],
-    systemStats: null,
-    focusedFreq: null,
-    focusFrequency: mockFocusFrequency,
-    isConnected: false,
-    acarsMessages: [],
-    aiReasoning: {
-      freq_hz: null,
-      signal_type: null,
-      confidence: null,
-      confidence_score: null,
-      au_legal_status: null,
-      reasoning: null,
-      timestamp: null,
-      novel: null,
-    },
-    aisVessels: [],
-    adsbAircraft: {},
-    adsbAircraftHistory: [],
-    acarsRawLog: [],
-    aisRawLog: [],
-  }),
-}))
+vi.mock('../hooks/useSocket.js')
 
+import { useSocket } from '../hooks/useSocket.js'
 import App from '../App.jsx'
+
+const defaultUseSocket = () => ({
+  scanResults: [],
+  spectrumUpdates: [],
+  systemStats: null,
+  focusedFreq: null,
+  focusFrequency: mockFocusFrequency,
+  isConnected: false,
+  acarsMessages: [],
+  aiReasoning: {
+    freq_hz: null,
+    signal_type: null,
+    confidence: null,
+    confidence_score: null,
+    au_legal_status: null,
+    reasoning: null,
+    timestamp: null,
+    source: null,
+    novel: null,
+  },
+  aisVessels: [],
+  adsbAircraft: {},
+  adsbAircraftHistory: [],
+  acarsRawLog: [],
+  aisRawLog: [],
+})
 
 describe('App', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockFocusFrequency.mockClear()
+    useSocket.mockReturnValue(defaultUseSocket())
   })
 
   it('renders without crashing', () => {
@@ -196,5 +199,89 @@ describe('App', () => {
   it('renders CLASSIFIED label', () => {
     render(<App />)
     expect(screen.getByText('CLASSIFIED')).toBeInTheDocument()
+  })
+
+  function makeAiReasoning(overrides) {
+    return {
+      freq_hz: 98000000,
+      signal_type: 'fm_broadcast',
+      confidence: 'high',
+      confidence_score: 0.95,
+      au_legal_status: 'LEGAL RX',
+      reasoning: 'Signal matches FM broadcast characteristics',
+      timestamp: '2026-07-14T12:00:00.000Z',
+      peak_power_db: -72.0,
+      peak_bin_power_db: -70.0,
+      snr_db: 8.0,
+      bandwidth_hz: 200000,
+      spectral_flatness: 0.45,
+      chroma_distance: 0.123,
+      signal_threshold_db: 10.0,
+      snr_margin_db: -2.0,
+      novel: false,
+      source: null,
+      ...overrides,
+    }
+  }
+
+  function findRowValue(container, label) {
+    const allSpans = [...container.querySelectorAll('span')]
+    const labelSpan = allSpans.find((s) => s.textContent === label)
+    if (!labelSpan) return null
+    const rowDiv = labelSpan.parentElement
+    return rowDiv.querySelectorAll('span')[1]
+  }
+
+  describe('App confidence provenance gate (Phase 32)', () => {
+    it('dims CONFIDENCE value when source=fingerprint and no measurement', () => {
+      useSocket.mockReturnValueOnce({
+        ...defaultUseSocket(),
+        focusedFreq: 98000000,
+        aiReasoning: makeAiReasoning({
+          source: 'fingerprint',
+          snr_db: null,
+          bandwidth_hz: null,
+          reasoning: 'Frequency match only — no real signal',
+        }),
+      })
+      const { container } = render(<App />)
+      const confidenceValue = findRowValue(container, 'CONFIDENCE')
+      expect(confidenceValue).toBeTruthy()
+      expect(confidenceValue.textContent).toBe('95%')
+      expect(confidenceValue.style.color).toBe('var(--text-dim)')
+    })
+
+    it('keeps CONFIDENCE value bright when source=decode even without measurement', () => {
+      useSocket.mockReturnValueOnce({
+        ...defaultUseSocket(),
+        focusedFreq: 1090000000,
+        aiReasoning: makeAiReasoning({
+          source: 'decode',
+          signal_type: 'adsb',
+          snr_db: null,
+          bandwidth_hz: null,
+          confidence_score: 1.0,
+          reasoning: 'Confirmed ADS-B decode',
+        }),
+      })
+      const { container } = render(<App />)
+      const confidenceValue = findRowValue(container, 'CONFIDENCE')
+      expect(confidenceValue.style.color).toBe('var(--neon-green)')
+    })
+
+    it('keeps CONFIDENCE value bright when source=fingerprint and measurement present', () => {
+      useSocket.mockReturnValueOnce({
+        ...defaultUseSocket(),
+        focusedFreq: 98000000,
+        aiReasoning: makeAiReasoning({
+          source: 'fingerprint',
+          snr_db: 12.0,
+          bandwidth_hz: 200000,
+        }),
+      })
+      const { container } = render(<App />)
+      const confidenceValue = findRowValue(container, 'CONFIDENCE')
+      expect(confidenceValue.style.color).toBe('var(--neon-green)')
+    })
   })
 })

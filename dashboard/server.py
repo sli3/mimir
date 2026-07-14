@@ -214,6 +214,20 @@ def start_server(host: str, port: int, device=None, scanner=None):
     _stats_thread.start()
 
     def broadcast(scan_result: ScanResult) -> None:
+        """Emit a scan_result event for a fingerprint/LLM-classified scan.
+
+        Called by the LLM classification pipeline when ScanRunner finishes
+        classifying a spectrum fingerprint. Only emits if the current focused
+        frequency matches the scan's center frequency (or is None, meaning
+        all frequencies pass through). The payload includes the classification
+        result plus fingerprint-derived fields such as peak power, SNR, and
+        per-band thresholds. Since Phase 32, also includes a ``source`` field
+        set to ``"fingerprint"`` to distinguish LLM-classified scans from
+        decoder-driven ones (see :func:`emit_adsb_scan_result`).
+
+        Args:
+            scan_result: The ScanResult dataclass instance to broadcast.
+        """
         with _focused_freq_lock:
             focused = _focused_freq_hz
         if focused is not None and scan_result.center_freq_hz != focused:
@@ -235,10 +249,16 @@ def start_server(host: str, port: int, device=None, scanner=None):
             "snr_db": fp.get("snr_db"),
             # Per-band threshold fields — added in Phase 11
             "signal_threshold_db": fp.get("signal_threshold_db", 0.0),
+            # TODO(tech-debt): snr_margin_db defaults to 0.0 here, which makes a
+            # missing margin indistinguishable from a real +0.0 dB margin. The
+            # Phase 32 provenance gate (source="fingerprint"|"decode") sidesteps
+            # this for confidence display, but a missing margin should ideally
+            # default to None. Deferred from Phase 32.
             "snr_margin_db": fp.get("snr_margin_db", 0.0),
             "bandwidth_hz": fp.get("bandwidth_hz"),
             "spectral_flatness": fp.get("spectral_flatness"),
             "chroma_distance": fp.get("chroma_distance"),
+            "source": "fingerprint",
         }
         socketio.emit("scan_result", data)
 
@@ -363,8 +383,12 @@ def emit_adsb_scan_result(msg: AdsbMessage) -> None:
     the user is focused on a different band.
 
     Fingerprint fields (peak_power_db, snr_db, etc.) are not available from
-    the decoder path and are emitted as None. Signal History will show ---
-    for those fields when an entry comes from this path.
+     the decoder path and are emitted as None. Signal History will show ---
+     for those fields when an entry comes from this path. Since Phase 32,
+     also sets ``source`` to ``"decode"`` to distinguish confirmed decodes
+     (ground truth, confidence 1.0) from LLM-classified scans (fingerprint
+     source). The dashboard uses this field to dim the confidence bar when
+     there is no real signal.
 
     NOTE: In busy airspace, ADS-B traffic can produce a high rate of decoded
     frames (potentially dozens per second). Each decode emits a separate
@@ -400,6 +424,7 @@ def emit_adsb_scan_result(msg: AdsbMessage) -> None:
         'bandwidth_hz': None,
         'spectral_flatness': None,
         'chroma_distance': None,
+        'source': 'decode',
     })
 
 

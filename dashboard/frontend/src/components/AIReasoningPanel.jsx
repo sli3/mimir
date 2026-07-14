@@ -26,7 +26,8 @@ function confidenceColour(confidence) {
  *  @param {{ aiReasoning: object, isPinned?: boolean }} props
  *  @param {object} props.aiReasoning — the reasoning data object (keys:
  *    freq_hz, signal_type, confidence, confidence_score, au_legal_status,
- *    reasoning, timestamp)
+ *    reasoning, timestamp, source, plus fingerprint fields such as snr_db,
+ *    bandwidth_hz, spectral_flatness, chroma_distance, and per-band thresholds)
  *  @param {boolean} [props.isPinned=false] — if true and signal_type is set,
  *    renders a boxed ◆ PINNED badge with timestamp in amber, and the component
  *    key in App.jsx forces remount on pin toggle */
@@ -63,6 +64,12 @@ export default function AIReasoningPanel({ aiReasoning, isPinned = false, onUnpi
   }, [aiReasoning])
 
   const placeholder = !displayData || !displayData.signal_type
+  const isConfirmedDecode = displayData?.source === 'decode'
+  const hasRealMeasurement =
+    displayData?.snr_db != null &&
+    displayData?.bandwidth_hz != null &&
+    displayData?.bandwidth_hz > 0
+  const dimConfidence = !isConfirmedDecode && !hasRealMeasurement
 
   return (
     <div style={{
@@ -177,7 +184,7 @@ export default function AIReasoningPanel({ aiReasoning, isPinned = false, onUnpi
             }}>
               <span style={{ color: 'var(--neon-cyan)' }}>CONFIDENCE: </span>
               <span style={{
-                color: confidenceColour(displayData.confidence),
+                color: dimConfidence ? 'var(--text-dim)' : confidenceColour(displayData.confidence),
               }}>
                 {displayData.confidence.toUpperCase()}{' '}
                 {displayData.confidence_score != null

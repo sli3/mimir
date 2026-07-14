@@ -105,4 +105,52 @@ describe('AIReasoningPanel', () => {
     render(<AIReasoningPanel aiReasoning={EMPTY_REASONING} isPinned={true} />)
     expect(screen.queryByText(/PINNED/)).not.toBeInTheDocument()
   })
+
+  describe('confidence provenance gate (Phase 32)', () => {
+    it('dims confidence value when source=fingerprint and no measurement', () => {
+      render(
+        <AIReasoningPanel
+          aiReasoning={{
+            ...SAMPLE_REASONING,
+            snr_db: null,
+            bandwidth_hz: null,
+            source: 'fingerprint',
+          }}
+        />
+      )
+      const valueSpan = screen.getByText('HIGH 0.95')
+      expect(valueSpan.style.color).toBe('var(--text-dim)')
+    })
+
+    it('keeps confidence value bright when source=decode (no measurement but provenance overrides)', () => {
+      render(
+        <AIReasoningPanel
+          aiReasoning={{
+            ...SAMPLE_REASONING,
+            snr_db: null,
+            bandwidth_hz: null,
+            source: 'decode',
+            confidence_score: 1.0,
+          }}
+        />
+      )
+      const valueSpan = screen.getByText('HIGH 1.00')
+      expect(valueSpan.style.color).toBe('var(--neon-cyan)')
+    })
+
+    it('keeps confidence value bright when source=fingerprint with measurement', () => {
+      render(
+        <AIReasoningPanel
+          aiReasoning={{
+            ...SAMPLE_REASONING,
+            snr_db: 12.0,
+            bandwidth_hz: 200000,
+            source: 'fingerprint',
+          }}
+        />
+      )
+      const valueSpan = screen.getByText('HIGH 0.95')
+      expect(valueSpan.style.color).toBe('var(--neon-cyan)')
+    })
+  })
 })

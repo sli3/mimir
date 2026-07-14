@@ -292,8 +292,9 @@ uv run python tools/seed_chromadb.py
 | 28 | Cross-session calibration merge + antenna groups + persistence | ✅ Complete | 634 (463 pytest + 171 Vitest) |
 | 29 | Live capture loop — forward per-band signal_threshold_db to fingerprint_spectrum() | ✅ Complete | 640 (469 pytest + 171 Vitest) |
 | 30 | Spectral cropping for fingerprint_spectrum() — per-band crop_half_width_hz | ✅ Complete | 646 (475 pytest + 171 Vitest) |
+| 32 | Confidence Provenance Gating — dim unverified confidence via `source` field on scan_result | ✅ Complete | 656 (477 pytest + 179 Vitest) |
 
-**Total passing: 646 passing (475 pytest + 171 Vitest), 0 failures**
+**Total passing: 656 passing (477 pytest + 179 Vitest), 0 failures**
 - Note: Phase 24 added 2026-07-07. Mascot/CharacterPanel.jsx wiring deferred to a future phase (pending art asset).
 
 ---
@@ -583,6 +584,7 @@ Do not apply this pre-emptively — only if context problems are observed.
 | `capture_loop.py` not passing `trace_key` | Live ADS-B path still uses the averaged trace (`psd_db`) instead of max-hold (`psd_max_hold_db`). Intentionally deferred until ADS-B max-hold field recalibration is complete. | Pending ADS-B recalibration |
 | Deferred ACARS/AIS max-hold extension | ACARS and AIS share the burst characteristic with ADS-B but are NOT on max-hold yet; extending it must be bundled with their own field threshold recalibration. | Future phase |
 | Live scanner vs tool embedding-space mismatch (Phase 30) | Live scanner forwards `crop_half_width_hz` to `fingerprint_spectrum()`; the 5 offline tools still call with default `None` (uncropped). Zero difference for single-signal captures; up to 5 differing embedding dims for multi-signal captures, biasing L2 distance. Fix: thread `crop_half_width_hz` into `capture_to_vectorstore.py` + `seed_chromadb.py`, re-ingest, optionally re-tune `_DISTANCE_SCALE_REFERENCE`. | Future phase |
+| `server.py` `snr_margin_db` 0.0 default | `dashboard/server.py` `broadcast()` defaults `snr_margin_db` to `0.0` when the fingerprint lacks it, making a missing margin indistinguishable from a real +0.0 dB margin. Phase 32 provenance gate (`source="fingerprint"|"decode"`) sidesteps this for confidence display, but a missing margin should ideally default to `None`. TODO comment added in source. Deferred from Phase 32. | Future phase |
 
 ### Accepted / Won't Fix (documented, working as intended — not active work)
 

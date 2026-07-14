@@ -256,6 +256,9 @@ export default function App() {
         au_legal_status: entry.au_legal_status || null,
         reasoning: entry.reasoning || null,
         timestamp: entry.timestamp || null,
+        source: entry.source ?? null,
+        snr_db: entry.snr_db ?? null,
+        bandwidth_hz: entry.bandwidth_hz ?? null,
       }
     })
   }, [])
@@ -622,10 +625,17 @@ export default function App() {
             flexDirection: 'column',
             gap: '0',
           }}>
-            {[
+            {(() => {
+              const isConfirmedDecode = displayed.source === 'decode'
+              const hasRealMeasurement =
+                displayed.snr_db != null &&
+                displayed.bandwidth_hz != null &&
+                displayed.bandwidth_hz > 0
+              const dimConfidence = !isConfirmedDecode && !hasRealMeasurement
+              return [
               { label: 'FREQUENCY', value: displayed.freq_hz != null ? (displayed.freq_hz / 1e6).toFixed(3) + ' MHz' : (systemStats?.active_frequency_hz ? (systemStats.active_frequency_hz / 1e6).toFixed(3) + ' MHz' : '---'), color: 'var(--neon-cyan)' },
               { label: 'CLASSIFICATION', value: displayed.signal_type ? displayed.signal_type.toUpperCase() : '---', color: 'var(--neon-cyan)' },
-              { label: 'CONFIDENCE', value: displayed.confidence_score != null ? (displayed.confidence_score * 100).toFixed(0) + '%' : '---', color: 'var(--neon-green)' },
+              { label: 'CONFIDENCE', value: displayed.confidence_score != null ? (displayed.confidence_score * 100).toFixed(0) + '%' : '---', color: dimConfidence ? 'var(--text-dim)' : 'var(--neon-green)' },
               { label: 'POWER', value: displayed.peak_power_db != null ? displayed.peak_power_db.toFixed(1) + ' dBFS' : '---', color: 'var(--neon-amber)' },
               { label: 'SNR', value: displayed.snr_db != null ? displayed.snr_db.toFixed(1) + ' dB' : '---', color: 'var(--neon-green)' },
               { label: 'THRESHOLD', value: displayed.signal_threshold_db != null ? displayed.signal_threshold_db.toFixed(1) + ' dB' : '---', color: 'var(--text-dim)' },
@@ -677,14 +687,15 @@ export default function App() {
                     <div style={{
                       width: (displayed.confidence_score * 100) + '%',
                       height: '100%',
-                      background: 'var(--neon-green)',
+                      background: dimConfidence ? 'var(--text-dim)' : 'var(--neon-green)',
                     }} />
                   </div>
                 )}
               </div>
-            ))}
+            ))
+            })()}
             <div style={{
-              borderTop: '1px solid #0F2030',
+            borderTop: '1px solid #0F2030',
               marginTop: '8px',
               paddingTop: '8px',
               display: 'flex',

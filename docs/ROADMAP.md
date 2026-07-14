@@ -71,6 +71,7 @@
 | 29 | Live capture loop — forward per-band signal_threshold_db to fingerprint_spectrum() | ✅ Complete | 640 (469 pytest + 171 Vitest) |
 | 30 | Spectral cropping for fingerprint_spectrum() — per-band crop_half_width_hz | ✅ Complete | 646 (475 pytest + 171 Vitest) |
 | 31 | Decoder panel tuned-state cleanup (isAdsbTuned() helper + Phase 17 dead-branch removal) | ✅ Complete | 646 (475 pytest + 171 Vitest) |
+| 32 | Confidence Provenance Gating — dim unverified confidence via `source` field on scan_result | ✅ Complete | 656 (477 pytest + 179 Vitest) |
 
 ---
 
@@ -1338,6 +1339,51 @@ patched code (`got [21.0]` / `got [3.0]`).
 - Placeholder values verified for aviation, acars, ais, ism, adsb (5 of 8 bands).
 
 **Test counts:** 646 passing (475 pytest + 171 Vitest), 0 failures.
+
+---
+
+### Phase 32 — Confidence Provenance Gating ✅
+
+**Goal:** Visual honesty. The dashboard was displaying "95%" confidence in bright neon-green even when the classification was purely a frequency + ChromaDB proximity guess with no real signal behind it. The AI reasoning text was honest; the headline number wasn't.
+
+**What was delivered (8 files):**
+
+- `dashboard/server.py` — Added `"source": "fingerprint"` to `broadcast()` and `'source': 'decode'` to `emit_adsb_scan_result()`. Inline docstrings added. TODO comment on `snr_margin_db` 0.0 default.
+- `dashboard/frontend/src/hooks/useSocket.js` — `source: null` in `INITIAL_AI_REASONING`, `source: data.source ?? null` in scan_result handler. JSDoc updated.
+- `dashboard/frontend/src/App.jsx` — `handlePinReasoning` carries `source`, `snr_db`, `bandwidth_hz`. Telemetry rows use an IIFE to compute `isConfirmedDecode`, `hasRealMeasurement`, `dimConfidence`. CONFIDENCE value/bar use `var(--text-dim)` when dimmed.
+- `dashboard/frontend/src/components/AIReasoningPanel.jsx` — Same gate logic. Confidence value span uses `var(--text-dim)` when dimmed. JSDoc updated.
+- `tests/dashboard/test_server_stats.py` — `TestScanResultSourceProvenance` class (2 tests).
+- `dashboard/frontend/src/tests/useSocket.test.js` — 4 toEqual updated for `source: null`; 2 new tests for source propagation.
+- `dashboard/frontend/src/tests/App.test.jsx` — Restructured mock to manual `vi.mock(...)`; 3 new gate tests.
+- `dashboard/frontend/src/tests/AIReasoningPanel.test.js` — 3 new gate tests.
+
+**Provenance semantics:**
+
+The `scan_result` payload now carries a `source` field with two values:
+
+- `"fingerprint"` — Classification from the LLM pipeline (frequency + ChromaDB proximity). Unverified by ground truth.
+- `"decode"` — Classification from the ADS-B decoder (PipeDecoder). Ground truth, confidence_score=1.0.
+
+**The gate:**
+
+```javascript
+const isConfirmedDecode = source === "decode";
+const hasRealMeasurement = snr_db != null && bandwidth_hz != null;
+const dimConfidence = !isConfirmedDecode && !hasRealMeasurement;
+```
+
+When `dimConfidence` is true, the confidence value and bar render with `var(--text-dim)` instead of normal brightness. Confirmed ADS-B decodes always keep full brightness regardless of other fields.
+
+**Snr_db / bandwidth_hz indirection:**
+
+Both paths emit nulls on these fields when there is no real measurement (e.g. a pure frequency match with no PSD data). The gate must key off provenance (`source`) rather than trusting these values, since their absence is itself informative — it means there was no spectrum data to analyse.
+
+**Test counts:** 656 passing (477 pytest + 179 Vitest), 0 failures.
+
+**Deferred items:**
+
+- **snr_margin_db 0.0 default** — `dashboard/server.py` `broadcast()` defaults `snr_margin_db` to `0.0` when the fingerprint lacks it, making a missing margin indistinguishable from a real +0.0 dB margin. Phase 32 provenance gate sidesteps this for confidence display, but a missing margin should ideally default to `None`. TODO comment added in source. Deferred from Phase 32.
+- **App.jsx INITIAL_AI_REASONING divergence** — `INITIAL_AI_REASONING` in App.jsx does not include `source: null`, creating a small inconsistency with the gate logic that expects it. Flagged as LOW by @deep-analyst and @analyst. Deferred.
 
 ---
 
