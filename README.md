@@ -149,8 +149,8 @@ Full phase-by-phase history lives in [`docs/ROADMAP.md`](./docs/ROADMAP.md), whi
 single source of truth for phase status and test counts. This section shows
 only a quick-glance summary — update `docs/ROADMAP.md` first, then sync this block.
 
-**Current phase: 32 — Confidence Provenance Gating — dim unverified confidence via `source` field on scan_result**
-**Total: 656 passing (477 pytest + 179 Vitest), 0 failures**
+**Current phase: 34 — Phase 33/34 test coverage additions**
+**pytest: 498 passing, 0 failures (live-verified). Vitest: frontend suite currently failing — pre-existing environment break (Vitest v4 / jsdom), tracked as BUG-05.**
 
 > **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector
 > store (`data/vectorstore/`) must be re-seeded after deploying this build.

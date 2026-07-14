@@ -72,6 +72,8 @@
 | 30 | Spectral cropping for fingerprint_spectrum() — per-band crop_half_width_hz | ✅ Complete | 646 (475 pytest + 171 Vitest) |
 | 31 | Decoder panel tuned-state cleanup (isAdsbTuned() helper + Phase 17 dead-branch removal) | ✅ Complete | 646 (475 pytest + 171 Vitest) |
 | 32 | Confidence Provenance Gating — dim unverified confidence via `source` field on scan_result | ✅ Complete | 656 (477 pytest + 179 Vitest) |
+| 33-Hotfix | Classifier confidence cap + vectordb SNR tools (hotfix, RETROACTIVE — code shipped, tests in 34) | ✅ Shipped | 656 at ship (477 pytest + 179 Vitest); tests added in Phase 34 |
+| 34 | Test coverage for Phase 33 classifier cap + vectordb tools (TEST-ONLY) | ✅ pytest green / ⚠️ Vitest broken | pytest 498 passing (+21), 0 fail (live-verified). Vitest suite failing — pre-existing env break, see BUG-05. No frontend touched. |
 
 ---
 
@@ -1384,6 +1386,82 @@ Both paths emit nulls on these fields when there is no real measurement (e.g. a 
 
 - **snr_margin_db 0.0 default** — `dashboard/server.py` `broadcast()` defaults `snr_margin_db` to `0.0` when the fingerprint lacks it, making a missing margin indistinguishable from a real +0.0 dB margin. Phase 32 provenance gate sidesteps this for confidence display, but a missing margin should ideally default to `None`. TODO comment added in source. Deferred from Phase 32.
 - **App.jsx INITIAL_AI_REASONING divergence** — `INITIAL_AI_REASONING` in App.jsx does not include `source: null`, creating a small inconsistency with the gate logic that expects it. Flagged as LOW by @deep-analyst and @analyst. Deferred.
+
+---
+
+### Phase 33 — Classifier Confidence Cap + Vectordb SNR Tools (hotfix, retroactive) ✅
+
+**Type:** Hotfix. Code was already committed and hardware-validated on origin/main
+(`dadae70` + `007d8dd`) before a phase number was assigned; this entry is retroactive
+governance bookkeeping. Test coverage follows in Phase 34.
+
+**Problem.** A noise blip at an ACMA-allocated frequency could score 95%/HIGH confidence
+purely from its location. A 5.7 dB SNR, 5 kHz-wide, 0.987-flatness blip at 1090.000 MHz
+rendered a bright-green "ADSB" verdict before the fix. Root cause: `confidence_score` is set
+entirely by the LLM, and the prompt told the LLM that ACMA/frequency was authoritative and
+took precedence over vector-store neighbour evidence.
+
+**What was delivered (`llm/classifier.py`):**
+
+- `bandwidth_hz`, `occupied_bins`, and `snr_margin_db` are now wired into the user prompt with
+  plain-English labels (previously computed upstream by `fingerprint_spectrum()` but silently
+  dropped).
+- System prompt reordered: vector-store neighbours + measured signal characteristics are now
+  PRIMARY evidence; ACMA/frequency is demoted to a plausibility check — "noise at an allocated
+  frequency still matches the allocation."
+- Deterministic post-LLM cap `_apply_confidence_caps()`: clamps `confidence_score` to 0.4/"low"
+  when EITHER `snr_margin_db` < `_MARGIN_FLOOR_DB` (6.0 dB), OR `occupied_bins` <= 1 AND
+  `spectral_flatness` >= 0.9 (single-bin spike that is also noise-flat — narrow tonal signals
+  with low flatness are deliberately spared by the AND condition).
+- A previously-attempted `peak_bin_power_db`/"burst structure" label was removed entirely — it
+  is uncalibrated and mislabelled real FM broadcast as ADS-B. Not to be reintroduced until real
+  ADS-B and real FM captures establish true per-band gap distributions.
+
+**Vectordb SNR maintenance tools:**
+
+- `tools/inspect_snr.py` — read-only per-label SNR histogram + `--max-snr` preview.
+- `tools/delete_low_snr.py` — guarded destructive delete: dry-run default, timestamped backup
+  before any real delete, typed exact-record-count confirmation, aborts cleanly if backup fails.
+
+**Safety contract:** `classify()` (fingerprint path) and `emit_adsb_scan_result()` (decode path)
+are mutually exclusive per signal — a confirmed ADS-B decode never routes through the cap, so a
+real aircraft cannot be dimmed by it. Verified in the caller code and locked in by Phase 34
+regression tests.
+
+**Test counts:** 656 at ship time (477 pytest + 179 Vitest) — unchanged by the hotfix code
+itself; automated coverage added in Phase 34.
+
+---
+
+### Phase 34 — Test Coverage for Phase 33 (test-only) ✅ pytest / ⚠️ Vitest broken
+
+**Goal.** Add the automated coverage the Phase 33 hotfix shipped without. Test-only phase — no
+production logic changed.
+
+**What was delivered:**
+
+- `tests/llm/test_classifier_confidence_caps.py` — `_apply_confidence_caps` cap-fires cases
+  (1090 MHz noise margins +1.7/+2.9 dB; single-bin + near-white flatness), cap-does-NOT-fire on
+  a strong 104.7 MHz FM signal (margin +23.1, flatness 0.005) and on the narrow-tonal carve-out,
+  graceful degradation on missing/None fields, plus prompt-content regression guards (evidence
+  reorder present; demoted-ACMA framing present; burst/`peak_bin_power_db` text absent).
+- `tests/tools/test_inspect_snr.py` and `tests/tools/test_delete_low_snr.py` — read-only
+  invariant, strict-less-than selection (on-threshold record excluded), dry-run default,
+  backup-before-delete, typed-confirmation gate, backup-failure abort, happy-path delete. Shared
+  `tests/tools/conftest.py` temp-store fixture; production `data/vectorstore` never touched.
+- `tests/dashboard/test_server_stats.py` — caller-separation regression tests (static: decode
+  emitter never references `classify(`/`_apply_confidence_caps`; behavioural: payload carries
+  `source="decode"`, `confidence_score=1.0`).
+- `tests/llm/test_phase4_classifier.py` — two stale ACMA-section assertions updated to match the
+  Phase 33 prompt (which intentionally names "ACMA allocation" in the evidence-priority text even
+  with no allocations passed).
+
+**Test counts:** pytest **498 passing (+21 from 477), 0 failures** — live-verified twice.
+Vitest **NOT green**: 35 passing / 140 failing / 175 collected, from a pre-existing environment
+break (Vitest v4.1.10 resolving instead of the pinned ^2.1.0; jsdom not loading — `document is
+not defined`). No frontend code was modified in this phase; the break is unrelated and tracked
+as BUG-05. A combined all-green total is deliberately NOT claimed until the frontend test
+environment is repaired.
 
 ---
 
