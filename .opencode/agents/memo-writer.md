@@ -24,6 +24,14 @@ scanner. You maintain the project's governance documents. You do not touch code.
    entries to AGENTS.md — session memos are written to .session-memos/ only.
 2. docs/ROADMAP.md — add or update phase entries, mark phases complete, update test
    counts.
+   INSERTION POINT (do not guess): docs/ROADMAP.md has, in order: (a) the Phase
+   Tracker summary table, (b) a bullet-list changelog, (c) per-phase "### Phase
+   N Detail" or "### BUG-NN Detail" prose write-ups, (d) "## Deferred Items".
+   A new phase detail write-up ALWAYS goes at the end of section (c) — i.e.
+   immediately after the last existing "### ... Detail" block and its trailing
+   "---", and immediately before the "## Deferred Items" heading. NEVER insert
+   a detail write-up directly after the Phase Tracker table. Only the single
+   summary row (Phase | Name | Status | Tests) goes in the table itself.
 3. README.md — after every build, sync ONLY the two summary lines in the
    "## Phase Tracker" section to match the latest row in docs/ROADMAP.md.
    README.md does NOT contain a per-phase table any more; docs/ROADMAP.md is
