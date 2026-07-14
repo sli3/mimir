@@ -600,27 +600,33 @@ class TestAcmaAllocationsInPrompt:
     def test_empty_allocations_no_acma_section(
         self, classifier, fm_fingerprint, fm_neighbours
     ):
-        """Empty allocations list produces no ACMA section."""
+        """Empty allocations list omits the ACMA spectrum plan section."""
         prompt = classifier._build_user_prompt(
             fm_fingerprint, fm_neighbours,
             acma_allocations=[],
         )
-        assert "ACMA" not in prompt, (
-            "User prompt must not include an ACMA section when the "
-            "allocations list is empty."
+        assert "ACMA SPECTRUM PLAN" not in prompt, (
+            "User prompt must not include the ACMA spectrum plan section "
+            "when the allocations list is empty."
+        )
+        assert "ACMA allocation" in prompt, (
+            "User prompt must still demote ACMA in the evidence-priority text."
         )
 
     def test_none_allocations_no_acma_section(
         self, classifier, fm_fingerprint, fm_neighbours
     ):
-        """None allocations produces no ACMA section (backwards compat)."""
+        """None allocations omits the ACMA spectrum plan section (backwards compat)."""
         prompt = classifier._build_user_prompt(
             fm_fingerprint, fm_neighbours,
             acma_allocations=None,
         )
-        assert "ACMA" not in prompt, (
-            "User prompt must not include an ACMA section when "
+        assert "ACMA SPECTRUM PLAN" not in prompt, (
+            "User prompt must not include the ACMA spectrum plan section when "
             "acma_allocations is None."
+        )
+        assert "ACMA allocation" in prompt, (
+            "User prompt must still demote ACMA in the evidence-priority text."
         )
 
     @patch("llm.classifier.requests.post")

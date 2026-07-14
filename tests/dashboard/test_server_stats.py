@@ -1,6 +1,7 @@
 import sys
 import os
 import time
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -415,6 +416,36 @@ class TestEmitAdsbScanResult:
         finally:
             import dashboard.server
             dashboard.server._focused_freq_hz = saved
+
+
+    def test_function_body_excludes_classifier_and_caps(self) -> None:
+        """Static guard: emit_adsb_scan_result() never calls classify() or caps."""
+        server_path = Path(__file__).parent.parent.parent / "dashboard" / "server.py"
+        source = server_path.read_text()
+        start = source.find("def emit_adsb_scan_result")
+        assert start != -1, "emit_adsb_scan_result not found in server.py"
+        next_def = source.find("\ndef ", start + len("def emit_adsb_scan_result"))
+        body = source[start:next_def] if next_def != -1 else source[start:]
+        assert "classify(" not in body, (
+            "emit_adsb_scan_result() must not call classify() — "
+            "decoder-driven results are ground truth."
+        )
+        assert "_apply_confidence_caps" not in body, (
+            "emit_adsb_scan_result() must not apply fingerprint confidence caps."
+        )
+
+    def test_decode_payload_is_ground_truth(self) -> None:
+        """Behavioural guard: decoder-driven payload has source=decode and confidence=1.0."""
+        from dashboard.server import emit_adsb_scan_result
+
+        msg = self._make_adsb_message()
+        with patch("dashboard.server.socketio.emit") as mock_emit:
+            emit_adsb_scan_result(msg)
+        data = mock_emit.call_args[0][1]
+        assert data["signal_type"] == "adsb"
+        assert data["confidence_score"] == 1.0
+        assert data["confidence"] == "high"
+        assert data["source"] == "decode"
 
 
 class TestScanResultSourceProvenance:
