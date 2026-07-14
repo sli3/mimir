@@ -39,6 +39,22 @@ flag is NOT part of the task; it only drives the Step 9 phase-tracker gate.
 
 ---
 
+## BEFORE YOU START — FRONTEND BUILDS ONLY
+
+If this build will touch files under `dashboard/frontend/` and you want the
+Step 6B LIVE visual check (Playwright against the running app), the Vite dev
+server must ALREADY be running, started by Prin in a separate terminal:
+```
+npm run dev --prefix dashboard/frontend
+```
+The build agent cannot start it — OpenCode's bash tool reaps backgrounded
+servers when the spawning call ends. If no server is running when Step 6B is
+reached, the frontend review still runs STATIC-ONLY (source review, no browser)
+and the build completes normally; only the live visual check is skipped. There
+is nothing to fix in that case — it is expected behaviour, not a failure.
+
+---
+
 ## YOUR TEAM
 
 | Agent | Role | Reports on |
@@ -198,87 +214,63 @@ Check whether this build touched any file under dashboard/frontend/.
 
 If NO frontend files were changed → skip this step entirely, proceed to Step 7.
 
-If frontend files WERE changed, @frontend-reviewer will need the live Vite dev
-server to observe rendering via Playwright. @frontend-reviewer cannot start or
-stop this itself — its `bash` permission is denied by design (read-only
-reviewer). You (PM/build agent) own the server lifecycle for this step:
+If frontend files WERE changed, @frontend-reviewer's live browser observation
+(Playwright against the running app) needs a Vite dev server on port 5173.
 
-**6B.1 — Check if the dev server is already running:**
+DO NOT attempt to start the dev server yourself. OpenCode's bash tool cannot
+keep a backgrounded `npm run dev` alive across tool calls — it holds the
+inherited stdio pipes, so the server is reaped when the spawning call ends,
+regardless of `nohup`/`&`/redirects. Every past attempt to spawn it from this
+step has failed for that reason. The server must be started by Prin, by hand,
+in a normal terminal outside OpenCode, BEFORE running a frontend build:
+```
+npm run dev --prefix dashboard/frontend
+```
+Leave that terminal open for the duration of the build.
+
+**6B.1 — Probe for a manually-started dev server (check only, never start):**
 ```
 curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/ --max-time 2
 ```
-- Output `200` → set `server_already_running = true`, skip to 6B.3.
-- Anything else (fails, times out, non-200) → set `server_already_running = false`,
-  continue to 6B.2.
+- Output `200` → a server is up. Set `live_server_available = true`. Continue
+  to 6B.2, and tell @frontend-reviewer it MAY use its Playwright browser tools
+  for live observation.
+- Anything else → no server is running. Set `live_server_available = false`.
+  Continue to 6B.2 anyway, but tell @frontend-reviewer it MUST do STATIC review
+  only (read the changed source; do not call any Playwright browser tool). This
+  is NOT a failure and NOT a hard stop — static review is a complete, valid
+  pass on its own. Note in the Step 10 report that the live visual check was
+  skipped because no dev server was running (see the notice below).
 
-**6B.2 — Start the dev server and wait for readiness:**
-```
-nohup npm run dev --prefix dashboard/frontend > /tmp/mimir-vite-dev.log 2>&1 &
-```
-Poll every 2 seconds, maximum 12 attempts (24 seconds total):
-```
-curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/ --max-time 2
-```
-- Returns `200` at any attempt → proceed to 6B.3.
-- Still not `200` after 12 attempts → this is a STEP 6B FAILURE, not a build
-  HARD STOP (do not treat it as one of the conditions in HARD STOP CONDITIONS
-  above). Print the last 20 lines of /tmp/mimir-vite-dev.log, then go to
-  6B.4 for teardown before proceeding to Step 7 — the start attempt may still
-  be running in the background even though it never became ready, so
-  teardown must still run. Note in the Step 10 report that frontend review
-  was skipped because the dev server failed to start.
-
-**6B.3 — Invoke @frontend-reviewer:**
+**6B.2 — Invoke @frontend-reviewer:**
 Call @frontend-reviewer as Frontend Lead, handing it ONLY the diff/contents of
 the changed dashboard/frontend/ files (not the full build diff — it does not
-review backend Python). It checks hook correctness, missing dependency
-arrays, unnecessary re-renders, and WebSocket cleanup on unmount, plus live
-browser observation against http://localhost:5173/ if useful for this change.
+review backend Python), plus the `live_server_available` flag from 6B.1. It
+reviews hook correctness, missing dependency arrays, unnecessary re-renders,
+WebSocket cleanup on unmount, and AGENTS.md UI conventions from the source.
+If `live_server_available = true`, it may additionally observe rendering at
+http://localhost:5173/ where that adds information the source cannot show.
 
-  a. If @frontend-reviewer returns zero findings → proceed to 6B.4.
+  a. If @frontend-reviewer returns zero findings → proceed to Step 7.
   b. If it flags a hard stop (AGENTS.md UI-convention contradiction, or a
-     TX-related surface it happened to notice) → proceed to 6B.4 (teardown),
-     then stop and report.
-  c. Otherwise, hand @frontend-reviewer's findings to @senior-dev to apply
-     one fix pass, then rerun the relevant Vitest suite yourself to confirm
-     still green, then proceed to 6B.4. If that fix
-     pass breaks the suite, re-enter Step 5 for a SINGLE corrective
-     iteration only; if it still cannot be made green → hard stop (after
-     6B.4 teardown still runs first).
+     TX-related surface it happened to notice) → stop and report.
+  c. Otherwise, hand its findings to @senior-dev to apply one fix pass, then
+     rerun the relevant Vitest suite yourself to confirm still green, then
+     proceed to Step 7. If that fix pass breaks the suite, re-enter Step 5 for
+     a SINGLE corrective iteration only; if it still cannot be made green →
+     hard stop.
 
-**6B.4 — Teardown (mandatory, runs regardless of 6B.2/6B.3's outcome):**
-- If `server_already_running = true` → do nothing. It was running before
-  this step and may be in use elsewhere.
-- If `server_already_running = false` (we attempted to start it in 6B.2,
-  whether or not it became ready) → stop whatever process is bound to port
-  5173. Do NOT track this by PID from the `nohup` command: `npm run dev`
-  spawns Vite as a child process, and killing the `npm` wrapper's own PID
-  does not reliably terminate that child, leaving an orphaned dev server on
-  the port. Instead, target the port directly:
-  ```
-  lsof -ti:5173 | xargs -r kill
-  ```
-  Wait 2 seconds, then confirm:
-  ```
-  curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/ --max-time 2
-  ```
-  If this still returns `200`, escalate once with a stronger signal, still
-  scoped to the same port (never broaden to a name-based `pkill`, which
-  risks killing an unrelated process on this machine):
-  ```
-  lsof -ti:5173 | xargs -r kill -9
-  ```
-  Confirm again. If port 5173 is still responding after both attempts, note
-  in the Step 10 report that the dev server needs manual cleanup — do not
-  attempt further kills.
-  (Requires `lsof` — standard on Fedora Workstation. If missing, report this
-  as a tooling gap rather than falling back to `pkill` by name.)
-
-Proceed to Step 7 once 6B.4 has completed (whether or not Step 6B itself
-raised a hard stop or a step-6B-only failure — teardown always runs first).
+There is NO server teardown step. You did not start the server, so you must
+not kill it — the terminal Prin opened is theirs to close. Never run
+`lsof -ti:5173 | xargs kill` or any port-kill from this workflow.
 
 @frontend-reviewer is invoked BY NAME here — do not rely on automatic
 subagent triggering for this gate.
+
+**Manual live-check fallback:** whenever 6B ran static-only (no server was up),
+the live visual confirmation is still available on demand: Prin starts the dev
+server as above and runs `/review-frontend` when convenient. Surface this in the
+Step 10 report (see the exact wording required there).
 
 ### STEP 7 — PM AUDIT
 As Project Manager, review the full output of Steps 1–6B before anything is
@@ -387,14 +379,15 @@ Produce a structured summary containing:
 - Code-review findings (@review-second and @deep-analyst separately, plus any
   conflict and how you adjudicated it)
 - Frontend-review findings (@frontend-reviewer), if Step 6B ran — state
-  explicitly if it was skipped because no dashboard/frontend/ files changed,
-  or if it could not run because the Vite dev server failed to start. Note
-  whether the dev server was already running, started and stopped cleanly,
-  or needs manual cleanup. **If Step 6B failed to start the dev server,
-  state clearly at the top of this report section: "Frontend review was NOT
-  completed this build. Run `/review-frontend` manually to review the
-  dashboard/frontend/ changes above."** This build still completes and
-  reports normally — a Step 6B tooling failure does not block Steps 7–10.
+  explicitly whether it was skipped because no dashboard/frontend/ files
+  changed, ran with LIVE observation (a dev server was up on 5173), or ran
+  STATIC-ONLY (no server was running). Static-only is a complete, valid review
+  — report it as done, not as a failure. **If the review ran static-only,
+  state clearly at the top of this report section: "Frontend review ran
+  STATIC-ONLY this build — no live visual check. To run the live check: start
+  the dev server (`npm run dev --prefix dashboard/frontend`) in a terminal,
+  then run `/review-frontend`."** This build completes and reports normally
+  either way — the absence of a live server never blocks Steps 7–10.
 - PM audit result (clean, or what was flagged and how the re-entry resolved)
 - Project memo (@memo-writer) — which governance docs were touched, and whether
   the phase tracker was updated (it must have moved ONLY if the checkpoint flag
