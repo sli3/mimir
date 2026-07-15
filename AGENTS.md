@@ -220,6 +220,11 @@ Note: `uv run python scan.py` does not work in this environment — use system P
 uv run pytest
 ```
 
+For the frontend suite, run `npm run test` from `dashboard/frontend` — never `npx vitest`
+from the repo root. `npx` ignores the pinned local Vitest version and can pull a different
+cached version globally, which silently breaks jsdom/`document` setup and produces false
+failures that look like real breakage (see Phase 33-34 session memo, BUG-05 false alarm).
+
 ### Run a tool script
 
 ```bash
