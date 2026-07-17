@@ -4,6 +4,14 @@ Mimir RF Scanner — PlutoReceiver RX stream tests
 
 Tests for core/device/pluto_rx.py
 All tests use mocks — no hardware required.
+
+MOCKING RULE — READ BEFORE ADDING TESTS
+───────────────────────────────────────
+SoapySDR enumeration results MUST be mocked with FakeSoapySDRKwargs, never
+with a plain dict. See tests/core/soapy_doubles.py for why: a dict has .get()
+and the real SoapySDRKwargs object does not, so a dict mock is more permissive
+than the hardware. Dict mocks in this file previously certified an open()
+that could not open the device.
 """
 
 import logging
@@ -19,6 +27,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from core.device.pluto_rx import PlutoReceiver
 from core.legal.compliance_guard import HardwareTransmitError
+from tests.core.soapy_doubles import FakeSoapySDRKwargs
 
 
 class TestPlutoReceiver:
@@ -33,9 +42,9 @@ class TestPlutoReceiver:
         self.mock_soapy.Device.return_value = self.mock_device
 
         self._default_enumerate = [
-            {"uri": "ip:pluto.local"},
-            {"uri": "ip:pluto.local"},
-            {"uri": "usb:3.30.5"},
+            FakeSoapySDRKwargs({"uri": "ip:pluto.local"}),
+            FakeSoapySDRKwargs({"uri": "ip:pluto.local"}),
+            FakeSoapySDRKwargs({"uri": "usb:3.30.5"}),
         ]
         self.mock_soapy.Device.enumerate.return_value = self._default_enumerate
 
@@ -110,9 +119,9 @@ class TestPlutoReceiver:
     def test_usb_uri_preferred_over_ip(self):
         """USB URI is selected even when it appears last in the list."""
         results = [
-            {"uri": "ip:pluto.local"},
-            {"uri": "ip:pluto.local"},
-            {"uri": "usb:3.37.5"},
+            FakeSoapySDRKwargs({"uri": "ip:pluto.local"}),
+            FakeSoapySDRKwargs({"uri": "ip:pluto.local"}),
+            FakeSoapySDRKwargs({"uri": "usb:3.37.5"}),
         ]
         self.mock_soapy.Device.enumerate.return_value = results
         receiver = PlutoReceiver()
@@ -125,14 +134,32 @@ class TestPlutoReceiver:
     def test_no_usb_falls_back_to_first_with_warning(self, caplog):
         """Falls back to first result and logs a warning when no USB URI exists."""
         results = [
-            {"uri": "ip:pluto.local"},
-            {"uri": "ip:pluto.local"},
+            FakeSoapySDRKwargs({"uri": "ip:pluto.local"}),
+            FakeSoapySDRKwargs({"uri": "ip:pluto.local"}),
         ]
         self.mock_soapy.Device.enumerate.return_value = results
         receiver = PlutoReceiver()
         caplog.set_level(logging.WARNING, logger="core.device.pluto_rx")
         receiver.open()
         assert receiver._uri == "ip:pluto.local"
+        assert "No USB ADALM-PLUTO found" in caplog.text
+
+    def test_absent_uri_key_does_not_raise(self, caplog):
+        """An enumeration entry with no "uri" key at all must not raise.
+
+        Real SoapySDR kwargs do not all carry a "uri" key — a live HackRF One
+        enumeration (captured 2026-07-17) has none. Whatever tolerates that
+        absence must do so without an AttributeError or KeyError, falling back
+        with a warning rather than crashing.
+        """
+        results = [
+            FakeSoapySDRKwargs({"driver": "plutosdr", "label": "no uri here"}),
+        ]
+        self.mock_soapy.Device.enumerate.return_value = results
+        receiver = PlutoReceiver()
+        caplog.set_level(logging.WARNING, logger="core.device.pluto_rx")
+        receiver.open()
+        assert receiver._uri is None
         assert "No USB ADALM-PLUTO found" in caplog.text
 
     def test_empty_enumerate_raises(self):

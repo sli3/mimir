@@ -217,7 +217,10 @@ class PlutoReceiver(DeviceBase):
 
         # Enumerate available devices. We use driver=plutosdr so we only
         # see Pluto results, not any other SoapySDR devices on the machine.
-        results = SoapySDR.Device.enumerate("driver=plutosdr")
+        # SoapySDR returns SoapySDRKwargs objects — SWIG wrappers around a
+        # C++ map, not dicts. They have no .get() method. Convert once here
+        # at the boundary so the .get() calls below operate on real dicts.
+        results = [dict(r) for r in SoapySDR.Device.enumerate("driver=plutosdr")]
         if not results:
             raise RuntimeError(
                 "No ADALM-PLUTO device found. "

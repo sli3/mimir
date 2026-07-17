@@ -92,7 +92,10 @@ def enumerate_devices() -> list[str]:
             "Install with: sudo dnf install python3-SoapySDR"
         ) from e
 
-    results = SoapySDR.Device.enumerate()
+    # SoapySDR returns SoapySDRKwargs objects — SWIG wrappers around a C++
+    # map, not dicts. They have no .get() method. Convert once here at the
+    # boundary so everything below works with ordinary Python dicts.
+    results = [dict(r) for r in SoapySDR.Device.enumerate()]
     found: list[str] = []
     for result in results:
         driver = result.get("driver")
