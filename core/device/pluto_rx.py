@@ -61,8 +61,8 @@ These observations were made on real hardware and do not appear in the
 datasheet. They are recorded here so future contributors do not have to
 rediscover them.
 
-- Stock tuning range is 325 MHz – 3800 MHz. This EXCLUDES four of
-  Mimir's seven bands: FM (98 MHz), Aviation VHF (127 MHz), ACARS
+- Stock tuning range is 325 MHz – 3800 MHz. This EXCLUDES six of
+  Mimir's eight bands: FM (98 MHz), Aviation VHF (127 MHz), ACARS
   (129.125 MHz), APRS (145.175 MHz), AIS (162 MHz), and the noise_floor
   reference profile (98 MHz). Pluto can only serve ISM (915 MHz) and
   ADS-B (1090 MHz) within the current band plan.

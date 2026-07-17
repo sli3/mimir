@@ -280,3 +280,101 @@ def get_nearest_band_for_freq(freq_hz: float | None) -> dict | None:
         key=lambda k: abs(candidates[k]["center_freq_hz"] - freq_hz)
     )
     return dict(candidates[nearest_key])
+
+
+# =============================================================================
+# PLUTO BAND SUPPORT — Phase 36 additive override layer
+# =============================================================================
+
+from core.device.profiles import DEVICE_PROFILES
+
+# PLUTO_BAND_PROFILES
+# -------------------
+# PLACEHOLDER — NOT CALIBRATED FOR PLUTO.
+#
+# This dict declares which of the eight Mimir bands the ADALM-PLUTO can
+# physically receive. It is an ADDITIVE OVERRIDE layered on top of
+# BAND_PROFILES: each entry carries ONLY the keys that differ for Pluto
+# (supported / gain_db / signal_threshold_db for receivable bands,
+# supported / reason for the rest). center_freq_hz and crop_half_width_hz
+# are inherited from BAND_PROFILES and must never be restated here.
+#
+# The gain_db and signal_threshold_db values for the two supported bands
+# (ism, adsb) are PROVISIONAL PLACEHOLDERS copied from the HackRF
+# BAND_PROFILES entries for the same bands. They are NOT calibrated for
+# Pluto. gain_db 30.0 comes from a spur observation on real hardware —
+# a picket fence of spurious spikes appears above roughly 30 dB combined
+# gain (see core/device/pluto_rx.py, MEASURED FINDINGS) — not from a
+# calibration session. Both values are corrected in Phase 39. Do not
+# treat them as calibrated.
+#
+# The six unsupported bands are all below Pluto's 325 MHz tuning floor
+# (stock AD9363 firmware); the reason string on each entry states the
+# specific cause.
+PLUTO_BAND_PROFILES: dict = {
+    "fm_broadcast": {
+        "supported": False,
+        "reason": "Below Pluto's 325 MHz tuning floor (98 MHz)",
+    },
+    "aviation": {
+        "supported": False,
+        "reason": "Below Pluto's 325 MHz tuning floor (127 MHz)",
+    },
+    "acars": {
+        "supported": False,
+        "reason": "Below Pluto's 325 MHz tuning floor (129.125 MHz)",
+    },
+    "aprs": {
+        "supported": False,
+        "reason": "Below Pluto's 325 MHz tuning floor (145.175 MHz)",
+    },
+    "ais": {
+        "supported": False,
+        "reason": "Below Pluto's 325 MHz tuning floor (162 MHz)",
+    },
+    "ism": {
+        "supported": True,
+        "gain_db": 30.0,
+        "signal_threshold_db": 3.0,
+    },
+    "adsb": {
+        "supported": True,
+        "gain_db": 30.0,
+        "signal_threshold_db": 3.0,
+    },
+    "noise_floor": {
+        "supported": False,
+        "reason": "Below Pluto's 325 MHz tuning floor (98 MHz)",
+    },
+}
+
+
+def band_supported_by_device(band: str, device: str) -> bool:
+    """Return True if the named device can physically receive the named band.
+
+    The "supported" flag in PLUTO_BAND_PROFILES is the source of truth for
+    Pluto, by explicit design — this function deliberately does NOT
+    re-derive support from DEVICE_PROFILES frequency limits. DEVICE_PROFILES
+    is used only to validate that the device key is one Mimir knows about.
+
+    HackRF returns True for all eight bands: its 1 MHz–6 GHz tuning range
+    covers every band in the current plan.
+
+    Args:
+        band: A BAND_PROFILES key (e.g. "fm_broadcast").
+        device: A DEVICE_PROFILES driver key ("hackrf" / "plutosdr").
+
+    Returns:
+        True if the device supports the band, False otherwise.
+
+    Raises:
+        KeyError: If band is not a known BAND_PROFILES key, or device is
+            not a known DEVICE_PROFILES driver key.
+    """
+    if band not in BAND_PROFILES:
+        raise KeyError(f"Unknown band {band!r} — not a BAND_PROFILES key")
+    if device not in DEVICE_PROFILES:
+        raise KeyError(f"Unknown device {device!r} — not a DEVICE_PROFILES key")
+    if device == "hackrf":
+        return True
+    return bool(PLUTO_BAND_PROFILES[band]["supported"])
