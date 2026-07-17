@@ -605,6 +605,8 @@ Do not apply this pre-emptively — only if context problems are observed.
 | Item | Detail | Fix in |
 |---|---|---|
 | `shared_state.py` mid-file import | `from core.device.profiles import DEVICE_PROFILES` sits mid-file (PEP 8 E402), not at the top. Deliberate — Phase 36's append-only constraint forbade touching existing lines. Move to the top of the file when that constraint no longer applies. | Future phase |
+| Dict-based SoapySDR mocks | Mocks returning plain dicts are more permissive than real `SoapySDRKwargs` (SWIG C++ map, no `.get()`), which let the Phase 36 `AttributeError` ship green through 27 passing tests and left `PlutoReceiver.open()` unable to open its device for all of Phase 35. `detect.py` and `pluto_rx.py` now convert via `dict()` at the boundary; tests use `FakeSoapySDRKwargs` (`tests/core/soapy_doubles.py`). Any future test mocking SoapySDR enumeration must use the double, not a dict. | Ongoing discipline |
+| `PlutoReceiver.open()` fails on hardware | `SoapySDR::Device::make() no match` at `pluto_rx.py:250`. Enumeration and USB-URI selection are correct (`usb:3.19.5` chosen over two `ip:` entries), but the hand-built `{"driver", "uri"}` args dict is rejected by the plugin. Phase 35's wrapper has never opened a Pluto — all 30 tests are mocked. Everything past line 250 (gain-mode read-back, bandwidth, stream setup, `read_samples`) is unproven on hardware. Phase 37 must not start until this closes. | Phase 36-Hotfix-2 |
 
 ### Accepted / Won't Fix (documented, working as intended — not active work)
 
