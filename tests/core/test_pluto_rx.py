@@ -128,7 +128,7 @@ class TestPlutoReceiver:
         receiver.open()
         assert receiver._uri == "usb:3.37.5"
         self.mock_soapy.Device.assert_called_once_with(
-            {"driver": "plutosdr", "uri": "usb:3.37.5"}
+            "driver=plutosdr,uri=usb:3.37.5"
         )
 
     def test_no_usb_falls_back_to_first_with_warning(self, caplog):

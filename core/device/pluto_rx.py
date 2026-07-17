@@ -246,7 +246,14 @@ class PlutoReceiver(DeviceBase):
             )
 
         self._uri = selected.get("uri")
-        open_args = {"driver": "plutosdr", "uri": self._uri}
+        # Pass args as a STRING, not a dict. SoapySDR's SWIG binding does not
+        # reliably marshal a Python dict into the Kwargs the plutosdr plugin's
+        # find() produced — Device({"driver": "plutosdr", "uri": ...}) raises
+        # "make() no match" on real hardware, while the identical values as a
+        # string open the device. Verified 2026-07-17: string OK, dict failed,
+        # same URI, fresh process, no contention. hackrf_rx.py has always used
+        # the string form, which is why it has always worked.
+        open_args = f"driver=plutosdr,uri={self._uri}"
         self._device = SoapySDR.Device(open_args)
 
         # Mark open immediately after the handle is acquired. If any call
