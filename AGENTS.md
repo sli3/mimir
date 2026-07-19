@@ -300,9 +300,13 @@ uv run python tools/seed_chromadb.py
 | 32 | Confidence Provenance Gating — dim unverified confidence via `source` field on scan_result | ✅ Complete | 656 (477 pytest + 179 Vitest) |
 | 33-Hotfix | Classifier confidence cap + vectordb SNR tools (hotfix, RETROACTIVE — code shipped, tests in 34) | ✅ Complete | 656 (477 pytest + 179 Vitest) [tests added in Phase 34] |
 | 34 | Test coverage for Phase 33 classifier cap + vectordb tools (TEST-ONLY) | ✅ Complete | 677 (498 pytest + 179 Vitest), 0 failures |
+| 35 | Pluto receiver wrapper — `core/device/pluto_rx.py` (`PlutoReceiver`, RX-only SoapySDR stream, real `SOAPY_SDR_RX` captured at open) | ✅ Complete | counted at merge — see 36-Hotfix |
+| 36 | Device capability + detection layer — `profiles.py` (`DEVICE_PROFILES`), `detect.py` (`enumerate_devices`/`detect_device`), `PLUTO_BAND_PROFILES` + `band_supported_by_device` | ✅ Complete | counted at merge — see 36-Hotfix |
+| 36-Hotfix | Pluto hardware bring-up — four SWIG/SoapySDR bugs fixed by hand + `soapy_doubles.py` (`FakeSoapySDRKwargs`) test infrastructure | ✅ Complete | 741 (562 pytest + 179 Vitest), 0 failures |
 
-**Total passing: 677 passing (498 pytest + 179 Vitest), 0 failures**
+**Total passing: 741 passing (562 pytest + 179 Vitest), 0 failures**
 - Note: Phase 24 added 2026-07-07. Mascot/CharacterPanel.jsx wiring deferred to a future phase (pending art asset).
+- Note: Phases 35+36 merged 2026-07-20. Intermediate per-phase subtotals were not separately captured under the doc freeze; the 741 total is verified live at the merge checkpoint (`PYTHONPATH=. uv run pytest` + `npm run test`). The four hardware bugs in 36-Hotfix were fixed by hand, not via `/build`.
 
 ---
 

@@ -149,8 +149,8 @@ Full phase-by-phase history lives in [`docs/ROADMAP.md`](./docs/ROADMAP.md), whi
 single source of truth for phase status and test counts. This section shows
 only a quick-glance summary — update `docs/ROADMAP.md` first, then sync this block.
 
-**Current phase: 34 — Phase 33/34 test coverage additions**
-**Total: 677 passing (498 pytest + 179 Vitest), 0 failures**
+**Current phase: 36 — device capability + detection layer (ADALM-PLUTO support, HackRF still default)**
+**Total: 741 passing (562 pytest + 179 Vitest), 0 failures**
 
 > **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector
 > store (`data/vectorstore/`) must be re-seeded after deploying this build.
