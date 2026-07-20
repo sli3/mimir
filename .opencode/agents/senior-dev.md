@@ -6,7 +6,7 @@ description: >
   bash (pytest, npm, dev server) as needed. Invoked by the main
   orchestrator via the Task tool for all code-producing work.
 mode: subagent
-model: kimi-for-coding/k2p7
+model: kimi-for-coding/k3
 temperature: 0.1
 permission:
   edit:

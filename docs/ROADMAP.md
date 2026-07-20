@@ -74,6 +74,114 @@
 | 32 | Confidence Provenance Gating — dim unverified confidence via `source` field on scan_result | ✅ Complete | 656 (477 pytest + 179 Vitest) |
 | 33-Hotfix | Classifier confidence cap + vectordb SNR tools (hotfix, RETROACTIVE — code shipped, tests in 34) | ✅ Complete | 656 (477 pytest + 179 Vitest) [tests added in Phase 34] |
 | 34 | Test coverage for Phase 33 classifier cap + vectordb tools (TEST-ONLY) | ✅ Complete | 677 (498 pytest + 179 Vitest), 0 failures |
+| 35 | Pluto receiver wrapper — RX-only `PlutoReceiver` SoapySDR wrapper | ✅ Complete | counted at merge — see 36-Hotfix |
+| 36 | Device capability + detection layer — DEVICE_PROFILES, enumerate/detect, PLUTO_BAND_PROFILES, band_supported_by_device | ✅ Complete | counted at merge — see 36-Hotfix |
+| 36-Hotfix | Pluto hardware bring-up — four SWIG/SoapySDR bugs (by hand) + soapy_doubles.py test infrastructure | ✅ Complete | 741 (562 pytest + 179 Vitest), 0 failures |
+
+---
+
+### Phase 35 — Pluto Receiver Wrapper ✅
+
+**What:** `PlutoReceiver`, an RX-only SoapySDR wrapper for the ADALM-PLUTO, mirroring
+the HackRF wrapper's receive-only contract. Pluto is TX-capable hardware, so the
+zero-TX rule is enforced in software: the wrapper requests `SOAPY_SDR_RX` streams only
+and never touches the TX stream API. Unlike `hackrf_rx.py`, it captures the real
+`SOAPY_SDR_RX` constant from SoapySDR at `open()` rather than hardcoding the direction,
+because assuming that value on TX-capable hardware was judged unacceptable.
+
+**Files changed:**
+- `core/device/pluto_rx.py` — new `PlutoReceiver` wrapper (RX-only).
+- `tests/core/test_pluto_rx.py` — wrapper test coverage.
+
+**Known at ship / resolved in 36-Hotfix:** shipped green with all tests passing, three
+agent reviews clean — but could not open its device on real hardware. Two of the four
+36-Hotfix bugs live here (SWIG `.get()` on enumeration results; `SoapySDR.Device()`
+requiring string args, not a dict). One test (`test_usb_uri_preferred_over_ip`) had
+encoded the dict form as the specification.
+
+**RF/Legal notes:** Pluto is TX-capable; zero-TX enforced in software. RX stream only,
+TX stream API never referenced. No TX surfaces.
+
+**Test counts:** merged at the 35+36 checkpoint — see 36-Hotfix for the verified total.
+
+---
+
+### Phase 36 — Device Capability + Detection Layer ✅
+
+**What:** Device profiles plus runtime detection/selection so Mimir knows which SDR is
+present and what each can physically and legally cover.
+
+**Files changed:**
+- `core/device/profiles.py` — `DEVICE_PROFILES`. HackRF 1 MHz–6 GHz, split gain, max
+  62.0 dB. Pluto 325–3800 MHz, combined gain, max 74.5 dB. Both ranges verified against
+  official vendor docs (Great Scott Gadgets hackrf repo; wiki.analog.com Pluto specs),
+  cited in the docstring.
+- `core/device/detect.py` — `enumerate_devices()`, `detect_device(preferred=None)`,
+  frozen `DetectedDevice` dataclass. Returns the wrapper **class**, never an instance.
+  HackRF is preferred when both are present (Pluto stays uncalibrated until Phase 39).
+- `dashboard/shared_state.py` — appended `PLUTO_BAND_PROFILES` (all 8 bands; only `ism`
+  and `adsb` `supported=True`; the six bands below Pluto's 325 MHz floor carry
+  `supported=False` + a reason string) and `band_supported_by_device(band, device)`.
+  Additive-only append — zero existing content lines removed.
+- `core/device/pluto_rx.py` — docstring band count corrected "four of seven" →
+  "six of eight".
+
+**Design decision:** the `supported` flag is the source of truth (Option B), with one
+cross-check test proving it agrees with `DEVICE_PROFILES` frequency limits.
+
+**RF/Legal notes:** No TX surfaces; all changes passive RX-only.
+
+**Test counts:** merged at the 35+36 checkpoint — see 36-Hotfix for the verified total.
+
+---
+
+### Phase 36-Hotfix — Pluto Hardware Bring-Up (four bugs, fixed by hand) ✅
+
+**What:** First real-hardware run of the Pluto path surfaced four bugs that 30+ passing
+tests had certified as working. All fixed by hand, not via a `/build` prompt. The root
+cause in three of the four was that test mocks were more permissive than the SWIG-wrapped
+C++ objects the hardware actually returns.
+
+**The four bugs:**
+1. `detect.py` — `result.get("driver")` raised `AttributeError`: SoapySDR's
+   `Device.enumerate()` returns SWIG-wrapped C++ maps, not dicts — no `.get()`. Every
+   test mocked it with plain dicts, which *do* have `.get()`.
+2. `pluto_rx.py` — the same bug at three call sites in `open()`'s URI-discovery block.
+3. `pluto_rx.py` — `SoapySDR.Device({"driver": ..., "uri": ...})` raises `make() no
+   match`; the identical values as a string `"driver=plutosdr,uri=usb:3.19.5"` open the
+   device. SWIG dict marshalling doesn't produce Kwargs matching what the plugin's
+   `find()` returns; the string path uses the plugin's own parser. `hackrf_rx.py` has
+   always used the string form — which is why it always worked.
+4. (Logged in Phase 35 review, fixed here) `hackrf_rx.py` hardcodes RX direction where
+   `pluto_rx.py` captures the real `SOAPY_SDR_RX` at open. Not currently a divergence bug
+   (`SOAPY_SDR_RX == 1` today) but asymmetric; tracked as remaining tech debt.
+
+**Fixes:** `dict(r)` conversion at the enumeration boundary in both files; string args in
+`pluto_rx.py` `open()`.
+
+**New test infrastructure:**
+- `tests/core/soapy_doubles.py` — `FakeSoapySDRKwargs`, which deliberately has **no**
+  `.get()` method, mimicking the real SWIG object. All SoapySDR enumeration mocks in
+  `test_detect.py` and `test_pluto_rx.py` migrated onto it. Four guard tests protect the
+  double itself (if someone adds `.get()` for convenience, every test using it silently
+  reverts to proving nothing). Full fail-before (21 failures) / pass-after cycle
+  demonstrated.
+
+**Verified live on hardware (2026-07-17):**
+- `enumerate_devices()` → `['hackrf', 'plutosdr']` with both plugged in; `detect_device()`
+  correctly selects HackRF; `detect_device('plutosdr')` correctly forces Pluto.
+- `PlutoReceiver` opened its device for the first time and pulled 65,536 complex64 samples
+  at 1090 MHz, 30 dB gain, mean abs 0.00058. AGC read-back, explicit bandwidth, and stream
+  setup all proven in that run. (Pluto's USB URI changes every replug; the `usb:` entry is
+  preferred over the two `ip:pluto.local` entries it also advertises.)
+
+**RF/Legal notes:** Pluto is TX-capable; zero-TX enforced in software. RX stream only. No
+TX surfaces.
+
+**Test counts:** **741 passing (562 pytest + 179 Vitest), 0 failures** — both suites
+live-verified at the merge checkpoint (`PYTHONPATH=. uv run pytest` from repo root;
+`npm run test` from `dashboard/frontend`). +64 pytest from the 498 baseline; Vitest
+unchanged at 179.
 
 ---
 

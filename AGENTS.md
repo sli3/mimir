@@ -300,9 +300,13 @@ uv run python tools/seed_chromadb.py
 | 32 | Confidence Provenance Gating — dim unverified confidence via `source` field on scan_result | ✅ Complete | 656 (477 pytest + 179 Vitest) |
 | 33-Hotfix | Classifier confidence cap + vectordb SNR tools (hotfix, RETROACTIVE — code shipped, tests in 34) | ✅ Complete | 656 (477 pytest + 179 Vitest) [tests added in Phase 34] |
 | 34 | Test coverage for Phase 33 classifier cap + vectordb tools (TEST-ONLY) | ✅ Complete | 677 (498 pytest + 179 Vitest), 0 failures |
+| 35 | Pluto receiver wrapper — `core/device/pluto_rx.py` (`PlutoReceiver`, RX-only SoapySDR stream, real `SOAPY_SDR_RX` captured at open) | ✅ Complete | counted at merge — see 36-Hotfix |
+| 36 | Device capability + detection layer — `profiles.py` (`DEVICE_PROFILES`), `detect.py` (`enumerate_devices`/`detect_device`), `PLUTO_BAND_PROFILES` + `band_supported_by_device` | ✅ Complete | counted at merge — see 36-Hotfix |
+| 36-Hotfix | Pluto hardware bring-up — four SWIG/SoapySDR bugs fixed by hand + `soapy_doubles.py` (`FakeSoapySDRKwargs`) test infrastructure | ✅ Complete | 741 (562 pytest + 179 Vitest), 0 failures |
 
-**Total passing: 677 passing (498 pytest + 179 Vitest), 0 failures**
+**Total passing: 741 passing (562 pytest + 179 Vitest), 0 failures**
 - Note: Phase 24 added 2026-07-07. Mascot/CharacterPanel.jsx wiring deferred to a future phase (pending art asset).
+- Note: Phases 35+36 merged 2026-07-20. Intermediate per-phase subtotals were not separately captured under the doc freeze; the 741 total is verified live at the merge checkpoint (`PYTHONPATH=. uv run pytest` + `npm run test`). The four hardware bugs in 36-Hotfix were fixed by hand, not via `/build`.
 
 ---
 
@@ -593,6 +597,23 @@ Do not apply this pre-emptively — only if context problems are observed.
 | Deferred ACARS/AIS max-hold extension | ACARS and AIS share the burst characteristic with ADS-B but are NOT on max-hold yet; extending it must be bundled with their own field threshold recalibration. | Future phase |
 | Live scanner vs tool embedding-space mismatch (Phase 30) | Live scanner forwards `crop_half_width_hz` to `fingerprint_spectrum()`; the 5 offline tools still call with default `None` (uncropped). Zero difference for single-signal captures; up to 5 differing embedding dims for multi-signal captures, biasing L2 distance. Fix: thread `crop_half_width_hz` into `capture_to_vectorstore.py` + `seed_chromadb.py`, re-ingest, optionally re-tune `_DISTANCE_SCALE_REFERENCE`. | Future phase |
 | `server.py` `snr_margin_db` 0.0 default | `dashboard/server.py` `broadcast()` defaults `snr_margin_db` to `0.0` when the fingerprint lacks it, making a missing margin indistinguishable from a real +0.0 dB margin. Phase 32 provenance gate (`source="fingerprint"|"decode"`) sidesteps this for confidence display, but a missing margin should ideally default to `None`. TODO comment added in source. Deferred from Phase 32. | Future phase |
+| Pluto gain-table non-monotonicity | Noise floor does not rise monotonically with gain — at 35 dB it drops 3–4 dB below the 30 dB value, then resumes rising. Reproduced across two independent sweeps on different days. Suspected AD9363 internal gain-table boundary, unconfirmed. Means gain values are not uniformly spaced in effect. | Phase 39 |
+| Pluto spurs above ~30 dB gain | A picket fence of spurious spikes appears across the span above ~30 dB combined gain. Pluto-generated — a HackRF capture at same antenna/freq/moment was clean. Spurs land in the PSD, enter the embedding, and could cluster in ChromaDB as if they were signal. | Phase 39 |
+| setup.sh missing SoapyPlutoSDR | setup.sh has not been updated with the SoapyPlutoSDR build steps. A fresh machine gets no Pluto support. Note: libiio (0.26) and libad9361-iio (0.3) ARE packaged in Fedora 44 — libiio-devel + libad9361-iio-devel are needed for headers; only SoapyPlutoSDR needs a source build. | Future phase |
+| hackrf_rx.py hardcodes RX direction | core/device/hackrf_rx.py line ~85 sets _SOAPY_RX_DIRECTION = 1 and uses it in every call including open(). pluto_rx.py was deliberately fixed to capture the real SOAPY_SDR_RX from SoapySDR at open() because assuming this value on TX-capable hardware was judged unacceptable — the same reasoning applies unchanged to HackRF, which is also TX-capable. Not currently broken (SOAPY_SDR_RX == 1 in current SoapySDR) and self-consistent, so no divergence bug exists today. But the codebase is asymmetric: the newer device is guarded, the primary one is not. Fix: mirror the pluto_rx.py pattern. | Own phase |
+| Pluto band profiles uncalibrated | `PLUTO_BAND_PROFILES` gain_db (30.0) and signal_threshold_db values are placeholders copied from the HackRF profiles, not calibrated for Pluto. gain 30.0 was chosen from a spur observation, not a calibration session. Pluto must not become the default device until this closes. | Phase 39 |
+| HackRF vs Pluto RX sensitivity unresolved | Three A/B script attempts all failed on threshold artefacts (mean-PSD averaged bursty squitters away; absolute threshold made HackRF's peak unreachable by construction; per-device percentile fixed the count at ~10 by definition). Kurtosis flipped between runs. Both devices demonstrably hear ADS-B; which hears it better is unknown. Settling test: run each device through Mimir's real pyModeS decoder for ~10 min and count valid frames — no thresholds, no interpretation. Now possible since PlutoReceiver exists. | Field/decode-rate session |
+
+### Open — desk-fixable (no hardware required)
+
+| Item | Detail | Fix in |
+|---|---|---|
+| `shared_state.py` mid-file import | `from core.device.profiles import DEVICE_PROFILES` sits mid-file (PEP 8 E402), not at the top. Deliberate — Phase 36's append-only constraint forbade touching existing lines. Move to the top of the file when that constraint no longer applies. | Future phase |
+| Dict-based SoapySDR mocks | Mocks returning plain dicts are more permissive than real `SoapySDRKwargs` (SWIG C++ map, no `.get()`), which let the Phase 36 `AttributeError` ship green through 27 passing tests and left `PlutoReceiver.open()` unable to open its device for all of Phase 35. `detect.py` and `pluto_rx.py` now convert via `dict()` at the boundary; tests use `FakeSoapySDRKwargs` (`tests/core/soapy_doubles.py`). Any future test mocking SoapySDR enumeration must use the double, not a dict. | Ongoing discipline |
+| SoapySDR `Device()` args must be strings | `SoapySDR.Device({"driver": "plutosdr", "uri": "usb:3.19.5"})` raises `make() no match`; the identical values as `"driver=plutosdr,uri=usb:3.19.5"` open the device. Verified 2026-07-17, fresh process, no contention. Cause: SWIG dict marshalling does not produce Kwargs matching what the plugin's `find()` returns; the string path uses the plugin's own parser. `hackrf_rx.py` has always used the string form — `pluto_rx.py` used a dict and never opened its device across all of Phase 35. Any new device wrapper must use the string form. | Resolved — kept as environment fact |
+| `dashboard/capture_loop.py` is dead code | Not imported by `scan.py` or `server.py` — superseded by `ScanRunner`'s own `_broadcast_spectrum_fn` (confirmed by grep across both entry points during Phase 37). No Pluto wiring was added here; wiring it would have modified code that never runs. Either delete or revive intentionally. | Future phase |
+| `config/mimir.yaml` `hardware.driver` not wired | Phase 37 added `--device {hackrf,plutosdr}` on `scan.py`, but device selection is flag-only — the yaml field is not read for this purpose. Wiring it requires exposing `.driver` on `MimirConfig` (`core/config/loader.py`), which Phase 37 deliberately did not touch. | Future phase |
+| `system_stats` `hackrf_status` label is device-agnostic | `dashboard/server.py`'s `system_stats` event reports `hackrf_status` regardless of which device is actually open (HackRF or Pluto). Cosmetic — `_compute_hackrf_status()` works correctly for both via `is_open`, only the field name is misleading on a Pluto run. Rename when Phase 38 touches device-aware frontend UI. | Phase 38 |
 
 ### Accepted / Won't Fix (documented, working as intended — not active work)
 
@@ -603,6 +624,7 @@ Do not apply this pre-emptively — only if context problems are observed.
 | Queue drain pattern | `_scan_loop()` drains the queue before each insert ("latest wins"); AI loop always classifies the freshest scan. Steady-state depth 0–1. By design. |
 | Thread-safety stress test blind spot | `test_get_band_for_freq_concurrent` doesn't exercise the `current_band_lock` write path (test freqs don't match BAND_PROFILES). Advisory only. |
 | `fingerprint_queue` orphaned in `capture_loop` | `capture_loop.py` writes fingerprints to `fingerprint_queue` every 20 frames but no production code consumes it; the live AI loop is fed via the parallel `ScanRunner._scan_loop` path. Pre-existing; operator-visible effect nil. |
+| SoapySDR `Device()` args must be strings | ... | Resolved — kept as environment fact |
 
 ---
 

@@ -501,3 +501,135 @@ class TestScanRunner:
             with shared_state.current_band_lock:
                 shared_state.current_band.clear()
                 shared_state.current_band.update(original_band)
+
+
+class TestScanLoopDeviceGuard:
+    """Tests for the unsupported-band guard in _scan_loop (Phase 37).
+
+    The guard lets devices with a narrow tuning range (e.g. Pluto,
+    325 MHz floor) skip focus frequencies they cannot physically receive,
+    instead of tuning into noise. HackRF supports every band and bypasses
+    the guard entirely. These tests use the REAL
+    shared_state.band_supported_by_device — it is a pure function over
+    module dicts, so the tests also prove the wiring is integrated
+    correctly.
+    """
+
+    def _run_briefly(self, scanner, seconds=0.3):
+        t = threading.Thread(target=scanner.run, daemon=True)
+        t.start()
+        time.sleep(seconds)
+        scanner.stop()
+        t.join(timeout=3)
+
+    def test_scan_loop_hackrf_default_skips_guard(self, config, mock_device,
+                                                  mock_embedder, mock_store,
+                                                  mock_classifier):
+        """Default device_driver="hackrf" tunes and reads as before — the
+        guard adds no behavioural change on the HackRF path."""
+        scanner = ScanRunner(mock_device, mock_embedder, mock_store,
+                             mock_classifier, config)
+        self._run_briefly(scanner, 0.3)
+        mock_device.set_center_frequency.assert_called_with(98_000_000.0)
+        mock_device.read_samples.assert_called()
+
+    def test_scan_loop_plutosdr_skips_unsupported_band(self, config, mock_device,
+                                                       mock_embedder, mock_store,
+                                                       mock_classifier):
+        """Pluto focused on 98 MHz (below its 325 MHz floor) must never
+        tune or read samples."""
+        scanner = ScanRunner(mock_device, mock_embedder, mock_store,
+                             mock_classifier, config,
+                             device_driver="plutosdr")
+        self._run_briefly(scanner, 0.3)
+        mock_device.set_center_frequency.assert_not_called()
+        mock_device.read_samples.assert_not_called()
+
+    def test_scan_loop_plutosdr_tunes_supported_band(self, config, mock_device,
+                                                     mock_embedder, mock_store,
+                                                     mock_classifier):
+        """Pluto focused on 1090 MHz (ADS-B, supported) tunes and reads."""
+        scanner = ScanRunner(mock_device, mock_embedder, mock_store,
+                             mock_classifier, config,
+                             device_driver="plutosdr")
+        scanner.set_focus_frequency(1_090_000_000.0)
+        self._run_briefly(scanner, 0.3)
+        mock_device.set_center_frequency.assert_called_with(1_090_000_000.0)
+        mock_device.read_samples.assert_called()
+
+    def test_scan_loop_plutosdr_logs_once_per_focus_change(self, config, mock_device,
+                                                           mock_embedder, mock_store,
+                                                           mock_classifier, caplog):
+        """Dwelling on an unsupported band logs the skip warning exactly
+        once, not once per scan iteration."""
+        scanner = ScanRunner(mock_device, mock_embedder, mock_store,
+                             mock_classifier, config,
+                             device_driver="plutosdr")
+        with caplog.at_level(logging.WARNING, logger="core.pipeline.scanner"):
+            self._run_briefly(scanner, 0.5)
+        skipping = [r for r in caplog.records if "Skipping" in r.getMessage()]
+        assert len(skipping) == 1
+
+    def test_scan_loop_plutosdr_resets_log_gate_on_supported_focus(
+            self, config, mock_device, mock_embedder, mock_store,
+            mock_classifier, caplog):
+        """Leaving an unsupported band for a supported one resets the log
+        gate, so returning to the unsupported band logs again."""
+        scanner = ScanRunner(mock_device, mock_embedder, mock_store,
+                             mock_classifier, config,
+                             device_driver="plutosdr")
+        with caplog.at_level(logging.WARNING, logger="core.pipeline.scanner"):
+            scanner._running = True
+            t = threading.Thread(target=scanner._scan_loop, daemon=True)
+            t.start()
+            time.sleep(0.2)  # first visit to 98 MHz — logs once
+            scanner.set_focus_frequency(1_090_000_000.0)
+            time.sleep(0.2)  # supported visit — resets the gate
+            scanner.set_focus_frequency(98_000_000.0)
+            time.sleep(0.2)  # second visit to 98 MHz — logs again
+            scanner.stop()
+            t.join(timeout=3)
+        skipping = [r for r in caplog.records if "Skipping" in r.getMessage()]
+        assert len(skipping) == 2
+
+    def test_scan_loop_plutosdr_skips_out_of_range_freq(self, config, mock_device,
+                                                         mock_embedder, mock_store,
+                                                         mock_classifier):
+        """Pluto focused on 4 GHz — above its 3.8 GHz ceiling — must never
+        tune or read samples, even though the nearest-band lookup resolves
+        it to "adsb" (a Pluto-supported band). HIGH-01: the raw frequency
+        range check is the authoritative gate, not the band lookup."""
+        scanner = ScanRunner(mock_device, mock_embedder, mock_store,
+                             mock_classifier, config,
+                             device_driver="plutosdr")
+        scanner.set_focus_frequency(4_000_000_000.0)
+        self._run_briefly(scanner, 0.3)
+        mock_device.set_center_frequency.assert_not_called()
+        mock_device.read_samples.assert_not_called()
+
+
+class TestDeviceDriverValidation:
+    """ScanRunner.__init__ must reject unknown device_driver strings.
+
+    Without validation, a typo (e.g. "rtlsdr") would reach the scan loop's
+    guard, where band_supported_by_device() raises KeyError — caught by the
+    broad except Exception, logged, and retried in a tight error loop.
+    """
+
+    def test_scan_runner_rejects_unknown_device_driver(
+            self, config, mock_device, mock_embedder, mock_store,
+            mock_classifier):
+        with pytest.raises(ValueError, match="Unknown device driver 'rtlsdr'"):
+            ScanRunner(mock_device, mock_embedder, mock_store,
+                       mock_classifier, config,
+                       device_driver="rtlsdr")
+
+    def test_scan_runner_accepts_all_known_drivers(
+            self, config, mock_device, mock_embedder, mock_store,
+            mock_classifier):
+        from core.device.profiles import DEVICE_PROFILES
+        for driver in DEVICE_PROFILES:
+            scanner = ScanRunner(mock_device, mock_embedder, mock_store,
+                                 mock_classifier, config,
+                                 device_driver=driver)
+            assert scanner._device_driver == driver

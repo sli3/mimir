@@ -30,7 +30,35 @@ export function psdToRgb(normalisedValue) {
   return [255, 255, 255]
 }
 
-export function normalisePsd(psdDbValue, minDb = -80, maxDb = 0) {
-  const norm = (psdDbValue - minDb) / (maxDb - minDb)
+/**
+ * Normalise a PSD value in dBFS to a 0-1 position on the STOPS gradient,
+ * using an explicit min/max window supplied by the caller.
+ *
+ * Why explicit min/max instead of a fixed -80..0 range?
+ * -----------------------------------------------------
+ * Different devices sit at very different absolute dBFS levels for a signal
+ * of the same quality. HackRF uses per-band calibrated gain; the ADALM-PLUTO
+ * currently runs at a fixed, uncalibrated 30 dB default (Phase 39 will
+ * calibrate it), and delivers a much lower-amplitude signal into the same
+ * FFT — so its whole PSD curve sits far below HackRF's. A single fixed
+ * -80..0 window mapped every Pluto bin to ~0 (near-black), rendering the
+ * waterfall invisible even though the signal decoded perfectly.
+ *
+ * The fix is adaptive: the waterfall hook (useWaterfall.js) measures the
+ * min and max of each incoming PSD row and passes them here, so the colour
+ * scale always spans exactly the data present — for any device, any gain,
+ * with no hard-coded numbers to revisit when Phase 39 lands.
+ *
+ * @param {number} psdDbValue - the PSD value to map, in dBFS.
+ * @param {number} minDb - the value that maps to 0.0 (bottom of the gradient).
+ * @param {number} maxDb - the value that maps to 1.0 (top of the gradient).
+ * @returns {number} normalised value in [0, 1].
+ */
+export function normalisePsd(psdDbValue, minDb, maxDb) {
+  // Degenerate/invalid window (flat row, or NaN): fall back to a neutral
+  // low value so the row renders as noise-floor colour rather than NaN.
+  const span = maxDb - minDb
+  if (!Number.isFinite(span) || span <= 0) return 0
+  const norm = (psdDbValue - minDb) / span
   return Math.max(0, Math.min(1, norm))
 }
