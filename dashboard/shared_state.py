@@ -282,6 +282,50 @@ def get_nearest_band_for_freq(freq_hz: float | None) -> dict | None:
     return dict(candidates[nearest_key])
 
 
+def band_key_for_freq(freq_hz: float | None) -> str | None:
+    """Return the BAND_PROFILES KEY (not the profile dict) for freq_hz.
+
+    Returns the key of the profile whose center_freq_hz matches freq_hz
+    exactly, or — if there is no exact match — the key of the nearest
+    profile, or None if freq_hz is None.
+
+    Key facts:
+
+    - Returns the KEY string (e.g. "fm_broadcast"), not a profile dict.
+      This is the lookup band_supported_by_device() needs, since that
+      function is keyed by band name.
+    - Exact-match iteration order mirrors get_band_for_freq: both
+      ``fm_broadcast`` and ``noise_floor`` sit at 98 MHz, and the first
+      match in definition order wins, so 98 MHz returns "fm_broadcast",
+      never "noise_floor".
+    - The nearest-match fallback EXCLUDES ``noise_floor``, mirroring
+      get_nearest_band_for_freq: it is a zero-gain reference measurement,
+      not a real receivable band, and must never be selected for live
+      scanning.
+    - This is a pure, read-only helper. It takes no locks and mutates
+      nothing.
+
+    Args:
+        freq_hz: Centre frequency in Hz, or None.
+
+    Returns:
+        A BAND_PROFILES key string, or None if freq_hz is None.
+    """
+    if freq_hz is None:
+        return None
+    for key, profile in BAND_PROFILES.items():
+        if profile["center_freq_hz"] == int(freq_hz):
+            return key
+    candidates = {
+        k: v for k, v in BAND_PROFILES.items()
+        if k != "noise_floor"
+    }
+    return min(
+        candidates,
+        key=lambda k: abs(candidates[k]["center_freq_hz"] - freq_hz)
+    )
+
+
 # =============================================================================
 # PLUTO BAND SUPPORT — Phase 36 additive override layer
 # =============================================================================

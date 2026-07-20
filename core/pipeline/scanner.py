@@ -5,6 +5,7 @@ import time
 from datetime import datetime
 
 from core.config.loader import MimirConfig
+from core.device.profiles import DEVICE_PROFILES
 import core.pipeline.features as features
 from core.pipeline.fft import compute_psd
 from core.pipeline.scan_result import ScanResult
@@ -30,7 +31,8 @@ class ScanRunner:
     _scan_count_since_llm — increments once per scan cycle; snapshot
     into _last_backlog when the AI loop picks up an item, then reset.
     """
-    def __init__(self, device, embedder, store, classifier, config: MimirConfig) -> None:
+    def __init__(self, device, embedder, store, classifier, config: MimirConfig,
+                 device_driver: str = "hackrf") -> None:
         """Initialise the two-thread scanner.
 
         The scan loop captures IQ and queues fingerprints; the AI loop classifies
@@ -45,8 +47,28 @@ class ScanRunner:
         _last_offline_emit — timestamp of the last llm_offline emit; used to
         rate-limit offline results to one every 5 seconds to avoid SocketIO
         flooding.
+
+        device_driver — the DEVICE_PROFILES driver key ("hackrf" / "plutosdr")
+        of the attached device. Used by the scan loop's unsupported-band guard:
+        non-HackRF devices with a narrower tuning range (e.g. Pluto, 325 MHz
+        floor) skip focus frequencies they cannot physically receive instead
+        of tuning into noise. Defaults to "hackrf", which supports every band
+        and bypasses the guard entirely.
+
+        Raises:
+            ValueError: If device_driver is not a DEVICE_PROFILES key. The
+                scan loop's guard calls band_supported_by_device(), which
+                raises KeyError for unknown drivers; failing fast here at
+                construction avoids a tight log-and-retry error loop in the
+                scan thread.
         """
+        if device_driver not in DEVICE_PROFILES:
+            raise ValueError(
+                f"Unknown device driver {device_driver!r}. "
+                f"Valid drivers: {sorted(DEVICE_PROFILES.keys())}"
+            )
         self._device = device
+        self._device_driver = device_driver
         self._embedder = embedder
         self._store = store
         self._classifier = classifier
@@ -68,6 +90,10 @@ class ScanRunner:
         self._focus_freq_hz: float = config.frequencies_hz[0]
         self._focus_lock: threading.Lock = threading.Lock()
         self._iq_subscribers: list = []
+        # Unsupported-band log gate: remembers the last frequency a skip
+        # warning was logged for, so a device dwelling on an unsupported
+        # band logs once per focus change rather than once per iteration.
+        self._last_unsupported_log_hz: float | None = None
 
     def run(self) -> None:
         self._running = True
@@ -168,6 +194,33 @@ class ScanRunner:
             try:
                 with self._focus_lock:
                     freq_hz = self._focus_freq_hz
+                if self._device_driver != "hackrf":
+                    # The raw frequency range is the authoritative gate:
+                    # band_key_for_freq() resolves any unmatched freq to the
+                    # NEAREST band, so a freq above the device's ceiling
+                    # (e.g. 4 GHz on Pluto, whose adsb band is "supported")
+                    # would pass a band-only check and tune into noise.
+                    device_profile = DEVICE_PROFILES[self._device_driver]
+                    in_range = (
+                        device_profile["min_freq_hz"]
+                        <= freq_hz
+                        <= device_profile["max_freq_hz"]
+                    )
+                    band_key = shared_state.band_key_for_freq(freq_hz) if in_range else None
+                    if not in_range or band_key is None or not shared_state.band_supported_by_device(
+                        band_key, self._device_driver
+                    ):
+                        if freq_hz != self._last_unsupported_log_hz:
+                            logger.warning(
+                                "Skipping %.3f MHz — band %r is unsupported on device %r",
+                                freq_hz / 1e6, band_key, self._device_driver,
+                            )
+                            self._last_unsupported_log_hz = freq_hz
+                        time.sleep(config.dwell_time_sec)
+                        continue
+                    # Reset the log gate on any supported-band visit so that
+                    # returning to an unsupported frequency logs again.
+                    self._last_unsupported_log_hz = None
                 if freq_hz != _last_tuned_hz:
                     device.set_center_frequency(freq_hz)
                     _last_tuned_hz = freq_hz
