@@ -621,6 +621,7 @@ Do not apply this pre-emptively — only if context problems are observed.
 | Queue drain pattern | `_scan_loop()` drains the queue before each insert ("latest wins"); AI loop always classifies the freshest scan. Steady-state depth 0–1. By design. |
 | Thread-safety stress test blind spot | `test_get_band_for_freq_concurrent` doesn't exercise the `current_band_lock` write path (test freqs don't match BAND_PROFILES). Advisory only. |
 | `fingerprint_queue` orphaned in `capture_loop` | `capture_loop.py` writes fingerprints to `fingerprint_queue` every 20 frames but no production code consumes it; the live AI loop is fed via the parallel `ScanRunner._scan_loop` path. Pre-existing; operator-visible effect nil. |
+| SoapySDR `Device()` args must be strings | ... | Resolved — kept as environment fact |
 
 ---
 
