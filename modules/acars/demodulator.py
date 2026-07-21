@@ -7,6 +7,7 @@ Jurisdiction: AU / SA.  Authority: ACMA.
 """
 
 import logging
+from functools import reduce
 
 import numpy as np
 from scipy import signal
@@ -33,26 +34,101 @@ class AcarsDemodulator:
             envelope = envelope / std
         return envelope
 
+    def _stage_factors(self, factor: int) -> list[int]:
+        """Split a decimation factor into IIR-safe stages (each <= 13).
+
+        SciPy's ``signal.decimate`` uses an IIR anti-alias filter that is only
+        numerically stable when the decimation factor per call is 13 or less.
+        A single-stage factor above 13 destroys the anti-alias filter and
+        mangles the signal. Multiple sequential calls keep each stage within
+        the safe range.
+
+        This method returns a list of integer stage factors whose product
+        equals ``factor`` whenever possible, using a greedy largest-first
+        trial division in the range 2..13. If ``factor`` has a prime factor
+        above 13 (e.g. 41), exact factorisation is impossible; the method then
+        scans downward from ``factor - 1`` for the largest candidate that can
+        be factorised entirely into stages of 2..13, and returns those stages.
+        The resulting product may be slightly below ``factor``; the shortfall
+        is absorbed by the returned actual audio rate so downstream callers
+        use the true achieved sample rate.
+
+        Structural invariant: no returned stage ever exceeds 13.
+
+        Examples:
+            - factor=40 returns [10, 4] (product 40, exact)
+            - factor=41 returns [10, 4] (product 40, prime factor 41 forces a
+              slight shortfall)
+        """
+        if factor <= 1:
+            return []
+
+        def _exact_split(value: int) -> list[int] | None:
+            """Greedily peel divisors in 2..13 (largest first) off ``value``.
+
+            Returns the stage list when the factorisation is exact, or
+            ``None`` when ``value`` has a prime factor above 13.
+            """
+            stages: list[int] = []
+            remainder = value
+            for divisor in range(13, 1, -1):
+                while remainder % divisor == 0:
+                    stages.append(divisor)
+                    remainder //= divisor
+            return stages if remainder == 1 else None
+
+        stages = _exact_split(factor)
+        if stages is not None:
+            return stages
+        # factor has a prime factor above 13 (e.g. 41): fall back to the
+        # largest achievable product at or below factor using only
+        # IIR-safe stages, and let the actual achieved rate propagate.
+        for candidate in range(factor - 1, 1, -1):
+            stages = _exact_split(candidate)
+            if stages is not None:
+                return stages
+        return []
+
     def decimate_to_audio(
         self,
         envelope: np.ndarray,
         input_sample_rate: float,
-        target_audio_rate: float = 48_000.0,
-    ) -> np.ndarray:
-        """Down-sample envelope to audio rate suitable for tone detection.
+        target_audio_rate: float = 50_000.0,
+    ) -> tuple[np.ndarray, float]:
+        """Down-sample an AM envelope to approximately ``target_audio_rate``.
 
-        Args:
-            envelope: AM envelope samples at ``input_sample_rate``.
-            input_sample_rate: Sample rate of the input envelope (Hz).
-            target_audio_rate: Desired output rate (Hz).  Default 48 kHz.
+        The decimation is performed in multiple IIR-safe stages (each factor
+        <= 13) via SciPy's ``signal.decimate``. Because the stage factors are
+        chosen by integer trial division, the achieved rate may differ
+        slightly from the nominal target when the input sample rate is not
+        exactly divisible by the target (e.g. a prime factor > 13 forces a
+        fallback product that is a few kHz below the target).
+
+        The returned actual audio rate is ``input_sample_rate / product(stages)``
+        — this is the rate downstream tone detection must use for correlation,
+        not the nominal target. Callers such as ``AcarsSubscriber._decode_loop``
+        pass the returned rate to ``detect_tones``, which computes per-symbol
+        windows from it.
+
+        Default target rationale: 50 kHz is chosen because 2 MHz / 50 kHz = 40,
+        and 40 factorises exactly into IIR-safe stages (10 x 4). A 48 kHz
+        target would imply a factor of 41 (prime), which falls back to product
+        40 anyway, yielding the same 50 kHz actual rate. Fifty kilohertz is
+        therefore the natural default for a 2 MHz input.
 
         Returns:
-            Decimated envelope at ``target_audio_rate``.
+            A ``(signal, rate)`` tuple where ``signal`` is the decimated
+            envelope array and ``rate`` is the true achieved sample rate in Hz.
         """
         factor = int(input_sample_rate / target_audio_rate)
         if factor <= 1:
-            return envelope
-        return signal.decimate(envelope, factor)
+            return envelope, input_sample_rate
+        stages = self._stage_factors(factor)
+        decimated = envelope
+        for stage in stages:
+            decimated = signal.decimate(decimated, stage)
+        product = reduce(lambda a, b: a * b, stages, 1)
+        return decimated, input_sample_rate / product
 
     def detect_tones(
         self,

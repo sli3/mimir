@@ -82,10 +82,10 @@ class AcarsSubscriber:
 
             try:
                 envelope = self._demodulator.envelope_detect(iq_chunk)
-                audio = self._demodulator.decimate_to_audio(
+                audio, audio_rate = self._demodulator.decimate_to_audio(
                     envelope, sample_rate_hz
                 )
-                tones = self._demodulator.detect_tones(audio)
+                tones = self._demodulator.detect_tones(audio, audio_rate=audio_rate)
                 bits = self._demodulator.nrzi_decode(tones)
                 start_idx = self._decoder.find_frame_start(bits)
 
