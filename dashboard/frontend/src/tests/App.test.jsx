@@ -286,4 +286,81 @@ describe('App', () => {
       expect(confidenceValue.style.color).toBe('var(--neon-green)')
     })
   })
+
+  describe('App unsupported-band tooltip (Phase 38-Hotfix-1)', () => {
+    // Phase 38-Hotfix-1 regression lock: an unsupported band button
+    // must render with a title attribute (so the native tooltip fires
+    // on hover) AND must NOT carry the HTML disabled attribute (which
+    // removes the element from hit-testing and suppresses the tooltip).
+    // Click is blocked by the onClick omission, not by disabled.
+
+    const plutoReason = {
+      fm_broadcast: "Below Pluto's 325 MHz tuning floor (98 MHz)",
+      aviation: "Below Pluto's 325 MHz tuning floor (127 MHz)",
+      acars: "Below Pluto's 325 MHz tuning floor (129.125 MHz)",
+      aprs: "Below Pluto's 325 MHz tuning floor (145.175 MHz)",
+      ais: "Below Pluto's 325 MHz tuning floor (162 MHz)",
+    }
+
+    it('BAND_GROUPS unsupported button has title and is not disabled (Pluto)', () => {
+      useSocket.mockReturnValueOnce({
+        ...defaultUseSocket(),
+        device: 'plutosdr',
+        unsupportedBands: plutoReason,
+      })
+      const { container } = render(<App />)
+      // FM is the BAND_GROUPS "BROADCAST" band
+      const buttons = [...container.querySelectorAll('button')]
+      const fmButton = buttons.find((b) => b.textContent === 'FM')
+      expect(fmButton).toBeDefined()
+      // Title must be the reason string
+      expect(fmButton.getAttribute('title')).toBe(plutoReason.fm_broadcast)
+      // CRITICAL: the disabled attribute must NOT be present.
+      // Both attribute-presence and JS-property-presence must fail
+      // to catch every way the regression could re-appear.
+      expect(fmButton.hasAttribute('disabled')).toBe(false)
+      expect(fmButton.disabled).toBe(false)
+    })
+
+    it('clicking an unsupported BAND_GROUPS button does not call focusFrequency', () => {
+      useSocket.mockReturnValueOnce({
+        ...defaultUseSocket(),
+        device: 'plutosdr',
+        unsupportedBands: plutoReason,
+      })
+      render(<App />)
+      const buttons = [...document.querySelectorAll('button')]
+      const fmButton = buttons.find((b) => b.textContent === 'FM')
+      fireEvent.click(fmButton)
+      expect(mockFocusFrequency).not.toHaveBeenCalled()
+    })
+
+    it('OVERVIEW_BANDS unsupported cell has title and data-unsupported', () => {
+      useSocket.mockReturnValueOnce({
+        ...defaultUseSocket(),
+        device: 'plutosdr',
+        unsupportedBands: plutoReason,
+      })
+      const { container } = render(<App />)
+      // The overview strip cells are divs with data-unsupported="true"
+      const unsupportedCells = container.querySelectorAll('div[data-unsupported="true"]')
+      // Five of seven cells (fm, aviation, acars, aprs, ais) are unsupported on Pluto
+      expect(unsupportedCells.length).toBe(5)
+      // The first one (FM BROADCAST) must carry the reason as title
+      expect(unsupportedCells[0].getAttribute('title')).toBe(plutoReason.fm_broadcast)
+    })
+
+    it('clicking an unsupported OVERVIEW_BANDS cell does not call focusFrequency', () => {
+      useSocket.mockReturnValueOnce({
+        ...defaultUseSocket(),
+        device: 'plutosdr',
+        unsupportedBands: plutoReason,
+      })
+      render(<App />)
+      const unsupportedCells = document.querySelectorAll('div[data-unsupported="true"]')
+      // Click the first unsupported overview cell
+      fireEvent.click(unsupportedCells[0])
+      expect(mockFocusFrequency).not.toHaveBeenCalled()
+    })
+  })
 })

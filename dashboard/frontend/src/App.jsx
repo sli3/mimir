@@ -408,12 +408,19 @@ export default function App() {
                       // means everything renders exactly as before.
                       const unsupportedReason = unsupportedBands[band.band_key]
                       const isUnsupported = unsupportedReason != null
+                      // Phase 38-Hotfix-1: no `disabled` attribute here on
+                      // purpose. Native `title` tooltips do not fire on
+                      // HTML disabled controls (the browser removes them
+                      // from hit-testing, so mouseover never fires). The
+                      // tooltip IS the reason this row is greyed, so it
+                      // must be visible on hover. Click is blocked by
+                      // the onClick omission above; do not re-add
+                      // `disabled` here.
                       return (
                         <button
                           key={band.freq_hz}
                           onClick={isUnsupported ? undefined : () => focusFrequency(band.freq_hz)}
                           title={isUnsupported ? unsupportedReason : undefined}
-                          disabled={isUnsupported || undefined}
                           data-unsupported={isUnsupported ? 'true' : undefined}
                           style={{
                             fontFamily: 'monospace',

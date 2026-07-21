@@ -84,6 +84,28 @@ describe('FrequencyList', () => {
     expect(mockFocusFrequency).not.toHaveBeenCalled()
   })
 
+  it('unsupported row does NOT carry the disabled attribute (Phase 38-Hotfix-1 regression lock)', () => {
+    // Phase 38-Hotfix-1: native title tooltips are suppressed on
+    // elements with the HTML disabled attribute, so FrequencyList rows
+    // (divs) must NEVER be marked disabled. This test is a
+    // documentation lock — divs have no native disabled, but the
+    // assertion documents the intent so a future contributor does not
+    // try to add `disabled` for "extra safety".
+    const reason = "Below Pluto's 325 MHz tuning floor (98 MHz)"
+    const { container } = render(
+      <FrequencyList
+        scanResults={[]}
+        focusedFreq={null}
+        focusFrequency={mockFocusFrequency}
+        unsupportedBands={{ fm_broadcast: reason }}
+      />
+    )
+    const fmRow = container.querySelector('div[data-unsupported="true"]')
+    expect(fmRow).toBeInTheDocument()
+    expect(fmRow.hasAttribute('disabled')).toBe(false)
+    expect(fmRow.title).toBe(reason)
+  })
+
   it('does not render latest scan result for an unsupported row', () => {
     const reason = "Below Pluto's 325 MHz tuning floor (98 MHz)"
     render(
