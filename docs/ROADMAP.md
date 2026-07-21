@@ -77,6 +77,9 @@
 | 35 | Pluto receiver wrapper — RX-only `PlutoReceiver` SoapySDR wrapper | ✅ Complete | counted at merge — see 36-Hotfix |
 | 36 | Device capability + detection layer — DEVICE_PROFILES, enumerate/detect, PLUTO_BAND_PROFILES, band_supported_by_device | ✅ Complete | counted at merge — see 36-Hotfix |
 | 36-Hotfix | Pluto hardware bring-up — four SWIG/SoapySDR bugs (by hand) + soapy_doubles.py test infrastructure | ✅ Complete | 741 (562 pytest + 179 Vitest), 0 failures |
+| 37 | Device selection wiring — `--device {hackrf,plutosdr}` flag, `build_device()` factory, `ScanRunner` band-skip guard | ✅ Complete | 772 (593 pytest + 179 Vitest), 0 failures |
+| 37-Hotfix-1 | Pluto waterfall adaptive per-row colour scaling (frontend-only) | ✅ Complete | 772 (593 pytest + 179 Vitest) — Vitest unchanged |
+| 37-Hotfix-2 | ACARS decimation fix + decode-path verification (decoder confirmed correct; no live ACARS present) | ✅ Complete | 781 (602 pytest + 179 Vitest), 0 failures |
 
 ---
 
@@ -1567,6 +1570,122 @@ production logic changed.
 **Test counts:** **677 passing (498 pytest + 179 Vitest), 0 failures** — both suites
 live-verified (`uv run pytest` from the repo root with `PYTHONPATH=.`; `npm run test` from
 `dashboard/frontend`). pytest is +21 from the 477 baseline; Vitest unchanged at 179.
+
+---
+
+### Phase 37 — Device Selection Wiring ✅
+
+**Branch:** `feat/pluto-device-support`. **Type:** Feature (invasive wiring).
+
+**What shipped.** Mimir's live scan can now run on either the HackRF One or the
+ADALM-PLUTO, selected via a new `--device {hackrf,plutosdr}` flag on `scan.py`.
+HackRF remains the default; its behaviour is byte-for-byte unchanged when the flag
+is absent.
+
+**Delivered:**
+- `core/device/factory.py` (new) — `build_device(driver, lna_gain_db, vga_gain_db,
+  amp_enable)`, a single construction seam. Accepts the HackRF gain vocabulary but
+  deliberately does NOT forward it to `PlutoReceiver` (different gain semantics —
+  Pluto constructs at its own 30.0 dB default until Phase 39). RX-only.
+- `scan.py` — `--device` flag via argparse; construction routed through
+  `build_device()`; on a Pluto run only, startup focus moves to the first
+  `frequencies_hz` entry whose band Pluto supports (via `band_key_for_freq` +
+  `band_supported_by_device`), with `current_band` set to match.
+- `core/pipeline/scanner.py` — `ScanRunner.__init__` gains `device_driver="hackrf"`.
+  The scan-loop tune point is guarded: strict no-op for HackRF (hot path unchanged);
+  for other drivers, an unsupported band is skipped with a once-per-focus log line
+  instead of being tuned.
+- `dashboard/shared_state.py` — additive `band_key_for_freq(freq_hz) -> str | None`
+  (returns the BAND_PROFILES key, needed because `band_supported_by_device()` takes
+  a key not a frequency).
+
+**Design notes.** The anticipated per-band HackRF-LNA/VGA vs Pluto-combined-gain
+collision did not exist — `ScanRunner` sets gain once at construction, never per band.
+Pluto startup-band reassignment was found mandatory (not optional): `frequencies_hz[0]`
+is 98 MHz FM, below Pluto's 325 MHz floor, so a naive Pluto run would fail on the first
+tune. `dashboard/capture_loop.py` was confirmed dead code (not imported by `scan.py`
+or `server.py`) and removed from scope — logged as tech debt.
+
+**Test counts:** 772 (593 pytest + 179 Vitest), 0 failures — both suites live-verified.
++31 pytest over the 741 baseline; Vitest unchanged (backend-only).
+
+**Not yet verified:** actual `--device plutosdr` hardware behaviour was untested at
+memo time (mocked tests prove wiring logic, not end-to-end streaming). Hardware
+verification was subsequently done in the 37-Hotfix-1 session (Pluto ADS-B decode
+confirmed CRC-valid on real hardware).
+
+---
+
+### Phase 37-Hotfix-1 — Pluto Waterfall Adaptive Colour ✅
+
+**Type:** Hotfix (frontend-only, non-checkpoint). **Branch:** `feat/pluto-device-support`.
+
+**Problem.** The dashboard waterfall was effectively invisible on the ADALM-PLUTO —
+a flat near-black field — despite correct decoding (ADS-B CRC-valid, ISM classified)
+and a healthy canvas. Pixel readout showed every bin mapping to `rgb(3, 8, 16)`, the
+darkest gradient stop.
+
+**Root cause.** `normalisePsd()` in `colourmap.js` used a fixed absolute dBFS window
+(-80 to 0) tuned for HackRF's calibrated per-band gain. Pluto at its uncalibrated
+30 dB default delivers a much lower-amplitude signal, so its entire averaged PSD curve
+sat below that window -> near-black. A real per-device physical difference, not a driver
+defect (confirmed against Pluto's own hardware notes; ruled out websocket, canvas
+layout, and sample-scaling causes by direct measurement first).
+
+**Fix.** Made the waterfall colour scale adaptive and self-scaling, keyed off the data
+rather than any fixed range or device identity:
+- `colourmap.js` — `normalisePsd(value, minDb, maxDb)` now takes an explicit window.
+- `useWaterfall.js` — derives the window per row: floor = 70th-percentile
+  (`SCALE_FLOOR_PERCENTILE = 0.7`) minus a pad (anchoring to noise floor, not row min,
+  keeps noise dark); ceiling = row max + 6 dB (`SCALE_CEIL_PAD_DB`). Single-pass,
+  NaN/Infinity-guarded, no spread-based Math.min/max (avoids call-stack blow-up on the
+  2048-bin array).
+
+**Forward note.** The waterfall is now device- and gain-independent; Phase 39 Pluto
+calibration needs no waterfall changes. Do NOT reintroduce a fixed per-device dBFS
+range in `colourmap.js`.
+
+**Test counts:** 179 Vitest passing, 0 failures (pytest untouched — no backend change).
+Combined suite remains 772. Live-verified on Pluto (ISM 915, ADS-B 1090) and HackRF
+(ACARS 129.125).
+
+---
+
+### Phase 37-Hotfix-2 — ACARS Decimation Fix + Decode-Path Verification ✅
+
+**Type:** Hotfix + investigation. Code fix committed (`71784c5`); the larger result is
+a verification — the ACARS decoder was proven correct, not buggy.
+
+**Problem.** ACARS produced no decodes on 129.125 MHz despite an apparent strong
+carrier. Three hypotheses: signal quality, subscriber wiring, or decoder bug.
+
+**Investigation (env-gated `MIMIR_ACARS_DIAG` instrumentation + offline analysis).**
+- Wiring correct: `arrivals == loop_chunks`, no queue drops.
+- Chunk length fine: 65.5 ms/chunk holds a full ACARS frame.
+- Root cause: **no ACARS on air.** Confirmed four ways — HackRF IQ+FFT capture (DC/LO
+  spike + flat noise, no ACARS bandwidth), SDR++ reference receiver (129.125 + 131.550,
+  AM), a 20 min burst-catcher (peak/mean 10-12 vs 6-10 baseline), and the single
+  threshold-crossing burst (peak/mean 19.3) run through the real decoder offline — a
+  ~6 ms, 0.2 kHz carrier blip (not the ~2.4 kHz / 100 ms+ ACARS signature). Decoder
+  correctly returned NO SYNC.
+
+**What was delivered (`modules/acars/demodulator.py`, `subscriber.py`).**
+- Latent bug found en route: single-stage `scipy.signal.decimate(factor=41)` exceeded
+  SciPy's documented IIR-safe limit of 13, degrading the anti-alias filter. NOT the
+  cause of no-decodes (band was quiet), but a real defect affecting any high-decimation
+  path (incl. Pluto rates).
+- `_stage_factors()` splits any factor into IIR-safe stages (each <=13), exact-split with
+  prime-fallback. `decimate_to_audio()` decimates in stages, targets 50 kHz (factor
+  40 = 10x4 at 2 MHz), returns `(signal, actual_rate)` so tone detection uses the true
+  rate. Device-independent. Decode logic unchanged.
+
+**Verification outcome.** ACARS decoder confirmed CORRECT — rejects non-ACARS input
+cleanly, verified against real captured IQ through the genuine decode path. "Awaiting
+decodes..." on a quiet channel is expected, not a bug. Live-traffic validation parked
+(see Known Tech Debt).
+
+**Test counts:** 781 (602 pytest + 179 Vitest), 0 failures. +9 pytest (`_stage_factors`)
+over the 772 baseline; Vitest unchanged.
 
 ---
 
