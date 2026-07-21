@@ -192,10 +192,27 @@ export function useSocket() {
     return psdMapRef.current[freqHz] || null
   }, [])
 
+  // Phase 38 — device-aware band UI. Both come from the same system_stats
+  // event that already populates systemStats. Defaults are chosen so
+  // consumers can read these before the first system_stats event arrives
+  // without a null-check on the structure itself.
+  // - device: string|null — null until first system_stats arrives. The
+  //   dashboard currently uses the side panel for status, not this hook
+  //   value, so this is mostly for the band greying logic.
+  // - unsupportedBands: object — empty {} for HackRF and pre-first-stats
+  //   (this empty case is the "zero visual change" guarantee documented
+  //   in Phase 38). Keys are band_key strings (e.g. "fm_broadcast"),
+  //   values are reason strings (e.g. "Below Pluto's 325 MHz tuning
+  //   floor (98 MHz)").
+  const device = systemStats?.device ?? null
+  const unsupportedBands = systemStats?.unsupported_bands ?? {}
+
   return {
     scanResults,
     spectrumUpdates,
     systemStats,
+    device,
+    unsupportedBands,
     focusedFreq,
     focusFrequency,
     getPsdDb,

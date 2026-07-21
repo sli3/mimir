@@ -16,6 +16,8 @@ describe('ACARS tuned state', () => {
     scanResults: [],
     spectrumUpdates: [],
     systemStats: null,
+    device: null,
+    unsupportedBands: {},
     focusedFreq,
     focusFrequency: mockFocusFrequency,
     isConnected: false,

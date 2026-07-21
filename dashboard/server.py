@@ -199,6 +199,16 @@ def start_server(host: str, port: int, device=None, scanner=None):
                 last_backlog = 0
                 llm_call_count = 0
                 llm_ms = 0.0
+            # Read the active device driver from shared state (under lock)
+            # and compute the per-device unsupported-band map. Both are
+            # static for the lifetime of a run, but reading every poll
+            # keeps the code path uniform with the rest of the stats and
+            # means a future hot-swap of the device via a hypothetical
+            # /api/device endpoint would just work without touching this
+            # function.
+            with shared_state.current_device_lock:
+                active_device = shared_state.current_device
+            unsupported_map = shared_state.unsupported_bands_for_device(active_device)
             data = {
                 "hackrf_status": _compute_hackrf_status(),
                 "active_frequency_hz": active_freq,
@@ -207,6 +217,9 @@ def start_server(host: str, port: int, device=None, scanner=None):
                 "last_backlog": last_backlog,
                 "llm_call_count": llm_call_count,
                 "llm_last_inference_ms": llm_ms,
+                # Phase 38 — device-aware unsupported-band UI.
+                "device": active_device,
+                "unsupported_bands": unsupported_map,
             }
             socketio.emit("system_stats", data)
 

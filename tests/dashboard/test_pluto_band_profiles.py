@@ -109,6 +109,78 @@ class TestBandSupportedByDevice:
             band_supported_by_device("fm_broadcast", "not_a_device")
 
 
+class TestUnsupportedBandsForDevice:
+    """Tests for the unsupported_bands_for_device() helper (Phase 38).
+
+    Pure helper — no hardware, no I/O, no locks. Builds the
+    {band_key: reason} map the dashboard's system_stats payload sends to
+    the frontend, so the band list can grey out rows the active device
+    cannot physically receive.
+    """
+
+    def test_hackrf_returns_empty_dict(self):
+        """HackRF's 1 MHz–6 GHz range covers every band -> empty map.
+
+        The empty-map result is the "zero visual change" guarantee the
+        frontend test depends on: when unsupportedBands is {}, every band
+        renders exactly as it did before Phase 38.
+        """
+        from dashboard.shared_state import unsupported_bands_for_device
+        assert unsupported_bands_for_device("hackrf") == {}
+
+    def test_plutosdr_returns_five_below_floor_bands(self):
+        """Pluto's 325 MHz tuning floor excludes exactly five user-facing
+        bands.
+
+        Excludes ism and adsb (Pluto-supported) and noise_floor (zero-
+        gain reference, never a user-facing band — the helper skips it).
+        Returns the five below-floor bands.
+        """
+        from dashboard.shared_state import unsupported_bands_for_device
+        result = unsupported_bands_for_device("plutosdr")
+        assert set(result.keys()) == {
+            "fm_broadcast", "aviation", "acars", "aprs", "ais",
+        }
+
+    def test_plutosdr_reasons_match_pluto_band_profiles(self):
+        """The reason strings for Pluto's five below-floor bands must be
+        read straight out of PLUTO_BAND_PROFILES — never hard-coded in
+        the helper. Drift between the two would mean the operator sees
+        one reason in the dashboard and a different one in any other
+        surface that reads PLUTO_BAND_PROFILES directly."""
+        from dashboard.shared_state import (
+            PLUTO_BAND_PROFILES,
+            unsupported_bands_for_device,
+        )
+        result = unsupported_bands_for_device("plutosdr")
+        for band_key, reason in result.items():
+            assert reason == PLUTO_BAND_PROFILES[band_key]["reason"], band_key
+
+    def test_plutosdr_excludes_supported_bands(self):
+        """ism and adsb are Pluto-supported, so they MUST NOT appear in
+        the unsupported map."""
+        from dashboard.shared_state import unsupported_bands_for_device
+        result = unsupported_bands_for_device("plutosdr")
+        assert "ism" not in result
+        assert "adsb" not in result
+
+    def test_plutosdr_excludes_noise_floor(self):
+        """noise_floor is a zero-gain reference, never a user-facing band,
+        so it is excluded from the map even though Pluto technically cannot
+        receive its 98 MHz centre. Mirrors the get_nearest_band_for_freq /
+        band_key_for_freq exclusion of noise_floor."""
+        from dashboard.shared_state import unsupported_bands_for_device
+        result = unsupported_bands_for_device("plutosdr")
+        assert "noise_floor" not in result
+
+    def test_unknown_device_raises_keyerror(self):
+        """An unrecognised device driver raises KeyError, propagated from
+        band_supported_by_device. Same contract as that helper."""
+        from dashboard.shared_state import unsupported_bands_for_device
+        with pytest.raises(KeyError, match="not_a_device"):
+            unsupported_bands_for_device("not_a_device")
+
+
 class TestBandProfilesUnmodified:
     """Guards that the Phase 36 append did not restructure BAND_PROFILES."""
 

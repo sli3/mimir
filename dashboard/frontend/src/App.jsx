@@ -31,40 +31,40 @@ const BAND_GROUPS = [
   {
     label: 'BROADCAST',
     bands: [
-      { name: 'FM BROADCAST', freq_hz: 98000000, label: 'FM' },
+      { name: 'FM BROADCAST', freq_hz: 98000000, label: 'FM', band_key: 'fm_broadcast' },
     ],
   },
   {
     label: 'AVIATION BAND',
     bands: [
-      { name: 'AVIATION', freq_hz: 127000000, label: 'AVIATION' },
-      { name: 'ACARS', freq_hz: 129125000, label: 'ACARS' },
-      { name: 'ADS-B', freq_hz: 1090000000, label: 'ADS-B' },
+      { name: 'AVIATION', freq_hz: 127000000, label: 'AVIATION', band_key: 'aviation' },
+      { name: 'ACARS', freq_hz: 129125000, label: 'ACARS', band_key: 'acars' },
+      { name: 'ADS-B', freq_hz: 1090000000, label: 'ADS-B', band_key: 'adsb' },
     ],
   },
   {
     label: 'MARITIME',
     bands: [
-      { name: 'AIS', freq_hz: 162000000, label: 'AIS' },  // 162.000 MHz dual-channel centre
+      { name: 'AIS', freq_hz: 162000000, label: 'AIS', band_key: 'ais' },  // 162.000 MHz dual-channel centre
     ],
   },
   {
     label: 'DATA / IoT',
     bands: [
-      { name: 'APRS', freq_hz: 145175000, label: 'APRS' },
-      { name: 'ISM', freq_hz: 915000000, label: 'ISM' },
+      { name: 'APRS', freq_hz: 145175000, label: 'APRS', band_key: 'aprs' },
+      { name: 'ISM', freq_hz: 915000000, label: 'ISM', band_key: 'ism' },
     ],
   },
 ]
 
 const OVERVIEW_BANDS = [
-  { name: 'FM BROADCAST', freq_hz: 98000000 },
-  { name: 'APRS',         freq_hz: 145175000 },
-  { name: 'AVIATION VHF', freq_hz: 127000000 },
-  { name: 'ACARS',        freq_hz: 129125000 },
-  { name: 'AIS',          freq_hz: 162000000 },  // dual-channel centre, matches BAND_PROFILES
-  { name: 'ISM / LoRa',   freq_hz: 915000000 },
-  { name: 'ADS-B',        freq_hz: 1090000000 },
+  { name: 'FM BROADCAST', freq_hz: 98000000, band_key: 'fm_broadcast' },
+  { name: 'APRS',         freq_hz: 145175000, band_key: 'aprs' },
+  { name: 'AVIATION VHF', freq_hz: 127000000, band_key: 'aviation' },
+  { name: 'ACARS',        freq_hz: 129125000, band_key: 'acars' },
+  { name: 'AIS',          freq_hz: 162000000, band_key: 'ais' },  // dual-channel centre, matches BAND_PROFILES
+  { name: 'ISM / LoRa',   freq_hz: 915000000, band_key: 'ism' },
+  { name: 'ADS-B',        freq_hz: 1090000000, band_key: 'adsb' },
 ]
 
 function useClock() {
@@ -220,6 +220,8 @@ export default function App() {
     scanResults,
     spectrumUpdates,
     systemStats,
+    device,
+    unsupportedBands,           // Phase 38 — device-aware band UI
     focusedFreq,
     focusFrequency,
     aiReasoning,
@@ -401,19 +403,28 @@ export default function App() {
                       // at 127 MHz and ACARS at 129.125 MHz) to both light up for a custom input.
                       const active = focusedFreq === band.freq_hz
                       const hasAdsb = band.label === 'ADS-B' && (adsbAircraftList.length > 0 || (adsbAircraftHistory && adsbAircraftHistory.length > 0))
+                      // Phase 38 — grey out bands the active device cannot
+                      // physically receive. Empty map (HackRF / pre-first-stats)
+                      // means everything renders exactly as before.
+                      const unsupportedReason = unsupportedBands[band.band_key]
+                      const isUnsupported = unsupportedReason != null
                       return (
                         <button
                           key={band.freq_hz}
-                          onClick={() => focusFrequency(band.freq_hz)}
+                          onClick={isUnsupported ? undefined : () => focusFrequency(band.freq_hz)}
+                          title={isUnsupported ? unsupportedReason : undefined}
+                          disabled={isUnsupported || undefined}
+                          data-unsupported={isUnsupported ? 'true' : undefined}
                           style={{
                             fontFamily: 'monospace',
                             fontSize: '12px',
                             padding: '3px 8px',
-                            background: active ? 'rgba(0,255,255,0.07)' : 'transparent',
-                            cursor: 'pointer',
+                            background: isUnsupported ? 'transparent' : (active ? 'rgba(0,255,255,0.07)' : 'transparent'),
+                            cursor: isUnsupported ? 'not-allowed' : 'pointer',
                             letterSpacing: '1px',
-                            border: active ? '1px solid var(--neon-cyan)' : '1px solid var(--border)',
-                            color: active ? 'var(--neon-cyan)' : 'var(--text-dim)',
+                            border: isUnsupported ? '1px solid var(--border)' : (active ? '1px solid var(--neon-cyan)' : '1px solid var(--border)'),
+                            color: isUnsupported ? 'var(--text-dim)' : (active ? 'var(--neon-cyan)' : 'var(--text-dim)'),
+                            opacity: isUnsupported ? 0.35 : 1,
                           }}
                         >
                           {band.label}{hasAdsb ? ' ●' : ''}
@@ -505,10 +516,18 @@ export default function App() {
                 const ts = r.timestamp ? new Date(r.timestamp).getTime() : 0
                 return Math.abs(r.center_freq_hz - band.freq_hz) <= 2_000_000 && (now - ts) < 10000
               })
+              // Phase 38 — grey out bands the active device cannot physically
+              // receive. The "recent signal" bar still renders: hearing
+              // something near that frequency is information even when the
+              // band is not tunable on this device.
+              const unsupportedReason = unsupportedBands[band.band_key]
+              const isUnsupported = unsupportedReason != null
               return (
                 <div
                   key={band.freq_hz}
-                  onClick={() => focusFrequency(band.freq_hz)}
+                  onClick={isUnsupported ? undefined : () => focusFrequency(band.freq_hz)}
+                  title={isUnsupported ? unsupportedReason : undefined}
+                  data-unsupported={isUnsupported ? 'true' : undefined}
                   style={{
                     flex: 1,
                     display: 'flex',
@@ -516,7 +535,8 @@ export default function App() {
                     justifyContent: 'center',
                     padding: '2px 6px',
                     borderRight: idx < OVERVIEW_BANDS.length - 1 ? '1px solid var(--border)' : 'none',
-                    cursor: 'pointer',
+                    cursor: isUnsupported ? 'not-allowed' : 'pointer',
+                    opacity: isUnsupported ? 0.35 : 1,
                     position: 'relative',
                     overflow: 'hidden',
                     borderTop: active ? '2px solid var(--neon-cyan)' : '2px solid transparent',

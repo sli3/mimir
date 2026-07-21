@@ -358,4 +358,50 @@ describe('useSocket', () => {
     expect(mockSocket.off).toHaveBeenCalled()
     expect(mockSocket.disconnect).toHaveBeenCalled()
   })
+
+  it('system_stats event exposes device and unsupportedBands on the hook return', () => {
+    const { result } = renderHook(() => useSocket())
+    const handler = eventHandlers['system_stats'][0]
+
+    // Before any system_stats arrives, both default to safe values
+    expect(result.current.device).toBeNull()
+    expect(result.current.unsupportedBands).toEqual({})
+
+    act(() => {
+      handler({
+        hackrf_status: 'CONNECTED',
+        active_frequency_hz: 98000000,
+        scan_count: 42,
+        device: 'plutosdr',
+        unsupported_bands: {
+          fm_broadcast: "Below Pluto's 325 MHz tuning floor (98 MHz)",
+          aviation: "Below Pluto's 325 MHz tuning floor (127 MHz)",
+        },
+      })
+    })
+
+    expect(result.current.device).toBe('plutosdr')
+    expect(result.current.unsupportedBands).toEqual({
+      fm_broadcast: "Below Pluto's 325 MHz tuning floor (98 MHz)",
+      aviation: "Below Pluto's 325 MHz tuning floor (127 MHz)",
+    })
+  })
+
+  it('system_stats event without device/unsupported_bands keys keeps null/{}-defaults', () => {
+    // Legacy / older server payload (Phase 35 and earlier do not emit
+    // these keys) — the hook must still default cleanly, not crash.
+    const { result } = renderHook(() => useSocket())
+    const handler = eventHandlers['system_stats'][0]
+
+    act(() => {
+      handler({
+        hackrf_status: 'CONNECTED',
+        active_frequency_hz: 98000000,
+        scan_count: 42,
+      })
+    })
+
+    expect(result.current.device).toBeNull()
+    expect(result.current.unsupportedBands).toEqual({})
+  })
 })

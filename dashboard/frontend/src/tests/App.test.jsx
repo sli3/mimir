@@ -13,6 +13,8 @@ const defaultUseSocket = () => ({
   scanResults: [],
   spectrumUpdates: [],
   systemStats: null,
+  device: null,
+  unsupportedBands: {},
   focusedFreq: null,
   focusFrequency: mockFocusFrequency,
   isConnected: false,

@@ -519,3 +519,40 @@ class TestScanResultSourceProvenance:
         mock_emit.assert_called_once()
         data = mock_emit.call_args[0][1]
         assert data.get("source") == "decode"
+
+
+class TestSystemStatsDeviceField:
+    """Static-source guard that emit_stats() reads current_device and
+    calls unsupported_bands_for_device to populate the system_stats
+    payload (Phase 38).
+
+    Per the task: emit_stats runs in a 2s background thread and is
+    awkward to unit-test directly, so the test is a static-source
+    assertion that the function body imports/uses the helper rather
+    than re-deriving the support logic. The behaviour is covered by
+    the helper's own unit tests in test_pluto_band_profiles.py.
+    """
+
+    def test_server_py_imports_unsupported_bands_helper(self):
+        from pathlib import Path
+        server_path = Path(__file__).parent.parent.parent / "dashboard" / "server.py"
+        source = server_path.read_text()
+        assert "unsupported_bands_for_device" in source, (
+            "dashboard/server.py must call shared_state.unsupported_bands_for_device "
+            "to build the system_stats unsupported_bands payload"
+        )
+
+    def test_emit_stats_emits_device_key(self):
+        from pathlib import Path
+        server_path = Path(__file__).parent.parent.parent / "dashboard" / "server.py"
+        source = server_path.read_text()
+        # Find the emit_stats function body and assert both keys land
+        # in the data dict. Slice from "def emit_stats" to the next
+        # top-level def.
+        start = source.find("def emit_stats")
+        assert start != -1
+        next_def = source.find("\ndef ", start + len("def emit_stats"))
+        body = source[start:next_def] if next_def != -1 else source[start:]
+        assert '"device"' in body, "emit_stats() must include the device key"
+        assert '"unsupported_bands"' in body, "emit_stats() must include the unsupported_bands key"
+        assert "current_device_lock" in body, "emit_stats() must acquire the current_device lock"

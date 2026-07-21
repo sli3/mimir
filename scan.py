@@ -118,6 +118,13 @@ def main() -> None:
     paths exited 0.
     """
     args = _parse_args()
+    # Record the active device driver in shared state so the dashboard
+    # system_stats payload (and the frontend's band greying) reflects the
+    # device the user actually launched with. Runs for BOTH devices, not
+    # just Pluto — HackRF is the default and the empty map it produces is
+    # the zero-visual-change case the frontend test depends on.
+    with shared_state.current_device_lock:
+        shared_state.current_device = args.device
     display_name = DEVICE_PROFILES[args.device]["display_name"]
     logger.info("Selected device driver: %s (%s)", args.device, display_name)
 

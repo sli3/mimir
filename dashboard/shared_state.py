@@ -215,6 +215,30 @@ BAND_PROFILES: dict = {
 current_band: dict = dict(BAND_PROFILES["fm_broadcast"])
 current_band_lock = threading.Lock()
 
+# -----------------------------------------------------------------------------
+# current_device / current_device_lock
+# -----------------------------------------------------------------------------
+# Type: str / threading.Lock
+# Purpose: Records which SDR driver is currently open so the dashboard can
+#          tell the frontend which device is live, and the frontend can use
+#          that to grey out bands that device cannot physically receive.
+#          The frontend band list is keyed by freq_hz, but the backend
+#          support logic (band_supported_by_device, PLUTO_BAND_PROFILES) is
+#          keyed by band_key — sharing the device name closes that loop.
+# How it works: scan.py writes this once at startup from args.device (which
+#               is constrained to {hackrf, plutosdr} via argparse choices=).
+#               dashboard/server.py reads it under this lock in emit_stats
+#               so the system_stats payload carries the live device name.
+# Why we need it: Without this, the frontend cannot know which device is
+#                 active and would have to re-derive Pluto's 325 MHz tuning
+#                 floor client-side — duplicating hardware-specific logic
+#                 in two places and risking drift.
+# Default: "hackrf" — matches scan.py's argparse default and means the
+#          dashboard reports a sensible value before scan.py has had a
+#          chance to overwrite it.
+current_device: str = "hackrf"
+current_device_lock = threading.Lock()
+
 
 def get_band_for_freq(freq_hz: float | None) -> dict | None:
     """Return a copy of the BAND_PROFILES entry whose center_freq_hz matches
@@ -422,3 +446,50 @@ def band_supported_by_device(band: str, device: str) -> bool:
     if device == "hackrf":
         return True
     return bool(PLUTO_BAND_PROFILES[band]["supported"])
+
+
+def unsupported_bands_for_device(device: str) -> dict[str, str]:
+    """Return {band_key: reason} for every band the named device cannot
+    physically receive.
+
+    Iterates BAND_PROFILES, skips ``noise_floor`` (it is a zero-gain
+    reference, never a user-facing band — consistent with
+    ``get_nearest_band_for_freq`` / ``band_key_for_freq``), and calls the
+    existing ``band_supported_by_device(band, device)`` for each. For the
+    unsupported bands, reads the reason string directly out of
+    ``PLUTO_BAND_PROFILES[band]["reason"]`` — no hard-coding here. The map
+    is keyed by band_key (e.g. "fm_broadcast"), not freq_hz, because the
+    frontend has the freq_hz -> band_key mapping and the backend has the
+    reverse; the shared device value flows through unchanged.
+
+    Empty dict means the device supports every band. HackRF returns {}
+    because its 1 MHz–6 GHz tuning range covers the entire current plan.
+
+    This is a pure, read-only helper. It takes no locks and mutates
+    nothing. Used by ``dashboard/server.py`` ``emit_stats()`` to populate
+    the ``unsupported_bands`` field of the system_stats payload, which the
+    frontend ``FrequencyList`` and App band buttons consume to grey out
+    rows the active device cannot receive.
+
+    Args:
+        device: A DEVICE_PROFILES driver key ("hackrf" / "plutosdr").
+
+    Returns:
+        Dict mapping band_key to its PLUTO_BAND_PROFILES reason string for
+        every band the device does not support. Empty dict if the device
+        supports all bands.
+
+    Raises:
+        KeyError: If device is not a known DEVICE_PROFILES driver key —
+            propagated from ``band_supported_by_device``.
+    """
+    unsupported: dict[str, str] = {}
+    for band_key, _profile in BAND_PROFILES.items():
+        if band_key == "noise_floor":
+            continue
+        if not band_supported_by_device(band_key, device):
+            # band_supported_by_device has already validated that the
+            # device is a known DEVICE_PROFILES key; the device-specific
+            # reason string lives on PLUTO_BAND_PROFILES.
+            unsupported[band_key] = PLUTO_BAND_PROFILES[band_key]["reason"]
+    return unsupported
