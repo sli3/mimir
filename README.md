@@ -149,8 +149,8 @@ Full phase-by-phase history lives in [`docs/ROADMAP.md`](./docs/ROADMAP.md), whi
 single source of truth for phase status and test counts. This section shows
 only a quick-glance summary — update `docs/ROADMAP.md` first, then sync this block.
 
-**Current phase: 37-Hotfix-2 — ACARS decimation fix + decode-path verification (decoder confirmed correct; live-traffic validation parked)**
-**Total: 781 passing (602 pytest + 179 Vitest), 0 failures**
+**Current phase: 38 — Device-aware unsupported-band UI (backend + frontend; 5 of 7 Pluto bands greyed with native title tooltips; HackRF/empty-map case = zero visual change)**
+**Total: 795 passing (610 pytest + 185 Vitest), 0 failures**
 
 > **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector
 > store (`data/vectorstore/`) must be re-seeded after deploying this build.

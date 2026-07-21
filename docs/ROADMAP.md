@@ -80,6 +80,7 @@
 | 37 | Device selection wiring — `--device {hackrf,plutosdr}` flag, `build_device()` factory, `ScanRunner` band-skip guard | ✅ Complete | 772 (593 pytest + 179 Vitest), 0 failures |
 | 37-Hotfix-1 | Pluto waterfall adaptive per-row colour scaling (frontend-only) | ✅ Complete | 772 (593 pytest + 179 Vitest) — Vitest unchanged |
 | 37-Hotfix-2 | ACARS decimation fix + decode-path verification (decoder confirmed correct; no live ACARS present) | ✅ Complete | 781 (602 pytest + 179 Vitest), 0 failures |
+| 38 | Device-aware unsupported-band UI — backend addition (current_device + system_stats fields) + frontend greying (opacity 0.35, not-allowed cursor, native title tooltip); empty map = zero visual change for HackRF. **Note:** Phase 35 memo incorrectly scoped this as "frontend-only"; corrected here. | ✅ Complete | 795 (610 pytest + 185 Vitest), 0 failures |
 
 ---
 
