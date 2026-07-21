@@ -235,78 +235,20 @@ uv run python tools/seed_chromadb.py
 
 ## Phase Tracker
 
-| Phase | Name                              | Status         | Tests    |
-|-------|-----------------------------------|----------------|----------|
-| 0     | Hardware Safety Gate              | ✅ Complete    | 25/25    |
-| 1     | IQ Capture Pipeline               | ✅ Complete    | 5/5      |
-| 2     | FFT + Feature Extraction          | ✅ Complete    | 21/21    |
-| 3     | Embedding + Vector Store          | ✅ Complete    | 24/24    |
-| 4     | LLM Classification                | ✅ Complete    | 24/24    |
-| 5     | Calibration & Thresholds          | ✅ Complete    | —        |
-| 6     | Live AI Classification + Dashboard| ✅ Complete    | 108/108  |
-| 7A    | Cyberpunk Dashboard — Scaffold    | ✅ Complete    | 108 pytest + 50 Vitest = 158   |
-| Data Layer | ACMA frequency reference + RTL-ML ChromaDB seeding | ✅ Complete | 188/188 (165 pytest + 23 new, 50 Vitest) |
-| 7B    | Cyberpunk Dashboard — AI + Polish | ✅ Complete | 233/233 |
-| — | UV migration (pip to pyproject.toml + uv.lock) | ✅ Complete | uv sync --all-extras; uv run pytest |
-| 8A | Wire ACMA frequency_reference.json into LLM classifier user prompt | ✅ Complete | 251/251 |
-| 8B | Wire real ScanRunner values into system_stats; fix AGENTS.md event table | ✅ Complete | 259/259 |
-| 8C | Single-frequency focus mode + LLM tuning | ✅ Complete | 260/260 |
-| 9A | ACMA Ref Expansion + /api/frequencies | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
-| 9B | BUG-01 fix: bandwidth_hz/occupied_bins zero (gain red herring) | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
-| 9B-Hotfix | BUG-01 true root cause: fft.py normalisation | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
-| pre-9C | Latent gain defaults cleanup (housekeeping) | ✅ Complete | 278/278 (222 pytest + 56 Vitest) |
-| pre-9C-seed-autowipe | seed_chromadb.py auto-wipe before seeding | ✅ Complete | 279/279 (223 pytest + 56 Vitest) |
-| 9C | ACARS Decoder + Setup Infrastructure | ✅ Complete | 290/290 (223 pytest + 56 Vitest + 11 bash) |
-| 9D | ACARS Pure-Python Decoder Subscriber | ✅ Complete | 305/305 (249 pytest + 56 Vitest) |
-| 9E | AIS Pure-Python Decoder Subscriber | ✅ Complete | 331/331 (275 pytest + 56 Vitest) |
-| 9F | ADS-B Pure-Python Decoder Subscriber | ✅ Complete | 354/354 (298 pytest + 56 Vitest) |
-| 9F-CPR | ADS-B CPR Pair Accumulator | ✅ Complete | 364/364 (308 pytest + 56 Vitest) |
-| 10 | Dashboard UI Redesign | ✅ Complete | 392/392 (308 pytest + 84 Vitest) |
-| 10-Hotfix | Dashboard Live Testing Fixes | ✅ Complete | 395/395 (308 pytest + 87 Vitest) |
-| 10-Fix2 | Waterfall GPU Scroll + Signal Details Missing Fields | ✅ Complete | 396/396 (308 pytest + 88 Vitest) |
-| 10-Fix3 | Band Grouping + ADS-B Threshold + Waterfall Gap + Default Focus | ✅ Complete | 402/402 (311 pytest + 91 Vitest) |
-| 10-Fix4 | Spectral Flatness + Chroma Distance + Waterfall Alignment | ✅ Complete | 402/402 (311 pytest + 91 Vitest) |
-| 11 | Per-Band Signal Thresholds + All-Bands Sweep | ✅ Complete | 425/425 (328 pytest + 97 Vitest) |
-| 9C-Threshold | Calibrate SIGNAL_THRESHOLD_DB | ⏳ PENDING ANTENNA | — |
-| 11-Hotfix | Broadcast Defaults + FM Threshold + Startup Guard | ✅ Complete | 427/427 (330 pytest + 97 Vitest) |
-| PHASE-TECH-DEBT-1 | Six backend/frontend tech debt fixes | ✅ Complete | 437/437 (332 pytest + 105 Vitest) |
-| PHASE-TECH-DEBT-2 | Five frontend small fixes | ✅ Complete | 439/439 (334 pytest + 105 Vitest) |
-| PHASE-BUILD-3 | AIS waterfall config, tuned-state tests, SignalHistoryLog memo | ✅ Complete | 446/446 (334 pytest + 112 Vitest) |
-| PHASE-BUILD-4 | Tech debt clean-up (setup.sh, FREQ_COLOUR_MAP, AIS nav, pin eviction, classifier prompt) | ✅ Complete | 446/446 (334 pytest + 112 Vitest) |
-| PHASE-BAND-PROFILE-FIX | Wire band profile into handle_set_focus for per-band thresholds | ✅ Complete | 452/452 (340 pytest + 112 Vitest) |
-| PHASE-CLASSIFIER-ACCURACY-FIX | Add AIS to BAND_PROFILES; fix ACARS/AIS misclassification | ✅ Complete | 456/456 (344 pytest + 112 Vitest) |
-| 12 | Decoder-Driven ADS-B Classification | ✅ Complete | 489 (368 pytest + 121 Vitest) |
-| 13 | Spectral Flatness Embedding Expansion | ✅ Complete | 489 (368 pytest + 121 Vitest) |
-| 14 | CHECKPOINT Parser Fix + AIS Band Profile | ✅ Complete | 492 (371 pytest + 121 Vitest) |
-| 15 | Frontend AIS Consistency + Nav Bar Completion | ✅ Complete | 493 (371 pytest + 122 Vitest) |
-| 15b | AIS Waterfall Frequency Migration Completion | ✅ Complete | 493 (371 pytest + 122 Vitest) |
-| 16 | AIS Frontend Frequency Verification | ✅ Complete | 495 (373 pytest + 122 Vitest) |
-| 17 | Feature A: focused decode panel | ✅ Complete | 496 (373 pytest + 123 Vitest) |
-| 18 | Feature B: Raw ADS-B Hex Decode View | ✅ Complete | 507 (373 pytest + 134 Vitest) |
-| 18b | Raw Decode Log — ACARS and AIS | ✅ Complete | 517 (375 pytest + 142 Vitest) |
-| 19a | calibrate_thresholds.py — missing bands + ADS-B gain fix | ✅ Complete | 517 (375 pytest + 142 Vitest) |
-| 19b | calibrate_thresholds.py — antenna selection, single-band prompt, matrix split | ✅ Complete | 517 (375 pytest + 142 Vitest) |
-| 19c | classifier.py — ChromaDB distance threshold recalibration | ✅ Complete | 517 (375 pytest + 142 Vitest) |
-| 20 | Live Capture to Vector Store Ingestion Tool | ✅ Complete | 526 (384 pytest + 142 Vitest) |
-| 21 | ADS-B Frame Inspector + SIGNAL INTERCEPT rename | ✅ Complete | 538 (390 pytest + 148 Vitest) |
-| 22 | LLM Offline Handling — health check + cooldown system | ✅ Complete | 548 (399 pytest + 149 Vitest) |
-| 22-Hotfix | LLM offline emit rate-limit (SocketIO flood fix) | ✅ Complete | 551 (402 pytest + 149 Vitest) |
-| 23 | ChromaDB Vector Space 3D Visualisation (isolated side page) | ✅ Complete | 581 (419 pytest + 162 Vitest) |
-| 24 | OPERATOR Live Anomaly Readout — 4-state badge, novel exposure, tooltip | ✅ Complete | 591 (420 pytest + 171 Vitest) |
-| 25 | Max-hold burst fingerprinting for ADS-B | ✅ Complete | 606 (435 pytest + 171 Vitest) |
-| 28 | Cross-session calibration merge + antenna groups + persistence | ✅ Complete | 634 (463 pytest + 171 Vitest) |
-| 29 | Live capture loop — forward per-band signal_threshold_db to fingerprint_spectrum() | ✅ Complete | 640 (469 pytest + 171 Vitest) |
-| 30 | Spectral cropping for fingerprint_spectrum() — per-band crop_half_width_hz | ✅ Complete | 646 (475 pytest + 171 Vitest) |
-| 32 | Confidence Provenance Gating — dim unverified confidence via `source` field on scan_result | ✅ Complete | 656 (477 pytest + 179 Vitest) |
-| 33-Hotfix | Classifier confidence cap + vectordb SNR tools (hotfix, RETROACTIVE — code shipped, tests in 34) | ✅ Complete | 656 (477 pytest + 179 Vitest) [tests added in Phase 34] |
-| 34 | Test coverage for Phase 33 classifier cap + vectordb tools (TEST-ONLY) | ✅ Complete | 677 (498 pytest + 179 Vitest), 0 failures |
-| 35 | Pluto receiver wrapper — `core/device/pluto_rx.py` (`PlutoReceiver`, RX-only SoapySDR stream, real `SOAPY_SDR_RX` captured at open) | ✅ Complete | counted at merge — see 36-Hotfix |
-| 36 | Device capability + detection layer — `profiles.py` (`DEVICE_PROFILES`), `detect.py` (`enumerate_devices`/`detect_device`), `PLUTO_BAND_PROFILES` + `band_supported_by_device` | ✅ Complete | counted at merge — see 36-Hotfix |
-| 36-Hotfix | Pluto hardware bring-up — four SWIG/SoapySDR bugs fixed by hand + `soapy_doubles.py` (`FakeSoapySDRKwargs`) test infrastructure | ✅ Complete | 741 (562 pytest + 179 Vitest), 0 failures |
+> **Single source of truth: `docs/ROADMAP.md`.** The full per-phase table and
+> prose detail sections live there and only there. This section previously
+> duplicated that table in full — it drifted out of sync three phases behind
+> (last entry was 36-Hotfix) because two trackers can't both stay current
+> when a governance step fails. Trimmed 2026-07-21 to a pointer, so there is
+> only one table left to go stale.
 
-**Total passing: 741 passing (562 pytest + 179 Vitest), 0 failures**
-- Note: Phase 24 added 2026-07-07. Mascot/CharacterPanel.jsx wiring deferred to a future phase (pending art asset).
-- Note: Phases 35+36 merged 2026-07-20. Intermediate per-phase subtotals were not separately captured under the doc freeze; the 741 total is verified live at the merge checkpoint (`PYTHONPATH=. uv run pytest` + `npm run test`). The four hardware bugs in 36-Hotfix were fixed by hand, not via `/build`.
+**Current phase:** 38-Hotfix-1 — Unsupported-band tooltip fix (see
+`docs/ROADMAP.md` for full detail).
+
+**Current total:** 800 passing (610 pytest + 190 Vitest), 0 failures.
+
+**Reserved:** Phase 39 (Pluto gain calibration), Phase 40 (flip default
+device to Pluto).
 
 ---
 
@@ -628,7 +570,7 @@ Do not apply this pre-emptively — only if context problems are observed.
 | Queue drain pattern | `_scan_loop()` drains the queue before each insert ("latest wins"); AI loop always classifies the freshest scan. Steady-state depth 0–1. By design. |
 | Thread-safety stress test blind spot | `test_get_band_for_freq_concurrent` doesn't exercise the `current_band_lock` write path (test freqs don't match BAND_PROFILES). Advisory only. |
 | `fingerprint_queue` orphaned in `capture_loop` | `capture_loop.py` writes fingerprints to `fingerprint_queue` every 20 frames but no production code consumes it; the live AI loop is fed via the parallel `ScanRunner._scan_loop` path. Pre-existing; operator-visible effect nil. |
-| SoapySDR `Device()` args must be strings | ... | Resolved — kept as environment fact |
+| SoapySDR `Device()` args must be strings | `SoapySDR.Device({"driver": "plutosdr", "uri": "usb:3.19.5"})` raises `make() no match`; the identical values as the string `"driver=plutosdr,uri=usb:3.19.5"` open the device. SWIG dict marshalling does not produce Kwargs matching what the plugin's `find()` returns; the string path uses the plugin's own parser. `hackrf_rx.py` has always used the string form — `pluto_rx.py` used a dict and never opened its device across all of Phase 35. Any new device wrapper must use the string form. Verified 2026-07-17. | Resolved — kept as environment fact |
 
 ---
 
