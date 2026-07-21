@@ -81,111 +81,7 @@
 | 37-Hotfix-1 | Pluto waterfall adaptive per-row colour scaling (frontend-only) | ✅ Complete | 772 (593 pytest + 179 Vitest) — Vitest unchanged |
 | 37-Hotfix-2 | ACARS decimation fix + decode-path verification (decoder confirmed correct; no live ACARS present) | ✅ Complete | 781 (602 pytest + 179 Vitest), 0 failures |
 | 38 | Device-aware unsupported-band UI — backend addition (current_device + system_stats fields) + frontend greying (opacity 0.35, not-allowed cursor, native title tooltip); empty map = zero visual change for HackRF. **Note:** Phase 35 memo incorrectly scoped this as "frontend-only"; corrected here. | ✅ Complete | 795 (610 pytest + 185 Vitest), 0 failures |
-
----
-
-### Phase 35 — Pluto Receiver Wrapper ✅
-
-**What:** `PlutoReceiver`, an RX-only SoapySDR wrapper for the ADALM-PLUTO, mirroring
-the HackRF wrapper's receive-only contract. Pluto is TX-capable hardware, so the
-zero-TX rule is enforced in software: the wrapper requests `SOAPY_SDR_RX` streams only
-and never touches the TX stream API. Unlike `hackrf_rx.py`, it captures the real
-`SOAPY_SDR_RX` constant from SoapySDR at `open()` rather than hardcoding the direction,
-because assuming that value on TX-capable hardware was judged unacceptable.
-
-**Files changed:**
-- `core/device/pluto_rx.py` — new `PlutoReceiver` wrapper (RX-only).
-- `tests/core/test_pluto_rx.py` — wrapper test coverage.
-
-**Known at ship / resolved in 36-Hotfix:** shipped green with all tests passing, three
-agent reviews clean — but could not open its device on real hardware. Two of the four
-36-Hotfix bugs live here (SWIG `.get()` on enumeration results; `SoapySDR.Device()`
-requiring string args, not a dict). One test (`test_usb_uri_preferred_over_ip`) had
-encoded the dict form as the specification.
-
-**RF/Legal notes:** Pluto is TX-capable; zero-TX enforced in software. RX stream only,
-TX stream API never referenced. No TX surfaces.
-
-**Test counts:** merged at the 35+36 checkpoint — see 36-Hotfix for the verified total.
-
----
-
-### Phase 36 — Device Capability + Detection Layer ✅
-
-**What:** Device profiles plus runtime detection/selection so Mimir knows which SDR is
-present and what each can physically and legally cover.
-
-**Files changed:**
-- `core/device/profiles.py` — `DEVICE_PROFILES`. HackRF 1 MHz–6 GHz, split gain, max
-  62.0 dB. Pluto 325–3800 MHz, combined gain, max 74.5 dB. Both ranges verified against
-  official vendor docs (Great Scott Gadgets hackrf repo; wiki.analog.com Pluto specs),
-  cited in the docstring.
-- `core/device/detect.py` — `enumerate_devices()`, `detect_device(preferred=None)`,
-  frozen `DetectedDevice` dataclass. Returns the wrapper **class**, never an instance.
-  HackRF is preferred when both are present (Pluto stays uncalibrated until Phase 39).
-- `dashboard/shared_state.py` — appended `PLUTO_BAND_PROFILES` (all 8 bands; only `ism`
-  and `adsb` `supported=True`; the six bands below Pluto's 325 MHz floor carry
-  `supported=False` + a reason string) and `band_supported_by_device(band, device)`.
-  Additive-only append — zero existing content lines removed.
-- `core/device/pluto_rx.py` — docstring band count corrected "four of seven" →
-  "six of eight".
-
-**Design decision:** the `supported` flag is the source of truth (Option B), with one
-cross-check test proving it agrees with `DEVICE_PROFILES` frequency limits.
-
-**RF/Legal notes:** No TX surfaces; all changes passive RX-only.
-
-**Test counts:** merged at the 35+36 checkpoint — see 36-Hotfix for the verified total.
-
----
-
-### Phase 36-Hotfix — Pluto Hardware Bring-Up (four bugs, fixed by hand) ✅
-
-**What:** First real-hardware run of the Pluto path surfaced four bugs that 30+ passing
-tests had certified as working. All fixed by hand, not via a `/build` prompt. The root
-cause in three of the four was that test mocks were more permissive than the SWIG-wrapped
-C++ objects the hardware actually returns.
-
-**The four bugs:**
-1. `detect.py` — `result.get("driver")` raised `AttributeError`: SoapySDR's
-   `Device.enumerate()` returns SWIG-wrapped C++ maps, not dicts — no `.get()`. Every
-   test mocked it with plain dicts, which *do* have `.get()`.
-2. `pluto_rx.py` — the same bug at three call sites in `open()`'s URI-discovery block.
-3. `pluto_rx.py` — `SoapySDR.Device({"driver": ..., "uri": ...})` raises `make() no
-   match`; the identical values as a string `"driver=plutosdr,uri=usb:3.19.5"` open the
-   device. SWIG dict marshalling doesn't produce Kwargs matching what the plugin's
-   `find()` returns; the string path uses the plugin's own parser. `hackrf_rx.py` has
-   always used the string form — which is why it always worked.
-4. (Logged in Phase 35 review, fixed here) `hackrf_rx.py` hardcodes RX direction where
-   `pluto_rx.py` captures the real `SOAPY_SDR_RX` at open. Not currently a divergence bug
-   (`SOAPY_SDR_RX == 1` today) but asymmetric; tracked as remaining tech debt.
-
-**Fixes:** `dict(r)` conversion at the enumeration boundary in both files; string args in
-`pluto_rx.py` `open()`.
-
-**New test infrastructure:**
-- `tests/core/soapy_doubles.py` — `FakeSoapySDRKwargs`, which deliberately has **no**
-  `.get()` method, mimicking the real SWIG object. All SoapySDR enumeration mocks in
-  `test_detect.py` and `test_pluto_rx.py` migrated onto it. Four guard tests protect the
-  double itself (if someone adds `.get()` for convenience, every test using it silently
-  reverts to proving nothing). Full fail-before (21 failures) / pass-after cycle
-  demonstrated.
-
-**Verified live on hardware (2026-07-17):**
-- `enumerate_devices()` → `['hackrf', 'plutosdr']` with both plugged in; `detect_device()`
-  correctly selects HackRF; `detect_device('plutosdr')` correctly forces Pluto.
-- `PlutoReceiver` opened its device for the first time and pulled 65,536 complex64 samples
-  at 1090 MHz, 30 dB gain, mean abs 0.00058. AGC read-back, explicit bandwidth, and stream
-  setup all proven in that run. (Pluto's USB URI changes every replug; the `usb:` entry is
-  preferred over the two `ip:pluto.local` entries it also advertises.)
-
-**RF/Legal notes:** Pluto is TX-capable; zero-TX enforced in software. RX stream only. No
-TX surfaces.
-
-**Test counts:** **741 passing (562 pytest + 179 Vitest), 0 failures** — both suites
-live-verified at the merge checkpoint (`PYTHONPATH=. uv run pytest` from repo root;
-`npm run test` from `dashboard/frontend`). +64 pytest from the 498 baseline; Vitest
-unchanged at 179.
+| 38-Hotfix-1 | Tooltip fix: removed `disabled` from BAND_GROUPS buttons (HTML `disabled` suppresses native `title` tooltips). Click guard via onClick omission only. Backend untouched. 5 new regression tests. | ✅ Complete | 800 (610 pytest + 190 Vitest), 0 failures |
 
 ---
 
@@ -244,32 +140,6 @@ hardcoded (24, 26) to `BAND_PROFILES['ais']` (16, 20), matching production captu
 **RF/Legal notes:** No TX surfaces; all changes passive RX-only.
 
 **Test counts:** 557 passing (408 pytest + 149 Vitest), 0 failures.
-
----
-
-### Phase 11 Hotfix — Broadcast Defaults + FM Threshold + Startup Guard ✅
-
-**Goal:** Fix three issues discovered during live testing of Phase 11:
-KeyError on missing broadcast fields, FM threshold too low, and unhandled
-startup exception when HackRF is disconnected.
-
-**Delivered:**
-- `dashboard/server.py` — `signal_threshold_db` and `snr_margin_db` broadcast
-  defaults set to `0.0`; keys reordered after `snr_db`
-- `dashboard/shared_state.py` — `fm_broadcast` `signal_threshold_db` 10.0 -> 12.0,
-  calibrated against live FM Adelaide at lna=24/vga=26
-- `scan.py` — startup guard: `HackRFReceiver()` + `device.open()` wrapped in
-  `try/except (RuntimeError, OSError)` with ERROR log and `sys.exit(1)`;
-  `load_config()` intentionally left outside try/except
-- `tests/test_scan.py` — 3 new tests: RuntimeError failure, OSError failure,
-  success + KeyboardInterrupt -> exit 0
-- `tests/dashboard/test_server_stats.py` — updated expected dict ordering
-
-**Test counts:** 427/427 (330 pytest + 97 Vitest) at delivery. Current: 428 passing (331 pytest + 97 Vitest), 0 pre-existing pytest failures.
-
-**Current totals: 437 tests passing (332 pytest + 105 Vitest)**
-
-**BUG-01 status:** Code fixed in 9B-Hotfix. Full calibration deferred to Phase 9C pending telescopic whip antenna (~68 cm SMA) purchase.
 
 ---
 
@@ -690,6 +560,32 @@ and global resolution automatically.
   which hits `InvalidLengthError` rather than the DF gate directly
 
 **Test counts:** 364/364 (308 pytest + 56 Vitest)
+
+---
+
+### Phase 11 Hotfix — Broadcast Defaults + FM Threshold + Startup Guard ✅
+
+**Goal:** Fix three issues discovered during live testing of Phase 11:
+KeyError on missing broadcast fields, FM threshold too low, and unhandled
+startup exception when HackRF is disconnected.
+
+**Delivered:**
+- `dashboard/server.py` — `signal_threshold_db` and `snr_margin_db` broadcast
+  defaults set to `0.0`; keys reordered after `snr_db`
+- `dashboard/shared_state.py` — `fm_broadcast` `signal_threshold_db` 10.0 -> 12.0,
+  calibrated against live FM Adelaide at lna=24/vga=26
+- `scan.py` — startup guard: `HackRFReceiver()` + `device.open()` wrapped in
+  `try/except (RuntimeError, OSError)` with ERROR log and `sys.exit(1)`;
+  `load_config()` intentionally left outside try/except
+- `tests/test_scan.py` — 3 new tests: RuntimeError failure, OSError failure,
+  success + KeyboardInterrupt -> exit 0
+- `tests/dashboard/test_server_stats.py` — updated expected dict ordering
+
+**Test counts:** 427/427 (330 pytest + 97 Vitest) at delivery. Current: 428 passing (331 pytest + 97 Vitest), 0 pre-existing pytest failures.
+
+**Current totals: 437 tests passing (332 pytest + 105 Vitest)**
+
+**BUG-01 status:** Code fixed in 9B-Hotfix. Full calibration deferred to Phase 9C pending telescopic whip antenna (~68 cm SMA) purchase.
 
 ---
 
@@ -1574,6 +1470,111 @@ live-verified (`uv run pytest` from the repo root with `PYTHONPATH=.`; `npm run 
 
 ---
 
+### Phase 35 — Pluto Receiver Wrapper ✅
+
+**What:** `PlutoReceiver`, an RX-only SoapySDR wrapper for the ADALM-PLUTO, mirroring
+the HackRF wrapper's receive-only contract. Pluto is TX-capable hardware, so the
+zero-TX rule is enforced in software: the wrapper requests `SOAPY_SDR_RX` streams only
+and never touches the TX stream API. Unlike `hackrf_rx.py`, it captures the real
+`SOAPY_SDR_RX` constant from SoapySDR at `open()` rather than hardcoding the direction,
+because assuming that value on TX-capable hardware was judged unacceptable.
+
+**Files changed:**
+- `core/device/pluto_rx.py` — new `PlutoReceiver` wrapper (RX-only).
+- `tests/core/test_pluto_rx.py` — wrapper test coverage.
+
+**Known at ship / resolved in 36-Hotfix:** shipped green with all tests passing, three
+agent reviews clean — but could not open its device on real hardware. Two of the four
+36-Hotfix bugs live here (SWIG `.get()` on enumeration results; `SoapySDR.Device()`
+requiring string args, not a dict). One test (`test_usb_uri_preferred_over_ip`) had
+encoded the dict form as the specification.
+
+**RF/Legal notes:** Pluto is TX-capable; zero-TX enforced in software. RX stream only,
+TX stream API never referenced. No TX surfaces.
+
+**Test counts:** merged at the 35+36 checkpoint — see 36-Hotfix for the verified total.
+
+---
+
+### Phase 36 — Device Capability + Detection Layer ✅
+
+**What:** Device profiles plus runtime detection/selection so Mimir knows which SDR is
+present and what each can physically and legally cover.
+
+**Files changed:**
+- `core/device/profiles.py` — `DEVICE_PROFILES`. HackRF 1 MHz–6 GHz, split gain, max
+  62.0 dB. Pluto 325–3800 MHz, combined gain, max 74.5 dB. Both ranges verified against
+  official vendor docs (Great Scott Gadgets hackrf repo; wiki.analog.com Pluto specs),
+  cited in the docstring.
+- `core/device/detect.py` — `enumerate_devices()`, `detect_device(preferred=None)`,
+  frozen `DetectedDevice` dataclass. Returns the wrapper **class**, never an instance.
+  HackRF is preferred when both are present (Pluto stays uncalibrated until Phase 39).
+- `dashboard/shared_state.py` — appended `PLUTO_BAND_PROFILES` (all 8 bands; only `ism`
+  and `adsb` `supported=True`; the six bands below Pluto's 325 MHz floor carry
+  `supported=False` + a reason string) and `band_supported_by_device(band, device)`.
+  Additive-only append — zero existing content lines removed.
+- `core/device/pluto_rx.py` — docstring band count corrected "four of seven" →
+  "six of eight".
+
+**Design decision:** the `supported` flag is the source of truth (Option B), with one
+cross-check test proving it agrees with `DEVICE_PROFILES` frequency limits.
+
+**RF/Legal notes:** No TX surfaces; all changes passive RX-only.
+
+**Test counts:** merged at the 35+36 checkpoint — see 36-Hotfix for the verified total.
+
+---
+
+### Phase 36-Hotfix — Pluto Hardware Bring-Up (four bugs, fixed by hand) ✅
+
+**What:** First real-hardware run of the Pluto path surfaced four bugs that 30+ passing
+tests had certified as working. All fixed by hand, not via a `/build` prompt. The root
+cause in three of the four was that test mocks were more permissive than the SWIG-wrapped
+C++ objects the hardware actually returns.
+
+**The four bugs:**
+1. `detect.py` — `result.get("driver")` raised `AttributeError`: SoapySDR's
+   `Device.enumerate()` returns SWIG-wrapped C++ maps, not dicts — no `.get()`. Every
+   test mocked it with plain dicts, which *do* have `.get()`.
+2. `pluto_rx.py` — the same bug at three call sites in `open()`'s URI-discovery block.
+3. `pluto_rx.py` — `SoapySDR.Device({"driver": ..., "uri": ...})` raises `make() no
+   match`; the identical values as a string `"driver=plutosdr,uri=usb:3.19.5"` open the
+   device. SWIG dict marshalling doesn't produce Kwargs matching what the plugin's
+   `find()` returns; the string path uses the plugin's own parser. `hackrf_rx.py` has
+   always used the string form — which is why it always worked.
+4. (Logged in Phase 35 review, fixed here) `hackrf_rx.py` hardcodes RX direction where
+   `pluto_rx.py` captures the real `SOAPY_SDR_RX` at open. Not currently a divergence bug
+   (`SOAPY_SDR_RX == 1` today) but asymmetric; tracked as remaining tech debt.
+
+**Fixes:** `dict(r)` conversion at the enumeration boundary in both files; string args in
+`pluto_rx.py` `open()`.
+
+**New test infrastructure:**
+- `tests/core/soapy_doubles.py` — `FakeSoapySDRKwargs`, which deliberately has **no**
+  `.get()` method, mimicking the real SWIG object. All SoapySDR enumeration mocks in
+  `test_detect.py` and `test_pluto_rx.py` migrated onto it. Four guard tests protect the
+  double itself (if someone adds `.get()` for convenience, every test using it silently
+  reverts to proving nothing). Full fail-before (21 failures) / pass-after cycle
+  demonstrated.
+
+**Verified live on hardware (2026-07-17):**
+- `enumerate_devices()` → `['hackrf', 'plutosdr']` with both plugged in; `detect_device()`
+  correctly selects HackRF; `detect_device('plutosdr')` correctly forces Pluto.
+- `PlutoReceiver` opened its device for the first time and pulled 65,536 complex64 samples
+  at 1090 MHz, 30 dB gain, mean abs 0.00058. AGC read-back, explicit bandwidth, and stream
+  setup all proven in that run. (Pluto's USB URI changes every replug; the `usb:` entry is
+  preferred over the two `ip:pluto.local` entries it also advertises.)
+
+**RF/Legal notes:** Pluto is TX-capable; zero-TX enforced in software. RX stream only. No
+TX surfaces.
+
+**Test counts:** **741 passing (562 pytest + 179 Vitest), 0 failures** — both suites
+live-verified at the merge checkpoint (`PYTHONPATH=. uv run pytest` from repo root;
+`npm run test` from `dashboard/frontend`). +64 pytest from the 498 baseline; Vitest
+unchanged at 179.
+
+---
+
 ### Phase 37 — Device Selection Wiring ✅
 
 **Branch:** `feat/pluto-device-support`. **Type:** Feature (invasive wiring).
@@ -1687,6 +1688,106 @@ decodes..." on a quiet channel is expected, not a bug. Live-traffic validation p
 
 **Test counts:** 781 (602 pytest + 179 Vitest), 0 failures. +9 pytest (`_stage_factors`)
 over the 772 baseline; Vitest unchanged.
+
+---
+
+### Phase 38 — Device-Aware Unsupported-Band UI ✅
+
+**What:** Grey out and disable the bands the currently-active SDR cannot
+physically receive, on both live band surfaces (BAND_GROUPS top nav and
+OVERVIEW_BANDS bottom strip). On Pluto, five of the eight bands
+(FM, Aviation, ACARS, APRS, AIS) sit below its 325 MHz tuning floor; on
+HackRF every band is receivable, so the greying map is empty and the UI
+renders exactly as before.
+
+**Scope correction.** The Phase 35 memo scoped this as "frontend-only —
+backend capability already exists (`band_supported_by_device`)". That was
+incorrect. Nothing surfaced *which device is currently active* to the
+frontend, so the existing backend function had no second argument to be
+called with. A backend addition was required first — confirmed by reading
+the real `system_stats` payload, `shared_state.py`, and `scan.py` before
+any code was written.
+
+**Backend changes:**
+- `dashboard/shared_state.py` — new `current_device` / `current_device_lock`
+  (mirrors the existing `current_band` / `current_band_lock` pattern).
+  New `unsupported_bands_for_device(device)` helper: iterates
+  `BAND_PROFILES`, skips `noise_floor`, calls the existing
+  `band_supported_by_device()`, and reads each unsupported band's reason
+  string from `PLUTO_BAND_PROFILES`. Backend stays the sole source of
+  truth — the frontend never re-derives Pluto's 325 MHz rule itself.
+- `scan.py` — writes `current_device` from `args.device` at startup, for
+  both devices (not just Pluto), so the empty-map HackRF case is correct
+  from the first stats tick.
+- `dashboard/server.py` — `emit_stats()` adds two keys to the existing
+  `system_stats` payload: `device` and `unsupported_bands`. No new
+  endpoint, no new socket event — rides the existing 2 s poll.
+
+**Frontend changes:**
+- `dashboard/frontend/src/hooks/useSocket.js` — exposes `device` and
+  `unsupportedBands` derived from `systemStats`, defaulting to `null` / `{}`
+  before the first `system_stats` event arrives.
+- `dashboard/frontend/src/App.jsx` — BAND_GROUPS and OVERVIEW_BANDS grey
+  unsupported bands: `opacity: 0.35`, `cursor: not-allowed`, a native
+  `title` tooltip carrying the backend's reason string, and
+  `data-unsupported="true"`. Click is blocked by omitting the `onClick`
+  handler for unsupported rows (`isUnsupported ? undefined : () => ...`).
+- `dashboard/frontend/src/components/FrequencyList.jsx` — same treatment
+  applied for consistency, though this component is dead code (not
+  imported by `App.jsx` or any production file — see Known Tech Debt).
+
+**Known issue at ship (fixed in 38-Hotfix-1):** the greyed BAND_GROUPS
+buttons also carried the HTML `disabled` attribute, which suppresses
+native `title` tooltips — the reason text was present in the DOM but
+never appeared on hover.
+
+**RF/Legal notes:** Pure UI/state plumbing. No hardware I/O, no TX
+surface. Receive-only, AU/SA, ACMA, Radiocommunications Act 1992 (Cth).
+
+**Test counts:** 795 (610 pytest + 185 Vitest), 0 failures. +8 pytest
+(`unsupported_bands_for_device` + `system_stats` device-field coverage),
++6 Vitest (`FrequencyList` greying behaviour, `useSocket` device exposure).
+
+---
+
+### Phase 38-Hotfix-1 — Unsupported-Band Tooltip Fix ✅
+
+**Type:** Hotfix (frontend-only). **Verified live** on real hardware —
+both ADALM-PLUTO (5 greyed bands, working tooltips) and HackRF (no
+greying, zero visual change) — after the code fix landed.
+
+**Problem.** Hovering a greyed band on a Pluto run showed no tooltip.
+DOM inspection (right-click → Inspect on a live greyed button) confirmed
+the `title` attribute was present with the correct reason text — the bug
+was not in the data path.
+
+**Root cause.** The greyed BAND_GROUPS `<button>` elements carried both
+`title` (the reason string) and the HTML `disabled` attribute. Browsers
+remove `disabled` controls from hit-testing, so `mouseover` never fires
+and the native `title` tooltip never appears — this is spec behaviour
+across all browsers, not a project-specific bug. The backend data,
+the `unsupported_bands` map, and the reason strings in
+`PLUTO_BAND_PROFILES` were all correct throughout.
+
+**Fix.** Removed the `disabled` attribute from the BAND_GROUPS button.
+Click safety is unaffected: the `onClick` omission guard
+(`isUnsupported ? undefined : () => focusFrequency(...)`) already blocked
+the click independently of `disabled`, so removing it does not re-open
+clicking on greyed bands. `OVERVIEW_BANDS` and `FrequencyList.jsx` render
+`<div>` elements, which have no native `disabled` attribute — audited,
+confirmed unaffected, no change needed there. A WHY comment was added at
+the fix site so a future contributor does not re-add `disabled` "for
+extra safety."
+
+**Forward note.** Do NOT set `disabled` or `pointer-events: none` on any
+element that also needs a hover tooltip — both remove the element from
+the browser's hit-test path and silently kill the tooltip.
+
+**Test counts:** 800 (610 pytest + 190 Vitest), 0 failures. pytest
+unchanged (no backend touched). +5 Vitest regression tests asserting a
+greyed control carries `title` AND is *not* `disabled` — the specific
+combination that slipped through Phase 38's original test coverage
+(which checked `title` presence but not reachability).
 
 ---
 
