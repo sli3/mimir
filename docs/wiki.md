@@ -25,10 +25,10 @@ Updated automatically by `@doc-writer` at the end of each build cycle.
 
 ## What Mimir Is
 
-Mimir is a passive RF spectrum scanner. It uses a HackRF software-defined radio to
+Mimir is a passive RF spectrum scanner. It uses a software-defined radio (HackRF One or ADALM-PLUTO) to
 listen to the air, processes what it hears through a Python pipeline, classifies
 signals using a local LLM running on a machine called yubaba, and displays everything
-live in a browser-based waterfall dashboard.
+live in a browser-based waterfall dashboard. When both devices are present, Pluto is selected by default; pass `--device hackrf` or `--device plutosdr` to force a specific device.
 
 It is passive receive-only. It never transmits. All frequencies are Australian
 ACMA-compliant under the Radiocommunications Act 1992.
@@ -49,8 +49,8 @@ CRC-validated decode is ground truth, no LLM classification needed.
 ```
 Step  Function / Component          What it does
 ────  ────────────────────────────  ──────────────────────────────────────────────
-  1   HackRF hardware               Physical USB device. Converts radio waves to
-                                    digital samples.
+  1   SDR hardware (HackRF or Pluto) Physical USB device. Converts radio waves to
+                                     digital samples.
 
   2   capture_iq()                  Tunes to a frequency, collects the requested
       core/pipeline/capture.py      number of IQ samples, returns a NumPy array.

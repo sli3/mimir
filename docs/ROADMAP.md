@@ -83,6 +83,7 @@
 | 38 | Device-aware unsupported-band UI — backend addition (current_device + system_stats fields) + frontend greying (opacity 0.35, not-allowed cursor, native title tooltip); empty map = zero visual change for HackRF. **Note:** Phase 35 memo incorrectly scoped this as "frontend-only"; corrected here. | ✅ Complete | 795 (610 pytest + 185 Vitest), 0 failures |
 | 38-Hotfix-1 | Tooltip fix: removed `disabled` from BAND_GROUPS buttons (HTML `disabled` suppresses native `title` tooltips). Click guard via onClick omission only. Backend untouched. 5 new regression tests. | ✅ Complete | 800 (610 pytest + 190 Vitest), 0 failures |
 | 39 | Pluto gain calibration tooling — `capture_iq_pluto()` + `tools/diagnose_pluto_gain.py` gain sweep (ISM 915 + ADS-B 1090) with interpretation aid. Existing `capture_iq()` byte-for-byte unchanged; existing `diagnose_threshold.py` / `calibrate_thresholds.py` untouched. **No calibrated gain values written — `PLUTO_BAND_PROFILES` placeholders (30.0 / 3.0) stay until the operator runs the new tool on hardware.** | ✅ Complete | 814 (624 pytest + 190 Vitest), 0 failures |
+| 40a | Wire auto-detection into live scan path + flip no-preference default to Pluto (2026-07-15 decision) | ✅ Complete | 818 (628 pytest + 190 Vitest), 0 failures |
 
 ---
 
@@ -1818,8 +1819,50 @@ combination that slipped through Phase 38's original test coverage
 **Test counts.** 814 total (624 pytest + 190 Vitest), 0 failures. +14 pytest over the 800 baseline (5+1 capture + 8 tool). Vitest unchanged (no frontend touched). Zero regressions.
 
 **Tech debt updated in AGENTS.md.**
-- "Pluto band profiles: threshold still uncalibrated" — Phase 39b done (comment-only): the operator hardware-sweep ran on both bands, gain_db 30.0 is now sweep-evidenced (mid sweet-spot, clear of the 32 dB dip and ~65 dB spur wall), and the `dashboard/shared_state.py` provisional marker was corrected to stop claiming a Phase 39 fix that never happened. signal_threshold_db 3.0 stays provisional pending a live in-band signal. Phase 40 (default-device flip) now unblocked.
+ - "Pluto band profiles: threshold still uncalibrated" — Phase 39b done (comment-only): the operator hardware-sweep ran on both bands, gain_db 30.0 is now sweep-evidenced (mid sweet-spot, clear of the 32 dB dip and ~65 dB spur wall), and the `dashboard/shared_state.py` provisional marker was corrected to stop claiming a Phase 39 fix that never happened. signal_threshold_db 3.0 stays provisional pending a live in-band signal. Phase 40 (default-device flip) now unblocked.
 - "Pluto spurs above ~30 dB gain" — now describes the actual excursion-count algorithm and the static interpretation aid. Spur-vs-signal is ultimately confirmed against a clean HackRF trace.
+
+---
+
+### Phase 40a — Wire Auto-Detection + Flip Default to Pluto ✅
+
+**Type:** CHECKPOINT build. Core detection layer wired into the live scan path; no-preference device default flipped from HackRF to Pluto based on the 2026-07-15 decision.
+
+**What.** Wired the previously-dormant core/device/detect.py into the live scan path. detect_device() still returns a DetectedDevice capability record (unchanged signature); its no-preference branch was flipped to prefer plutosdr when both devices are present, falling back to hackrf. scan.py's --device default changed from "hackrf" to None; main() now calls detect_device(preferred=args.device), reads detected.driver, and drives every downstream use (shared_state write, display name, Pluto startup-focus checks, build_device(), ScanRunner) off that resolved driver. A RuntimeError from detection is caught and turned into logger.error + sys.exit(1). The module docstring's "why HackRF is the default" rationale was rewritten honestly (gain sweep-evidenced per Phase 39b; threshold still provisional). config/mimir.yaml's vestigial hardware: and default: blocks were removed (confirmed unread by loader.py)
+
+**Why.** The 2026-07-15 decision unblocked the default-device flip once Pluto gains were sweep-evidenced (Phase 39b). Before this phase, the scanner always assumed HackRF unless the operator manually passed `--device plutosdr`. Now Pluto is the no-preference default; operators with Pluto in sub-325 MHz bands can use `--device hackrf` to force HackRF (Pluto's low-frequency coverage varies by hardware revision).
+
+**Files changed.**
+- `core/device/detect.py` — flipped `detect_device()`'s no-preference winner from HackRF to Pluto (signature unchanged, still returns `DetectedDevice`); rewrote the module docstring honestly re calibration state.
+- `scan.py` — calls `detect_device()` when `--device` is not provided; passes config to `build_device()`; catches `RuntimeError` and logs a clear message before `sys.exit(1)`.
+- `config/mimir.yaml` — removed vestigial `hardware.driver` block (field was never wired into `load_config()`).
+- `tests/core/test_detect.py` — flipped the no-preference test to assert Pluto wins when both present; added the symmetric explicit-preference-absent case.
+- `tests/test_scan.py` — added `test_auto_detection_with_pluto`; fixed a MED-01 symmetry gap (generic `Exception` → exit 1 path now covered).
+
+**Key decisions.**
+- **Device selection priority:** manual override > auto-detect (Pluto first, HackRF fallback) > fail fast.
+- **Error handling pattern:** `detect_device()` raises `RuntimeError`; `scan.py` catches it, logs a clear message, and exits with code 1. No silent dummy-device fallback.
+- **YAML cleanup:** the vestigial `hardware.driver` block was misleading (suggested config-based device selection existed). Removed to eliminate confusion.
+- **Sub-325 MHz caveat:** Pluto's low-frequency coverage varies by revision. The scanner does not detect this limitation. Operators in those bands should use `--device hackrf`.
+
+**Calibration state.**
+- **Pluto gains (SWEEP-EVIDENCED):** `PLUTO_BAND_PROFILES` gain_db = 30.0 sits mid sweet-spot (28–40 dB), clear of the AD9363 dip at 32 dB and the spur wall from ~65 dB. Phase 39b live sweeps measured this; the value is now sweep-evidenced, not provisional.
+- **Pluto thresholds (STILL PROVISIONAL):** `signal_threshold_db` = 3.0 remains provisional. Neither sweep caught a real in-band signal (no LoRa burst, no aircraft), so SNR was never measured. Value inherited from HackRF; pending a live capture. **Now LOAD-BEARING because Pluto is the no-preference default.**
+
+**Test counts.** 818 passing (628 pytest + 190 Vitest), 0 failures. +4 pytest over Phase 39 (detect.py signature updates + scan.py auto-detect test). Vitest unchanged (no frontend touched).
+
+**Tech debt updated in AGENTS.md.**
+- "Pluto band profiles: threshold still uncalibrated" — annotated "LOAD-BEARING" in the item text (Pluto is now the default; provisional threshold is on the critical path).
+- "config/mimir.yaml hardware.driver not wired" — marked RESOLVED; the field was removed in this phase.
+
+**Deferred items.**
+- `dashboard/shared_state.py:228` stale comment — references a phased implementation that is now complete. Minor polish.
+- `config/mimir.yaml presets:` block is dead code — never wired into `load_config()`; consider removing in a future cleanup phase.
+
+**RF-Legal notes.** Receive-only. Jurisdiction: AU/SA, ACMA, Radiocommunications Act 1992 (Cth). All changes are passive RX-only; no TX surfaces introduced or touched.
+
+**Next phase.** Phase 40b will add device-name UI to the dashboard server so the live interface shows which hardware is currently active. This is a dashboard-only feature; the auto-detection and default-flip logic is complete here.
+
 ---
 
 ## Resolved Tech Debt — Historical

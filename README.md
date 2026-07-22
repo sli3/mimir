@@ -149,8 +149,8 @@ Full phase-by-phase history lives in [`docs/ROADMAP.md`](./docs/ROADMAP.md), whi
 single source of truth for phase status and test counts. This section shows
 only a quick-glance summary — update `docs/ROADMAP.md` first, then sync this block.
 
-**Current phase: 39 — Pluto gain calibration tooling (capture_iq_pluto + diagnose_pluto_gain.py); PLUTO_BAND_PROFILES still provisional, awaiting operator hardware sweep**
-**Total: 814 passing (624 pytest + 190 Vitest), 0 failures**
+**Current phase: 40a — Wire Auto-Detection + Flip Default to Pluto (2026-07-15 decision)**
+**Total: 818 passing (628 pytest + 190 Vitest), 0 failures**
 
 > **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector
 > store (`data/vectorstore/`) must be re-seeded after deploying this build.
@@ -308,7 +308,7 @@ Then open your browser at `http://localhost:5000`. The cyberpunk dashboard will 
 
 The scanner starts automatically when the server starts. It cycles through the configured frequency bands continuously.
 
-If the HackRF is not connected, `scan.py` logs a clear error message and exits with code 1 (no traceback).
+If no supported SDR is connected, `scan.py` logs a clear error message and exits with code 1 (no traceback). Use `--device hackrf` or `--device plutosdr` to force a specific device.
 
 ### Vector Space Visualisation
 
