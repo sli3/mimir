@@ -1818,9 +1818,8 @@ combination that slipped through Phase 38's original test coverage
 **Test counts.** 814 total (624 pytest + 190 Vitest), 0 failures. +14 pytest over the 800 baseline (5+1 capture + 8 tool). Vitest unchanged (no frontend touched). Zero regressions.
 
 **Tech debt updated in AGENTS.md.**
-- "Pluto band profiles uncalibrated" — now notes Phase 39 ships the calibration tooling; awaiting operator hardware-sweep run and manual profile edit (Phase 39b).
+- "Pluto band profiles: threshold still uncalibrated" — Phase 39b done (comment-only): the operator hardware-sweep ran on both bands, gain_db 30.0 is now sweep-evidenced (mid sweet-spot, clear of the 32 dB dip and ~65 dB spur wall), and the `dashboard/shared_state.py` provisional marker was corrected to stop claiming a Phase 39 fix that never happened. signal_threshold_db 3.0 stays provisional pending a live in-band signal. Phase 40 (default-device flip) now unblocked.
 - "Pluto spurs above ~30 dB gain" — now describes the actual excursion-count algorithm and the static interpretation aid. Spur-vs-signal is ultimately confirmed against a clean HackRF trace.
-
 ---
 
 ## Resolved Tech Debt — Historical
