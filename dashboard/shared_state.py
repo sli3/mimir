@@ -358,23 +358,28 @@ from core.device.profiles import DEVICE_PROFILES
 
 # PLUTO_BAND_PROFILES
 # -------------------
-# PLACEHOLDER — NOT CALIBRATED FOR PLUTO.
+# ADDITIVE OVERRIDE on top of BAND_PROFILES.
 #
 # This dict declares which of the eight Mimir bands the ADALM-PLUTO can
-# physically receive. It is an ADDITIVE OVERRIDE layered on top of
-# BAND_PROFILES: each entry carries ONLY the keys that differ for Pluto
-# (supported / gain_db / signal_threshold_db for receivable bands,
+# physically receive. Each entry carries ONLY the keys that differ for
+# Pluto (supported / gain_db / signal_threshold_db for receivable bands,
 # supported / reason for the rest). center_freq_hz and crop_half_width_hz
 # are inherited from BAND_PROFILES and must never be restated here.
 #
-# The gain_db and signal_threshold_db values for the two supported bands
-# (ism, adsb) are PROVISIONAL PLACEHOLDERS copied from the HackRF
-# BAND_PROFILES entries for the same bands. They are NOT calibrated for
-# Pluto. gain_db 30.0 comes from a spur observation on real hardware —
-# a picket fence of spurious spikes appears above roughly 30 dB combined
-# gain (see core/device/pluto_rx.py, MEASURED FINDINGS) — not from a
-# calibration session. Both values are corrected in Phase 39. Do not
-# treat them as calibrated.
+# gain_db (ism, adsb): 30.0 — SWEEP-EVIDENCED, not calibrated against a
+#   real signal. Phase 39 gain sweeps (tools/diagnose_pluto_gain.py, run
+#   live on both --band ism and --band adsb) measured Pluto's own noise
+#   behaviour: flat noise floor 0–40 dB, an AD9363 non-monotonic dip at
+#   32 dB, and a spur "picket-fence" wall from ~65 dB. 30.0 sits in the
+#   28–40 dB sweet spot, clear of both the 32 dB dip and the 65 dB spur
+#   wall, on both bands. This validates gain/noise/spurs ONLY.
+#
+# signal_threshold_db (ism, adsb): 3.0 — PROVISIONAL, still uncalibrated
+#   for Pluto. Neither Phase 39 sweep caught a real in-band target (no
+#   LoRa burst, no aircraft), so SNR-above-noise was never measured on
+#   Pluto. This value is inherited from the HackRF BAND_PROFILES entries
+#   and kept as a placeholder until a live capture with a real signal is
+#   available. Do not treat as calibrated.
 #
 # The six unsupported bands are all below Pluto's 325 MHz tuning floor
 # (stock AD9363 firmware); the reason string on each entry states the
