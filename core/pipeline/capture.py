@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 
 from core.device.hackrf_rx import HackRFReceiver
+from core.device.pluto_rx import PlutoReceiver
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,73 @@ def capture_iq(
         sample_rate_hz=sample_rate_hz,
         lna_gain_db=lna_gain_db,
         vga_gain_db=vga_gain_db,
+    )
+
+    try:
+        with sdr:
+            logger.info(
+                "Capturing %d samples at %.3f MHz",
+                num_samples,
+                freq_hz / 1e6,
+            )
+            samples = sdr.read_samples(num_samples)
+            logger.info("Captured %d IQ samples", len(samples))
+            return samples
+    except RuntimeError as err:
+        logger.error("IQ capture failed: %s", err)
+        raise
+
+
+def capture_iq_pluto(
+    freq_hz: float,
+    num_samples: int,
+    sample_rate_hz: float,
+    gain_db: float,
+    bandwidth_hz: float | None = None,
+) -> np.ndarray:
+    """
+    Capture IQ samples from the ADALM-PLUTO at the specified frequency.
+
+    The Pluto uses a SINGLE combined gain stage (0-74.5 dB), NOT the
+    split LNA/VGA pair the HackRF uses, so this function takes one
+    gain_db argument where capture_iq takes two. There is deliberately
+    no automatic translation between the two gain models here. As
+    documented in core/device/profiles.py: "There is no correct
+    automatic translation from a split pair to a single combined
+    figure." The two HackRF stages sit at different points in the
+    receive chain and contribute differently to noise and linearity,
+    so any mechanical mapping would be a fiction. Callers must pass a
+    native Pluto gain directly, calibrated for the Pluto itself.
+
+    PlutoReceiver already enforces the receive-only constraint
+    internally: it guards every transmit-capable entry point so any
+    such call raises before touching hardware. This function therefore
+    only ever drives the RX path (open, read_samples, close).
+
+    Args:
+        freq_hz: Centre frequency to tune to in Hz.
+                 Example: 1_090_000_000 for 1090 MHz ADS-B.
+        num_samples: Number of IQ samples to capture.
+                     At 2 MHz sample rate, 256_000 samples = 0.128 seconds.
+        sample_rate_hz: Samples per second. Mimir uses 2 MHz, well
+                        inside the Pluto's USB 2.0 throughput cap.
+        gain_db: Combined receive gain, 0-74.5 dB.
+        bandwidth_hz: RF filter bandwidth in Hz. If None, PlutoReceiver
+                      defaults it to sample_rate_hz.
+
+    Returns:
+        numpy.ndarray of shape (num_samples,) and dtype complex64.
+
+    Raises:
+        ValueError: If gain_db is outside 0-74.5 dB. Raised by
+                    PlutoReceiver and propagated unchanged.
+        RuntimeError: If no Pluto is found or capture fails.
+    """
+    sdr = PlutoReceiver(
+        center_freq_hz=freq_hz,
+        sample_rate_hz=sample_rate_hz,
+        gain_db=gain_db,
+        bandwidth_hz=bandwidth_hz,
     )
 
     try:

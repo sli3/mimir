@@ -67,12 +67,16 @@ rediscover them.
   reference profile (98 MHz). Pluto can only serve ISM (915 MHz) and
   ADS-B (1090 MHz) within the current band plan.
 
-- GAIN TABLE BOUNDARY AT ~35 dB: the noise floor does NOT rise
+-GAIN TABLE BOUNDARY AT ~35 dB: the noise floor does NOT rise
   monotonically with gain. At 35 dB the floor drops ~3–4 dB below the
   30 dB value, then resumes rising. Reproduced across two independent
   sweep runs on different days. Suspected AD9363 internal gain-table
   boundary, not confirmed. Gain values are therefore not uniformly
   spaced in effect.
+  (Superseded: a denser two-band sweep on 2026-07-21 located the dip at
+  ~32 dB — see docs/ROADMAP.md Phase 39.)
+
+
 
 - SPURS ABOVE ~30 dB GAIN: above roughly 30 dB combined gain, a picket
   fence of small spurious spikes appears across the span. These are

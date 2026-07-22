@@ -21,7 +21,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from core.legal.compliance_guard import HardwareTransmitError
-from core.pipeline.capture import capture_iq, save_capture
+from core.pipeline.capture import capture_iq, capture_iq_pluto, save_capture
 
 
 class TestCaptureIq:
@@ -50,6 +50,143 @@ class TestCaptureIq:
                 "capture_iq must raise RuntimeError, not HardwareTransmitError, "
                 "when hardware is unavailable."
             )
+
+
+class TestCaptureIqPluto:
+    """Tests for the capture_iq_pluto function (Pluto RX path)."""
+
+    def test_constructs_pluto_receiver_with_exact_args(self):
+        """PlutoReceiver is constructed with the exact kwargs passed in."""
+        with patch("core.pipeline.capture.PlutoReceiver") as mock_receiver_cls:
+            mock_sdr = MagicMock()
+            mock_receiver_cls.return_value = mock_sdr
+
+            capture_iq_pluto(
+                freq_hz=915e6,
+                num_samples=1024,
+                sample_rate_hz=2e6,
+                gain_db=30.0,
+                bandwidth_hz=1.8e6,
+            )
+
+            mock_receiver_cls.assert_called_once_with(
+                center_freq_hz=915e6,
+                sample_rate_hz=2e6,
+                gain_db=30.0,
+                bandwidth_hz=1.8e6,
+            )
+
+    def test_uses_context_manager_and_read_samples(self):
+        """The receiver is used as a context manager and read_samples drives the capture."""
+        with patch("core.pipeline.capture.PlutoReceiver") as mock_receiver_cls:
+            mock_sdr = MagicMock()
+            mock_receiver_cls.return_value = mock_sdr
+
+            result = capture_iq_pluto(
+                freq_hz=915e6,
+                num_samples=2048,
+                sample_rate_hz=2e6,
+                gain_db=30.0,
+            )
+
+            mock_sdr.__enter__.assert_called_once()
+            mock_sdr.read_samples.assert_called_once_with(2048)
+            assert result is mock_sdr.read_samples.return_value
+            mock_sdr.__exit__.assert_called_once()
+
+    def test_propagates_runtime_error_from_read_samples(self):
+        """A RuntimeError from the device layer is re-raised, not swallowed."""
+        with patch("core.pipeline.capture.PlutoReceiver") as mock_receiver_cls:
+            mock_sdr = MagicMock()
+            mock_sdr.read_samples.side_effect = RuntimeError("boom")
+            mock_receiver_cls.return_value = mock_sdr
+
+            with pytest.raises(RuntimeError, match="boom"):
+                capture_iq_pluto(
+                    freq_hz=915e6,
+                    num_samples=1024,
+                    sample_rate_hz=2e6,
+                    gain_db=30.0,
+                )
+
+    def test_propagates_value_error_for_out_of_range_gain(self):
+        """An out-of-range gain raises ValueError, never RuntimeError."""
+        with patch("core.pipeline.capture.PlutoReceiver") as mock_receiver_cls:
+            mock_receiver_cls.side_effect = ValueError(
+                "Gain 80.0 dB out of range. Valid range: 0.0–74.5 dB."
+            )
+
+            with pytest.raises(ValueError) as exc_info:
+                capture_iq_pluto(
+                    freq_hz=915e6,
+                    num_samples=1024,
+                    sample_rate_hz=2e6,
+                    gain_db=80.0,
+                )
+
+            assert not isinstance(exc_info.value, RuntimeError), (
+                "ValueError for out-of-range gain must propagate unchanged, "
+                "not be converted into a RuntimeError."
+            )
+
+    def test_no_transmit_method_called_on_pluto_receiver(self):
+        """TX-safety: no transmit-family method is ever invoked on the receiver."""
+        with patch("core.pipeline.capture.PlutoReceiver") as mock_receiver_cls:
+            mock_sdr = MagicMock()
+            mock_receiver_cls.return_value = mock_sdr
+
+            capture_iq_pluto(
+                freq_hz=915e6,
+                num_samples=1024,
+                sample_rate_hz=2e6,
+                gain_db=30.0,
+            )
+
+            tx_methods = [
+                "transmit",
+                "write_samples",
+                "writeStream",
+                "set_tx_gain",
+                "set_tx_frequency",
+                "setupTxStream",
+                "activateTxStream",
+            ]
+            for method_name in tx_methods:
+                getattr(mock_sdr, method_name).assert_not_called()
+
+            # The constructor must never receive a transmit-direction argument.
+            ctor_kwargs = mock_receiver_cls.call_args.kwargs
+            for kwarg_name, kwarg_value in ctor_kwargs.items():
+                assert kwarg_name not in tx_methods
+                assert kwarg_value not in tx_methods
+
+
+class TestCaptureIqUnchanged:
+    """Confirm Block 1 did not break the existing HackRF capture path."""
+
+    def test_capture_iq_hackrf_still_works_with_own_mock(self):
+        """capture_iq still drives HackRFReceiver with the same args as before."""
+        with patch("core.pipeline.capture.HackRFReceiver") as mock_receiver_cls:
+            mock_sdr = MagicMock()
+            mock_receiver_cls.return_value = mock_sdr
+
+            result = capture_iq(
+                freq_hz=98e6,
+                num_samples=1024,
+                sample_rate_hz=2e6,
+                lna_gain_db=16,
+                vga_gain_db=20,
+            )
+
+            mock_receiver_cls.assert_called_once_with(
+                center_freq_hz=98e6,
+                sample_rate_hz=2e6,
+                lna_gain_db=16,
+                vga_gain_db=20,
+            )
+            mock_sdr.__enter__.assert_called_once()
+            mock_sdr.read_samples.assert_called_once_with(1024)
+            assert result is mock_sdr.read_samples.return_value
 
 
 class TestSaveCapture:
