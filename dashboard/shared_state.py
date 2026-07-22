@@ -225,17 +225,21 @@ current_band_lock = threading.Lock()
 #          The frontend band list is keyed by freq_hz, but the backend
 #          support logic (band_supported_by_device, PLUTO_BAND_PROFILES) is
 #          keyed by band_key — sharing the device name closes that loop.
-# How it works: scan.py writes this once at startup from args.device (which
-#               is constrained to {hackrf, plutosdr} via argparse choices=).
+## How it works: scan.py writes this once at startup from the resolved driver
+#               returned by core.device.detect.detect_device() (auto-selected,
+#               Pluto preferred when both present, or forced via --device).
 #               dashboard/server.py reads it under this lock in emit_stats
 #               so the system_stats payload carries the live device name.
 # Why we need it: Without this, the frontend cannot know which device is
 #                 active and would have to re-derive Pluto's 325 MHz tuning
 #                 floor client-side — duplicating hardware-specific logic
 #                 in two places and risking drift.
-# Default: "hackrf" — matches scan.py's argparse default and means the
-#          dashboard reports a sensible value before scan.py has had a
-#          chance to overwrite it.
+# Default: "hackrf" — a pre-scan fallback so the dashboard reports a sensible
+#          value before scan.py resolves and overwrites it. This is NOT the
+#          device-selection default: scan.py's --device default is None
+#          (auto-select), and detect_device() prefers Pluto when both are
+#          present. This literal only shows if system_stats is read before
+#          scan.py's startup write completes.
 current_device: str = "hackrf"
 current_device_lock = threading.Lock()
 
