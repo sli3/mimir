@@ -82,6 +82,7 @@
 | 37-Hotfix-2 | ACARS decimation fix + decode-path verification (decoder confirmed correct; no live ACARS present) | ✅ Complete | 781 (602 pytest + 179 Vitest), 0 failures |
 | 38 | Device-aware unsupported-band UI — backend addition (current_device + system_stats fields) + frontend greying (opacity 0.35, not-allowed cursor, native title tooltip); empty map = zero visual change for HackRF. **Note:** Phase 35 memo incorrectly scoped this as "frontend-only"; corrected here. | ✅ Complete | 795 (610 pytest + 185 Vitest), 0 failures |
 | 38-Hotfix-1 | Tooltip fix: removed `disabled` from BAND_GROUPS buttons (HTML `disabled` suppresses native `title` tooltips). Click guard via onClick omission only. Backend untouched. 5 new regression tests. | ✅ Complete | 800 (610 pytest + 190 Vitest), 0 failures |
+| 39 | Pluto gain calibration tooling — `capture_iq_pluto()` + `tools/diagnose_pluto_gain.py` gain sweep (ISM 915 + ADS-B 1090) with interpretation aid. Existing `capture_iq()` byte-for-byte unchanged; existing `diagnose_threshold.py` / `calibrate_thresholds.py` untouched. **No calibrated gain values written — `PLUTO_BAND_PROFILES` placeholders (30.0 / 3.0) stay until the operator runs the new tool on hardware.** | ✅ Complete | 814 (624 pytest + 190 Vitest), 0 failures |
 
 ---
 
@@ -1788,6 +1789,37 @@ unchanged (no backend touched). +5 Vitest regression tests asserting a
 greyed control carries `title` AND is *not* `disabled` — the specific
 combination that slipped through Phase 38's original test coverage
 (which checked `title` presence but not reachability).
+
+---
+
+### Phase 39 — Pluto Gain Calibration Tooling ✅
+
+**Type:** CHECKPOINT (core + tools + tests). **Tooling only — NOT verified on live hardware in this phase.** Phase 39 ships the diagnostic a future operator hardware-sweep run (Phase 39b) needs in order to calibrate PLUTO_BAND_PROFILES gain and signal_threshold values.
+
+**What.** Shipped the Pluto-side capture function and the gain-sweep diagnostic. `core/pipeline/capture.py` now exposes a new sibling function `capture_iq_pluto(freq_hz, num_samples, sample_rate_hz, gain_db, bandwidth_hz=None)` that drives the existing `PlutoReceiver` via its context manager. Pluto uses a single combined gain stage (0–74.5 dB), so the new function takes one `gain_db` argument where the HackRF `capture_iq` takes a `(lna_gain_db, vga_gain_db)` pair. The HackRF function is preserved byte-for-byte. `tools/diagnose_pluto_gain.py` is a new standalone CLI tool that sweeps `GAIN_CANDIDATES = [0, 10, 20, 25, 28, 30, 32, 35, 38, 40, 45, 50, 55, 60, 65, 70, 74.5]` on ISM (915 MHz) and ADS-B (1090 MHz) only — the two Mimir bands inside Pluto's stock 325–3800 MHz range. Per (band, gain) step it captures via `capture_iq_pluto`, computes PSD, and prints a row of `gain / noise_floor / excursions / max`. The excursion count is `int(np.sum(psd_db > noise_floor_db + SPUR_MARGIN_DB))` with `SPUR_MARGIN_DB = 10.0` — a deliberately simple proxy for the picket-fence spurs observed above ~30 dB combined gain. The tool finishes with a static 3-bullet interpretation aid (no automated recommendation) and a summary table. CLI: `--band {ism,adsb}` only; default sweeps both. Empty-PSD steps and per-step `RuntimeError`/`OSError`/`ValueError` are caught and skipped (a single USB hiccup on a 34-capture sweep does not abort the rest).
+
+**Why.** Two measured Pluto behaviours — spurs above ~30 dB combined gain, and a non-monotonic AD9363 gain-table boundary at ~32 dB (measured 2026-07-21, both bands; the original 2026-07-16/17 finding estimated ~35 dB) — were discovered on hardware in 2026-07-16/17 (recorded in `core/device/pluto_rx.py` module docstring "MEASURED FINDINGS"). The `PLUTO_BAND_PROFILES` entries for `ism` and `adsb` carry placeholder `gain_db = 30.0` and `signal_threshold_db = 3.0` copied from the HackRF profiles; gain 30 was chosen from the spur observation, not a calibration session. Phase 39 provides the tool that lets an operator pick calibrated values by reading the sweep. No automatic `PLUTO_BAND_PROFILES` edit — that is Phase 39b after the operator runs the tool on hardware.
+
+**Files changed.**
+- `core/pipeline/capture.py` — added `capture_iq_pluto()` as a new sibling function. PlutoReceiver import added. Existing `capture_iq()`, `save_capture()`, `capture_and_save()` untouched.
+- `tools/diagnose_pluto_gain.py` — new file. Per-band sweep with per-step exception handling and a static interpretation aid.
+- `tests/core/test_capture_pipeline.py` — added `TestCaptureIqPluto` (5 tests) and `TestCaptureIqUnchanged` (1 test). The TX-safety test asserts none of the 7 PlutoReceiver transmit-family methods (`transmit`, `write_samples`, `writeStream`, `set_tx_gain`, `set_tx_frequency`, `setupTxStream`, `activateTxStream`) is called, and that no transmit-family kwarg is passed to the PlutoReceiver constructor.
+- `tests/tools/test_diagnose_pluto_gain.py` — new file, 8 tests across `TestSweepBand` and `TestMainBandSelection`.
+
+**Design decisions.**
+- **New sibling function, not a refactor of `capture_iq`.** Branching or re-parameterising the existing function would have broken four downstream tools (`diagnose_threshold.py`, `calibrate_thresholds.py`, `capture_to_vectorstore.py`, `diagnose_fingerprints.py`) which all use the HackRF split-gain signature.
+- **No automatic split-to-combined gain translation.** `core/device/profiles.py` already documents that no principled translation exists between HackRF LNA/VGA and Pluto combined-gain. Callers pass a native Pluto gain.
+- **Excursion proxy is deliberately simple.** Spur-vs-signal classification is a judgement call; the tool's job is to make the curve visible, not to make the call. The 3-bullet interpretation aid points the operator at the excursion column (spur onset), the noise-floor column near 30–35 dB (non-monotonic boundary; dip measured at 32 dB), and the spur-vs-signal confirmation step (compare a clean HackRF trace, as the original 2026-07-16/17 finding did).
+- **Per-step exception handling.** The deep-analyst review flagged that a single USB hiccup on a 34-capture unattended run would previously have aborted the whole sweep. Added try/except matching the existing empty-PSD skip pattern, plus a one-line `__exit__.assert_called_once()` regression test (LOW-03 and LOW-05 from the deep-analyst review).
+- **`diagnose_threshold.py` and `calibrate_thresholds.py` remain HackRF-only.** They sweep per-band SIGNAL_THRESHOLD_DB at a fixed gain, not a gain sweep. Pluto support is a deferred future phase.
+
+**RF-Legal notes.** Receive-only. Jurisdiction: AU/SA, ACMA, Radiocommunications Act 1992 (Cth). 915 MHz (ISM, AU — NOT 868 MHz EU) and 1090 MHz (ADS-B) are AU-legal to receive passively. Pluto RX-only enforced by `PlutoReceiver` (every transmit-family method is wrapped in `transmit_guard` from `core/legal/compliance_guard.py`). The new `capture_iq_pluto()` function drives only the public RX API — `__init__` → `__enter__`/`open` → `read_samples` → `__exit__`/`close` — and adds no `direction=` parameter and no TX-path call.
+
+**Test counts.** 814 total (624 pytest + 190 Vitest), 0 failures. +14 pytest over the 800 baseline (5+1 capture + 8 tool). Vitest unchanged (no frontend touched). Zero regressions.
+
+**Tech debt updated in AGENTS.md.**
+- "Pluto band profiles uncalibrated" — now notes Phase 39 ships the calibration tooling; awaiting operator hardware-sweep run and manual profile edit (Phase 39b).
+- "Pluto spurs above ~30 dB gain" — now describes the actual excursion-count algorithm and the static interpretation aid. Spur-vs-signal is ultimately confirmed against a clean HackRF trace.
 
 ---
 

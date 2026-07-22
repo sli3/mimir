@@ -149,8 +149,8 @@ Full phase-by-phase history lives in [`docs/ROADMAP.md`](./docs/ROADMAP.md), whi
 single source of truth for phase status and test counts. This section shows
 only a quick-glance summary — update `docs/ROADMAP.md` first, then sync this block.
 
-**Current phase: 38-Hotfix-1 — Unsupported-band tooltip fix (removed disabled from BAND_GROUPS buttons; native title tooltips now fire on hover)**
-**Total: 800 passing (610 pytest + 190 Vitest), 0 failures**
+**Current phase: 39 — Pluto gain calibration tooling (capture_iq_pluto + diagnose_pluto_gain.py); PLUTO_BAND_PROFILES still provisional, awaiting operator hardware sweep**
+**Total: 814 passing (624 pytest + 190 Vitest), 0 failures**
 
 > **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector
 > store (`data/vectorstore/`) must be re-seeded after deploying this build.

@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: "BUG-04"
+last_updated_phase: "38"
 ---
 
 # Mimir Wiki
@@ -18,7 +18,8 @@ Updated automatically by `@doc-writer` at the end of each build cycle.
 3. [Phase Log](#phase-log)
 4. [Frontend Stack](#frontend-stack)
 5. [Hardware Concepts](#hardware-concepts)
-6. [Acronym Glossary](#acronym-glossary)
+6. [Environment and Gotchas](#environment-and-gotchas)
+7. [Acronym Glossary](#acronym-glossary)
 
 ---
 
@@ -2841,6 +2842,56 @@ This is a strong sign the connected antenna is too short for that frequency.
   (800 MHz+). Cannot be extended. Not suitable for FM or other low-frequency bands.
 - **Dedicated band antenna** — cut to exactly the right length for one frequency.
   Best performance for that band, useless outside it.
+
+---
+
+## Environment and Gotchas
+
+This section records environment-specific facts and gotchas discovered during
+development. These are not bugs, but behaviours that operators need to be aware of.
+
+### Pluto (ADALM-PLUTO) Gain Behaviour
+
+The ADALM-PLUTO SDR exhibits two measured behaviours that affect gain calibration:
+
+**Spurs above ~30 dB combined gain:** Above roughly 30 dB combined gain, a
+picket fence of small spurious spikes appears across the frequency span. These
+are Pluto-generated, not environmental — a HackRF capture at the same frequency,
+antenna, and moment showed a clean trace. Operational impact: spurs land in the
+PSD, become part of the spectral fingerprint, and could cluster in ChromaDB as
+if they were signal patterns. When choosing a calibrated gain value, run
+`tools/diagnose_pluto_gain.py` and observe the "excursions" column — a sharp
+rise past ~30 dB is the spur onset. See `core/device/pluto_rx.py` module docstring
+"MEASURED FINDINGS" for the full context.
+
+**Gain-table boundary at ~35 dB:** The noise floor does NOT rise monotonically
+with gain. At 35 dB the floor drops ~3–4 dB below the 30 dB value, then resumes
+rising. This was reproduced across two independent sweep runs on different days.
+Suspected AD9363 internal gain-table boundary, not confirmed. Operational impact:
+gain values are not uniformly spaced in effect. When the diagnostic sweep shows
+a drop in the "noise_floor" column at 35 dB, it is not an improvement to chase —
+the lower value is an artefact, not better sensitivity. See `core/device/pluto_rx.py`
+module docstring "MEASURED FINDINGS" for the full context.
+
+### SoapySDR Device() Argument Format
+
+SoapySDR's `Device()` constructor requires its arguments as a string, not a
+Python dict. The string format is `"key=value,key2=value2"`. Passing a dict
+directly (e.g. `{"driver": "plutosdr", "uri": "usb:3.19.5"}`) fails with
+"make() no match" because SWIG's dict marshalling does not produce Kwargs that
+match what the plugin's `find()` returns. The string path uses the plugin's own
+parser. This was discovered during Pluto development — `hackrf_rx.py` has always
+used the string form, but `pluto_rx.py` initially used a dict and could not
+open its device. Any new device wrapper must use the string form.
+
+Example:
+```python
+# Correct
+device = SoapySDR.Device("driver=plutosdr,uri=usb:3.19.5")
+
+# Fails with "make() no match"
+device = SoapySDR.Device({"driver": "plutosdr", "uri": "usb:3.19.5"})
+```
 
 ---
 
