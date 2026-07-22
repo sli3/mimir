@@ -10,6 +10,35 @@ import pytest
 
 import scan
 import dashboard.shared_state as shared_state
+from core.device.detect import DetectedDevice
+from core.device.hackrf_rx import HackRFReceiver
+from core.device.pluto_rx import PlutoReceiver
+
+
+def _hackrf_detected() -> DetectedDevice:
+    """A DetectedDevice as detect_device would return for a HackRF One."""
+    return DetectedDevice(
+        driver="hackrf",
+        display_name="HackRF One",
+        min_freq_hz=1_000_000,
+        max_freq_hz=6_000_000_000,
+        gain_model="split",
+        max_gain_db=62.0,
+        wrapper_class=HackRFReceiver,
+    )
+
+
+def _pluto_detected() -> DetectedDevice:
+    """A DetectedDevice as detect_device would return for an ADALM-PLUTO."""
+    return DetectedDevice(
+        driver="plutosdr",
+        display_name="ADALM-PLUTO",
+        min_freq_hz=325_000_000,
+        max_freq_hz=3_800_000_000,
+        gain_model="combined",
+        max_gain_db=74.5,
+        wrapper_class=PlutoReceiver,
+    )
 
 
 class TestScanStartupErrors:
@@ -20,6 +49,7 @@ class TestScanStartupErrors:
         """Patch heavy dependencies so importing scan.py does not touch hardware."""
         with (
             patch("scan.load_config") as mock_load_config,
+            patch("scan.detect_device") as mock_detect_device,
             patch("scan.build_device") as mock_build_device,
             patch("scan.SpectrumEmbedder"),
             patch("scan.SignalStore"),
@@ -32,6 +62,9 @@ class TestScanStartupErrors:
             patch("scan.start_server") as mock_start_server,
             patch.object(sys, "argv", ["scan.py"]),
         ):
+            # Default: a HackRF is the detected device. Individual tests
+            # override this when they exercise the Pluto path.
+            mock_detect_device.return_value = _hackrf_detected()
             config = MagicMock()
             config.lna_gain_db = 24.0
             config.vga_gain_db = 26.0
@@ -51,6 +84,7 @@ class TestScanStartupErrors:
             mock_start_server._broadcast_spectrum_fn = MagicMock()
 
             self.mock_load_config = mock_load_config
+            self.mock_detect_device = mock_detect_device
             self.mock_build_device = mock_build_device
             self.mock_scan_runner_cls = mock_scan_runner_cls
             yield
@@ -124,6 +158,7 @@ class TestDeviceSelection:
         """Patch heavy dependencies so main() never touches hardware."""
         with (
             patch("scan.load_config") as mock_load_config,
+            patch("scan.detect_device") as mock_detect_device,
             patch("scan.build_device") as mock_build_device,
             patch("scan.SpectrumEmbedder"),
             patch("scan.SignalStore"),
@@ -135,6 +170,9 @@ class TestDeviceSelection:
             patch("scan.time.sleep"),
             patch("scan.start_server") as mock_start_server,
         ):
+            # Default: a HackRF is the detected device. Tests exercising
+            # the Pluto path call _set_detected_driver("plutosdr").
+            mock_detect_device.return_value = _hackrf_detected()
             config = MagicMock()
             config.lna_gain_db = 24.0
             config.vga_gain_db = 26.0
@@ -153,6 +191,7 @@ class TestDeviceSelection:
             mock_start_server.return_value = mock_broadcast
             mock_start_server._broadcast_spectrum_fn = MagicMock()
 
+            self.mock_detect_device = mock_detect_device
             self.mock_build_device = mock_build_device
             self.mock_scan_runner = mock_scan_runner_cls.return_value
             yield
@@ -172,8 +211,37 @@ class TestDeviceSelection:
             with pytest.raises(SystemExit):
                 scan.main()
 
-    def test_default_device_is_hackrf(self):
-        """Without --device, build_device is called with the hackrf driver."""
+    def _set_detected_driver(self, driver: str):
+        """Point the mocked detect_device at the named driver.
+
+        The default fixture state is a detected HackRF; tests that exercise
+        the Pluto startup path call this first so main() resolves the
+        plutosdr driver exactly as it would with real hardware present.
+        """
+        if driver == "plutosdr":
+            self.mock_detect_device.return_value = _pluto_detected()
+        else:
+            self.mock_detect_device.return_value = _hackrf_detected()
+
+    def test_default_device_prefers_pluto_when_both_present(self):
+        """With no --device and both devices present (mocked detection
+        resolving to Pluto), build_device is called with the plutosdr
+        driver — Pluto is the no-preference default per the 2026-07-15
+        multi-device decision."""
+        self._set_detected_driver("plutosdr")
+        self.config.frequencies_hz = [915_000_000]
+        self._run_main(["scan.py"])
+        self.mock_build_device.assert_called_once_with(
+            "plutosdr",
+            lna_gain_db=24.0,
+            vga_gain_db=26.0,
+            amp_enable=False,
+        )
+
+    def test_default_device_selects_hackrf_when_only_hackrf_present(self):
+        """With no --device and only a HackRF present (mocked detection
+        resolving to HackRF), build_device is called with the hackrf
+        driver."""
         self._run_main(["scan.py"])
         self.mock_build_device.assert_called_once_with(
             "hackrf",
@@ -182,8 +250,39 @@ class TestDeviceSelection:
             amp_enable=False,
         )
 
+    def test_explicit_hackrf_forces_hackrf_even_when_pluto_present(self):
+        """--device hackrf is the manual override for the six sub-325 MHz
+        bands: detect_device is consulted with preferred='hackrf' and the
+        resolved driver passed to build_device is hackrf, even on a
+        machine where a Pluto is also present."""
+        self._run_main(["scan.py", "--device", "hackrf"])
+        self.mock_detect_device.assert_called_once_with(preferred="hackrf")
+        self.mock_build_device.assert_called_once_with(
+            "hackrf",
+            lna_gain_db=24.0,
+            vga_gain_db=26.0,
+            amp_enable=False,
+        )
+
+    def test_detect_device_runtime_error_exits_1(self, caplog):
+        """A RuntimeError from detect_device (no supported SDR present)
+        logs an error and exits 1 BEFORE build_device is ever called."""
+        self.mock_detect_device.side_effect = RuntimeError(
+            "No supported SDR device found"
+        )
+
+        with patch.object(sys, "argv", ["scan.py"]):
+            with pytest.raises(SystemExit) as exc_info:
+                scan.main()
+
+        assert exc_info.value.code == 1
+        self.mock_build_device.assert_not_called()
+        assert "SDR detection failed" in caplog.text
+        assert "No supported SDR device found" in caplog.text
+
     def test_explicit_plutosdr_device(self):
         """--device plutosdr routes to build_device with the plutosdr driver."""
+        self._set_detected_driver("plutosdr")
         self.config.frequencies_hz = [915_000_000]
         self._run_main(["scan.py", "--device", "plutosdr"])
         self.mock_build_device.assert_called_once_with(
@@ -196,6 +295,7 @@ class TestDeviceSelection:
     def test_plutosdr_with_supported_freq_focuses_on_first_supported(self):
         """Pluto startup focuses on the first configured frequency it can
         receive (915 MHz ISM here) and sets current_band to match."""
+        self._set_detected_driver("plutosdr")
         self.config.frequencies_hz = [98_000_000, 915_000_000, 1_090_000_000]
         self._run_main(["scan.py", "--device", "plutosdr"])
 
@@ -209,6 +309,7 @@ class TestDeviceSelection:
     def test_plutosdr_with_no_supported_freq_exits_1(self, caplog):
         """Pluto with no receivable configured frequency exits 1 BEFORE the
         device is ever built or opened."""
+        self._set_detected_driver("plutosdr")
         self.config.frequencies_hz = [98_000_000, 127_000_000]
 
         with patch.object(sys, "argv", ["scan.py", "--device", "plutosdr"]):
@@ -222,6 +323,7 @@ class TestDeviceSelection:
     def test_plutosdr_with_only_adsb_focuses_on_1090(self):
         """Pluto with only ADS-B configured focuses on 1090 MHz and does
         not exit 1."""
+        self._set_detected_driver("plutosdr")
         self.config.frequencies_hz = [1_090_000_000]
 
         with patch.object(sys, "argv", ["scan.py", "--device", "plutosdr"]):
@@ -238,6 +340,7 @@ class TestDeviceSelection:
         resolves it to "adsb" (a supported band), so a band-only check
         would slip through — HIGH-01: the range check must reject it and
         exit 1 BEFORE the device is ever built."""
+        self._set_detected_driver("plutosdr")
         self.config.frequencies_hz = [4_000_000_000]
 
         with patch.object(sys, "argv", ["scan.py", "--device", "plutosdr"]):
@@ -252,6 +355,7 @@ class TestDeviceSelection:
     def test_plutosdr_with_mixed_in_range_and_out_of_range_focuses_on_first_in_range(self):
         """The 4 GHz entry is out of range and skipped; the first in-range
         Pluto-supported frequency (1090 MHz ADS-B) wins."""
+        self._set_detected_driver("plutosdr")
         self.config.frequencies_hz = [4_000_000_000, 1_090_000_000, 915_000_000]
 
         with patch.object(sys, "argv", ["scan.py", "--device", "plutosdr"]):
@@ -267,6 +371,7 @@ class TestDeviceSelection:
         """98 MHz FM is IN Pluto's raw tuning range but the band is NOT
         supported for Pluto; the first in-range AND supported frequency
         (1090 MHz ADS-B) wins."""
+        self._set_detected_driver("plutosdr")
         self.config.frequencies_hz = [98_000_000, 1_090_000_000, 915_000_000]
 
         with patch.object(sys, "argv", ["scan.py", "--device", "plutosdr"]):

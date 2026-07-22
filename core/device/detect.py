@@ -16,16 +16,34 @@ in dashboard/shared_state.py. This layer only knows which physical
 devices are present and what their datasheet capabilities are
 (core/device/profiles.py).
 
-WHY HACKRF IS THE DEFAULT WHEN BOTH ARE CONNECTED
-─────────────────────────────────────────────────
+WHY PLUTO IS THE DEFAULT WHEN BOTH ARE CONNECTED
+────────────────────────────────────────────────
 Mimir supports exactly one device at a time (either/or, never both at
-once). When no preference is stated and both devices are present, HackRF
-wins. The reason is calibration: BAND_PROFILES in
-dashboard/shared_state.py is calibrated against HackRF hardware, while
-Pluto has no calibrated band profiles until Phase 39. An uncalibrated
-default does not raise an error — it silently produces wrong detections
-that look plausible. Preferring the calibrated device is the
-conservative choice.
+once). When no preference is stated and both devices are present, Pluto
+is the no-preference default (per the 2026-07-15 multi-device decision).
+The manual override for the six sub-325 MHz bands is `--device hackrf`
+on scan.py — switching is a manual physical replug + flag, NOT an
+auto-fallback path.
+
+Calibration state of PLUTO_BAND_PROFILES (dashboard/shared_state.py):
+  - gain_db (30.0) is SWEEP-EVIDENCED (Phase 39b): the live gain-sweep
+    on both 915 MHz ISM and 1090 MHz ADS-B measured the noise floor
+    flat from 0-40 dB with an AD9363 dip near 32 dB, and a spur wall
+    above ~65 dB; 30.0 sits mid sweet-spot (28-40 dB), clear of both.
+  - signal_threshold_db (3.0) is still PROVISIONAL / uncalibrated —
+    inherited from HackRF, because no live in-band signal (LoRa burst,
+    aircraft squitter) has been captured on Pluto yet to measure SNR.
+    The threshold stays at 3.0 until a live capture provides a real
+    measurement.
+
+The previous choice of HackRF-as-default was driven by the fact that
+its BAND_PROFILES were calibrated while Pluto's were not. That
+rationale is no longer decisive: a calibrated gain does not require a
+calibrated threshold to start, and an uncalibrated default does not
+raise — it silently produces detections that look plausible. The
+threshold provisional marker in dashboard/shared_state.py already
+flags the open half honestly; this rewrite aligns the docstring with
+that marker instead of repeating the over-claim Phase 39b removed.
 
 LEGAL NOTE
 ──────────
@@ -115,9 +133,10 @@ def detect_device(preferred: str | None = None) -> DetectedDevice:
         1. If preferred is given and that driver is present, select it.
         2. If preferred is given but NOT present, raise RuntimeError
            naming both what was asked for and what was actually found.
-        3. If preferred is None, select HackRF when present (see the
-           module docstring for why HackRF is the safe default).
-        4. Otherwise select Pluto when present.
+        3. If preferred is None, select Pluto when present (the
+           no-preference default per the 2026-07-15 decision — see the
+           module docstring for the calibration state).
+        4. Otherwise select HackRF when present.
         5. If nothing supported is present, raise RuntimeError.
 
     Args:
@@ -142,11 +161,11 @@ def detect_device(preferred: str | None = None) -> DetectedDevice:
                 "to auto-select."
             )
         selected = preferred
-    elif "hackrf" in present:
-        # HackRF is the calibrated default — see module docstring.
-        selected = "hackrf"
     elif "plutosdr" in present:
+        # Pluto is the no-preference default — see module docstring.
         selected = "plutosdr"
+    elif "hackrf" in present:
+        selected = "hackrf"
     else:
         raise RuntimeError(
             "No supported SDR device found. "

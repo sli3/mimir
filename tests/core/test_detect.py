@@ -96,17 +96,18 @@ class TestDetect:
 
     # ── detect_device ─────────────────────────────────────────────────
 
-    def test_no_preference_prefers_hackrf_when_both_present(self):
-        """detect_device(None) picks HackRF when both devices are present —
-        HackRF is the calibrated default (Pluto is uncalibrated until
-        Phase 39)."""
+    def test_no_preference_prefers_pluto_when_both_present(self):
+        """detect_device(None) picks Pluto when both devices are present —
+        Pluto is the no-preference default per the 2026-07-15 multi-device
+        decision (Phase 40a); --device hackrf is the manual override for
+        the six sub-325 MHz bands."""
         self.mock_soapy.Device.enumerate.return_value = [
             FakeSoapySDRKwargs({"driver": "plutosdr"}),
             FakeSoapySDRKwargs({"driver": "hackrf"}),
         ]
         device = detect_device()
-        assert device.driver == "hackrf"
-        assert device.wrapper_class is HackRFReceiver
+        assert device.driver == "plutosdr"
+        assert device.wrapper_class is PlutoReceiver
 
     def test_no_preference_picks_pluto_when_only_pluto_present(self):
         """detect_device(None) picks Pluto when it is the only device."""
@@ -138,6 +139,19 @@ class TestDetect:
         message = str(exc_info.value)
         assert "plutosdr" in message
         assert "hackrf" in message
+
+    def test_preferred_hackrf_missing_raises_naming_requested_and_found(self):
+        """Requesting HackRF when only Pluto is present raises RuntimeError
+        naming both what was asked for and what was actually found.
+        Symmetric with test_preferred_pluto_missing_raises_naming_requested_and_found."""
+        self.mock_soapy.Device.enumerate.return_value = [
+            FakeSoapySDRKwargs({"driver": "plutosdr"}),
+        ]
+        with pytest.raises(RuntimeError) as exc_info:
+            detect_device("hackrf")
+        message = str(exc_info.value)
+        assert "hackrf" in message
+        assert "plutosdr" in message
 
     def test_no_devices_present_raises(self):
         """detect_device raises RuntimeError when nothing is present."""

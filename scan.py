@@ -16,6 +16,7 @@ import time
 
 from core.config.loader import load_config
 from core.device.factory import build_device
+from core.device.detect import detect_device
 from core.device.profiles import DEVICE_PROFILES
 from core.pipeline.scanner import ScanRunner
 import dashboard.shared_state as shared_state
@@ -41,18 +42,21 @@ def _parse_args() -> argparse.Namespace:
 
     --device selects which SDR hardware to open. Both supported devices
     are TX-capable and operate under Mimir's software-enforced receive-only
-    constraint. HackRF remains the default: its 1 MHz–6 GHz tuning range
-    covers every band in the current plan, whereas the Pluto's stock
-    325 MHz floor excludes six of the eight bands.
+    constraint. Omitting --device triggers auto-selection via
+    core.device.detect.detect_device(): Pluto is preferred when both
+    devices are present (2026-07-15 decision), otherwise the only device
+    found. Pass --device explicitly to force a specific driver — this is
+    the manual override path for the six sub-325 MHz bands when the Pluto
+    is the connected device.
     """
     parser = argparse.ArgumentParser(
         description="Mimir — AI-powered passive RF spectrum scanner (RX only)."
     )
     parser.add_argument(
         "--device",
-        default="hackrf",
+        default=None,
         choices=sorted(DEVICE_PROFILES.keys()),
-        help="SDR device to open (default: hackrf).",
+        help="SDR device to open. Omit to auto-select: Pluto is preferred when both are present, otherwise the only device found. Pass an explicit driver to force it.",
     )
     return parser.parse_args()
 
@@ -94,15 +98,18 @@ def _first_supported_freq(
 def main() -> None:
     """Start the Mimir live scanner and dashboard.
 
-    Parses --device, loads config, opens the selected SDR (HackRF by
-    default), initialises the AI pipeline (embeddings, ChromaDB store,
-    LLM classifier), registers decoder subscribers (ACARS, AIS, ADS-B),
-    starts the Flask-SocketIO dashboard, and enters the scan loop.
+    Parses --device, loads config, auto-selects or honours an explicit
+    --device (Pluto is preferred when both are present, per the
+    2026-07-15 multi-device decision), initialises the AI pipeline
+    (embeddings, ChromaDB store, LLM classifier), registers decoder
+    subscribers (ACARS, AIS, ADS-B), starts the Flask-SocketIO dashboard,
+    and enters the scan loop.
     Ctrl+C stops the scan gracefully.
 
     Device selection:
-    With --device plutosdr, the configured frequencies are checked against
-    the Pluto's supported bands BEFORE the device is opened. If no
+    With Pluto (auto-selected or explicit --device plutosdr), the
+    configured frequencies are checked against the Pluto's supported
+    bands BEFORE the device is opened. If no
     configured frequency is receivable, the process logs an error and
     exits with code 1 without ever opening the hardware. Otherwise the
     scanner is focused on the first supported frequency and current_band
@@ -118,23 +125,32 @@ def main() -> None:
     paths exited 0.
     """
     args = _parse_args()
+    try:
+        detected = detect_device(preferred=args.device)
+    except RuntimeError as exc:
+        logger.error(
+            "SDR detection failed: %s. Pass --device to force one, or check the USB connection.",
+            exc,
+        )
+        sys.exit(1)
+    driver = detected.driver
     # Record the active device driver in shared state so the dashboard
     # system_stats payload (and the frontend's band greying) reflects the
     # device the user actually launched with. Runs for BOTH devices, not
-    # just Pluto — HackRF is the default and the empty map it produces is
-    # the zero-visual-change case the frontend test depends on.
+    # just Pluto — the empty map HackRF produces is the zero-visual-change
+    # case the frontend test depends on.
     with shared_state.current_device_lock:
-        shared_state.current_device = args.device
-    display_name = DEVICE_PROFILES[args.device]["display_name"]
-    logger.info("Selected device driver: %s (%s)", args.device, display_name)
+        shared_state.current_device = driver
+    display_name = detected.display_name
+    logger.info("Selected device driver: %s (%s)", driver, display_name)
 
     config = load_config("config/mimir.yaml")
 
     # Pluto startup-focus check — runs BEFORE the device is built or
     # opened, so a doomed startup never opens the hardware.
     pluto_focus: tuple[float, str] | None = None
-    if args.device == "plutosdr":
-        pluto_focus = _first_supported_freq(config.frequencies_hz, args.device)
+    if driver == "plutosdr":
+        pluto_focus = _first_supported_freq(config.frequencies_hz, driver)
         if pluto_focus is None:
             logger.error(
                 "No configured frequency is receivable on the %s "
@@ -146,7 +162,7 @@ def main() -> None:
 
     try:
         device = build_device(
-            args.device,
+            driver,
             lna_gain_db=config.lna_gain_db,
             vga_gain_db=config.vga_gain_db,
             amp_enable=config.amp_enable,
@@ -172,13 +188,13 @@ def main() -> None:
     classifier.check_connection()
 
     scanner = ScanRunner(device, embedder, store, classifier, config,
-                         device_driver=args.device)
+                         device_driver=driver)
 
     # Focus Pluto on its first supported frequency and set current_band to
     # match, so the per-band threshold and crop window are correct from the
     # first scan cycle. Without this the scanner would start on
     # frequencies_hz[0], which is typically 98 MHz FM — below Pluto's floor.
-    if args.device == "plutosdr" and pluto_focus is not None:
+    if driver == "plutosdr" and pluto_focus is not None:
         focus_freq_hz, focus_band_key = pluto_focus
         scanner.set_focus_frequency(focus_freq_hz)
         with shared_state.current_band_lock:

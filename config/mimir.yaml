@@ -8,23 +8,6 @@
 # in Australia under the Radiocommunications Act 1992 (Cth).
 # Jurisdiction: South Australia. Authority: ACMA.
 
-# ── Hardware ──────────────────────────────────────────────────────────
-# Gain calibrated for telescopic whip SMA antenna (~1 GHz optimised).
-# Poor coupling at FM wavelengths (~3 m) requires gain to compensate.
-# lna=24 / vga=26 confirmed safe on live hardware (no ADC saturation).
-# Increase if receiving weak signals (APRS, ADS-B, etc.).
-hardware:
-  driver: hackrf
-  serial: null          # null = use first detected device
-  sample_rate_hz: 2000000
-  lna_gain_db: 24
-  vga_gain_db: 26
-  amp_enable: false
-
-# ── Default frequency ──────────────────────────────────────────────────
-default:
-  center_freq_hz: 98000000   # 98 MHz — FM broadcast (safe default)
-
 # ── Australian frequency presets ──────────────────────────────────────
 # NOTE: All frequencies below are legal to receive passively in AU.
 presets:
