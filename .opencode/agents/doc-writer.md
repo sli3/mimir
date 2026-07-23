@@ -1,10 +1,11 @@
 ---
 description: >
-  Documentation agent for Mimir. Runs after the build to update inline
-  docstrings on changed functions, record technical debt or deferred items
-  surfaced during the build, and keep docs/wiki.md in sync with the current
-  phase. Invoked by /build at Step 8. Does NOT touch the AGENTS.md phase
-  tracker or ROADMAP.md — those are handled separately by @memo-writer.
+  Documentation agent for Mimir. Runs in the /finalise-build command (after a
+  /build, once the code is final and the suite is verified green) to update
+  inline docstrings on changed functions, record technical debt or deferred
+  items surfaced during the build, and keep docs/wiki.md in sync with the
+  current phase. Does NOT touch the AGENTS.md phase tracker or docs/ROADMAP.md
+  — those are handled separately by @memo-writer in the same command.
 mode: subagent
 model: zai-coding-plan/glm-4.7
 temperature: 0.2
@@ -76,7 +77,7 @@ A docstring that describes code that does not exist is worse than no docstring.
      test-count line, the link to docs/ROADMAP.md, or the re-seed note inside
      that section. Never add a per-phase table to README. If a build's only
      README-relevant change is a phase/test-count update, do nothing to README
-     and note that the tracker sync is @memo-writer's (Step 9) job. Your README
+     and note that the tracker sync is @memo-writer's job. Your README
      edits are limited to feature/dependency/setup/CLI prose OUTSIDE the Phase
      Tracker section.
 

@@ -1,10 +1,13 @@
 ---
 description: >
-  Full automated build cycle for Mimir. Runs the complete software-team
-  workflow — plan → research → security gate → code → fix loop → code review →
-  PM audit → docs → memo → report — with no user intervention. The task description
-  is pre-planned and pre-approved by the architect. Usage: /build "<task>" [CHECKPOINT]
-  OR embed CHECKPOINT_MODE: ON anywhere in the task body.
+  Full automated build cycle for Mimir. Runs the software-team workflow —
+  plan → research → security gate → code → fix loop → code review → PM audit →
+  report — with no user intervention. Documentation and governance records are
+  NOT part of this cycle: after the build, Prin hand-fixes and live-verifies the
+  code, then runs /finalise-build to drive @doc-writer, @memo-writer, and the
+  session memo against the frozen, verified tree. The task description is
+  pre-planned and pre-approved by the architect. Usage: /build "<task>"
+  [CHECKPOINT] OR embed CHECKPOINT_MODE: ON anywhere in the task body.
 subtask: false
 ---
 
@@ -35,7 +38,10 @@ $2
 Treat the task description above as the pre-approved specification for this
 build. If it is empty or unintelligible, that is the one exception to "no
 clarifying questions" — stop and ask Prin rather than guessing. The checkpoint
-flag is NOT part of the task; it only drives the Step 9 phase-tracker gate.
+flag is NOT part of the task and does nothing in this build; it is carried
+through only so Prin can pass the same flag to `/finalise-build` afterwards,
+where it drives the phase-tracker gate. Note it in the final report so Prin
+remembers to reuse it.
 
 ---
 
@@ -69,21 +75,16 @@ is nothing to fix in that case — it is expected behaviour, not a failure.
 | @review-second | Reviewer (2nd voice) | Independent code review |
 | @deep-analyst | Senior Analyst | Deep code review (heavy) |
 | @frontend-reviewer | Frontend Lead | React/JSX-specific review, dashboard/frontend/ only |
-| @doc-writer | Documentation | Docstrings + deferred items |
-| @memo-writer | Project Records | Session memo (always) + AGENTS.md/docs/ROADMAP.md phase tracker & README summary lines (checkpoint-gated) |
 
-**Note on @memo-writer:** it runs in Step 9, after docs. It has read-only bash
-(git diff/show/log, grep, cat) SOLELY to verify what changed before writing —
-it must never run any git-mutating, test, or file-mutating command. It cannot
-search or fetch. It edits governance docs (AGENTS.md, docs/ROADMAP.md, and
-README.md's two Phase Tracker summary lines), grounding every specific it writes
-in the actual repository rather than in the summary you hand it.
-docs/ROADMAP.md is the single source of truth for the full phase tracker;
-README carries only a link plus a phase line and a total-tests line, never a
-table. It must never touch code, tests, opencode.json, or
-`.opencode/agents/*.md`. The separate `opencode-memo` workflow remains available
-for memos outside a build; do not run both for the same build, or you will
-double-write the governance docs.
+**Documentation and governance records are NOT part of this build.** @doc-writer
+(docstrings, wiki, README prose) and @memo-writer (AGENTS.md, docs/ROADMAP.md,
+README Phase Tracker summary lines), plus the session memo, all run AFTER the
+build in the separate `/finalise-build` command — once Prin has hand-fixed the
+code and confirmed the suite is green. This split is deliberate: documenting a
+mid-flight, unverified tree is where governance fabrication happened before.
+This build ends at the report (Step 8). It writes NO governance doc, NO wiki, NO
+README, and NO session memo. Do not invoke @doc-writer or @memo-writer from
+here.
 
 Every delegation must name the agent's role so it adopts the right lens.
 
@@ -109,7 +110,10 @@ Before calling @plan-reviewer, establish prior session context:
   1. Use bash to find and read the most recent session memo file:
        ls -t .session-memos/*.md 2>/dev/null | head -1
      Read that file in full if it exists. If no files exist yet, continue.
-  2. Also read the current session-memo section of AGENTS.md.
+     (Session memos are written by the separate /finalise-build command after a
+     build, not by this one — so the newest memo describes the PREVIOUS build.)
+  2. Also read AGENTS.md — its phase tracker and Known Tech Debt table (AGENTS.md
+     does NOT contain session-memo prose; that lives only in .session-memos/).
   3. Extract and note: last recorded phase state, any open deferred items,
      open bugs, and any architectural decisions flagged last session.
   4. Carry a brief "Prior session context" block into every subsequent agent
@@ -242,7 +246,7 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/ --max-time 2
   Continue to 6B.2 anyway, but tell @frontend-reviewer it MUST do STATIC review
   only (read the changed source; do not call any Playwright browser tool). This
   is NOT a failure and NOT a hard stop — static review is a complete, valid
-  pass on its own. Note in the Step 10 report that the live visual check was
+  pass on its own. Note in the Step 8 report that the live visual check was
   skipped because no dev server was running (see the notice below).
 
 **6B.2 — Invoke @frontend-reviewer:**
@@ -273,7 +277,7 @@ subagent triggering for this gate.
 **Manual live-check fallback:** whenever 6B ran static-only (no server was up),
 the live visual confirmation is still available on demand: Prin starts the dev
 server as above and runs `/review-frontend` when convenient. Surface this in the
-Step 10 report (see the exact wording required there).
+Step 8 report (see the exact wording required there).
 
 ### STEP 7 — PM AUDIT
 As Project Manager, review the full output of Steps 1–6B before anything is
@@ -285,7 +289,7 @@ presented. Check:
   - Does the build match what was planned in Step 1?
   - Does anything touch TX, AU/SA legal, or AGENTS.md constraints?
 
-If the audit is CLEAN → proceed to Step 8.
+If the audit is CLEAN → proceed to Step 8 (REPORT).
 
 If the audit FLAGS an issue → re-enter ONLY the affected step(s):
   - Missed/ignored code-review finding → re-run from Step 6
@@ -297,99 +301,7 @@ If the audit FLAGS an issue → re-enter ONLY the affected step(s):
 Each flagged issue gets EXACTLY ONE re-entry pass. If the re-run still does not
 resolve it → hard stop, escalate to the user. Never loop a re-entry more than once.
 
-### STEP 8 — DOCUMENTATION
-Call @doc-writer as Documentation. Hand it explicitly:
-  - The list of changed files and functions from this build
-  - Any technical debt or deferred items surfaced during the build
-  - The current phase number (so it can update docs/wiki.md correctly)
-
-GROUND-TRUTH INSTRUCTION (state this explicitly): the list you hand @doc-writer
-is a pointer to which files to open, NOT its source of truth. It must read each
-actual changed file before documenting it, and document what the code really
-does — if your summary and the file disagree, the file wins and it flags the
-gap. It must never write a docstring or README line describing code it has not
-read in the real source.
-
-@doc-writer will:
-  - Update inline docstrings on changed functions
-  - Record any deferred items as inline comments in the relevant source file
-  - Update docs/wiki.md: phase log, function entries, frontend stack, and
-    acronym glossary as needed
-  - Update README.md: any user-facing changes introduced by this build
-    (new features, new dependencies, changed setup steps, changed CLI usage),
-    but ONLY in prose sections OUTSIDE the "## Phase Tracker" section. The
-    Phase Tracker section (its link, phase line, and total-tests line) is
-    @memo-writer's in Step 9 — @doc-writer must never touch it or add a table.
-
-@doc-writer may modify source docstrings, inline comments, docs/wiki.md,
-and README.md prose outside the Phase Tracker section only. It must NOT touch:
-test files, AGENTS.md, docs/ROADMAP.md, README's Phase Tracker section, or any
-other governance doc — those belong to @memo-writer in Step 9.
-
-### STEP 9 — PROJECT MEMO
-Call @memo-writer as Project Records to record this build in the governance
-docs. @memo-writer has read-only bash (git diff/show/log, grep, cat) for the
-sole purpose of verifying what actually changed — it must NEVER run any
-git-mutating command (add/commit/push/reset/restore/checkout), any test/build
-command, or any file mutation. Prin handles all git manually.
-
-GROUND-TRUTH INSTRUCTION (state this explicitly in the delegation): before
-writing any specific into a governance doc — a function signature, constant,
-CLI flag, filename, test name, or numeric value — @memo-writer must confirm it
-by reading the actual repository this run (`git --no-pager diff`, `cat`, or
-`grep`). Your summary below is a pointer telling it where to look, NOT its
-source of truth. If a detail in your summary cannot be confirmed in the real
-diff, it must be omitted or stated more vaguely — never written as fact. A
-plausible but unverified detail is a fabrication and has shipped false
-governance records before. Instruct it to:
-   1. Read AGENTS.md in full before writing anything — to see the current
-     session-memo section, phase tracker, and tech debt table. It must not
-     contradict or silently overwrite existing entries; write as a continuation.
-   2. Read docs/ROADMAP.md before touching it, for the same reason.
-   3. Read README.md and sync ONLY the two summary lines in its "## Phase
-      Tracker" section to match the newest row in docs/ROADMAP.md: the
-      "Current phase: N — <name>" line and the "Total: X passing (Y pytest +
-      Z Vitest)" line. README.md has NO per-phase table — docs/ROADMAP.md is
-      the single source of truth for the full tracker. Do NOT add, restore, or
-      rebuild a per-phase table in README.md under any circumstances. Use only
-      the test counts handed to you by the PM — do not run pytest or infer
-      counts from context.
-
-You must also hand it explicitly:
-  - a concise summary of what this build changed (files, functions)
-  - the current test counts taken from the Step 5/6 runs (it cannot run pytest)
-  - any tech debt or deferred items surfaced during the build
-
-ALWAYS: refresh the test counts in docs/ROADMAP.md (the full tracker) and in
-README.md's two Phase Tracker summary lines only (never a table). Do NOT add
-session memo prose blocks to AGENTS.md.
-
-PHASE-TRACKER GATE — deterministic, driven solely by the checkpoint flag
-captured in the TASK block above:
-  - Checkpoint mode is ON if EITHER:
-    - The $2 argument reads exactly CHECKPOINT (case-insensitive), OR
-    - The task description ($1) contains the line 'CHECKPOINT_MODE: ON'
-      (case-insensitive, anywhere in the task body)
-  - In ALL other cases checkpoint mode is OFF: write the session memo only
-    and leave the phase tracker and all phase-completion status untouched.
-  - Never infer checkpoint status from the task description or from the work
-    itself. Only the checkpoint flag (or its inline equivalent) decides.
-
-@memo-writer must not touch code, test files, opencode.json, or
-`.opencode/agents/*.md`.
-
-After @memo-writer completes, save the timestamped session record by invoking
-the `session-memo` skill. The session type is always Code for a /build run, so
-state it explicitly — the skill must not ask the user:
-
-  memo this was a Code session
-
-The session-memo skill will write a timestamped file to `.session-memos/` via
-bash. This is separate from what @memo-writer wrote — the AGENTS.md entry is
-the authoritative governance record; the `.session-memos/` file is the raw
-per-build log for historical lookup. Both are required every build.
-
-### STEP 10 — REPORT
+### STEP 8 — REPORT
 Produce a structured summary containing:
 - What was built (files changed, functions added/modified)
 - Research findings (@researcher) — anything that shaped the implementation,
@@ -409,38 +321,29 @@ Produce a structured summary containing:
   STATIC-ONLY this build — no live visual check. To run the live check: start
   the dev server (`npm run dev --prefix dashboard/frontend`) in a terminal,
   then run `/review-frontend`."** This build completes and reports normally
-  either way — the absence of a live server never blocks Steps 7–10.
+  either way — the absence of a live server never blocks Steps 7–8.
 - PM audit result (clean, or what was flagged and how the re-entry resolved)
-- Project memo (@memo-writer) — which governance docs were touched, and whether
-  the phase tracker was updated (it must have moved ONLY if the checkpoint flag
-  was exactly CHECKPOINT)
 - Any tech debt or follow-up items identified during the build
 
-- GOVERNANCE VERIFICATION (mandatory — do NOT trust agent self-reports here).
-  Both @doc-writer and @memo-writer describe code they did not write and have a
-  history of reporting success while writing fabricated or empty content. Before
-  declaring their steps done, YOU (PM) must verify against disk, not against
-  their reports:
-    1. Run `git --no-pager diff --stat` on the governance docs they claimed to
-       touch (AGENTS.md, docs/ROADMAP.md, docs/wiki.md, README.md). If an agent
-       claimed a write but the file shows no diff → report it as FAILED, not
-       done. A non-empty diff alone is NOT sufficient — proceed to step 2.
-    2. Read the actual new governance prose and cross-check its key specifics
-       (function names, constants, CLI flags, filenames, test counts) against
-       the real build diff. Quote any claim you cannot confirm in the source and
-       flag it as a suspected fabrication for Prin to correct by hand.
-    3. State the result explicitly: either "Governance docs verified against
-       disk — specifics match the diff" or a list of each unverified/fabricated
-       claim found. Never write "memo-writer succeeded" on the strength of the
-       agent's own report; only on the strength of your disk verification.
-  This check is required on every build. The stat-only check has proven
-  insufficient on its own — the read-back in step 2 is what catches coherent
-  fabrication.
+- NEXT STEP FOR PRIN (state this explicitly at the end of the report): this
+  build wrote code and tests only. It has NOT documented anything and has NOT
+  touched any governance doc, wiki, README, or session memo. Once Prin has
+  applied any manual fixes and confirmed the suite is green, the documentation
+  and governance records are produced by running:
+  ```
+  /finalise-build "<one-line summary of this build>" [CHECKPOINT]
+  ```
+  Remind Prin to pass the CHECKPOINT flag to /finalise-build if, and only if,
+  this build should advance the phase tracker (the flag does nothing in /build
+  itself). Hand Prin a concise, accurate one-line summary they can paste as the
+  /finalise-build argument, plus the real test counts from this build's runs so
+  they have them to hand — though /finalise-build will re-verify the counts from
+  a live run regardless.
 
-Do NOT commit. Do NOT push. The phase tracker is updated only by @memo-writer
-in Step 9, and only on an explicit checkpoint — you (the PM) and @doc-writer
-never touch it directly. The user handles all git operations manually via the
-git-workflow skill.
+Do NOT commit. Do NOT push. Do NOT write any governance doc, wiki, README, or
+session memo from this build — those are /finalise-build's job, run separately
+by Prin after code is final. The user handles all git operations manually via
+the git-workflow skill.
 
 ---
 
