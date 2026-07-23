@@ -5,7 +5,8 @@ description: >
   green. It re-verifies the test counts from a live run (the hard truth), then
   drives documentation and governance records: @doc-writer (docstrings, wiki,
   README prose), @memo-writer (AGENTS.md, docs/ROADMAP.md, README summary
-  lines), and the session-memo skill (.session-memos/). It never writes code
+  lines), and a timestamped session memo written by @memo-writer to
+  .session-memos/. It never writes code
   and never runs any git operation. Usage: /finalise-build "<one-line build
   summary>" [CHECKPOINT] OR embed CHECKPOINT_MODE: ON anywhere in the summary.
 subtask: false
@@ -22,8 +23,8 @@ target is where fabrication thrives. This command runs ONLY after the disk is
 frozen and verified, so every doc is written against settled ground truth.
 
 You do NOT write code, tests, or governance prose yourself — you delegate to
-@doc-writer and @memo-writer, gate their output against the real diff, drive the
-session-memo skill, and present one clean report.
+@doc-writer and @memo-writer, gate their output against the real diff, have
+@memo-writer write the session memo, and present one clean report.
 
 ---
 
@@ -209,8 +210,9 @@ Hand it explicitly:
 
 ALWAYS: refresh the test counts in docs/ROADMAP.md (the full tracker) and in
 README.md's two Phase Tracker summary lines only (never a table). @memo-writer
-does NOT append session-memo prose blocks to AGENTS.md — the session memo goes
-to .session-memos/ via the skill in Step 4b.
+does NOT append session-memo prose blocks to AGENTS.md — the session memo is a
+separate timestamped file that @memo-writer writes to .session-memos/ in Step 4b
+(NOT into AGENTS.md, and NOT via a skill).
 
 PHASE-TRACKER GATE — deterministic, driven solely by the checkpoint flag
 captured in the TASK block above:
@@ -229,19 +231,67 @@ captured in the TASK block above:
 @memo-writer must not touch code, test files, opencode.json, or
 `.opencode/**`.
 
-### STEP 4b — SESSION MEMO (skill)
+### STEP 4b — SESSION MEMO (written by @memo-writer, via bash)
 
-Save the timestamped session record by invoking the `session-memo` skill. The
-session type is always Code for a finalised build, so state it explicitly — the
-skill must not ask:
+The timestamped session record is written by @memo-writer itself, using its
+bash access, as part of its Step 4 delegation. It is NOT written by a skill and
+NOT by you (the PM): in this OpenCode configuration, subagents cannot trigger
+skills, and the PM (main) has no file-write bash (no redirect, no tee, no
+python) — so routing the memo write through the PM or a skill fails silently.
+@memo-writer has `bash: allow` for exactly this purpose. Instruct it, as part of
+Step 4, to:
 
-  memo this was a Code session
+  1. Create the directory if needed: `mkdir -p .session-memos`
+  2. Write a NEW timestamped file (never overwrite an existing memo):
+     `.session-memos/$(date +"%Y-%m-%d_%H-%M").md`
+     Fish shell note for Prin's environment: no heredocs — @memo-writer should
+     write the file with a single-quoted `printf`/`python -c` one-liner or an
+     equivalent non-heredoc method it has available. The exact method is
+     @memo-writer's to choose; the requirement is a fresh timestamped file.
+  3. Use this format (British English, no em dashes, keep under ~300 words):
 
-The skill writes a timestamped file to `.session-memos/` via bash. This is
-separate from what @memo-writer wrote: the AGENTS.md / docs/ROADMAP.md entries
-are the authoritative governance record; the `.session-memos/` file is the raw
-per-build log for historical lookup and for the next /build's Step 1 context
-read. Both are required every finalisation.
+```markdown
+# Session Memo — [YYYY-MM-DD HH:MM]
+
+## Type
+Code
+
+## What We Did
+- [2–3 concise bullet points]
+
+## RF/Legal Notes
+- TX safety incidents: [None / description]
+- AU legal flags: [None / description]
+
+## Files Touched
+- `[filename]`: [what changed]
+
+## Decisions Made
+- [approach chosen and why; approach rejected and why]
+
+## Mistakes Made
+- [description] — Category: [Scope Creep / Safety Violation / Logic Error / Process Skip / TX Violation]
+- None
+
+## Not Finished
+- [up to 3 clear next steps]
+
+## Next Session Starter
+[one specific actionable opening message for the next session]
+```
+
+  4. Report ONLY the file path it wrote (e.g. "Memo saved to
+     .session-memos/2026-07-23_16-48.md"). Do not print the full memo body back.
+
+The `.session-memos/` file is the raw per-build log for historical lookup and
+for the next /build's Step 1 context read; the AGENTS.md / docs/ROADMAP.md
+entries are the authoritative governance record. Both are required every
+finalisation.
+
+The session-memo SKILL remains available for Prin to invoke by hand outside this
+command (by typing "memo this was a Code session"). It is NOT used inside
+/finalise-build, because a subagent cannot trigger it and the PM cannot run its
+heredoc write. Do not attempt to invoke it here.
 
 GITIGNORE — hard rule: `.session-memos/*.md` is gitignored and local only. It is
 NEVER staged, added, committed, or pushed, by any agent or by this command.
@@ -280,7 +330,7 @@ Produce a structured summary to chat containing:
   - Which files @doc-writer touched and the one-line purpose of each.
   - Which governance docs @memo-writer touched, and whether the phase tracker
     was updated (it must have moved ONLY if the checkpoint flag was set).
-  - The session-memo file path written by the skill.
+  - The session-memo file path written by @memo-writer in Step 4b.
   - GOVERNANCE VERIFICATION result from Step 5, stated explicitly: either
     "verified against disk — specifics match the diff" or the list of
     unverified/suspected-fabricated claims for Prin to hand-correct.
