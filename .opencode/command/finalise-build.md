@@ -344,6 +344,37 @@ operation. Prin handles all git manually via the git-workflow skill, and decides
 what to commit (governance docs are committable; `.session-memos/*.md` and
 opencode.json are gitignored and never staged).
 
+#### COMMIT HANDOFF (last thing in the report)
+
+End the report with a `COMMIT HANDOFF` block so Prin can invoke the git-workflow
+skill without re-deriving what to stage. This block is INSTRUCTIONS FOR PRIN, not
+commands for you to run — you still perform zero git operations. Build it from
+this run's real facts (the Step 2 diff and the Step 5 verification), not a
+template. It must contain:
+
+  - **Already committed (code):** if a code+tests commit for this phase already
+    exists on local main (check Step 2's `git --no-pager status` / `log`), state
+    its short hash and that it is done. If NO code commit exists yet, say so and
+    list the code/test files that still need a first `feat:`/`fix:`/`test:`
+    commit as a SEPARATE concern before the governance commit.
+  - **Pending (governance):** the exact list of governance doc files that Step 5
+    verified against disk (from AGENTS.md / README.md / docs/ROADMAP.md /
+    docs/wiki.md — only the ones that actually changed this run). These are the
+    files for the governance commit.
+  - **Never staged:** restate that `.session-memos/*.md` (this run's memo, by
+    name) and opencode.json are gitignored and must NOT appear in the staged set.
+  - **Suggested commit message:** a `docs:` category message (per git-workflow's
+    format table) summarising the governance change — phase tracker advance and
+    the verified test-count total — plus any out-of-scope correction Step 5
+    flagged (so it is on the record in the commit).
+  - **The invocation line:** tell Prin to run the git-workflow skill next, which
+    will re-run its own TX-safety grep on the staged diff and hold its review and
+    push gates. Do NOT reproduce git-workflow's steps here — just point to it.
+
+If Step 5 found suspected fabrication, the COMMIT HANDOFF must instead say the
+governance docs are NOT ready to commit and name the claims Prin must hand-correct
+first — never hand off a commit over unverified prose.
+
 ---
 
 ## ALWAYS ACTIVE CONSTRAINTS
