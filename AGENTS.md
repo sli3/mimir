@@ -242,13 +242,12 @@ uv run python tools/seed_chromadb.py
 > when a governance step fails. Trimmed 2026-07-21 to a pointer, so there is
 > only one table left to go stale.
 
-**Current phase:** 40b — Device-name UI surface (see
+**Current phase:** 42 — Per-device waterfall colour scaling (see
 `docs/ROADMAP.md` for full detail).
 
-**Current total:** 824 passing (632 pytest + 192 Vitest), 0 failures.
+**Current total:** 855 passing (652 pytest + 203 Vitest), 0 failures.
 
-**Reserved:** Phase 39 (Pluto gain calibration), Phase 40 (flip default
-device to Pluto).
+**Reserved:** None.
 
 ---
 

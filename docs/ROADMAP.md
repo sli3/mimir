@@ -85,6 +85,8 @@
 | 39 | Pluto gain calibration tooling — `capture_iq_pluto()` + `tools/diagnose_pluto_gain.py` gain sweep (ISM 915 + ADS-B 1090) with interpretation aid. Existing `capture_iq()` byte-for-byte unchanged; existing `diagnose_threshold.py` / `calibrate_thresholds.py` untouched. **No calibrated gain values written — `PLUTO_BAND_PROFILES` placeholders (30.0 / 3.0) stay until the operator runs the new tool on hardware.** | ✅ Complete | 814 (624 pytest + 190 Vitest), 0 failures |
 | 40a | Wire auto-detection into live scan path + flip no-preference default to Pluto (2026-07-15 decision) | ✅ Complete | 818 (628 pytest + 190 Vitest), 0 failures |
 | 40b | Device-name UI surface — backend `display_name_for_device()` helper + server.py `current_device_display` payload key + frontend DEVICE row in signal-detail panel | ✅ Complete | 824 (632 pytest + 192 Vitest), 0 failures |
+| 41 | Deterministic pre-LLM noise gate — `is_noise_shaped()` + `classify_noise_deterministic()` on SignalClassifier, gate in scanner._ai_loop | ✅ Complete | 844 (652 pytest + 192 Vitest), 0 failures |
+| 42 | Per-device waterfall colour scaling — DEVICE_SCALE_PROFILES table (hackrf=30, plutosdr=15, _default=0 dB) + exported `selectDeviceProfile` and `computeScaleWindow` helpers | ✅ Complete | 855 (652 pytest + 203 Vitest), 0 failures |
 
 ---
 
@@ -1909,6 +1911,29 @@ combination that slipped through Phase 38's original test coverage
 **Known follow-up (not this phase).** The ChromaDB store remains contaminated with noise-labelled-as-signal vectors (~95 of 130: Aviation_VHF, ACARS, ISM_LoRa captured on silent bands). The live path is now gated, but a DC-offset spike (~5 occupied bins) at band centre still slips under the gate's bin ceiling and matches poisoned ADS-B vectors — deferred to a separate store-purge + DC-removal session.
 
 **RF-Legal notes.** Receive-only. Jurisdiction: AU/SA, ACMA, Radiocommunications Act 1992 (Cth). All changes are passive RX-only classification logic; no TX surfaces introduced or touched.
+
+---
+
+### Phase 42 — Per-device waterfall colour scaling ✅
+
+**Type:** Frontend-only fix. Visual-only — no protocol, decoder, or backend change.
+
+**What.** Added per-device colour-scaling profile table (`DEVICE_SCALE_PROFILES`) keyed on the raw SoapySDR driver strings emitted in `system_stats.device` ("hackrf" / "plutosdr"). Each profile has a `minSpanDb` minimum-span floor that prevents the colour window from collapsing to a few dB on dead bands (the root cause of HackRF graininess). Exported two pure helpers (`selectDeviceProfile`, `computeScaleWindow`) so the scale math is testable without a canvas/jsdom. Threaded `device` from `useSocket` → `WaterfallStrip` → `useWaterfall`. The `_default` profile (minSpanDb=0) reproduces the pre-Phase-42 behaviour exactly, so any device without an entry is a zero-visual-change fallback.
+
+**Why.** The previous per-row adaptive scale (`percentile floor + row max + few dB of pad`) was a deliberate compromise across two devices with very different absolute amplitudes — the uncalibrated ADALM-PLUTO sits much lower than the calibrated HackRF, so a single fixed window rendered Pluto near-black. A single per-row window without a span floor collapses to ~5-10 dB on a dead band, stretching ~0.6 dB of ordinary noise variance across the full palette and producing vivid speckle. A per-device minimum span floor solves both: HackRF gets 30 dB (wide enough to pin dead-band noise to the dark end), Pluto gets 15 dB (narrower because its lower-amplitude signals need more palette range).
+
+**Files changed.**
+- `dashboard/frontend/src/hooks/useWaterfall.js` — added `DEVICE_SCALE_PROFILES` table (hackrf=30, plutosdr=15, _default=0 dB) at line ~12; exported `selectDeviceProfile(device)` (line ~28) and `computeScaleWindow(psdDb, profile)` (line ~41); hook signature updated to `useWaterfall({ canvasRef, psdDb, device })` with effect deps `[psdDb, device]`.
+- `dashboard/frontend/src/components/WaterfallPanel.jsx` — destructures `device` from `useSocket()` (line ~106) and threads as prop to `WaterfallStrip` (line ~110), which forwards to `useWaterfall`.
+- `dashboard/frontend/src/tests/computeScaleWindow.test.js` — NEW file, 11 Vitest tests covering `computeScaleWindow` (span-floor application, row-max boundary handling, single-value fallback) and `selectDeviceProfile` (known devices, unknown fallback, null device).
+
+**Test counts.** 855 passing (652 pytest + 203 Vitest), 0 failures. +11 Vitest over Phase 41 (the new `computeScaleWindow.test.js` with 11 tests across `describe('computeScaleWindow')` and `describe('selectDeviceProfile')` blocks). Pytest unchanged.
+
+**Frontend note.** The minSpanDb values (30/15/0) are visual-tuning placeholders, not calibrated measurements — Prin's manual visual gate on hardware, NOT an agent gate. Comment in the source file marks them as such.
+
+**Known follow-up (not this phase).** None. The ChromaDB store noise contamination follow-up from Phase 41 is the only Phase 42-adjacent debt and is unrelated.
+
+**RF-Legal notes.** Receive-only. Jurisdiction: AU/SA, ACMA, Radiocommunications Act 1992 (Cth). All changes are passive RX-only visual rendering; no TX surfaces introduced or touched.
 
 ---
 
