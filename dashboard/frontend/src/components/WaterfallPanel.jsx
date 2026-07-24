@@ -27,7 +27,7 @@ export const STRIP_CONFIGS = [
   { freq_hz: 1090000000, label: '1090.0 MHz',   name: 'ADS-B',        colourVar: '--neon-magenta'},
 ]
 
-function WaterfallStrip({ config, latestPsd, focusedFreq, focusFrequency, singleBand, hideSidebar }) {
+function WaterfallStrip({ config, latestPsd, focusedFreq, focusFrequency, singleBand, hideSidebar, device }) {
   const canvasRef = useRef(null)
   const crosshairRef = useRef(null)
   const canvasSize = useCanvasSize(canvasRef)
@@ -36,6 +36,7 @@ function WaterfallStrip({ config, latestPsd, focusedFreq, focusFrequency, single
   useWaterfall({
     canvasRef,
     psdDb: latestPsd,
+    device,
   })
 
   /**
@@ -176,7 +177,11 @@ function WaterfallStrip({ config, latestPsd, focusedFreq, focusFrequency, single
 }
 
 export default function WaterfallPanel({ focusedFreq, focusFrequency, singleBand = false }) {
-  const { spectrumUpdates } = useSocket()
+  // device is the raw SoapySDR driver string ("hackrf" / "plutosdr") from
+  // system_stats — threaded into useWaterfall for per-device colour scaling
+  // (Phase 42). null until the first system_stats arrives, which selects
+  // the _default profile (pre-Phase-42 behaviour).
+  const { spectrumUpdates, device } = useSocket()
 
   const configs = singleBand
     ? (() => {
@@ -218,6 +223,7 @@ export default function WaterfallPanel({ focusedFreq, focusFrequency, singleBand
             focusFrequency={focusFrequency}
             singleBand={singleBand}
             hideSidebar={singleBand}
+            device={device}
           />
         )
       })}
