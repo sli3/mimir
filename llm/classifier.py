@@ -514,6 +514,83 @@ class SignalClassifier:
             reasoning=result.reasoning + note,
         )
 
+    # ── Deterministic noise gate ───────────────────────────────────────────────
+
+    def is_noise_shaped(self, fingerprint: dict) -> bool:
+        """Return True when the fingerprint unambiguously describes noise.
+
+        A fingerprint is noise-shaped when BOTH conditions hold simultaneously:
+            occupied_bins <= _NEAR_ZERO_BINS  (no real occupied bandwidth) AND
+            spectral_flatness >= _NOISE_FLATNESS  (near-white spectrum).
+
+        The conjunction is deliberate. A genuine narrowband tonal signal (e.g. a
+        single CW carrier) has low occupied_bins but LOW flatness (energy is
+        concentrated, not spread), so it is NOT noise-shaped and falls through
+        to the LLM. A real wideband signal (e.g. FM broadcast) has many
+        occupied_bins and falls through on the other axis. Only white-noise
+        satisfies both at once.
+
+        FAIL-OPEN: if either field is missing from the fingerprint, this
+        returns False. We must never fabricate a noise verdict from absent
+        data — a missing field means we cannot rule out a real signal, so
+        the LLM path is the correct fallback.
+        """
+        occupied_bins = fingerprint.get("occupied_bins")
+        flatness = fingerprint.get("spectral_flatness")
+        return (
+            occupied_bins is not None
+            and flatness is not None
+            and occupied_bins <= _NEAR_ZERO_BINS
+            and flatness >= _NOISE_FLATNESS
+        )
+
+    def classify_noise_deterministic(self, fingerprint: dict) -> ClassificationResult:
+        """Emit a deterministic noise verdict when is_noise_shaped() returns True.
+
+        Called by the scanner's _ai_loop BEFORE the ChromaDB query and LLM
+        call. By contract, the caller has already confirmed is_noise_shaped()
+        is True for this fingerprint, so no LLM has been (or will be) called.
+        No ChromaDB distance is available either — the caller sets the
+        fingerprint's chroma_distance to None to make that honest.
+
+        confidence_score is 0.9 because the deterministic check is very
+        certain the signal is noise. This is intentionally DISTINCT from
+        the 0.4 confidence CAP (_CAPPED_CONFIDENCE_SCORE) used by
+        _apply_confidence_caps(), which means "uncertain verdict". 0.9 here
+        means "confident verdict, just an uninteresting one". The
+        reasoning string makes the nature of the verdict unambiguous.
+
+        au_legal_status is "legal_rx" because passive reception of radio
+        signals is unconditional under the Radiocommunications Act 1992
+        (Cth) — ACMA licensing attaches to transmission, not reception.
+        A noise floor on a passive RX is always legal to receive.
+        """
+        occupied_bins = fingerprint.get("occupied_bins")
+        flatness = fingerprint.get("spectral_flatness")
+        reasoning = (
+            f"Deterministic noise gate: occupied_bins={occupied_bins} "
+            f"<= {_NEAR_ZERO_BINS} and spectral_flatness={flatness:.3f} "
+            f">= {_NOISE_FLATNESS} (near-white, no real occupied bandwidth). "
+            f"LLM classification skipped."
+        )
+        logger.info(
+            "Deterministic noise gate fired at %.3f MHz: occupied_bins=%s, "
+            "spectral_flatness=%.3f (ChromaDB query and LLM call skipped)",
+            fingerprint.get("center_freq_hz", 0) / 1e6,
+            occupied_bins,
+            flatness,
+        )
+        return ClassificationResult(
+            signal_type="noise",
+            confidence="low",
+            confidence_score=0.9,
+            novel=False,
+            reasoning=reasoning,
+            au_legal_status="legal_rx",
+            frequency_band="unknown",
+            raw_response="",
+        )
+
     # ── Prompt construction ────────────────────────────────────────────────────
 
     def _build_system_prompt(self) -> str:

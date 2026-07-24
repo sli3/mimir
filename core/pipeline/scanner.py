@@ -312,6 +312,31 @@ class ScanRunner:
             self._last_backlog = self._scan_count_since_llm
             self._scan_count_since_llm = 0
 
+            # Pre-LLM deterministic noise gate. If the fingerprint unambiguously
+            # describes noise (single bin, near-white), emit a deterministic
+            # "noise" result and skip both the ChromaDB query and the LLM call.
+            # Without this, every noise scan round-trips to the LLM and gets
+            # confidently mis-labelled as a real band (e.g. "adsb 40%"),
+            # flooding SIGNAL HISTORY with false classifications and wasting
+            # one LLM call per noise scan. A real modulated signal has low
+            # spectral flatness OR many occupied bins, so it can never trip
+            # this gate. See SignalClassifier.is_noise_shaped() for the rules.
+            if self._classifier.is_noise_shaped(item["fingerprint"]):
+                result = self._classifier.classify_noise_deterministic(item["fingerprint"])
+                # No LLM call was made — leave _llm_call_count and _last_llm_ms
+                # untouched. chroma_distance is None (not 0.0) because no query
+                # ran — an honest null, not a fake perfect match.
+                item["fingerprint"]["chroma_distance"] = None
+                scan_result = ScanResult(
+                    timestamp=datetime.now().isoformat(),
+                    center_freq_hz=item["freq_hz"],
+                    fingerprint=item["fingerprint"],
+                    classification=result,
+                    psd_db=item.get("psd_db"),
+                )
+                self._emit_result(scan_result)
+                continue
+
             try:
                 neighbours = self._store.query(item["vector"], n_results=5)
                 neighbours_list = [

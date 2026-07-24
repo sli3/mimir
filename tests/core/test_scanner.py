@@ -69,6 +69,12 @@ def mock_store():
 @pytest.fixture
 def mock_classifier():
     c = MagicMock()
+    # Phase 41: the AI loop calls is_noise_shaped() before classify(). A bare
+    # MagicMock attribute is truthy, which would silently route every test
+    # through the deterministic noise gate. Default to False so existing
+    # tests exercise the query+classify path; the noise-gate tests set it
+    # to True explicitly.
+    c.is_noise_shaped.return_value = False
     c.classify.return_value = ClassificationResult(
         signal_type="fm_broadcast",
         confidence="high",
@@ -501,6 +507,128 @@ class TestScanRunner:
             with shared_state.current_band_lock:
                 shared_state.current_band.clear()
                 shared_state.current_band.update(original_band)
+
+
+class TestAiLoopNoiseGate:
+    """Tests for the pre-LLM deterministic noise gate in _ai_loop (Phase 41).
+
+    When is_noise_shaped() returns True for a fingerprint, the AI loop must
+    emit a deterministic "noise" ScanResult and skip BOTH the ChromaDB query
+    and the LLM call. When it returns False, the existing query+classify
+    path must run unchanged.
+    """
+
+    @staticmethod
+    def _noise_result() -> ClassificationResult:
+        """The deterministic verdict the gate emits for noise-shaped scans."""
+        return ClassificationResult(
+            signal_type="noise",
+            confidence="low",
+            confidence_score=0.9,
+            novel=False,
+            reasoning="Deterministic noise gate: LLM classification skipped.",
+            au_legal_status="legal_rx",
+            frequency_band="unknown",
+            raw_response="",
+        )
+
+    @staticmethod
+    def _queue_noise_item(scanner):
+        """Pre-fill the queue with a single noise-shaped scan item."""
+        scanner._queue.put_nowait({
+            "freq_hz": 98_000_000.0,
+            "fingerprint": {
+                "center_freq_hz": 98_000_000.0,
+                "occupied_bins": 0,
+                "spectral_flatness": 0.99,
+            },
+            "vector": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.3],
+        })
+
+    def _drive_ai_loop(self, scanner):
+        """Run _ai_loop briefly in a daemon thread and stop it."""
+        t = threading.Thread(target=scanner._ai_loop, daemon=True)
+        t.start()
+        time.sleep(0.1)
+        scanner.stop()
+        t.join(timeout=3)
+
+    def test_noise_shaped_skips_chroma_query(
+        self, scanner, mock_store, mock_classifier
+    ):
+        """A noise-shaped fingerprint skips the ChromaDB query and the LLM
+        call, but still emits a ScanResult with signal_type "noise"."""
+        mock_classifier.is_noise_shaped.return_value = True
+        mock_classifier.classify_noise_deterministic.return_value = (
+            self._noise_result()
+        )
+        scanner._running = True
+        self._queue_noise_item(scanner)
+
+        with patch.object(scanner, "_emit_result") as mock_emit:
+            self._drive_ai_loop(scanner)
+
+            mock_store.query.assert_not_called()
+            mock_classifier.classify.assert_not_called()
+            mock_emit.assert_called_once()
+            emitted = mock_emit.call_args[0][0]
+            assert isinstance(emitted, ScanResult)
+            assert emitted.classification.signal_type == "noise"
+
+    def test_noise_shaped_does_not_increment_llm_call_count(
+        self, scanner, mock_classifier
+    ):
+        """No LLM call was made, so _llm_call_count stays at 0."""
+        mock_classifier.is_noise_shaped.return_value = True
+        mock_classifier.classify_noise_deterministic.return_value = (
+            self._noise_result()
+        )
+        scanner._running = True
+        self._queue_noise_item(scanner)
+
+        with patch.object(scanner, "_emit_result"):
+            self._drive_ai_loop(scanner)
+
+        assert scanner._llm_call_count == 0
+
+    def test_noise_shaped_emits_chroma_distance_none(
+        self, scanner, mock_classifier
+    ):
+        """chroma_distance must be None (no query ran), not 0.0 — an honest
+        null, not a fake perfect match."""
+        mock_classifier.is_noise_shaped.return_value = True
+        mock_classifier.classify_noise_deterministic.return_value = (
+            self._noise_result()
+        )
+        scanner._running = True
+        self._queue_noise_item(scanner)
+
+        with patch.object(scanner, "_emit_result") as mock_emit:
+            self._drive_ai_loop(scanner)
+
+            mock_emit.assert_called_once()
+            emitted = mock_emit.call_args[0][0]
+            assert emitted.fingerprint["chroma_distance"] is None
+
+    def test_real_signal_path_unchanged(
+        self, scanner, mock_store, mock_classifier
+    ):
+        """When is_noise_shaped returns False, the existing query+classify
+        path runs unchanged."""
+        mock_classifier.is_noise_shaped.return_value = False
+        scanner._running = True
+        scanner._queue.put_nowait({
+            "freq_hz": 98_000_000.0,
+            "fingerprint": {"center_freq_hz": 98_000_000.0},
+            "vector": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.3],
+        })
+
+        with patch.object(scanner, "_emit_result") as mock_emit:
+            self._drive_ai_loop(scanner)
+
+            mock_store.query.assert_called_once()
+            mock_classifier.classify.assert_called_once()
+            mock_emit.assert_called_once()
 
 
 class TestScanLoopDeviceGuard:
