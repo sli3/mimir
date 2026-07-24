@@ -1862,7 +1862,7 @@ combination that slipped through Phase 38's original test coverage
 
 **RF-Legal notes.** Receive-only. Jurisdiction: AU/SA, ACMA, Radiocommunications Act 1992 (Cth). All changes are passive RX-only; no TX surfaces introduced or touched.
 
-**Next phase.** Phase 40b will add device-name UI to the dashboard server so the live interface shows which hardware is currently active. This is a dashboard-only feature; the auto-detection and default-flip logic is complete here.
+**Next phase.** Phase 42 will make waterfall colour scaling per-device, so the HackRF's dead-band graininess (an artefact of the adaptive scale collapsing on empty bands) is resolved without regressing the Pluto low-amplitude handling. Frontend-only.
 
 ---
 
@@ -1885,6 +1885,30 @@ combination that slipped through Phase 38's original test coverage
 **Test counts.** 824 passing (632 pytest + 192 Vitest), 0 failures. +4 pytest over Phase 40a (3 helper tests + 1 static-source guard). +2 Vitest (2 component tests). Zero regressions.
 
 **RF-Legal notes.** Receive-only. Jurisdiction: AU/SA, ACMA, Radiocommunications Act 1992 (Cth). All changes are passive RX-only display surface updates; no TX surfaces introduced or touched.
+
+---
+
+### Phase 41 — Deterministic pre-LLM noise gate ✅
+
+**Type:** Classification-layer fix. Short-circuits noise-shaped fingerprints before the ChromaDB query and LLM call, emitting a deterministic `noise` verdict instead of letting the LLM confidently mislabel dead-band noise as a real signal.
+
+**What.** Added two public methods to `SignalClassifier` (`llm/classifier.py`): `is_noise_shaped(fingerprint) -> bool`, a pure predicate returning True only when `occupied_bins <= 1` AND `spectral_flatness >= 0.9` (both fields present); and `classify_noise_deterministic(fingerprint) -> ClassificationResult`, which returns a `signal_type="noise"` result with `confidence="low"`, `confidence_score=0.9`, `au_legal_status="legal_rx"`, and reasoning naming the measured values. Both reuse the existing module constants `_NEAR_ZERO_BINS` and `_NOISE_FLATNESS` — single source of truth. A gate was inserted in `core/pipeline/scanner.py` `_ai_loop`, before the ChromaDB query, that emits the deterministic verdict and `continue`s on a noise-shaped fingerprint, skipping both the query and the LLM.
+
+**Why.** `_ai_loop` previously classified every scan unconditionally. On a dead band (or antenna removed), the noise-floor fingerprint was embedded, queried against ChromaDB, and sent to the LLM, which returned a confident-looking band label (e.g. "adsb 40%") for what is provably noise — flooding SIGNAL HISTORY with false classifications and wasting one LLM call per noise scan. The conjunction is deliberate: a genuine narrow tonal signal has low flatness; a real wideband signal has many occupied bins. Only white noise satisfies both. If either field is missing the gate fails open to the LLM, never fabricating a noise verdict from absent data. On a gated scan `chroma_distance` is set to `None` (honest null — no query ran) and `_llm_call_count` / `_last_llm_ms` are left untouched.
+
+**Files changed.**
+- `llm/classifier.py` — added `is_noise_shaped()` (line ~519) and `classify_noise_deterministic()` (line ~547); both reuse `_NEAR_ZERO_BINS` / `_NOISE_FLATNESS`.
+- `core/pipeline/scanner.py` — noise gate inserted in `_ai_loop` (lines ~323-338), before `self._store.query()` at line ~341.
+- `tests/llm/test_classifier_noise_gate.py` — NEW file, 16 tests covering both methods (True/False/boundary/fail-open cases and the deterministic result contract).
+- `tests/core/test_scanner.py` — added scanner gate tests (4) asserting query/classify are NOT called on a noise-shaped fingerprint, `_emit_result` IS called with `signal_type="noise"`, and the normal path is unchanged for real signals.
+
+**Test counts.** 652 pytest + 192 Vitest, 0 failures. +20 pytest over Phase 40b (16 classifier + 4 scanner). Vitest unchanged — `App.jsx:673` already renders a null `chroma_distance` as '---', so no frontend change was needed. Zero regressions.
+
+**Frontend note.** No change required: the CHROMA DISTANCE field in `App.jsx` already guards `chroma_distance != null ? .toFixed(3) : '---'`, so a gated scan's null distance correctly displays '---' rather than a fake '0.000'.
+
+**Known follow-up (not this phase).** The ChromaDB store remains contaminated with noise-labelled-as-signal vectors (~95 of 130: Aviation_VHF, ACARS, ISM_LoRa captured on silent bands). The live path is now gated, but a DC-offset spike (~5 occupied bins) at band centre still slips under the gate's bin ceiling and matches poisoned ADS-B vectors — deferred to a separate store-purge + DC-removal session.
+
+**RF-Legal notes.** Receive-only. Jurisdiction: AU/SA, ACMA, Radiocommunications Act 1992 (Cth). All changes are passive RX-only classification logic; no TX surfaces introduced or touched.
 
 ---
 
