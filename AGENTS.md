@@ -242,10 +242,10 @@ uv run python tools/seed_chromadb.py
 > when a governance step fails. Trimmed 2026-07-21 to a pointer, so there is
 > only one table left to go stale.
 
-**Current phase:** 38-Hotfix-1 — Unsupported-band tooltip fix (see
+**Current phase:** 40b — Device-name UI surface (see
 `docs/ROADMAP.md` for full detail).
 
-**Current total:** 800 passing (610 pytest + 190 Vitest), 0 failures.
+**Current total:** 824 passing (632 pytest + 192 Vitest), 0 failures.
 
 **Reserved:** Phase 39 (Pluto gain calibration), Phase 40 (flip default
 device to Pluto).

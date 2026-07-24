@@ -84,6 +84,7 @@
 | 38-Hotfix-1 | Tooltip fix: removed `disabled` from BAND_GROUPS buttons (HTML `disabled` suppresses native `title` tooltips). Click guard via onClick omission only. Backend untouched. 5 new regression tests. | ✅ Complete | 800 (610 pytest + 190 Vitest), 0 failures |
 | 39 | Pluto gain calibration tooling — `capture_iq_pluto()` + `tools/diagnose_pluto_gain.py` gain sweep (ISM 915 + ADS-B 1090) with interpretation aid. Existing `capture_iq()` byte-for-byte unchanged; existing `diagnose_threshold.py` / `calibrate_thresholds.py` untouched. **No calibrated gain values written — `PLUTO_BAND_PROFILES` placeholders (30.0 / 3.0) stay until the operator runs the new tool on hardware.** | ✅ Complete | 814 (624 pytest + 190 Vitest), 0 failures |
 | 40a | Wire auto-detection into live scan path + flip no-preference default to Pluto (2026-07-15 decision) | ✅ Complete | 818 (628 pytest + 190 Vitest), 0 failures |
+| 40b | Device-name UI surface — backend `display_name_for_device()` helper + server.py `current_device_display` payload key + frontend DEVICE row in signal-detail panel | ✅ Complete | 824 (632 pytest + 192 Vitest), 0 failures |
 
 ---
 
@@ -1862,6 +1863,28 @@ combination that slipped through Phase 38's original test coverage
 **RF-Legal notes.** Receive-only. Jurisdiction: AU/SA, ACMA, Radiocommunications Act 1992 (Cth). All changes are passive RX-only; no TX surfaces introduced or touched.
 
 **Next phase.** Phase 40b will add device-name UI to the dashboard server so the live interface shows which hardware is currently active. This is a dashboard-only feature; the auto-detection and default-flip logic is complete here.
+
+---
+
+### Phase 40b — Device-name UI surface ✅
+
+**Type:** Dashboard-only feature. Backend helper (`display_name_for_device()`) to expose friendly device names from `DEVICE_PROFILES`; server-side payload (`current_device_display`) via `emit_stats()`; frontend DEVICE row in the signal-detail panel.
+
+**What.** Added a new helper `display_name_for_device(device: str) -> str` in `dashboard/shared_state.py` that reads `DEVICE_PROFILES[device]["display_name"]` and returns the human-friendly name ("HackRF One" / "ADALM-PLUTO"). This is called from `emit_stats()` to populate the `current_device_display` key in the system_stats payload. The frontend (`App.jsx`) adds a DEVICE row as the first entry in the signal-detail panel, displaying this value with a fallback to '---' if not yet available. The DEVICE row uses the same cyan colour as other primary fields.
+
+**Why.** The dashboard had no way to show the operator which hardware is currently active. Before this phase, the signal-detail panel showed FREQUENCY, CLASSIFICATION, CONFIDENCE, etc., but not the device itself. The operator could infer it from unsupported-band greying (Pluto), but this was indirect. Now the device name is surfaced explicitly as the first row in the signal-detail panel, sourced from the single source of truth (`DEVICE_PROFILES`) via a shared helper that validates device keys and raises `KeyError` on unknown devices — mirroring the contract of `band_supported_by_device()` and `unsupported_bands_for_device()`.
+
+**Files changed.**
+- `dashboard/shared_state.py` — added `display_name_for_device(device: str) -> str` helper at line ~507; validates device key against `DEVICE_PROFILES`, raises `KeyError` with clear message on unknown device.
+- `dashboard/server.py` — added `current_device_display` key in `emit_stats()` data dict at line ~223; calls `shared_state.display_name_for_device(active_device)` to populate.
+- `dashboard/frontend/src/App.jsx` — added DEVICE row as first signal-detail entry at line ~663; value is `systemStats?.current_device_display || '---'`, colour is cyan (`var(--neon-cyan)`).
+- `tests/dashboard/test_pluto_band_profiles.py` — added `TestDisplayNameForDevice` class (lines ~184-207) with 3 tests: `test_hackrf_returns_hackrf_one`, `test_plutosdr_returns_adalm_pluto`, `test_unknown_device_raises_keyerror`.
+- `tests/dashboard/test_server_stats.py` — added `TestSystemStatsCurrentDeviceDisplay` class (lines ~561-588) with 1 test: `test_emit_stats_emits_current_device_display_key` — static-source guard that `emit_stats()` includes the new key and calls `display_name_for_device()`.
+- `dashboard/frontend/src/tests/DeviceNameRow.test.jsx` — NEW file (96 lines) with 2 component tests covering the DEVICE row rendering and fallback behaviour.
+
+**Test counts.** 824 passing (632 pytest + 192 Vitest), 0 failures. +4 pytest over Phase 40a (3 helper tests + 1 static-source guard). +2 Vitest (2 component tests). Zero regressions.
+
+**RF-Legal notes.** Receive-only. Jurisdiction: AU/SA, ACMA, Radiocommunications Act 1992 (Cth). All changes are passive RX-only display surface updates; no TX surfaces introduced or touched.
 
 ---
 

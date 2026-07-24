@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: "38"
+last_updated_phase: "40b"
 ---
 
 # Mimir Wiki
@@ -80,7 +80,43 @@ Phases are listed newest-first so the current phase is always at the top.
 
 ---
 
-### Phase 23 — ChromaDB Vector Space 3D Visualisation (isolated side page) ▶ ACTIVE
+### Phase 40b — Device-Name UI Surface ✓ DONE
+
+**What:** Added a DEVICE row to the signal-detail panel that shows the human-friendly device name ("HackRF One" or "ADALM-PLUTO") instead of the raw SoapySDR driver key ("hackrf" or "plutosdr"). The friendly name is sourced server-side from `DEVICE_PROFILES` via a new `display_name_for_device()` helper and delivered to the frontend in the `system_stats` SocketIO payload.
+
+**Changes:**
+
+1. **`dashboard/shared_state.py`** — Added `display_name_for_device(device: str) -> str` helper (lines 507-530) that reads `DEVICE_PROFILES[device]["display_name"]`. Raises `KeyError` with message `f"Unknown device {device!r} — not a DEVICE_PROFILES key"` on unknown device keys, mirroring the sibling helper contract.
+
+2. **`dashboard/server.py`** — Added `current_device_display` key to the `emit_stats()` data dict (line 223), value = `shared_state.display_name_for_device(active_device)`. Comment: `# Phase 40b — friendly device name for the signal-detail panel.` Reuses the already-locked `active_device` value.
+
+3. **`dashboard/frontend/src/App.jsx`** — Added DEVICE row as the first element of the signal-detail rows array (line 663). Object literal: `{ label: 'DEVICE', value: systemStats?.current_device_display || '---', color: 'var(--neon-cyan)' }`.
+
+4. **`tests/dashboard/test_pluto_band_profiles.py`** — Added `TestDisplayNameForDevice` class (lines 184-207) with 3 tests: `test_hackrf_returns_hackrf_one`, `test_plutosdr_returns_adalm_pluto`, `test_unknown_device_raises_keyerror`.
+
+5. **`tests/dashboard/test_server_stats.py`** — Added `TestSystemStatsCurrentDeviceDisplay` class (lines 561-588) with 1 static-source guard: `test_emit_stats_emits_current_device_display_key`. Asserts both `"current_device_display"` and `"display_name_for_device"` appear in the `emit_stats` function body.
+
+6. **`dashboard/frontend/src/tests/DeviceNameRow.test.jsx`** — NEW test file (96 lines) with 2 component tests covering the '---' fallback when `current_device_display` is absent from `systemStats`, and friendly name rendering when present.
+
+**Why:** The raw driver key ("hackrf" / "plutosdr") is meaningful to the backend but opaque to operators. The friendly display name makes the dashboard self-documenting — operators immediately see which hardware is active without consulting documentation or remembering SoapySDR driver names. Centralising the mapping in `DEVICE_PROFILES` means adding a future device (e.g. RTL-SDR) automatically updates the UI without touching frontend code.
+
+**Key functions:**
+
+`display_name_for_device(device: str) -> str` — Returns the human-friendly display name for a device driver key. Reads `DEVICE_PROFILES[device]["display_name"]` so the operator sees "HackRF One" / "ADALM-PLUTO" rather than the raw SoapySDR driver key. Mirrors sibling helper contract with KeyError on unknown device keys.
+
+**Deferred items:**
+
+None.
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None — UI display change only, no RF interaction.
+
+**Test counts:** 824 passing (632 pytest + 192 Vitest), 0 failures. New: 3 pytest tests for `display_name_for_device`, 1 static-source guard test for `emit_stats`, 1 new Vitest test file (2 tests).
+
+---
+
+### Phase 23 — ChromaDB Vector Space 3D Visualisation (isolated side page) ✓ DONE
 
 **What:** Added an isolated vector-space visualisation page at `/vectordb` that renders all stored ChromaDB embeddings as an interactive 3D scatter plot. The page is separate from the main dashboard to avoid clutter and provides a focused view of the vector space structure.
 
