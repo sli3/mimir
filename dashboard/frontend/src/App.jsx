@@ -660,6 +660,7 @@ export default function App() {
                 displayed.bandwidth_hz > 0
               const dimConfidence = !isConfirmedDecode && !hasRealMeasurement
               return [
+              { label: 'DEVICE', value: systemStats?.current_device_display || '---', color: 'var(--neon-cyan)' },
               { label: 'FREQUENCY', value: displayed.freq_hz != null ? (displayed.freq_hz / 1e6).toFixed(3) + ' MHz' : (systemStats?.active_frequency_hz ? (systemStats.active_frequency_hz / 1e6).toFixed(3) + ' MHz' : '---'), color: 'var(--neon-cyan)' },
               { label: 'CLASSIFICATION', value: displayed.signal_type ? displayed.signal_type.toUpperCase() : '---', color: 'var(--neon-cyan)' },
               { label: 'CONFIDENCE', value: displayed.confidence_score != null ? (displayed.confidence_score * 100).toFixed(0) + '%' : '---', color: dimConfidence ? 'var(--text-dim)' : 'var(--neon-green)' },

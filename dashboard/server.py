@@ -219,6 +219,8 @@ def start_server(host: str, port: int, device=None, scanner=None):
                 "llm_last_inference_ms": llm_ms,
                 # Phase 38 — device-aware unsupported-band UI.
                 "device": active_device,
+                # Phase 40b — friendly device name for the signal-detail panel.
+                "current_device_display": shared_state.display_name_for_device(active_device),
                 "unsupported_bands": unsupported_map,
             }
             socketio.emit("system_stats", data)

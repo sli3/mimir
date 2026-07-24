@@ -181,6 +181,31 @@ class TestUnsupportedBandsForDevice:
             unsupported_bands_for_device("not_a_device")
 
 
+class TestDisplayNameForDevice:
+    """Tests for the display_name_for_device() helper (Phase 40b).
+
+    Single source of truth for the friendly device name shown in the
+    dashboard signal-detail panel. Reads DEVICE_PROFILES[device]["display_name"]
+    and validates the device key against DEVICE_PROFILES itself.
+    """
+
+    def test_hackrf_returns_hackrf_one(self):
+        from dashboard.shared_state import display_name_for_device
+        assert display_name_for_device("hackrf") == "HackRF One"
+
+    def test_plutosdr_returns_adalm_pluto(self):
+        from dashboard.shared_state import display_name_for_device
+        assert display_name_for_device("plutosdr") == "ADALM-PLUTO"
+
+    def test_unknown_device_raises_keyerror(self):
+        """Same contract as band_supported_by_device / unsupported_bands_for_device:
+        unrecognised device driver raises KeyError, message mentions the
+        offending key."""
+        from dashboard.shared_state import display_name_for_device
+        with pytest.raises(KeyError, match="not_a_device"):
+            display_name_for_device("not_a_device")
+
+
 class TestBandProfilesUnmodified:
     """Guards that the Phase 36 append did not restructure BAND_PROFILES."""
 

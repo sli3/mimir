@@ -502,3 +502,29 @@ def unsupported_bands_for_device(device: str) -> dict[str, str]:
             # reason string lives on PLUTO_BAND_PROFILES.
             unsupported[band_key] = PLUTO_BAND_PROFILES[band_key]["reason"]
     return unsupported
+
+
+def display_name_for_device(device: str) -> str:
+    """Return the human-friendly display name for a device driver key.
+
+    Single source of truth for the frontend's DEVICE row in the
+    signal-detail panel: it reads the friendly name from
+    ``DEVICE_PROFILES[device]["display_name"]`` so the operator sees
+    "HackRF One" / "ADALM-PLUTO" rather than the raw SoapySDR driver
+    key. Add a new band? Add a new device? Update DEVICE_PROFILES —
+    this helper picks it up automatically.
+
+    Args:
+        device: A DEVICE_PROFILES driver key ("hackrf" / "plutosdr").
+
+    Returns:
+        The friendly display name string (e.g. "HackRF One").
+
+    Raises:
+        KeyError: If device is not a known DEVICE_PROFILES driver key.
+    """
+    if device not in DEVICE_PROFILES:
+        raise KeyError(
+            f"Unknown device {device!r} — not a DEVICE_PROFILES key"
+        )
+    return DEVICE_PROFILES[device]["display_name"]

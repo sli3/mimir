@@ -556,3 +556,33 @@ class TestSystemStatsDeviceField:
         assert '"device"' in body, "emit_stats() must include the device key"
         assert '"unsupported_bands"' in body, "emit_stats() must include the unsupported_bands key"
         assert "current_device_lock" in body, "emit_stats() must acquire the current_device lock"
+
+
+class TestSystemStatsCurrentDeviceDisplay:
+    """Static-source guard that emit_stats() calls display_name_for_device
+    to populate the system_stats current_device_display payload (Phase 40b).
+
+    Per the Phase 38 precedent: emit_stats runs in a 2s background thread
+    and is awkward to unit-test directly, so this is a static-source
+    assertion that the function body uses the new helper rather than
+    re-deriving the friendly name inline. The behaviour is covered by
+    the helper's own unit tests in TestDisplayNameForDevice.
+    """
+
+    def test_emit_stats_emits_current_device_display_key(self):
+        from pathlib import Path
+        server_path = Path(__file__).parent.parent.parent / "dashboard" / "server.py"
+        source = server_path.read_text()
+        # Find the emit_stats function body and assert the new key lands
+        # in the data dict, adjacent to the existing "device" key.
+        start = source.find("def emit_stats")
+        assert start != -1
+        next_def = source.find("\ndef ", start + len("def emit_stats"))
+        body = source[start:next_def] if next_def != -1 else source[start:]
+        assert '"current_device_display"' in body, (
+            "emit_stats() must include the current_device_display key"
+        )
+        assert "display_name_for_device" in body, (
+            "emit_stats() must call shared_state.display_name_for_device to "
+            "build the current_device_display payload"
+        )
