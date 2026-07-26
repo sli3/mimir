@@ -30,6 +30,7 @@ class MimirConfig:
     llm_connect_timeout_sec: float = 5.0  # timeout in seconds for the startup health-check probe
     dashboard_host: str = "127.0.0.1"
     dashboard_port: int = 5000
+    unchanged_emit_interval_sec: float = 5.0  # min seconds between repeat emissions of an UNCHANGED verdict for the same frequency; changes always emit immediately
 
 
 _EXPECTED_KEYS: dict[str, type] = {
@@ -86,6 +87,7 @@ def load_config(path: str = "config/mimir.yaml") -> MimirConfig:
 
     llm_cooldown_sec = float(scanner.get("llm_cooldown_sec", 60.0))
     llm_connect_timeout_sec = float(scanner.get("llm_connect_timeout_sec", 5.0))
+    unchanged_emit_interval_sec = float(scanner.get("unchanged_emit_interval_sec", 5.0))
 
     dashboard_required = {
         "host": str,
@@ -119,4 +121,5 @@ def load_config(path: str = "config/mimir.yaml") -> MimirConfig:
         llm_connect_timeout_sec=llm_connect_timeout_sec,
         dashboard_host=str(dashboard["host"]),
         dashboard_port=int(dashboard["port"]),
+        unchanged_emit_interval_sec=unchanged_emit_interval_sec,
     )

@@ -761,3 +761,124 @@ class TestDeviceDriverValidation:
                                  mock_classifier, config,
                                  device_driver=driver)
             assert scanner._device_driver == driver
+
+
+class TestEmitResultThrottle:
+    """Tests for the per-frequency unchanged-verdict throttle in
+    _emit_result() (Phase 43).
+
+    Three emit rules under test:
+      a) First emit for a frequency always passes.
+      b) A CHANGED signal_type at a frequency always emits immediately.
+      c) An UNCHANGED verdict (same freq, same signal_type) is suppressed
+         until unchanged_emit_interval_sec has elapsed.
+
+    All tests patch time.monotonic — never time.sleep — to control the
+    clock deterministically.
+    """
+
+    @staticmethod
+    def _make_result(freq_hz, signal_type="fm_broadcast"):
+        """Build a minimal ScanResult for a given frequency and verdict."""
+        return ScanResult(
+            timestamp="2026-07-25T12:00:00",
+            center_freq_hz=freq_hz,
+            fingerprint={},
+            classification=ClassificationResult(
+                signal_type=signal_type,
+                confidence="high",
+                confidence_score=0.95,
+                novel=False,
+                reasoning="test",
+                au_legal_status="legal_rx",
+                frequency_band="fm_broadcast_band",
+                raw_response="{}",
+            ),
+            psd_db=None,
+        )
+
+    @staticmethod
+    def _reset(scanner):
+        """Fresh throttle state + observable broadcast mock per test."""
+        scanner._last_emit_by_freq = {}
+        scanner._broadcast_fn = MagicMock()
+        return scanner
+
+    def test_first_emit_for_freq_always_passes(self, scanner):
+        scanner = self._reset(scanner)
+        result = self._make_result(98_000_000.0)
+        scanner._emit_result(result)
+        scanner._broadcast_fn.assert_called_once_with(result)
+
+    def test_identical_verdict_within_interval_suppressed(self, scanner, capsys):
+        scanner = self._reset(scanner)
+        interval = scanner._config.unchanged_emit_interval_sec
+        clock = [1000.0]
+        with patch("time.monotonic", side_effect=lambda: clock[0]):
+            scanner._emit_result(self._make_result(98_000_000.0, "fm_broadcast"))
+            capsys.readouterr()  # drain the first emit's terminal output
+            clock[0] += interval / 2  # still inside the interval
+            scanner._emit_result(self._make_result(98_000_000.0, "fm_broadcast"))
+        scanner._broadcast_fn.assert_called_once()
+        assert capsys.readouterr().out == ""
+
+    def test_identical_verdict_after_interval_emits(self, scanner):
+        scanner = self._reset(scanner)
+        interval = scanner._config.unchanged_emit_interval_sec
+        clock = [1000.0]
+        with patch("time.monotonic", side_effect=lambda: clock[0]):
+            scanner._emit_result(self._make_result(98_000_000.0, "fm_broadcast"))
+            clock[0] += interval  # interval fully elapsed
+            scanner._emit_result(self._make_result(98_000_000.0, "fm_broadcast"))
+        assert scanner._broadcast_fn.call_count == 2
+
+    def test_changed_signal_type_emits_immediately_within_window(self, scanner):
+        scanner = self._reset(scanner)
+        interval = scanner._config.unchanged_emit_interval_sec
+        clock = [1000.0]
+        with patch("time.monotonic", side_effect=lambda: clock[0]):
+            scanner._emit_result(self._make_result(98_000_000.0, "noise"))
+            clock[0] += interval / 100  # barely advanced — well inside window
+            # Rule b: a changed verdict always wins over the interval gate.
+            scanner._emit_result(self._make_result(98_000_000.0, "fm_broadcast"))
+        assert scanner._broadcast_fn.call_count == 2
+
+    def test_per_frequency_independence(self, scanner):
+        scanner = self._reset(scanner)
+        interval = scanner._config.unchanged_emit_interval_sec
+        clock = [1000.0]
+        with patch("time.monotonic", side_effect=lambda: clock[0]):
+            scanner._emit_result(self._make_result(98_000_000.0, "fm_broadcast"))
+            clock[0] += interval / 2
+            # Second emit for freq A is suppressed (same verdict, in window)...
+            scanner._emit_result(self._make_result(98_000_000.0, "fm_broadcast"))
+            # ...but freq B's first emit must not be blocked by A's throttle.
+            result_b = self._make_result(145_175_000.0, "aprs")
+            scanner._emit_result(result_b)
+        assert scanner._broadcast_fn.call_count == 2
+        scanner._broadcast_fn.assert_called_with(result_b)
+
+    def test_verdict_flapping_back_emits_on_each_change(self, scanner):
+        scanner = self._reset(scanner)
+        clock = [1000.0]
+        with patch("time.monotonic", side_effect=lambda: clock[0]):
+            # noise -> fm_broadcast -> noise at the same freq: every step is
+            # a change relative to the previous emit, so all three must emit.
+            scanner._emit_result(self._make_result(98_000_000.0, "noise"))
+            clock[0] += 0.001
+            scanner._emit_result(self._make_result(98_000_000.0, "fm_broadcast"))
+            clock[0] += 0.001
+            scanner._emit_result(self._make_result(98_000_000.0, "noise"))
+        assert scanner._broadcast_fn.call_count == 3
+
+    def test_suppressed_emit_does_not_print_to_terminal(self, scanner, capsys):
+        scanner = self._reset(scanner)
+        interval = scanner._config.unchanged_emit_interval_sec
+        clock = [1000.0]
+        with patch("time.monotonic", side_effect=lambda: clock[0]):
+            scanner._emit_result(self._make_result(98_000_000.0, "fm_broadcast"))
+            first_out = capsys.readouterr().out
+            assert first_out != ""  # sanity: the first emit does print
+            clock[0] += interval / 2
+            scanner._emit_result(self._make_result(98_000_000.0, "fm_broadcast"))
+            assert capsys.readouterr().out == ""

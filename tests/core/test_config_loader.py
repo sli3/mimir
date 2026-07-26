@@ -36,6 +36,11 @@ class TestMimirConfigDefaults:
         cfg = MimirConfig()
         assert cfg.amp_enable is False
 
+    def test_unchanged_emit_interval_default_is_5(self):
+        """MimirConfig.unchanged_emit_interval_sec default must be 5.0."""
+        cfg = MimirConfig()
+        assert cfg.unchanged_emit_interval_sec == 5.0
+
 
 def _valid_config() -> dict:
     return copy.deepcopy({
@@ -109,5 +114,25 @@ class TestConfigLoader:
             expected = [98_000_000.0, 145_175_000.0, 915_000_000.0, 1_090_000_000.0]
             assert cfg.frequencies_hz == expected
             assert all(isinstance(f, float) for f in cfg.frequencies_hz)
+        finally:
+            os.unlink(path)
+
+    def test_loads_unchanged_emit_interval_when_present(self):
+        """An explicit unchanged_emit_interval_sec in scanner: is honoured."""
+        data = _valid_config()
+        data["scanner"]["unchanged_emit_interval_sec"] = 7.5
+        path = _write_config(data)
+        try:
+            cfg = load_config(path)
+            assert cfg.unchanged_emit_interval_sec == 7.5
+        finally:
+            os.unlink(path)
+
+    def test_missing_unchanged_emit_interval_falls_back_to_5(self):
+        """The key is optional: a config without it falls back to 5.0."""
+        path = _write_config(_valid_config())
+        try:
+            cfg = load_config(path)
+            assert cfg.unchanged_emit_interval_sec == 5.0
         finally:
             os.unlink(path)

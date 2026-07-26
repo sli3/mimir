@@ -87,6 +87,9 @@ class ScanRunner:
         self._active_freq_hz: float = 0.0
         self._last_llm_ms: float = 0.0
         self._last_offline_emit: float = 0.0
+        # Per-frequency emit throttle state: freq_hz -> (signal_type, monotonic
+        # timestamp of last emit). Consulted at the top of _emit_result().
+        self._last_emit_by_freq: dict[float, tuple[str, float]] = {}
         self._focus_freq_hz: float = config.frequencies_hz[0]
         self._focus_lock: threading.Lock = threading.Lock()
         self._iq_subscribers: list = []
@@ -388,7 +391,37 @@ class ScanRunner:
         waterfall broadcast is NOT done here — it is done in ``_scan_loop``
         immediately after FFT so that waterfall updates are not gated by LLM
         inference time.
+
+        Phase 43: a per-frequency throttle was added at the top of ``_emit_result()`` in
+        ``core/pipeline/scanner.py``. The first verdict for a frequency always emits; any
+        ``signal_type`` change at that frequency always emits immediately; an unchanged verdict
+        (same frequency, same ``signal_type``) is suppressed until
+        ``unchanged_emit_interval_sec`` (default 5.0 seconds) has elapsed since the last emit for
+        that frequency. Time uses ``time.monotonic()`` (NTP-immune). The pre-existing
+        ``llm_offline`` throttle in ``_ai_loop`` is unchanged.
         """
+        # Per-frequency unchanged-verdict throttle. Three emit rules:
+        #   a) First emit for a frequency always passes.
+        #   b) A CHANGED signal_type at a frequency always emits immediately,
+        #      regardless of how recently the previous verdict was emitted.
+        #   c) An UNCHANGED verdict (same freq, same signal_type) is
+        #      suppressed until unchanged_emit_interval_sec has elapsed since
+        #      the last emit for that frequency.
+        # Rule b is checked first: change-detection emits immediately.
+        freq_hz = scan_result.center_freq_hz
+        signal_type = scan_result.classification.signal_type
+        now = time.monotonic()
+        interval = self._config.unchanged_emit_interval_sec
+        last = self._last_emit_by_freq.get(freq_hz)
+        if last is not None and last[0] == signal_type and (now - last[1]) < interval:
+            return  # suppressed: same freq, same signal_type, within interval
+        self._last_emit_by_freq[freq_hz] = (signal_type, now)
+        # Thread-safety: _emit_result is called only from the AI loop thread,
+        # so _last_emit_by_freq has a single writer — no lock required. Do not
+        # add a redundant lock here.
+        # Dict growth: bounded by the number of distinct frequencies in the
+        # band plan plus focus frequencies — a small fixed set, so no eviction
+        # is needed.
         ts = scan_result.timestamp[11:19]
         freq_mhz = scan_result.center_freq_hz / 1e6
         cls = scan_result.classification
