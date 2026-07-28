@@ -159,6 +159,7 @@ class PlutoReceiver(DeviceBase):
         sample_rate_hz: float = DEFAULT_SAMPLE_RATE_HZ,
         gain_db: float = DEFAULT_GAIN_DB,
         bandwidth_hz: float | None = DEFAULT_BANDWIDTH_HZ,
+        retune_settle_sec: float = 0.25,
     ) -> None:
         """
         Initialise the Pluto receiver configuration.
@@ -172,6 +173,15 @@ class PlutoReceiver(DeviceBase):
             gain_db: Combined receive gain in dB (0–74.5 dB). Default: 30 dB.
             bandwidth_hz: RF filter bandwidth in Hz. If None, defaults to
                 sample_rate_hz. Pluto requires this to be set explicitly.
+            retune_settle_sec: Seconds to wait for the PLL (the circuit
+                that locks the tuner onto a frequency) to settle after a
+                retune, while the stream is stopped. Default 0.25 s. The
+                wait must happen with the stream inactive — if the stream
+                is live during the settle, the hardware's ring buffer
+                captures the settling transient and the first read after
+                the retune returns a transient-shaped fingerprint, which
+                shows up as a wrong low-confidence classification and a
+                white stripe on the waterfall.
 
         Raises:
             ValueError: If gain_db is outside the valid range.
@@ -179,6 +189,7 @@ class PlutoReceiver(DeviceBase):
         self._center_freq_hz = center_freq_hz
         self._sample_rate_hz = sample_rate_hz
         self._bandwidth_hz = bandwidth_hz
+        self._retune_settle_sec = retune_settle_sec
 
         # Validate gain range up front so an invalid constructor argument
         # fails early, matching set_gain's behaviour.
@@ -203,6 +214,16 @@ class PlutoReceiver(DeviceBase):
     def open(self) -> None:
         """
         Open the ADALM-PLUTO hardware and configure the receiver.
+
+        Settle-before-activate ordering:
+        ────────────────────────────────
+        After setFrequency configures the tuner, we wait for the PLL (the
+        circuit that locks the tuner onto the frequency) to settle BEFORE
+        activating the stream. If the stream were activated first, the
+        hardware's ring buffer would capture the settling transient, and
+        the first read would return transient-shaped samples — which the
+        pipeline would fingerprint as a bogus signal. The same ordering is
+        used in set_center_frequency() for mid-run retunes.
 
         Raises:
             RuntimeError: If no Pluto is found, hardware fails to open,
@@ -300,6 +321,9 @@ class PlutoReceiver(DeviceBase):
         # Set up the receive stream
         # SOAPY_SDR_CF32 = complex float32 = IQ samples as complex numbers.
         self._stream = self._device.setupStream(self._rx, SOAPY_SDR_CF32)
+        # Settle BEFORE activating the stream, so the PLL settling transient
+        # is never captured into the ring buffer (see open() docstring).
+        time.sleep(self._retune_settle_sec)
         self._device.activateStream(self._stream)
 
         logger.info(
@@ -354,6 +378,18 @@ class PlutoReceiver(DeviceBase):
         """
         Tune the receiver to a new centre frequency.
 
+        Settle-before-activate ordering:
+        ────────────────────────────────
+        The stream is deactivated BEFORE the retune and reactivated only
+        AFTER a settle wait. The tuner contains a PLL (phase-locked loop),
+        the circuit that locks onto the new frequency; it takes a short
+        time to stabilise. If the stream were live during that window, the
+        hardware's ring buffer would capture the settling transient, and
+        the first read after the retune would return transient-shaped
+        samples — which the pipeline would fingerprint as a bogus signal.
+        Settling while the stream is stopped keeps the transient out of
+        the buffer entirely.
+
         Args:
             freq_hz: Frequency in Hz. Examples:
                      915_000_000   = 915 MHz (ISM / LoRa — AU)
@@ -365,8 +401,8 @@ class PlutoReceiver(DeviceBase):
                 self._device.deactivateStream(self._stream)
             self._device.setFrequency(self._rx, 0, freq_hz)
             if self._stream is not None:
+                time.sleep(self._retune_settle_sec)
                 self._device.activateStream(self._stream)
-                time.sleep(0.25)
             logger.debug("Centre frequency set to %.3f MHz", freq_hz / 1e6)
 
     def set_sample_rate(self, rate_hz: float) -> None:

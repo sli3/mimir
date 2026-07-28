@@ -227,6 +227,18 @@ class ScanRunner:
                 if freq_hz != _last_tuned_hz:
                     device.set_center_frequency(freq_hz)
                     _last_tuned_hz = freq_hz
+                    # Belt-and-braces discard. The settle in set_center_frequency
+                    # keeps the PLL transient out of the ring buffer, but the driver
+                    # may still queue a small amount at the moment the stream
+                    # reactivates. Throw the first read away so the pipeline only
+                    # ever fingerprints settled samples.
+                    try:
+                        device.read_samples(config.num_samples)
+                    except Exception:
+                        logger.warning(
+                            "Discard read after retune to %.3f MHz failed; continuing",
+                            freq_hz / 1e6,
+                        )
                 self._active_freq_hz = freq_hz
                 try:
                     samples = device.read_samples(config.num_samples)

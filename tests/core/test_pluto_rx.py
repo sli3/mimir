@@ -18,7 +18,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -56,7 +56,7 @@ class TestPlutoReceiver:
 
     def test_agc_disabled_on_open(self):
         """open() calls setGainMode(SOAPY_SDR_RX, 0, False)."""
-        receiver = PlutoReceiver()
+        receiver = PlutoReceiver(retune_settle_sec=0.0)
         receiver.open()
         self.mock_device.setGainMode.assert_called_once_with(1, 0, False)
 
@@ -69,7 +69,7 @@ class TestPlutoReceiver:
 
     def test_agc_disabled_proceeds(self):
         """getGainMode returns False → open() succeeds."""
-        receiver = PlutoReceiver()
+        receiver = PlutoReceiver(retune_settle_sec=0.0)
         receiver.open()
         assert receiver.is_open
 
@@ -90,7 +90,7 @@ class TestPlutoReceiver:
         """
         self.mock_soapy.SOAPY_SDR_RX = 7
 
-        receiver = PlutoReceiver()
+        receiver = PlutoReceiver(retune_settle_sec=0.0)
         receiver.open()
 
         # open() itself must have used the real constant
@@ -124,7 +124,7 @@ class TestPlutoReceiver:
             FakeSoapySDRKwargs({"uri": "usb:3.37.5"}),
         ]
         self.mock_soapy.Device.enumerate.return_value = results
-        receiver = PlutoReceiver()
+        receiver = PlutoReceiver(retune_settle_sec=0.0)
         receiver.open()
         assert receiver._uri == "usb:3.37.5"
         self.mock_soapy.Device.assert_called_once_with(
@@ -138,7 +138,7 @@ class TestPlutoReceiver:
             FakeSoapySDRKwargs({"uri": "ip:pluto.local"}),
         ]
         self.mock_soapy.Device.enumerate.return_value = results
-        receiver = PlutoReceiver()
+        receiver = PlutoReceiver(retune_settle_sec=0.0)
         caplog.set_level(logging.WARNING, logger="core.device.pluto_rx")
         receiver.open()
         assert receiver._uri == "ip:pluto.local"
@@ -156,7 +156,7 @@ class TestPlutoReceiver:
             FakeSoapySDRKwargs({"driver": "plutosdr", "label": "no uri here"}),
         ]
         self.mock_soapy.Device.enumerate.return_value = results
-        receiver = PlutoReceiver()
+        receiver = PlutoReceiver(retune_settle_sec=0.0)
         caplog.set_level(logging.WARNING, logger="core.device.pluto_rx")
         receiver.open()
         assert receiver._uri is None
@@ -173,13 +173,14 @@ class TestPlutoReceiver:
 
     def test_default_bandwidth_equals_sample_rate(self):
         """bandwidth_hz=None → setBandwidth called with sample_rate_hz."""
-        receiver = PlutoReceiver(sample_rate_hz=2_000_000)
+        receiver = PlutoReceiver(sample_rate_hz=2_000_000, retune_settle_sec=0.0)
         receiver.open()
         self.mock_device.setBandwidth.assert_called_once_with(1, 0, 2_000_000)
 
     def test_explicit_bandwidth_used(self):
         """Explicit bandwidth_hz is passed to setBandwidth."""
-        receiver = PlutoReceiver(sample_rate_hz=2_000_000, bandwidth_hz=1_500_000)
+        receiver = PlutoReceiver(sample_rate_hz=2_000_000, bandwidth_hz=1_500_000,
+                                 retune_settle_sec=0.0)
         receiver.open()
         self.mock_device.setBandwidth.assert_called_once_with(1, 0, 1_500_000)
 
@@ -187,7 +188,7 @@ class TestPlutoReceiver:
 
     def test_set_gain_calls_set_gain(self):
         """set_gain calls setGain with the RX direction and value."""
-        receiver = PlutoReceiver()
+        receiver = PlutoReceiver(retune_settle_sec=0.0)
         receiver.open()
         self.mock_device.setGain.reset_mock()
         receiver.set_gain(40.0)
@@ -333,7 +334,7 @@ class TestPlutoReceiver:
         """device_info contains driver and hardware keys from SoapySDR."""
         self.mock_device.getDriverKey.return_value = "PlutoSDR"
         self.mock_device.getHardwareKey.return_value = "ADALM-PLUTO"
-        receiver = PlutoReceiver()
+        receiver = PlutoReceiver(retune_settle_sec=0.0)
         receiver.open()
         info = receiver.device_info()
         assert info["driver"] == "PlutoSDR"
@@ -350,7 +351,7 @@ class TestPlutoReceiver:
 
     def test_context_manager_opens_and_closes(self):
         """PlutoReceiver can be used as a context manager."""
-        with PlutoReceiver() as receiver:
+        with PlutoReceiver(retune_settle_sec=0.0) as receiver:
             assert receiver.is_open
             assert isinstance(receiver._device, MagicMock)
         assert not receiver.is_open
@@ -367,3 +368,93 @@ class TestPlutoReceiver:
         assert receiver._device is None
         assert receiver._stream is None
         assert not receiver.is_open
+
+
+class TestPlutoRetuneSettle:
+    """Phase 44: the retune settle must run while the stream is STOPPED.
+
+    The PLL settling transient must never be captured into the ring buffer,
+    so time.sleep() must run between setFrequency and activateStream (in
+    set_center_frequency) and between setupStream and activateStream (in
+    open()). All tests pass retune_settle_sec=0.0 except the one test that
+    verifies the default, so the suite does not burn real wall-clock time.
+    """
+
+    def setup_method(self):
+        self.mock_soapy = MagicMock()
+        self.mock_soapy.SOAPY_SDR_RX = 1
+        self.mock_soapy.SOAPY_SDR_CF32 = "CF32"
+        sys.modules["SoapySDR"] = self.mock_soapy
+
+        self.mock_device = MagicMock()
+        self.mock_device.getGainMode.return_value = False
+        self.mock_soapy.Device.return_value = self.mock_device
+        self.mock_soapy.Device.enumerate.return_value = [
+            FakeSoapySDRKwargs({"uri": "usb:3.30.5"})
+        ]
+
+    def teardown_method(self):
+        if "SoapySDR" in sys.modules:
+            del sys.modules["SoapySDR"]
+
+    @staticmethod
+    def _open_receiver(**kwargs):
+        """A receiver wired as if open(), without touching SoapySDR."""
+        receiver = PlutoReceiver(**kwargs)
+        receiver._is_open = True
+        receiver._center_freq_hz = 1_090_000_000.0
+        receiver._stream = MagicMock()
+        receiver._device = MagicMock()
+        receiver._rx = 1
+        return receiver
+
+    def test_set_center_frequency_settles_before_activate_stream(self):
+        """T1: sleep must precede activateStream on a retune (ordering)."""
+        receiver = self._open_receiver(retune_settle_sec=0.0)
+        manager = MagicMock()
+        manager.attach_mock(receiver._device.activateStream, "activateStream")
+        with patch("core.device.pluto_rx.time.sleep") as mock_sleep:
+            manager.attach_mock(mock_sleep, "sleep")
+            receiver.set_center_frequency(915_000_000.0)
+        calls = [c[0] for c in manager.mock_calls]
+        sleep_idx = calls.index("sleep")
+        activate_idx = calls.index("activateStream")
+        assert sleep_idx < activate_idx, (
+            f"sleep must precede activateStream, "
+            f"got sleep={sleep_idx}, activate={activate_idx}"
+        )
+
+    def test_set_center_frequency_sleeps_exactly_once(self):
+        """T2: the settle sleep must not be duplicated in the method."""
+        receiver = self._open_receiver(retune_settle_sec=0.0)
+        with patch("core.device.pluto_rx.time.sleep") as mock_sleep:
+            receiver.set_center_frequency(915_000_000.0)
+        assert mock_sleep.call_count == 1
+
+    def test_open_settles_before_activate_stream(self):
+        """T3: open() must sleep between setupStream and activateStream."""
+        receiver = PlutoReceiver(retune_settle_sec=0.0)
+        manager = MagicMock()
+        manager.attach_mock(self.mock_device.activateStream, "activateStream")
+        with patch("core.device.pluto_rx.time.sleep") as mock_sleep:
+            manager.attach_mock(mock_sleep, "sleep")
+            receiver.open()
+        calls = [c[0] for c in manager.mock_calls]
+        sleep_idx = calls.index("sleep")
+        activate_idx = calls.index("activateStream")
+        assert sleep_idx < activate_idx, (
+            f"sleep must precede activateStream in open(), "
+            f"got sleep={sleep_idx}, activate={activate_idx}"
+        )
+
+    def test_retune_settle_sec_defaults_to_quarter_second(self):
+        """T4: the constructor default must be 0.25 (behaviour-neutral)."""
+        receiver = PlutoReceiver()
+        assert receiver._retune_settle_sec == 0.25
+
+    def test_retune_settle_sec_is_honoured(self):
+        """T5: a passed retune_settle_sec value is what time.sleep receives."""
+        receiver = self._open_receiver(retune_settle_sec=0.0)
+        with patch("core.device.pluto_rx.time.sleep") as mock_sleep:
+            receiver.set_center_frequency(915_000_000.0)
+        mock_sleep.assert_called_once_with(0.0)

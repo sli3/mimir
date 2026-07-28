@@ -736,6 +736,60 @@ class TestScanLoopDeviceGuard:
         mock_device.read_samples.assert_not_called()
 
 
+class TestScanLoopRetuneDiscard:
+    """Tests for the Phase 44 discard read after a retune.
+
+    The first read after a retune would return the PLL settling transient,
+    so the scan loop performs a throwaway discard read immediately after
+    set_center_frequency — inside the retune conditional, so it cannot
+    fire when the frequency is unchanged.
+    """
+
+    def test_discard_read_immediately_follows_retune(self, scanner, mock_device):
+        """T6: the first set_center_frequency must be followed directly by
+        a read_samples (the discard), with nothing in between."""
+        manager = MagicMock()
+        manager.attach_mock(mock_device.set_center_frequency, "set_center_frequency")
+        manager.attach_mock(mock_device.read_samples, "read_samples")
+        t = threading.Thread(target=scanner.run, daemon=True)
+        t.start()
+        time.sleep(0.3)
+        scanner.stop()
+        t.join(timeout=3)
+        calls = [c[0] for c in manager.mock_calls]
+        # First retune must be immediately followed by a discard read
+        assert "set_center_frequency" in calls, "set_center_frequency was never called"
+        retune_idx = calls.index("set_center_frequency")
+        # The very next call must be read_samples (the discard)
+        assert calls[retune_idx + 1] == "read_samples", (
+            f"Expected discard read_samples immediately after retune, "
+            f"but got: {calls[retune_idx:retune_idx+3]}"
+        )
+
+    def test_no_discard_read_when_freq_unchanged(self, scanner, mock_device):
+        """T7: across many steady-state cycles there is exactly ONE
+        read_samples immediately preceded by set_center_frequency — the
+        single discard after the single initial retune."""
+        manager = MagicMock()
+        manager.attach_mock(mock_device.set_center_frequency, "set_center_frequency")
+        manager.attach_mock(mock_device.read_samples, "read_samples")
+        t = threading.Thread(target=scanner.run, daemon=True)
+        t.start()
+        time.sleep(0.5)  # many scan cycles at dwell_time=0.01s
+        scanner.stop()
+        t.join(timeout=3)
+        calls = [c[0] for c in manager.mock_calls]
+        # Count the number of "read_samples immediately after set_center_frequency"
+        retune_then_read = sum(
+            1 for i in range(len(calls) - 1)
+            if calls[i] == "set_center_frequency" and calls[i + 1] == "read_samples"
+        )
+        assert retune_then_read == 1, (
+            f"Expected exactly 1 discard read (the one after the single retune), "
+            f"but found {retune_then_read} read_samples calls preceded by set_center_frequency"
+        )
+
+
 class TestDeviceDriverValidation:
     """ScanRunner.__init__ must reject unknown device_driver strings.
 

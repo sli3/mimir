@@ -103,6 +103,7 @@ class HackRFReceiver(DeviceBase):
         vga_gain_db: float = DEFAULT_VGA_GAIN_DB,
         amp_enable: bool = DEFAULT_AMP_ENABLE,
         serial: Optional[str] = None,
+        retune_settle_sec: float = 0.25,
     ) -> None:
         """
         Initialise the HackRF receiver configuration.
@@ -125,6 +126,17 @@ class HackRFReceiver(DeviceBase):
                              unless signals are very weak.
             serial         : Optional HackRF serial number. If None,
                              uses the first detected HackRF.
+            retune_settle_sec : Seconds to wait for the PLL (the circuit
+                             that locks the tuner onto a frequency) to
+                             settle after a retune, while the stream is
+                             stopped. Default 0.25 s. The wait must happen
+                             with the stream inactive — if the stream is
+                             live during the settle, the hardware's ring
+                             buffer captures the settling transient and
+                             the first read after the retune returns a
+                             transient-shaped fingerprint, which shows up
+                             as a wrong low-confidence classification and
+                             a white stripe on the waterfall.
         """
         self._center_freq_hz = center_freq_hz
         self._sample_rate_hz = sample_rate_hz
@@ -132,6 +144,7 @@ class HackRFReceiver(DeviceBase):
         self._vga_gain_db = vga_gain_db
         self._amp_enable = amp_enable
         self._serial = serial
+        self._retune_settle_sec = retune_settle_sec
 
         self._device = None    # SoapySDR device object — set in open()
         self._stream = None    # RX stream — set in open()
@@ -142,6 +155,16 @@ class HackRFReceiver(DeviceBase):
     def open(self) -> None:
         """
         Open the HackRF hardware and configure the receiver.
+
+        Settle-before-activate ordering:
+        ────────────────────────────────
+        After setFrequency configures the tuner, we wait for the PLL (the
+        circuit that locks the tuner onto the frequency) to settle BEFORE
+        activating the stream. If the stream were activated first, the
+        hardware's ring buffer would capture the settling transient, and
+        the first read would return transient-shaped samples — which the
+        pipeline would fingerprint as a bogus signal. The same ordering is
+        used in set_center_frequency() for mid-run retunes.
 
         Raises:
             RuntimeError: If no HackRF is found or hardware fails to open.
@@ -189,6 +212,9 @@ class HackRFReceiver(DeviceBase):
         # SOAPY_SDR_CF32 = complex float32 = what we want (IQ samples as
         # complex numbers, each component a 32-bit float)
         self._stream = self._device.setupStream(self._SOAPY_RX_DIRECTION, SOAPY_SDR_CF32)
+        # Settle BEFORE activating the stream, so the PLL settling transient
+        # is never captured into the ring buffer (see open() docstring).
+        time.sleep(self._retune_settle_sec)
         self._device.activateStream(self._stream)
         self._is_open = True
 
@@ -227,6 +253,18 @@ class HackRFReceiver(DeviceBase):
         """
         Tune the receiver to a new centre frequency.
 
+        Settle-before-activate ordering:
+        ────────────────────────────────
+        The stream is deactivated BEFORE the retune and reactivated only
+        AFTER a settle wait. The tuner contains a PLL (phase-locked loop),
+        the circuit that locks onto the new frequency; it takes a short
+        time to stabilise. If the stream were live during that window, the
+        hardware's ring buffer would capture the settling transient, and
+        the first read after the retune would return transient-shaped
+        samples — which the pipeline would fingerprint as a bogus signal.
+        Settling while the stream is stopped keeps the transient out of
+        the buffer entirely.
+
         Args:
             freq_hz: Frequency in Hz. Examples:
                      98_000_000  = 98 MHz (FM broadcast)
@@ -239,8 +277,8 @@ class HackRFReceiver(DeviceBase):
                 self._device.deactivateStream(self._stream)
             self._device.setFrequency(self._SOAPY_RX_DIRECTION, 0, freq_hz)
             if self._stream is not None:
+                time.sleep(self._retune_settle_sec)
                 self._device.activateStream(self._stream)
-                time.sleep(0.25)
             logger.debug(f"Centre frequency set to {freq_hz/1e6:.3f} MHz")
 
     def set_sample_rate(self, rate_hz: float) -> None:
