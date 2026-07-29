@@ -115,6 +115,7 @@ BAND_PROFILES: dict = {
         "vga_gain_db":         26,
         "signal_threshold_db": 21.0,   # Calibrated live FM Adelaide, telescopic whip, lna=24/vga=26
         "crop_half_width_hz":  112_500,
+        "burst_use_wide_window": True,
         # PLACEHOLDER-VERIFIED: real house capture 2026-07-13 (whip antenna,
         # diagnose_threshold.py --band fm_broadcast) showed true single-station
         # bandwidth converging toward ~200-230 kHz at threshold=27 dB across 4

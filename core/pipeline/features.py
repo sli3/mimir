@@ -25,6 +25,15 @@ NOISE_FLOOR_PERCENTILE: float = 10.0
 # TODO(tech-debt TD-45-1): This margin sets a conservative duty-cycle ceiling of
 # ~3.4% at 976 chunks, which may suppress the tag on heavy multi-aircraft ADS-B
 # traffic. Not yet validated against real ADS-B.
+# TODO(tech-debt TD-46-1): The Phase 46 wide-window burst metric is FM-only,
+# gated per-band by the ``burst_use_wide_window`` BAND_PROFILES key. Attempt 1
+# (np.max of per-bin max-hold/average gaps across the window) was proven
+# mathematically incapable of suppressing the FM false positive and was rolled
+# back without a commit. The surviving power-sum approach inherits a second
+# unknown: expected_noise_ratio_db (10*log10(ln(N)+0.5772)) was derived for
+# single-bin max-hold behaviour and has NOT been re-derived for the multi-bin
+# power-sum case. The 6.0 dB BURST_MARGIN_DB margin is unvalidated for this
+# new metric and may need retuning once live FM data is checked.
 BURST_MARGIN_DB: float = 6.0
 
 # Minimum SNR above the noise floor for a bin to be considered a signal.
@@ -46,6 +55,7 @@ def fingerprint_spectrum(
     signal_threshold_db: float | None = None,
     trace_key: str = 'psd_db',
     crop_half_width_hz: float | None = None,
+    burst_use_wide_window: bool = False,
 ) -> dict[str, float | int | bool]:
     """
     Extract spectral fingerprint features from a PSD result dictionary.
@@ -84,6 +94,19 @@ def fingerprint_spectrum(
                             The noise floor is ALWAYS computed on the full,
                             uncropped ``psd_db`` so a narrow window does not
                             bias it upward.
+        burst_use_wide_window: When True AND ``crop_half_width_hz`` is not None,
+                               the burst metric is computed by summing linear power
+                               across all bins in the crop window for both the
+                               max-hold and averaged traces, then expressing the
+                               ratio in dB. This distinguishes
+                               continuous-but-frequency-agile signals (e.g. FM with
+                               a carrier sweep wider than the per-bin dwell time)
+                               from genuine time-bursty signals (e.g. ADS-B
+                               squitters). When False (default), the single-bin
+                               narrow metric is used. Default False preserves
+                               byte-identical Phase 45 behaviour for every band
+                               that does not explicitly opt in via its BAND_PROFILES
+                               entry.
 
     Returns:
         Dictionary containing:
@@ -216,7 +239,33 @@ def fingerprint_spectrum(
             len(psd_db),
         )
         max_hold_db = psd_db
-    burst_ratio_db = float(max_hold_db[peak_idx] - psd_db[peak_idx])
+    if burst_use_wide_window and crop_mask is not None:
+        # Phase 46: total-power ratio across the crop window.
+        # Distinguishes continuous-but-frequency-agile signals (FM sweep)
+        # from genuine time-bursty signals. For FM, every bin in the window
+        # has been "hot" at some point in some chunk (sweeping carrier), so
+        # max_hold is roughly uniform across the window while psd is roughly
+        # uniform at a lower level — the noise floor dilutes the sum, so the
+        # ratio is small. For a narrow burst that is on for only a small
+        # fraction of chunks, max_hold at the burst bins is high while psd
+        # at the burst bins is low, AND the rest of the window is noise on
+        # both traces — the sum is dominated by the burst contrast.
+        #
+        # Tech debt: expected_noise_ratio_db (10*log10(ln(N)+0.5772)) was
+        # derived for single-bin max-hold behaviour and has NOT been
+        # re-derived for this multi-bin power-sum case. The 6.0 dB
+        # BURST_MARGIN_DB margin is unvalidated for this new metric and
+        # may need retuning once live FM data is checked.
+        max_hold_lin = np.power(10.0, max_hold_db[crop_mask] / 10.0)
+        avg_lin = np.power(10.0, psd_db[crop_mask] / 10.0)
+        total_max_hold = float(np.sum(max_hold_lin))
+        total_avg = float(np.sum(avg_lin))
+        burst_ratio_db = float(
+            10 * np.log10(total_max_hold / (total_avg + 1e-12))
+        )
+    else:
+        # Phase 45 single-bin narrow metric (unchanged).
+        burst_ratio_db = float(max_hold_db[peak_idx] - psd_db[peak_idx])
 
     # num_chunks guards: missing falls back to 1; a single chunk has no
     # max-hold meaning, and the guard also prevents log of zero or negative.

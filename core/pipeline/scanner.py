@@ -270,10 +270,12 @@ class ScanRunner:
                     features.SIGNAL_THRESHOLD_DB,
                 )
                 crop_half_width_hz = band.get("crop_half_width_hz")
+                burst_use_wide_window = band.get("burst_use_wide_window", False)
                 fingerprint = features.fingerprint_spectrum(
                     psd,
                     signal_threshold_db=threshold,
                     crop_half_width_hz=crop_half_width_hz,
+                    burst_use_wide_window=burst_use_wide_window,
                 )
                 vector = embedder.embed(fingerprint)
                 # "Latest wins" — drain stale items before inserting so the AI loop

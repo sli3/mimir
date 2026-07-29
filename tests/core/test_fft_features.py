@@ -28,6 +28,7 @@ from core.pipeline.features import (
     SIGNAL_THRESHOLD_DB,
     BURST_MARGIN_DB,
 )
+from dashboard.shared_state import BAND_PROFILES
 
 
 class TestComputePsd:
@@ -836,4 +837,186 @@ class TestBurstDetection:
         )
         for result in (main, empty, zero_crop):
             assert burst_keys.issubset(result.keys())
+
+
+class TestBurstWideWindow:
+    """Tests for Phase 46 wide-window burst metric (TD-45-2 FM false positive).
+
+    The narrow Phase 45 metric compares max-hold vs averaged power at the
+    single peak bin. An FM carrier sweeping across its channel visits every
+    bin in the crop window, so per-bin energy is intermittent even though the
+    transmission is continuous — the narrow tag can fire on FM. The
+    wide-window metric sums linear power across the whole crop window for
+    both traces, diluting the frequency-agile contrast while preserving the
+    contrast of a genuine time-bursty signal.
+    """
+
+    def _make_fm_scatter_psd(
+        self, num_chunks=100, peak_db=-50.0, noise_below_peak_db=22.0, n_hot=10,
+    ):
+        """Synthetic PSD modelling FM-style frequency-agile scattered energy.
+
+        DEVIATION FROM PHASE 46 SPEC (surfaced, not silent): the spec's
+        original parameters (noise_ratio=3.0, n_hot=100) are mathematically
+        incapable of reproducing the narrow false positive they are meant to
+        suppress. With noise only 4.77 dB below peak, the diluted hot bins
+        (peak - 20 dB) sit BELOW the noise bins in the averaged trace, so the
+        crop-masked argmax(psd_db) selects a noise bin and the narrow ratio
+        is 0.0 dB, not 20.0 dB (observed in the first verification run).
+        Worse, the two target numbers are mutually exclusive in this
+        two-level structure: narrow = 20 dB needs hot bins to dominate the
+        average (noise > 20 dB down), while wide suppression needs noise to
+        dominate the average sum (noise comparable to peak). The parameters
+        below keep the spec's scenario and assertions but make them
+        self-consistent: noise 22 dB below peak and 10 hot bins, so the hot
+        bins strictly dominate the averaged trace (narrow = 20.0 dB exactly)
+        while the noise bins dominate the wide averaged sum (wide = 8.84 dB).
+        """
+        nfft = 2048
+        freqs = np.linspace(98_000_000 - 1_000_000, 98_000_000 + 1_000_000, nfft)
+        center = 98_000_000
+        crop_mask = np.abs(freqs - center) <= 112_500
+        crop_indices = np.flatnonzero(crop_mask)
+        N_crop = len(crop_indices)
+
+        noise_db = peak_db - noise_below_peak_db
+
+        max_hold_db = np.full(nfft, noise_db)
+        psd_db = np.full(nfft, noise_db)
+
+        n_hot = min(n_hot, N_crop)
+        hot_bins = crop_indices[:n_hot]
+        max_hold_db[hot_bins] = peak_db
+        psd_db[hot_bins] = peak_db - 10 * np.log10(num_chunks)
+
+        return {
+            "frequencies_hz": freqs,
+            "psd_db": psd_db,
+            "psd_max_hold_db": max_hold_db,
+            "center_freq_hz": center,
+            "sample_rate_hz": 2_000_000,
+            "nfft": nfft,
+            "num_chunks": num_chunks,
+        }
+
+    def test_wide_window_suppresses_fm_style_scattered_energy(self):
+        """Wide-window ratio is diluted below the margin; narrow is not.
+
+        Expected maths for the default synthetic (N_crop = 230 bins):
+        - Narrow: peak_idx is one of the 10 hot bins (averaged -70 dB vs
+          noise -72 dB): burst_ratio_db = 20.0 dB (= 10*log10(100 chunks)).
+        - Wide: max-hold sum = 10*peak + 220*(peak/158.5) = 11.39*peak;
+          averaged sum = 0.1*peak + 1.39*peak = 1.49*peak; ratio = 8.84 dB.
+        - expected_noise at 100 chunks: 7.14 dB.
+        - Wide excess = 8.84 - 7.14 = 1.70 < 6.0 -> is_burst = False.
+        - Narrow excess = 20.0 - 7.14 = 12.86 > 6.0 -> is_burst = True
+          (OLD behaviour, suppressed by NEW).
+        """
+        psd = self._make_fm_scatter_psd()
+        narrow = fingerprint_spectrum(psd, crop_half_width_hz=112_500)
+        wide = fingerprint_spectrum(
+            psd, crop_half_width_hz=112_500, burst_use_wide_window=True,
+        )
+        assert wide["is_burst"] is False
+        assert wide["burst_ratio_db"] < 20.0
+        assert narrow["burst_ratio_db"] == pytest.approx(20.0, abs=0.01)
+        # Prove the suppressed baseline existed — narrow would have flagged.
+        assert narrow["is_burst"] is True
+
+    def test_wide_window_preserves_genuine_burst(self):
+        """A genuine 50-bin burst at 1% duty cycle still trips the wide tag."""
+        nfft = 2048
+        freqs = np.linspace(98_000_000 - 1_000_000, 98_000_000 + 1_000_000, nfft)
+        center = 98_000_000
+        crop_mask = np.abs(freqs - center) <= 112_500
+        crop_indices = np.flatnonzero(crop_mask)
+        N_crop = len(crop_indices)
+
+        peak_db = -50.0
+        num_chunks = 100
+        peak_lin = 10.0 ** (peak_db / 10.0)
+        noise_db = peak_db - 20.0
+        noise_lin = 10.0 ** (noise_db / 10.0)
+
+        max_hold_db = np.full(nfft, noise_db)
+        psd_db = np.full(nfft, noise_db)
+
+        n_burst = min(50, N_crop)
+        burst_bins = crop_indices[:n_burst]
+        max_hold_db[burst_bins] = peak_db
+        psd_db[burst_bins] = peak_db - 10 * np.log10(num_chunks)
+
+        psd = {
+            "frequencies_hz": freqs,
+            "psd_db": psd_db,
+            "psd_max_hold_db": max_hold_db,
+            "center_freq_hz": center,
+            "sample_rate_hz": 2_000_000,
+            "nfft": nfft,
+            "num_chunks": num_chunks,
+        }
+        result = fingerprint_spectrum(
+            psd, crop_half_width_hz=112_500,
+            burst_use_wide_window=True,
+        )
+        # Wide ratio: sum(max_hold_lin) / sum(avg_lin)
+        #   max_hold_lin sum: 50 bins at peak_lin + 180 bins at noise_lin = 50*P + 180*(P/100) = 51.8*P
+        #   avg_lin sum:      50 bins at P/100 (1% duty) + 180 bins at P/100 (noise)
+        #                   = 0.5*P + 1.8*P = 2.3*P  (both terms in P/100 units; 50/100 + 180 = 230 P/100)
+        #   ratio = 51.8 / 2.3 = 22.52 = 13.53 dB
+        #   expected_noise at 100 chunks: 7.14 dB
+        #   excess: 13.53 - 7.14 = 6.39 > 6.0, is_burst = True
+        assert result["is_burst"] is True
+        assert result["burst_excess_db"] > BURST_MARGIN_DB
+
+    def test_wide_window_flag_off_matches_narrow(self):
+        """Default and explicit-False calls are identical; True diverges."""
+        psd = self._make_fm_scatter_psd()
+        # No kwarg — default False
+        default = fingerprint_spectrum(psd, crop_half_width_hz=112_500)
+        # Explicit False — must equal default
+        explicit_false = fingerprint_spectrum(
+            psd, crop_half_width_hz=112_500,
+            burst_use_wide_window=False,
+        )
+        assert default == explicit_false
+        # OLD Phase 45 behaviour for this input: narrow ≈ 20.0 dB, is_burst = True
+        assert default["burst_ratio_db"] == pytest.approx(20.0, abs=0.5)
+        assert default["is_burst"] is True
+        # NEW behaviour with the flag on: lower, is_burst = False
+        explicit_true = fingerprint_spectrum(
+            psd, crop_half_width_hz=112_500,
+            burst_use_wide_window=True,
+        )
+        assert explicit_true["burst_ratio_db"] < default["burst_ratio_db"]
+        assert explicit_true["is_burst"] is False
+
+    def test_only_fm_broadcast_has_wide_window_flag(self):
+        """fm_broadcast is the only BAND_PROFILES entry opting in."""
+        for band_key, band in BAND_PROFILES.items():
+            flag = band.get("burst_use_wide_window", False)
+            if band_key == "fm_broadcast":
+                assert flag is True, (
+                    f"{band_key} should have burst_use_wide_window=True, got {flag!r}"
+                )
+            else:
+                assert flag is False, (
+                    f"{band_key} should NOT have burst_use_wide_window enabled, got {flag!r}"
+                )
+
+    def test_fingerprint_spectrum_default_kwarg_matches_phase45(self):
+        """Default-False wiring on a real compute_psd() output is inert."""
+        nfft = 2048
+        num_chunks = 16
+        rng = np.random.default_rng(seed=42)
+        samples = (
+            (rng.standard_normal(nfft * num_chunks)).astype(np.float32)
+            + 1j * (rng.standard_normal(nfft * num_chunks)).astype(np.float32)
+        )
+        psd = compute_psd(samples, 2_000_000, 98_000_000, nfft)
+        result_no_flag = fingerprint_spectrum(psd, crop_half_width_hz=112_500)
+        result_explicit_false = fingerprint_spectrum(
+            psd, crop_half_width_hz=112_500, burst_use_wide_window=False,
+        )
+        assert result_no_flag == result_explicit_false
 
