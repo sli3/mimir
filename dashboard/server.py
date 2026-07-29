@@ -238,7 +238,9 @@ def start_server(host: str, port: int, device=None, scanner=None):
         result plus fingerprint-derived fields such as peak power, SNR, and
         per-band thresholds. Since Phase 32, also includes a ``source`` field
         set to ``"fingerprint"`` to distinguish LLM-classified scans from
-        decoder-driven ones (see :func:`emit_adsb_scan_result`).
+        decoder-driven ones (see :func:`emit_adsb_scan_result`). Since Phase 45,
+        includes burst-detection fields (burst_ratio_db, expected_noise_ratio_db,
+        burst_excess_db, is_burst) computed by the per-bin max-hold ratio method.
 
         Args:
             scan_result: The ScanResult dataclass instance to broadcast.
@@ -414,6 +416,12 @@ def emit_adsb_scan_result(msg: AdsbMessage) -> None:
      source). The dashboard uses this field to dim the confidence bar when
      there is no real signal.
 
+    Burst-detection fields (burst_ratio_db, expected_noise_ratio_db,
+    burst_excess_db, is_burst) are always None on the decode path because
+    the decoder produces no fingerprint. They are included only for payload
+    shape parity with broadcast() — the frontend does not need to special-case
+    missing keys.
+
     NOTE: In busy airspace, ADS-B traffic can produce a high rate of decoded
     frames (potentially dozens per second). Each decode emits a separate
     scan_result event. If this floods Signal History or the AI Reasoning
@@ -447,6 +455,10 @@ def emit_adsb_scan_result(msg: AdsbMessage) -> None:
         # path because the decoder does not produce a fingerprint —
         # included so the payload SHAPE matches broadcast() and the
         # frontend does not have to special-case missing keys.
+        # TODO(tech-debt TD-45-3): If future decoders produce fingerprints,
+        # this parity pattern creates a contract divergence risk where the
+        # decoder path must remember to include all fingerprint fields.
+        # Consider a shared payload constructor or schema to avoid drift.
         'burst_ratio_db': None,
         'expected_noise_ratio_db': None,
         'burst_excess_db': None,

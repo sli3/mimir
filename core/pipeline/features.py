@@ -22,6 +22,9 @@ NOISE_FLOOR_PERCENTILE: float = 10.0
 # 8.73 dB — an excess of 0.25 dB, i.e. no burst. With the 6.0 dB margin this
 # is correctly suppressed. Continuous signals (FM and other continuous
 # carriers) stay well below the margin.
+# TODO(tech-debt TD-45-1): This margin sets a conservative duty-cycle ceiling of
+# ~3.4% at 976 chunks, which may suppress the tag on heavy multi-aircraft ADS-B
+# traffic. Not yet validated against real ADS-B.
 BURST_MARGIN_DB: float = 6.0
 
 # Minimum SNR above the noise floor for a bin to be considered a signal.
@@ -225,6 +228,9 @@ def fingerprint_spectrum(
         expected_noise_ratio_db = float(
             10 * np.log10(np.log(num_chunks) + 0.5772)
         )
+        # TODO(tech-debt TD-45-1): This margin sets a conservative duty-cycle ceiling of
+        # ~3.4% at 976 chunks, which may suppress the tag on heavy multi-aircraft ADS-B
+        # traffic. Not yet validated against real ADS-B.
         is_burst = bool(burst_ratio_db - expected_noise_ratio_db > BURST_MARGIN_DB)
     burst_excess_db = float(burst_ratio_db - expected_noise_ratio_db)
 
