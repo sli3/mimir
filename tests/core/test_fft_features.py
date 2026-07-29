@@ -15,6 +15,7 @@ IMPORTANT: These tests use synthetic samples only — no hardware required.
 
 import sys
 import os
+import logging
 
 import numpy as np
 import pytest
@@ -22,7 +23,11 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from core.pipeline.fft import compute_psd
-from core.pipeline.features import fingerprint_spectrum, SIGNAL_THRESHOLD_DB
+from core.pipeline.features import (
+    fingerprint_spectrum,
+    SIGNAL_THRESHOLD_DB,
+    BURST_MARGIN_DB,
+)
 
 
 class TestComputePsd:
@@ -239,12 +244,14 @@ class TestFingerprintSpectrum:
         )
 
     def test_output_keys_present(self, fm_psd):
-        """Result dict contains all 11 required keys."""
+        """Result dict contains all 15 required keys."""
         result = fingerprint_spectrum(fm_psd)
         expected_keys = {
             "center_freq_hz", "peak_freq_hz", "peak_power_db", "noise_floor_db",
             "snr_db", "bandwidth_hz", "occupied_bins", "spectral_flatness",
             "signal_threshold_db", "snr_margin_db", "peak_bin_power_db",
+            "burst_ratio_db", "expected_noise_ratio_db", "burst_excess_db",
+            "is_burst",
         }
         assert set(result.keys()) == expected_keys
 
@@ -295,6 +302,10 @@ class TestFingerprintSpectrum:
         assert result["signal_threshold_db"] == SIGNAL_THRESHOLD_DB
         assert result["snr_margin_db"] == 0.0
         assert result["peak_bin_power_db"] == 0.0
+        assert result["burst_ratio_db"] == 0.0
+        assert result["expected_noise_ratio_db"] == 0.0
+        assert result["burst_excess_db"] == 0.0
+        assert result["is_burst"] is False
 
     def test_spectral_flatness_is_float_between_zero_and_one(self, fm_psd):
         """spectral_flatness must be a float in [0.0, 1.0]."""
@@ -583,6 +594,10 @@ class TestFingerprintSpectrum:
         assert result["occupied_bins"] == 0
         assert result["bandwidth_hz"] == 0.0
         assert result["peak_power_db"] == 0.0
+        assert result["burst_ratio_db"] == 0.0
+        assert result["expected_noise_ratio_db"] == 0.0
+        assert result["burst_excess_db"] == 0.0
+        assert result["is_burst"] is False
 
     def test_crop_narrows_bandwidth_hz(self, two_signal_psd):
         """Cropping must produce bandwidth_hz <= full-span bandwidth_hz,
@@ -591,4 +606,234 @@ class TestFingerprintSpectrum:
         result_crop = fingerprint_spectrum(two_signal_psd, crop_half_width_hz=200_000)
         assert result_crop["bandwidth_hz"] <= result_full["bandwidth_hz"]
         assert result_crop["bandwidth_hz"] < result_full["bandwidth_hz"]
+
+
+class TestBurstDetection:
+    """Tests for Phase 45 burst-detection metric (per-bin max-hold ratio)."""
+
+    NFFT = 2048
+    SAMPLE_RATE = 2_000_000
+    CENTER_FREQ = 98_000_000
+
+    def _complex_noise(self, num_samples, seed=42, amplitude=1.0):
+        """Complex Gaussian noise samples with a reproducible generator."""
+        rng = np.random.default_rng(seed=seed)
+        return (
+            (rng.standard_normal(num_samples) * amplitude).astype(np.float32)
+            + 1j * (rng.standard_normal(num_samples) * amplitude).astype(np.float32)
+        )
+
+    # T1 — Pure-noise regression: the defining test for the redesign.
+    def test_t1_pure_noise_not_flagged_as_burst(self):
+        """Pure Gaussian noise over >= 900 chunks must NOT be flagged as a burst."""
+        num_samples = self.NFFT * 976
+        samples = self._complex_noise(num_samples, seed=42)
+        psd = compute_psd(samples, self.SAMPLE_RATE, self.CENTER_FREQ, self.NFFT)
+        assert psd["num_chunks"] >= 900
+        result = fingerprint_spectrum(psd)
+        assert result["is_burst"] is False
+
+    # T2 — Chunk-count independence.
+    def test_t2_chunk_count_independence(self):
+        """Pure noise is never flagged, at low, medium and high chunk counts."""
+        for num_chunks in (16, 128, 976):
+            samples = self._complex_noise(self.NFFT * num_chunks, seed=42)
+            psd = compute_psd(samples, self.SAMPLE_RATE, self.CENTER_FREQ, self.NFFT)
+            result = fingerprint_spectrum(psd)
+            assert result["is_burst"] is False, (
+                f"false burst positive at num_chunks={num_chunks}"
+            )
+
+    # T3 — Formula correctness on a deterministic synthetic PSD dict.
+    def test_t3_expected_noise_ratio_formula(self):
+        """expected_noise_ratio_db equals 10*log10(ln(num_chunks) + 0.5772)."""
+        num_chunks = 976
+        psd_db = np.full(self.NFFT, -70.0)
+        max_hold = psd_db.copy()
+        peak_idx = 1024
+        psd_db[peak_idx] = -65.0    # deterministic peak in the averaged trace
+        max_hold[peak_idx] = -55.0  # burst_ratio_db will be exactly 10.0 dB
+        psd_result = {
+            "frequencies_hz": np.linspace(98e6 - 1e6, 98e6 + 1e6, self.NFFT),
+            "psd_db": psd_db,
+            "psd_max_hold_db": max_hold,
+            "center_freq_hz": 98e6,
+            "sample_rate_hz": 2e6,
+            "nfft": self.NFFT,
+            "num_chunks": num_chunks,
+        }
+        result = fingerprint_spectrum(psd_result)
+        expected = 10 * np.log10(np.log(num_chunks) + 0.5772)
+        assert abs(result["expected_noise_ratio_db"] - expected) < 1e-9
+        assert result["burst_ratio_db"] == pytest.approx(10.0)
+
+    # T4 — Genuine burst still detected.
+    def test_t4_genuine_burst_detected(self):
+        """A strong tone present in only ~2% of chunks is flagged as a burst.
+
+        The injected tone dominates the per-bin max-hold but is diluted by the
+        duty cycle in the averaged trace (~17 dB gap at 2% duty), well beyond
+        the ~7.1 dB expected noise ratio at 100 chunks plus the 6 dB margin.
+        """
+        num_chunks = 100
+        num_samples = self.NFFT * num_chunks
+        samples = self._complex_noise(num_samples, seed=7, amplitude=0.05)
+        for chunk in (17, 68):
+            t = np.arange(self.NFFT)
+            tone = (
+                np.exp(1j * 2 * np.pi * 10 * t / self.NFFT).astype(np.complex64) * 0.5
+            )
+            samples[chunk * self.NFFT : (chunk + 1) * self.NFFT] += tone
+        psd = compute_psd(samples, self.SAMPLE_RATE, self.CENTER_FREQ, self.NFFT)
+        result = fingerprint_spectrum(psd)
+        assert result["is_burst"] is True
+        assert result["burst_excess_db"] > BURST_MARGIN_DB
+
+    # T5 — Continuous signal NOT flagged.
+    def test_t5_continuous_signal_not_flagged(self):
+        """A tone present in ALL chunks is not a burst (max-hold ~= average)."""
+        num_chunks = 100
+        num_samples = self.NFFT * num_chunks
+        t = np.arange(num_samples)
+        tone = np.exp(1j * 2 * np.pi * 10 * t / self.NFFT).astype(np.complex64) * 0.5
+        samples = tone + self._complex_noise(num_samples, seed=7, amplitude=0.05)
+        psd = compute_psd(samples, self.SAMPLE_RATE, self.CENTER_FREQ, self.NFFT)
+        result = fingerprint_spectrum(psd)
+        assert result["is_burst"] is False
+        assert result["burst_ratio_db"] < BURST_MARGIN_DB
+
+    # T6 — num_chunks guards.
+    def test_t6_num_chunks_guards(self):
+        """Missing or single num_chunks never raises and never flags a burst."""
+        psd_db = np.full(self.NFFT, -70.0)
+        max_hold = psd_db.copy()
+        psd_db[512] = -65.0
+        max_hold[512] = -40.0  # 25 dB gap — would flag if the guard failed
+        base = {
+            "frequencies_hz": np.linspace(97e6, 99e6, self.NFFT),
+            "psd_db": psd_db,
+            "psd_max_hold_db": max_hold,
+            "center_freq_hz": 98e6,
+            "sample_rate_hz": 2e6,
+            "nfft": self.NFFT,
+        }
+        # No num_chunks key at all — falls back to 1, no crash, no burst.
+        result_missing = fingerprint_spectrum(base)
+        assert result_missing["is_burst"] is False
+        # Explicit num_chunks=1 — expected ratio forced to 0.0, no burst.
+        result_single = fingerprint_spectrum({**base, "num_chunks": 1})
+        assert result_single["expected_noise_ratio_db"] == 0.0
+        assert result_single["is_burst"] is False
+
+    # T7 — psd_max_hold_db guards.
+    def test_t7_psd_max_hold_guards(self, caplog):
+        """Absent or length-mismatched psd_max_hold_db falls back safely."""
+        freqs = np.linspace(97e6, 99e6, self.NFFT)
+        psd_db = np.full(self.NFFT, -70.0)
+        psd_db[512] = -65.0
+        base = {
+            "frequencies_hz": freqs,
+            "psd_db": psd_db,
+            "center_freq_hz": 98e6,
+            "sample_rate_hz": 2e6,
+            "nfft": self.NFFT,
+            "num_chunks": 976,
+        }
+        # Key absent entirely — ratio 0.0, no burst, no exception.
+        result_absent = fingerprint_spectrum(base)
+        assert result_absent["burst_ratio_db"] == 0.0
+        assert result_absent["is_burst"] is False
+        # Wrong length — same fallback, plus a warning is logged.
+        bad = {**base, "psd_max_hold_db": np.full(1024, -30.0)}
+        with caplog.at_level(logging.WARNING, logger="core.pipeline.features"):
+            result_bad = fingerprint_spectrum(bad)
+        assert result_bad["burst_ratio_db"] == 0.0
+        assert result_bad["is_burst"] is False
+        assert any(
+            "psd_max_hold_db" in record.message for record in caplog.records
+        )
+
+    # T8 — Early-return key coverage.
+    def test_t8_early_return_paths_emit_burst_keys(self):
+        """Both zeroed-fingerprint branches emit the 4 new keys with defaults."""
+        empty_psd = {
+            "frequencies_hz": np.array([]),
+            "psd_db": np.array([]),
+            "center_freq_hz": 98_000_000,
+            "sample_rate_hz": 2_000_000,
+            "nfft": 2048,
+        }
+        zero_crop_psd = {
+            "frequencies_hz": np.linspace(97e6, 99e6, 4),
+            "psd_db": np.full(4, -80.0),
+            "center_freq_hz": 100_000_000,  # outside the span -> zero-bin crop
+            "sample_rate_hz": 2_000_000,
+            "nfft": 4,
+        }
+        results = [
+            fingerprint_spectrum(empty_psd),
+            fingerprint_spectrum(zero_crop_psd, crop_half_width_hz=12_500),
+        ]
+        for result in results:
+            assert result["burst_ratio_db"] == 0.0
+            assert result["expected_noise_ratio_db"] == 0.0
+            assert result["burst_excess_db"] == 0.0
+            assert result["is_burst"] is False
+
+    # T9 — peak_bin_power_db backwards compatibility.
+    def test_t9_peak_bin_power_db_unchanged(self):
+        """peak_bin_power_db keeps its old meaning: chunk_peak_db passthrough."""
+        num_chunks = 4
+        num_samples = self.NFFT * num_chunks
+        t = np.arange(num_samples)
+        strong_tone = (
+            np.exp(1j * 2 * np.pi * 10 * t[: self.NFFT] / self.NFFT).astype(np.complex64)
+            * 0.1
+        )
+        noise_chunks = self._complex_noise(
+            num_samples - self.NFFT, seed=42, amplitude=0.001
+        )
+        samples = np.concatenate([strong_tone, noise_chunks])
+        psd = compute_psd(samples, self.SAMPLE_RATE, self.CENTER_FREQ, self.NFFT)
+        result = fingerprint_spectrum(psd)
+        assert result["peak_bin_power_db"] >= result["peak_power_db"]
+        # Explicit invariance: value is exactly the chunk_peak_db computed by fft.py.
+        assert result["peak_bin_power_db"] == psd["chunk_peak_db"]
+
+    # T10 — Meta-check: every return path emits the full key set.
+    def test_t10_all_return_paths_emit_full_key_set(self):
+        """Main path, empty early return and zero-crop early return all agree."""
+        burst_keys = {
+            "burst_ratio_db", "expected_noise_ratio_db", "burst_excess_db",
+            "is_burst",
+        }
+        main = fingerprint_spectrum(
+            compute_psd(
+                self._complex_noise(self.NFFT * 8, seed=42),
+                self.SAMPLE_RATE,
+                self.CENTER_FREQ,
+                self.NFFT,
+            )
+        )
+        empty = fingerprint_spectrum(
+            {
+                "frequencies_hz": np.array([]),
+                "psd_db": np.array([]),
+                "center_freq_hz": 98_000_000,
+                "sample_rate_hz": 2_000_000,
+                "nfft": 2048,
+            }
+        )
+        zero_crop = fingerprint_spectrum(
+            {
+                "frequencies_hz": np.linspace(97e6, 99e6, 4),
+                "psd_db": np.full(4, -80.0),
+                "center_freq_hz": 100_000_000,
+                "sample_rate_hz": 2_000_000,
+                "nfft": 4,
+            },
+            crop_half_width_hz=12_500,
+        )
+        for result in (main, empty, zero_crop):
+            assert burst_keys.issubset(result.keys())
 

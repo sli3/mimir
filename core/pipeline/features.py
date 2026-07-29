@@ -12,11 +12,17 @@ import numpy as np
 # Percentile used to estimate the noise floor from the PSD
 NOISE_FLOOR_PERCENTILE: float = 10.0
 
-# Gap threshold for detecting pulsed or burst signals.
-# A gap >= 10 dB between single-chunk peak and averaged peak indicates a
-# pulsed or burst signal (e.g. ADS-B). Continuous signals (FM, APRS, AIS)
-# will show near-zero gap.
-PEAK_BURST_MARGIN_DB: float = 10.0
+# Burst-detection margin (Phase 45). This is the measured margin above the
+# statistical noise floor of the per-bin max-hold ratio (max-hold power minus
+# averaged power at the peak bin, in dB). For pure Gaussian noise the expected
+# ratio over N chunks is 10*log10(ln(N) + 0.5772) — only an excess beyond this
+# margin is flagged as a genuine burst.
+# Validation: 127 MHz aviation band capture, 2026-07. At 976 chunks the
+# measured burst_ratio_db was 8.97 dB against an expected_noise_ratio_db of
+# 8.73 dB — an excess of 0.25 dB, i.e. no burst. With the 6.0 dB margin this
+# is correctly suppressed. Continuous signals (FM and other continuous
+# carriers) stay well below the margin.
+BURST_MARGIN_DB: float = 6.0
 
 # Minimum SNR above the noise floor for a bin to be considered a signal.
 # Calibrated value. Hardware: HackRF One + telescopic whip SMA antenna
@@ -37,7 +43,7 @@ def fingerprint_spectrum(
     signal_threshold_db: float | None = None,
     trace_key: str = 'psd_db',
     crop_half_width_hz: float | None = None,
-) -> dict[str, float | int]:
+) -> dict[str, float | int | bool]:
     """
     Extract spectral fingerprint features from a PSD result dictionary.
 
@@ -89,9 +95,23 @@ def fingerprint_spectrum(
           - signal_threshold_db: The effective threshold used for this fingerprint
           - snr_margin_db: SNR minus the effective threshold (positive = above threshold)
           - peak_bin_power_db: Maximum peak power seen in any single FFT chunk before
-                              averaging, in dBFS. For continuous signals this approximates
-                              peak_power_db. For pulsed signals it will be significantly
-                              higher (gap >= PEAK_BURST_MARGIN_DB indicates bursty signal).
+                               averaging, in dBFS. For continuous signals this approximates
+                               peak_power_db. For pulsed signals it will be significantly
+                               higher. Retained unchanged for backwards compatibility with
+                               downstream consumers — only the burst DECISION has moved to
+                               the new keys below (Phase 45).
+          - burst_ratio_db: psd_max_hold_db[peak_idx] - psd_db[peak_idx] at the peak bin,
+                            in dB. For pure noise this approximates the statistical
+                            max-over-chunks gap; a genuine burst sits far above it.
+          - expected_noise_ratio_db: Statistical expectation of burst_ratio_db for pure
+                            Gaussian noise over num_chunks chunks:
+                            10*log10(ln(num_chunks) + 0.5772), where 0.5772 is the
+                            Euler-Mascheroni constant. 0.0 when num_chunks < 2 (a single
+                            chunk has no max-hold meaning).
+          - burst_excess_db: burst_ratio_db - expected_noise_ratio_db. Positive values
+                            indicate more max-hold excursion than noise alone explains.
+          - is_burst: True only when burst_excess_db > BURST_MARGIN_DB. Always False
+                            when num_chunks < 2 or psd_max_hold_db is unavailable.
     """
     psd_db = psd_result[trace_key]
 
@@ -117,6 +137,10 @@ def fingerprint_spectrum(
             "signal_threshold_db": float(effective_threshold),
             "snr_margin_db": 0.0,
             "peak_bin_power_db": 0.0,
+            "burst_ratio_db": 0.0,
+            "expected_noise_ratio_db": 0.0,
+            "burst_excess_db": 0.0,
+            "is_burst": False,
         }
 
     frequencies_hz = psd_result["frequencies_hz"]
@@ -151,6 +175,10 @@ def fingerprint_spectrum(
                 "signal_threshold_db": float(effective_threshold),
                 "snr_margin_db": 0.0,
                 "peak_bin_power_db": 0.0,
+                "burst_ratio_db": 0.0,
+                "expected_noise_ratio_db": 0.0,
+                "burst_excess_db": 0.0,
+                "is_burst": False,
             }
 
     # Peak bin (cropped if crop_mask is set, else full-span)
@@ -167,6 +195,38 @@ def fingerprint_spectrum(
     # Peak bin power from single chunk before averaging — fallback to peak_power_db
     # if key absent (for backwards compatibility with synthetic PSD dicts in tests)
     chunk_peak_db = float(psd_result.get("chunk_peak_db", peak_power_db))
+
+    # Burst detection (Phase 45) — per-bin max-hold ratio at the peak bin.
+    # The measured gap between max-hold and averaged power at the peak bin is
+    # compared against the statistically expected gap for pure Gaussian noise
+    # over num_chunks chunks (10*log10(ln(N) + 0.5772), the extreme-value
+    # expectation for exponential noise powers). Only an excess beyond
+    # BURST_MARGIN_DB counts as a genuine burst. This replaces the previous
+    # single-chunk extreme vs averaged mean comparison, which produced a
+    # positive gap on pure noise that grew with num_chunks.
+    max_hold_db = psd_result.get("psd_max_hold_db", psd_db)
+    if len(max_hold_db) != len(psd_db):
+        logger.warning(
+            "psd_max_hold_db length (%d) does not match psd_db length (%d) "
+            "— falling back to averaged trace for burst ratio",
+            len(max_hold_db),
+            len(psd_db),
+        )
+        max_hold_db = psd_db
+    burst_ratio_db = float(max_hold_db[peak_idx] - psd_db[peak_idx])
+
+    # num_chunks guards: missing falls back to 1; a single chunk has no
+    # max-hold meaning, and the guard also prevents log of zero or negative.
+    num_chunks = int(psd_result.get("num_chunks", 1))
+    if num_chunks < 2:
+        expected_noise_ratio_db = 0.0
+        is_burst = False
+    else:
+        expected_noise_ratio_db = float(
+            10 * np.log10(np.log(num_chunks) + 0.5772)
+        )
+        is_burst = bool(burst_ratio_db - expected_noise_ratio_db > BURST_MARGIN_DB)
+    burst_excess_db = float(burst_ratio_db - expected_noise_ratio_db)
 
     # Noise floor — 10th percentile of all psd_db values
     noise_floor_db = float(np.percentile(psd_db, NOISE_FLOOR_PERCENTILE))
@@ -221,4 +281,8 @@ def fingerprint_spectrum(
         "signal_threshold_db": float(effective_threshold),
         "snr_margin_db": snr_margin_db,
         "peak_bin_power_db": chunk_peak_db,
+        "burst_ratio_db": burst_ratio_db,
+        "expected_noise_ratio_db": expected_noise_ratio_db,
+        "burst_excess_db": burst_excess_db,
+        "is_burst": is_burst,
     }

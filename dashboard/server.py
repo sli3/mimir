@@ -261,6 +261,13 @@ def start_server(host: str, port: int, device=None, scanner=None):
             # Fingerprint fields — added in Phase 10-Fix2
             "peak_power_db": fp.get("peak_power_db"),
             "peak_bin_power_db": fp.get("peak_bin_power_db"),
+            # Phase 45 burst-detection fields (per-bin max-hold ratio). The
+            # frontend does not read these yet; they flow through now so the
+            # payload is ready when the frontend is migrated in a follow-up.
+            "burst_ratio_db": fp.get("burst_ratio_db"),
+            "expected_noise_ratio_db": fp.get("expected_noise_ratio_db"),
+            "burst_excess_db": fp.get("burst_excess_db"),
+            "is_burst": fp.get("is_burst"),
             "snr_db": fp.get("snr_db"),
             # Per-band threshold fields — added in Phase 11
             "signal_threshold_db": fp.get("signal_threshold_db", 0.0),

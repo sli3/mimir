@@ -219,6 +219,54 @@ class TestFocusFrequencyFilter:
         assert event_name == "scan_result"
         assert payload.get("peak_bin_power_db") is None
 
+    def test_broadcast_includes_burst_fields(self):
+        """Given a fingerprint dict with the four Phase 45 burst fields populated, the emitted scan_result data dict contains each field with the correct value."""
+        broadcast = self._start_server_with_mocks()
+        fp = {
+            "peak_power_db": -70.0,
+            "snr_db": 12.0,
+            "signal_threshold_db": 10.0,
+            "snr_margin_db": 2.0,
+            "burst_ratio_db": 10.5,
+            "expected_noise_ratio_db": 8.7,
+            "burst_excess_db": 1.8,
+            "is_burst": False,
+        }
+        with (
+            patch("dashboard.server._focused_freq_hz", 100e6),
+            patch("dashboard.server.socketio.emit") as mock_emit,
+        ):
+            broadcast(self._make_scan_result(100e6, fp))
+        mock_emit.assert_called_once()
+        event_name, payload = mock_emit.call_args[0]
+        assert event_name == "scan_result"
+        assert payload.get("burst_ratio_db") == 10.5
+        assert payload.get("expected_noise_ratio_db") == 8.7
+        assert payload.get("burst_excess_db") == 1.8
+        assert payload.get("is_burst") is False
+
+    def test_broadcast_burst_fields_none_when_missing(self):
+        """Given a fingerprint dict without any burst fields, fp.get(...) returns None for each — confirm the emit does not raise and all four fields are present as None."""
+        broadcast = self._start_server_with_mocks()
+        fp = {
+            "peak_power_db": -70.0,
+            "snr_db": 12.0,
+            "signal_threshold_db": 10.0,
+            "snr_margin_db": 2.0,
+        }
+        with (
+            patch("dashboard.server._focused_freq_hz", 100e6),
+            patch("dashboard.server.socketio.emit") as mock_emit,
+        ):
+            broadcast(self._make_scan_result(100e6, fp))
+        mock_emit.assert_called_once()
+        event_name, payload = mock_emit.call_args[0]
+        assert event_name == "scan_result"
+        assert payload.get("burst_ratio_db") is None
+        assert payload.get("expected_noise_ratio_db") is None
+        assert payload.get("burst_excess_db") is None
+        assert payload.get("is_burst") is None
+
     def test_passes_all_when_focus_is_none(self):
         broadcast = self._start_server_with_mocks()
         with (
