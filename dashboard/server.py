@@ -262,8 +262,10 @@ def start_server(host: str, port: int, device=None, scanner=None):
             "peak_power_db": fp.get("peak_power_db"),
             "peak_bin_power_db": fp.get("peak_bin_power_db"),
             # Phase 45 burst-detection fields (per-bin max-hold ratio). The
-            # frontend does not read these yet; they flow through now so the
-            # payload is ready when the frontend is migrated in a follow-up.
+            # frontend consumes `is_burst` to drive the [PEAK] tag in
+            # SignalHistoryLog as of Phase 45b; the other three are emitted
+            # for forward-compatibility and dashboard tooling but not yet
+            # rendered.
             "burst_ratio_db": fp.get("burst_ratio_db"),
             "expected_noise_ratio_db": fp.get("expected_noise_ratio_db"),
             "burst_excess_db": fp.get("burst_excess_db"),
@@ -441,6 +443,14 @@ def emit_adsb_scan_result(msg: AdsbMessage) -> None:
         'peak_power_db': None,
         'snr_db': None,
         'peak_bin_power_db': None,
+        # Phase 45 burst-detection fields. Always None on the decoder
+        # path because the decoder does not produce a fingerprint —
+        # included so the payload SHAPE matches broadcast() and the
+        # frontend does not have to special-case missing keys.
+        'burst_ratio_db': None,
+        'expected_noise_ratio_db': None,
+        'burst_excess_db': None,
+        'is_burst': None,
         'signal_threshold_db': None,
         'snr_margin_db': None,
         'bandwidth_hz': None,

@@ -1,6 +1,7 @@
 import sys
 import os
 import time
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -567,6 +568,44 @@ class TestScanResultSourceProvenance:
         mock_emit.assert_called_once()
         data = mock_emit.call_args[0][1]
         assert data.get("source") == "decode"
+
+    def test_emit_adsb_scan_result_includes_burst_fields_as_none(self):
+        """Phase 45b: emit_adsb_scan_result() payload carries the four burst
+        fields, all None (decoder path has no fingerprint). Payload shape
+        matches broadcast() so frontend does not need to special-case
+        missing keys for the ADS-B decode path.
+        """
+        from dashboard.server import emit_adsb_scan_result
+        msg = AdsbMessage(
+            timestamp=datetime(2026, 7, 29, 12, 0, 0),
+            icao="7C1234",
+            callsign="TEST01",
+            altitude_ft=35000,
+            latitude=None,
+            longitude=None,
+            groundspeed=450,
+            track=90,
+            vertical_rate=0,
+            raw_hex="8D7C1234582056B0AF87F0000000",
+        )
+        with (
+            patch("dashboard.server._focused_freq_hz", None),
+            patch("dashboard.server.socketio.emit") as mock_emit,
+        ):
+            emit_adsb_scan_result(msg)
+        mock_emit.assert_called_once()
+        event_name, payload = mock_emit.call_args[0]
+        assert event_name == "scan_result"
+        # All four Phase 45 burst fields must be present in the payload,
+        # all None on the decoder path.
+        assert "burst_ratio_db" in payload
+        assert "expected_noise_ratio_db" in payload
+        assert "burst_excess_db" in payload
+        assert "is_burst" in payload
+        assert payload["burst_ratio_db"] is None
+        assert payload["expected_noise_ratio_db"] is None
+        assert payload["burst_excess_db"] is None
+        assert payload["is_burst"] is None
 
 
 class TestSystemStatsDeviceField:
