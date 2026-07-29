@@ -78,48 +78,100 @@ describe('SignalHistoryLog', () => {
     expect(onPin).toHaveBeenCalledWith(results[0])
   })
 
-  it('[PEAK] tag renders when burst gap meets threshold', () => {
+  it('F1: renders [PEAK] when is_burst is true', () => {
     const results = [
       {
         timestamp: 1000000000,
         center_freq_hz: 1090000000,
         signal_type: 'adsb',
         confidence_score: 0.95,
-        peak_bin_power_db: -50.0,
-        peak_power_db: -70.0,
+        is_burst: true,
       },
     ]
     const { container } = render(<SignalHistoryLog scanResults={results} />)
     expect(container.textContent).toContain('[PEAK]')
   })
 
-  it('[PEAK] tag is absent when gap is below threshold', () => {
+  it('F2: does NOT render [PEAK] when is_burst is false', () => {
     const results = [
       {
         timestamp: 1000000000,
         center_freq_hz: 98000000,
         signal_type: 'fm_broadcast',
         confidence_score: 0.95,
-        peak_bin_power_db: -65.0,
-        peak_power_db: -70.0,
+        is_burst: false,
       },
     ]
     const { container } = render(<SignalHistoryLog scanResults={results} />)
     expect(container.textContent).not.toContain('[PEAK]')
   })
 
-  it('[PEAK] tag is absent when peak_bin_power_db is null', () => {
+  it('F3: does NOT render [PEAK] when is_burst is absent entirely', () => {
     const results = [
       {
         timestamp: 1000000000,
         center_freq_hz: 98000000,
         signal_type: 'fm_broadcast',
         confidence_score: 0.95,
-        peak_bin_power_db: null,
-        peak_power_db: -70.0,
       },
     ]
     const { container } = render(<SignalHistoryLog scanResults={results} />)
     expect(container.textContent).not.toContain('[PEAK]')
+  })
+
+  it('F4: does NOT render [PEAK] when is_burst is null', () => {
+    const results = [
+      {
+        timestamp: 1000000000,
+        center_freq_hz: 98000000,
+        signal_type: 'fm_broadcast',
+        confidence_score: 0.95,
+        is_burst: null,
+      },
+    ]
+    const { container } = render(<SignalHistoryLog scanResults={results} />)
+    expect(container.textContent).not.toContain('[PEAK]')
+  })
+
+  it('F5 regression guard: old gap formula would fire, new check does not', () => {
+    // Old formula: (peak_bin_power_db - peak_power_db) >= 10
+    // Gap here is 20 dB — would have rendered [PEAK] under the old code.
+    // is_burst is false (backend's decision) — must NOT render [PEAK].
+    // This test fails if anyone re-introduces the local gap computation.
+    const results = [
+      {
+        timestamp: 1000000000,
+        center_freq_hz: 98000000,
+        signal_type: 'fm_broadcast',
+        confidence_score: 0.95,
+        peak_bin_power_db: -50.0,
+        peak_power_db: -70.0,
+        is_burst: false,
+      },
+    ]
+    const { container } = render(<SignalHistoryLog scanResults={results} />)
+    expect(container.textContent).not.toContain('[PEAK]')
+  })
+
+  it('F6: mixed list renders [PEAK] only on bursting subset', () => {
+    const results = [
+      { timestamp: 1000000004, center_freq_hz: 1090000000, signal_type: 'adsb', confidence_score: 0.95, is_burst: true },
+      { timestamp: 1000000003, center_freq_hz: 98000000, signal_type: 'fm_broadcast', confidence_score: 0.95, is_burst: false },
+      { timestamp: 1000000002, center_freq_hz: 145175000, signal_type: 'aprs', confidence_score: 0.95, is_burst: true },
+      { timestamp: 1000000001, center_freq_hz: 129125000, signal_type: 'acars', confidence_score: 0.95 },
+      { timestamp: 1000000000, center_freq_hz: 162000000, signal_type: 'ais', confidence_score: 0.95, is_burst: null },
+    ]
+    const { container } = render(<SignalHistoryLog scanResults={results} />)
+    // Count [PEAK] occurrences in the rendered text. Expect exactly 2:
+    // the ADS-B entry (is_burst: true) and the APRS entry (is_burst: true).
+    const text = container.textContent
+    const matches = text.match(/\[PEAK\]/g) || []
+    expect(matches.length).toBe(2)
+    // Sanity: every entry's other fields still render.
+    expect(text).toContain('adsb')
+    expect(text).toContain('fm_broadcast')
+    expect(text).toContain('aprs')
+    expect(text).toContain('acars')
+    expect(text).toContain('ais')
   })
 })

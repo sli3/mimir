@@ -11,9 +11,6 @@ const FREQ_COLOUR_MAP = {
   1090000000: '--neon-magenta',
 }
 
-/** Threshold for detecting pulsed or burst signals via peak gap. */
-const PEAK_BURST_MARGIN_DB = 10
-
 function formatTime(ts) {
   if (!ts) return '--:--:--'
   const d = new Date(ts)
@@ -61,9 +58,7 @@ const SignalHistoryLog = React.memo(function SignalHistoryLog({ scanResults, onP
           const colourVar = FREQ_COLOUR_MAP[entry.center_freq_hz] || '--neon-white'
           const colour = `var(${colourVar})`
           const isPinned = entry.timestamp === pinnedTimestamp
-          const isPeakBurst = entry.peak_bin_power_db != null
-            && entry.peak_power_db != null
-            && (entry.peak_bin_power_db - entry.peak_power_db) >= PEAK_BURST_MARGIN_DB
+          const isPeakBurst = entry.is_burst === true
           const signalTypeColour = entry.signal_type === 'llm_offline'
             ? 'var(--neon-amber)'
             : 'var(--text-bright)'
