@@ -89,6 +89,7 @@
 | 42 | Per-device waterfall colour scaling — DEVICE_SCALE_PROFILES table (hackrf=30, plutosdr=15, _default=0 dB) + exported `selectDeviceProfile` and `computeScaleWindow` helpers | ✅ Complete | 855 (652 pytest + 203 Vitest), 0 failures |
 | 43 | Per-frequency unchanged-verdict emission gate — `_emit_result()` early return when `(freq, signal_type)` unchanged within `unchanged_emit_interval_sec`; optional config key `scanner.unchanged_emit_interval_sec` (default 5.0); uses `time.monotonic()` | ✅ Complete | 865 (662 pytest + 203 Vitest), 0 failures |
 | 44 | Retune settle reordering and post-retune discard read — `retune_settle_sec: float = 0.25` constructor kwarg, settle moved from post-activate to pre-activate in both `set_center_frequency` and `open()` for both device classes; one throwaway discard read in scanner._scan_loop after each retune | ✅ Complete | 877 (674 pytest + 203 Vitest), 0 failures |
+| 45 | Burst-detection metric redesign (covers Phase 45 backend + Phase 45b frontend and ADS-B path) — new per-bin max-hold ratio metric in `fingerprint_spectrum()` (BURST_MARGIN_DB = 6.0, is_burst, burst_ratio_db, expected_noise_ratio_db, burst_excess_db); `emit_adsb_scan_result()` now carries the four burst fields as None; `SignalHistoryLog.jsx` deleted the local PEAK_BURST_MARGIN_DB constant and gap computation, now reads `entry.is_burst === true`. [PEAK] no longer fires on dead-spectrum noise; live test on HackRF One. | ✅ Complete | 893 (687 pytest + 206 Vitest), 0 failures |
 
 ---
 
@@ -2049,6 +2050,35 @@ No phase tracker entry required. This is a targeted bug fix within Phase 23 scop
 **Known follow-up (not this phase).** Four tech debt rows added to AGENTS.md: LOW-01 (HackRF open() device-handle leak), T7 test weakness, retune_settle_sec not yet a config key, suite runtime +2.8 s (advisory).
 
 **RF-Legal notes.** Receive-only. Jurisdiction: AU/SA, ACMA, Radiocommunications Act 1992 (Cth). All changes are passive RX-only hardware timing; no TX surfaces introduced or touched. Hardware verified on HackRF One.
+
+---
+
+### Phase 45 — Burst-detection metric redesign ✅
+
+**Type:** Backend change. Burst-detection metric replacement; frontend wiring.
+
+**What.** Replaced the old [PEAK] burst-detection metric (`chunk_peak_db` vs `peak_power_db`) with a new per-bin max-hold ratio in `fingerprint_spectrum()`. The new metric computes `burst_ratio_db = max_hold_db - average_db` per crop-masked bin, derives `expected_noise_ratio_db` from periodogram variance (white-noise model), and tags `is_burst=true` when the excess exceeds `BURST_MARGIN_DB = 6.0`. Four new fields are now in the fingerprint: `burst_ratio_db`, `expected_noise_ratio_db`, `burst_excess_db`, and `is_burst`. The Phase 45b follow-up wired these fields through the ADS-B decode path and the Signal History log: `emit_adsb_scan_result()` now emits the four burst fields as `None` for ADS-B squitters (mirroring the LLM-path shape), and `SignalHistoryLog.jsx` deleted the local `PEAK_BURST_MARGIN_DB = 10` constant and 3-line gap computation, replacing it with `const isPeakBurst = entry.is_burst === true`. The old [PEAK] tag no longer fires on dead-spectrum noise; the new tag correctly identifies synthetic injected bursts. Phase 45 tests cover T1–T10 (10 tests) in `tests/core/test_fft_features.py`; Phase 45b adds P1 in `tests/dashboard/test_server_stats.py` (broadcast burst fields) and F1–F6 (6 tests) in `dashboard/frontend/src/tests/SignalHistoryLog.test.jsx` (3 old gap tests removed, 6 new burst-rendering tests added). Live test on HackRF One confirmed [PEAK] suppression on dead bands and correct tagging on synthetic bursts.
+
+**Why.** The old [PEAK] metric was structurally unsound: (1) `chunk_peak_db` (full-span max over bins × chunks) vs `peak_power_db` (crop-masked) introduced crop asymmetry; (2) the gap was dominated by periodogram variance, so it fired on white noise and scaled with `num_chunks`; (3) with `trace_key='psd_max_hold_db'` the two operands converged, so the tag could never fire on ADS-B. The new per-bin max-hold ratio operates entirely within the crop-mask, is calibrated against periodogram variance, and correctly identifies bursts without false positives on white noise.
+
+**Files changed.**
+- `core/pipeline/features.py` — added `BURST_MARGIN_DB: float = 6.0` at line 25; added `burst_ratio_db`, `expected_noise_ratio_db`, `burst_excess_db`, `is_burst` keys to `fingerprint_spectrum()` return dict.
+- `dashboard/server.py` — `emit_adsb_scan_result()` now emits 4 burst fields (all `None`); stale comment updated.
+- `dashboard/frontend/src/components/SignalHistoryLog.jsx` — deleted local `PEAK_BURST_MARGIN_DB = 10` constant and 3-line gap computation, replaced with single `const isPeakBurst = entry.is_burst === true`.
+- `tests/core/test_fft_features.py` — TestBurstDetection class, T1–T10 at lines 611–839.
+- `tests/dashboard/test_server_stats.py` — new P1 at line 572.
+- `dashboard/frontend/src/tests/SignalHistoryLog.test.jsx` — 6 new F1–F6 tests, replacing 3 old ones.
+
+**Test counts.** 893 passing (687 pytest + 206 Vitest), 0 failures. Phase 45 added +12 pytest on the backend (10 T1–T10 in `tests/core/test_fft_features.py` plus 2 broadcast burst fields tests in `tests/dashboard/test_server_stats.py`); Phase 45b added +1 pytest (P1, the new `test_emit_adsb_scan_result_includes_burst_fields_as_none`) and +3 Vitest net (6 new F1–F6 in `dashboard/frontend/src/tests/SignalHistoryLog.test.jsx` minus 3 obsolete gap-formula tests). Total net +16 over Phase 44: +13 pytest, +3 Vitest.
+
+**Known follow-up (not this phase).**
+- TD-45-1: Burst metric duty-cycle ceiling (~3.4% at 976 chunks) — heavy multi-aircraft ADS-B traffic could push aggregate duty cycle above 3.4% and suppress the tag. Live-traffic session at 1090 MHz in Adelaide airspace.
+- TD-45-2: FM broadcast false-positive on [PEAK] — observed live at 98.306 MHz after Phase 45b; FM deviates the carrier by ±75 kHz, so energy at a single bin is intermittent; metric cannot distinguish "bursting" from "frequency-agile". Burst-metric follow-up phase.
+- TD-45-3: Payload-shape divergence risk between the two emit paths — `emit_adsb_scan_result()` hardcodes four burst fields as None; a future 5th field added to `broadcast()` but not mirrored would silently diverge. Future phase.
+- TD-45-4: No end-to-end test joining emit to render — P1 proves emit works, F1 proves component works; nothing tests the two together. Future phase.
+- TD-45-5: `useSocket.js` aiReasoning path omits the burst fields — benign today since AI panel does not render [PEAK], but contract is asymmetric. No action unless AI panel is extended.
+
+**RF-Legal notes.** Receive-only. Jurisdiction: AU/SA, ACMA, Radiocommunications Act 1992 (Cth). All changes are passive RX-only; no TX surfaces introduced or touched. Hardware verified on HackRF One.
 
 ---
 

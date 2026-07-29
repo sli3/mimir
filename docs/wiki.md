@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: "44"
+last_updated_phase: "45"
 ---
 
 # Mimir Wiki
@@ -77,6 +77,56 @@ Step  Function / Component          What it does
 ## Phase Log
 
 Phases are listed newest-first so the current phase is always at the top.
+
+---
+
+### Phase 45 — Burst-Detection Metric Redesign (Backend + UI) ✓ DONE
+
+**What:** Replaced the structurally unsound [PEAK] burst metric with a statistically grounded per-bin max-hold ratio method. The old metric compared full-span chunk-peak power against crop-masked peak power, which produced false positives on white noise and could never fire on max-hold traces (e.g. ADS-B). The new method measures the gap between max-hold and averaged power at the peak bin, compares it against the statistical expectation for pure Gaussian noise over N chunks, and flags a burst only when the excess exceeds `BURST_MARGIN_DB` (6.0 dB). This provides a deterministic burst decision that is independent of num_chunks scaling. The backend now emits four burst fields (burst_ratio_db, expected_noise_ratio_db, burst_excess_db, is_burst), and the frontend SignalHistoryLog reads `is_burst` directly instead of computing a local gap.
+
+**Changes:**
+
+1. **`core/pipeline/features.py`** — Added `BURST_MARGIN_DB: float = 6.0` constant (line 25). Replaced the obsolete `PEAK_BURST_MARGIN_DB` constant (removed). Added burst computation in `fingerprint_spectrum()` (lines 199-229): per-bin max-hold ratio at the peak bin, expected noise ratio for Gaussian noise (`10*log10(ln(N) + 0.5772)`), burst excess, and `is_burst` boolean decision. Added all four burst fields to the return dict (lines 103-114). Updated docstring to explain the new method and the conservative duty-cycle ceiling (~3.4% at 976 chunks). Added TODO comments (TD-45-1) noting the duty-cycle ceiling and FM broadcast false-positive risk.
+
+2. **`dashboard/server.py`** — Updated `broadcast()` to emit the four burst fields (lines 264-272). Updated `broadcast()` docstring to mention the burst fields. Updated `emit_adsb_scan_result()` to emit all four burst fields as `None` (lines 450-453) for payload shape parity with `broadcast()`. Updated `emit_adsb_scan_result()` docstring to explain why burst fields are None and added TODO comment (TD-45-3) about payload-shape contract divergence risk.
+
+3. **`dashboard/frontend/src/components/SignalHistoryLog.jsx`** — Removed local `PEAK_BURST_MARGIN_DB = 10` constant and 3-line gap computation (replaced with single `const isPeakBurst = entry.is_burst === true`). Updated component JSDoc to explain that [PEAK] is driven by backend's `is_burst` boolean with strict `=== true` semantics, and noted FM broadcast false-positive risk. Added TODO comment (TD-45-2) about FM broadcast false-positive limitation.
+
+4. **`tests/core/test_fft_features.py`** — Added `TestBurstDetection` class (line 611) with 10 tests (T1–T10): pure noise not flagged, chunk count independence, expected noise ratio formula, genuine burst detection, continuous signal not flagged, num_chunks guards, psd_max_hold guards, early return paths emit burst keys, peak_bin_power_db unchanged, and all return paths emit full key set.
+
+5. **`tests/dashboard/test_server_stats.py`** — Added `test_broadcast_includes_burst_fields` (line 223) and `test_broadcast_burst_fields_none_when_missing` (line 249) for Phase 45. Added `test_emit_adsb_scan_result_includes_burst_fields_as_none` (line 572) for Phase 45b. Also added `from datetime import datetime` import.
+
+6. **`dashboard/frontend/src/tests/SignalHistoryLog.test.jsx`** — Replaced 3 old [PEAK] tests with 6 new tests (F1–F6): F1 renders [PEAK] when `is_burst: true`; F2 suppresses it when `is_burst: false`; F3 suppresses it when the field is absent; F4 suppresses it when `is_burst: null`; F5 is the regression guard proving the old `peak_bin_power_db - peak_power_db >= 10` formula is gone (constructs a 20 dB gap that would have triggered the old code, with `is_burst: false`); F6 renders [PEAK] on exactly the bursting subset of a mixed list.
+
+**Why:** The old burst metric was structurally unsound — it compared apples-to-oranges (full-span vs crop-masked) and produced positive gaps on pure noise that grew with num_chunks. This meant the same quiet band would show more [PEAK] tags over time, and the metric could never fire on max-hold traces (ADS-B). The new per-bin max-hold ratio method is statistically grounded: for pure Gaussian noise, the max-over-N-chunks expectation is known analytically (`10*log10(ln(N) + 0.5772)`), so any excess beyond that is a genuine signal. The 6.0 dB margin provides a conservative ceiling (~3.4% duty cycle at 976 chunks) that suppresses noise while catching real bursts. Moving the decision to the backend ensures consistency across all emission paths and eliminates duplicate frontend computation.
+
+**Key functions:**
+
+`BURST_MARGIN_DB` — Module-level constant in features.py, set to 6.0 dB. This is the margin above the statistical noise floor of the per-bin max-hold ratio that must be exceeded to flag a burst. Analogy: a bouncer who only lets in people who are clearly taller than the crowd, not just slightly taller.
+
+`fingerprint_spectrum()` — Now computes four burst fields: `burst_ratio_db` (max-hold minus averaged at the peak bin), `expected_noise_ratio_db` (statistical expectation for Gaussian noise), `burst_excess_db` (measured minus expected), and `is_burst` (True only when burst_excess_db > BURST_MARGIN_DB). The `is_burst` boolean is what the frontend uses to drive the [PEAK] tag.
+
+`broadcast()` — Now emits the four burst fields (all sourced from the fingerprint). The `is_burst` field is the one the frontend SignalHistoryLog reads for the [PEAK] tag. The other three are emitted for forward-compatibility and dashboard tooling but not yet rendered.
+
+`emit_adsb_scan_result()` — Emits all four burst fields as `None` because the decoder does not produce a fingerprint. This maintains payload shape parity with `broadcast()` so the frontend does not need to special-case missing keys. ADS-B spectrum scanning goes through `broadcast()` with real values, where burst detection operates normally; only the decoder path emits None.
+
+**Deferred items:**
+
+1. **TD-45-1 — Burst metric duty-cycle ceiling** — The 6.0 dB margin sets a conservative duty-cycle ceiling of ~3.4% at 976 chunks. Future work may allow per-band tuning if specific signals (e.g. FM broadcast sweeps) prove problematic. Documented in features.py TODO comments.
+
+2. **TD-45-2 — FM broadcast false-positive on [PEAK]** — FM broadcast may trigger false-positive [PEAK] tags because the carrier sweeps ±75 kHz, so single-bin max-hold substantially exceeds the average even though FM is continuous. This is a known limitation of the per-bin max-hold ratio method. Documented in SignalHistoryLog.jsx TODO comment.
+
+3. **TD-45-3 — Payload-shape contract divergence risk** — If future decoders produce fingerprints, the parity pattern where `emit_adsb_scan_result()` must remember to include all fingerprint fields creates a contract divergence risk. Consider a shared payload constructor or schema to avoid drift. Documented in server.py TODO comment.
+
+4. **TD-45-4 — No end-to-end test joining emit to render** — There is no test that verifies the full emit → render path for `is_burst` from backend to frontend. Individual pieces are tested (backend emits, frontend renders given a value), but the round-trip is not covered. Test architecture observation.
+
+5. **TD-45-5 — useSocket.js omits burst fields** — `INITIAL_AI_REASONING` and the `setAiReasoning` mapper in useSocket.js do not include the burst fields. This is benign because the AI Reasoning panel does not render the [PEAK] tag — SignalHistoryLog reads `is_burst` directly from scanResults instead. Documented in useSocket.js TODO comments.
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None — all changes are burst-detection algorithm and UI improvements. No RF interaction.
+
+**Test counts:** 893 passing (687 pytest + 206 Vitest), 0 failures. 12 new pytest tests added (10 in test_fft_features.py, 2 in test_server_stats.py for Phase 45; 1 additional test in test_server_stats.py for Phase 45b). Vitest: 3 old [PEAK] tests removed, 6 new tests added (F1–F6), net +3.
 
 ---
 
@@ -2891,7 +2941,7 @@ User clicks [ADS-B] button in browser
 | `dashboard/shared_state.py` | Python | Shared memory. Holds `BAND_PROFILES`, `current_band`, shutdown event, and band-switch lock. |
 | `dashboard/static/` | Static | Vite build output (generated). Served by Flask. |
 | `dashboard/frontend/src/App.jsx` | React | Root component. Three-row layout: waterfall + signal details (top), system status + signal history + AI reasoning + decoded signals (bottom). Owns `pinnedReasoning` state for pin-to-reasoning feature. OVERVIEW_BANDS (7 entries) for bottom strip. BAND_GROUPS (4 categories) for nav bar. DECODED SIGNALS section conditionally renders decoder sub-panels (ADS-B, ACARS, AIS) based on focused band; shows "NO DECODER FOR THIS BAND" placeholder otherwise. Helper functions: `isTuned()`, `isAcarsTuned()`, `isAisTuned()`. |
-| `dashboard/frontend/src/components/SignalHistoryLog.jsx` | React | Scrolling log of scan results. FREQ_COLOUR_MAP colours each row by band (7 AU frequencies, all at 162.000 MHz for AIS). Each row clickable: toggles pin on AIReasoningPanel. Amber highlight on pinned row. Wrapped in React.memo with custom comparison (pinnedTimestamp + scanResults content) to avoid re-render on spectrum_update. |
+| `dashboard/frontend/src/components/SignalHistoryLog.jsx` | React | Scrolling log of scan results. FREQ_COLOUR_MAP colours each row by band (7 AU frequencies, all at 162.000 MHz for AIS). Each row clickable: toggles pin on AIReasoningPanel. Amber highlight on pinned row. Wrapped in React.memo with custom comparison (pinnedTimestamp + scanResults content) to avoid re-render on spectrum_update. The amber [PEAK] tag (Phase 45) is driven by the backend's `is_burst` boolean, computed via per-bin max-hold ratio detection in `fingerprint_spectrum()`. The tag renders only when `is_burst === true` (strict equality). |
 | `dashboard/frontend/src/components/AIReasoningPanel.jsx` | React | Displays LLM classification output. Shows ◆ PINNED badge when `isPinned` prop is true. Fade transition on new reasoning data. |
 | `dashboard/frontend/src/components/FrequencyList.jsx` | React | Sidebar band list. FREQ_CONFIGS (7 entries) drives the clickable band rows. Shows latest signal type and confidence per band. Kept in sync with STRIP_CONFIGS and BAND_GROUPS. |
 | `dashboard/frontend/src/components/AisVesselPanel.jsx` | React | AIS vessel data table. Shows decoded AIS messages (MMSI, vessel name, position, speed, course, channel). Displays "Listening on 162.000 MHz..." when tuned to AIS frequency, "Not tuned to AIS frequency" otherwise. |

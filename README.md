@@ -149,8 +149,8 @@ Full phase-by-phase history lives in [`docs/ROADMAP.md`](./docs/ROADMAP.md), whi
 single source of truth for phase status and test counts. This section shows
 only a quick-glance summary — update `docs/ROADMAP.md` first, then sync this block.
 
-**Current phase: 44 — Retune settle reordering and post-retune discard read**
-**Total: 877 passing (674 pytest + 203 Vitest), 0 failures**
+**Current phase: 45 — Burst-detection metric redesign (backend + UI)**
+**Total: 893 passing (687 pytest + 206 Vitest), 0 failures**
 
 > **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector
 > store (`data/vectorstore/`) must be re-seeded after deploying this build.
