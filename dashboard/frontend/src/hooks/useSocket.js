@@ -8,6 +8,10 @@ const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000'
  *  decoder-driven path (Phase 32). The new ``source`` field indicates which
  *  path produced the entry: ``"fingerprint"`` for LLM-classified scans or
  *  ``"decode"`` for confirmed ADS-B decodes.
+ *  TODO(tech-debt TD-45-5): Burst-detection fields (burst_ratio_db,
+ *  expected_noise_ratio_db, burst_excess_db, is_burst) are omitted here.
+ *  This is benign because the AI Reasoning panel does not render the [PEAK]
+ *  tag — only SignalHistoryLog does, and it reads directly from scanResults.
  *  @type {{ [key: string]: null }} */
 const INITIAL_AI_REASONING = {
   freq_hz: null,
@@ -73,6 +77,9 @@ export function useSocket() {
         return next.slice(0, 200)
       })
       if (data.center_freq_hz === focusedFreqRef.current) {
+        // TODO(tech-debt TD-45-5): Burst-detection fields are omitted from this
+        // mapper. Benign because the AI Reasoning panel does not render [PEAK] —
+        // SignalHistoryLog reads is_burst directly from scanResults instead.
         setAiReasoning({
           freq_hz: data.center_freq_hz,
           signal_type: data.signal_type || null,

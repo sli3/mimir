@@ -32,6 +32,13 @@ function freqLabel(freqHz) {
  *  signal type, and confidence percentage. Supports pin-to-AIReasoningPanel
  *  via onPinReasoning + pinnedTimestamp props.
  *
+ *  The amber [PEAK] tag is driven by the backend's ``is_burst`` boolean field
+ *  (Phase 45), computed via per-bin max-hold ratio detection in
+ *  ``fingerprint_spectrum()``. The tag renders only when ``is_burst === true``,
+ *  with strict equality so undefined/null/false all suppress it. FM broadcast
+ *  may trigger false positives; suspected carrier sweep across ±75 kHz, not yet
+ *  confirmed on hardware (tech-debt TD-45-2).
+ *
  *  @param {{ scanResults: Array, onPinReasoning?: function, pinnedTimestamp?: string|null }} props
  *  @param {Array} props.scanResults — ordered newest-first from useSocket
  *  @param {function} [props.onPinReasoning] — called with entry on click; toggles pin
@@ -58,6 +65,10 @@ const SignalHistoryLog = React.memo(function SignalHistoryLog({ scanResults, onP
           const colourVar = FREQ_COLOUR_MAP[entry.center_freq_hz] || '--neon-white'
           const colour = `var(${colourVar})`
           const isPinned = entry.timestamp === pinnedTimestamp
+          // TODO(tech-debt TD-45-2): FM broadcast may trigger false-positive [PEAK] tags
+          // because the carrier sweeps ±75 kHz, so single-bin max-hold substantially exceeds
+          // the average even though FM is continuous. This is a known limitation of the
+          // per-bin max-hold ratio method.
           const isPeakBurst = entry.is_burst === true
           const signalTypeColour = entry.signal_type === 'llm_offline'
             ? 'var(--neon-amber)'
