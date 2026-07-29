@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: "40b"
+last_updated_phase: "44"
 ---
 
 # Mimir Wiki
@@ -77,6 +77,82 @@ Step  Function / Component          What it does
 ## Phase Log
 
 Phases are listed newest-first so the current phase is always at the top.
+
+---
+
+### Phase 44 — Retune Settle Before Activate ✓ DONE
+
+**What:** Added a PLL settle wait before stream activation on both HackRF and Pluto retunes, with a belt-and-braces discard read after the retune to throw away any transient samples that may still be in the hardware ring buffer. This prevents the PLL settling transient from being fingerprinted as a bogus signal, which showed up as low-confidence classifications and white stripes on the waterfall.
+
+**Changes:**
+
+1. **`core/device/hackrf_rx.py`** — Added `retune_settle_sec: float = 0.25` constructor kwarg (line 106). Reordered `open()` to call `time.sleep(self._retune_settle_sec)` BEFORE `activateStream()` (line 217). Reordered `set_center_frequency()` the same way (lines 280-281). Updated docstrings in `__init__`, `open()`, and `set_center_frequency()` explaining the settle-before-activate ordering and why the stream must be inactive during the settle.
+
+2. **`core/device/pluto_rx.py`** — Same changes as HackRF: added `retune_settle_sec: float = 0.25` (line 162), reordered `open()` (line 326), reordered `set_center_frequency()` (line 404), updated docstrings.
+
+3. **`core/pipeline/scanner.py`** — Added a discard read inside the existing `if freq_hz != _last_tuned_hz:` block (lines 235-241). The discard is wrapped in its own try/except (no `record_hw_error`, no re-raise) so a failed discard does not kill the scan loop. Comment explains the belt-and-braces rationale: the settle in `set_center_frequency()` keeps the PLL transient out of the ring buffer, but the driver may still queue a small amount at the moment the stream reactivates.
+
+4. **`tests/core/test_hackrf_rx.py`** — Added 5 new tests in `TestRetuneSettle` class covering constructor kwarg, open() ordering, set_center_frequency() ordering, default value, and explicit value.
+
+5. **`tests/core/test_pluto_rx.py`** — Added 5 new tests in `TestRetuneSettle` class covering the same behaviours as HackRF.
+
+6. **`tests/core/test_scanner.py`** — Added 2 new tests in `TestScanLoopRetuneDiscard` class: `test_discard_read_immediately_follows_retune` and `test_no_discard_read_when_freq_unchanged`. 11 existing Pluto tests retrofitted with `retune_settle_sec=0.0` for speed (not new tests).
+
+**Why:** Without the settle wait, the hardware ring buffer captures the PLL settling transient when the stream reactivates, and the first read after the retune returns transient-shaped samples. The pipeline fingerprints this as a signal, causing wrong low-confidence classifications and white stripes on the waterfall. The discard read is belt-and-braces: even with the settle, the driver may still queue a small amount at activation time.
+
+**Key functions:**
+
+`HackRFReceiver.__init__(..., retune_settle_sec: float = 0.25)` — Added kwarg for PLL settle time in seconds. Default 0.25 s. Passed to both `open()` and `set_center_frequency()` via `self._retune_settle_sec`. Analogy: a camera with a mechanical shutter that needs time to stabilise before it can take a sharp photo.
+
+`HackRFReceiver.open()` — Reordered to call `time.sleep(self._retune_settle_sec)` BEFORE `activateStream()` (line 217), not after. The PLL settles while the stream is inactive, so the settling transient is never captured into the ring buffer. Same reordering in `set_center_frequency()` for mid-run retunes.
+
+`ScanRunner._scan_loop()` — Added a discard read inside the retune conditional (lines 235-241). The throwaway read clears any transient samples that may have been queued at activation time, so the pipeline only ever fingerprints settled samples. Wrapped in try/except so a failed discard does not kill the scan loop.
+
+**Deferred items:**
+
+None.
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None — all changes are RX-only timing improvements. No RF interaction beyond receive-only retunes.
+
+**Test counts:** 877 passing (674 pytest + 203 Vitest), 0 failures. 12 new pytest tests added (5 in test_hackrf_rx.py, 5 in test_pluto_rx.py, 2 in test_scanner.py). Separately, 11 existing Pluto tests were retrofitted with `retune_settle_sec=0.0` for test speed (not new tests).
+
+---
+
+### Phase 43 — Per-Frequency Emission Throttle ✓ DONE
+
+**What:** Added a per-frequency unchanged-verdict throttle in `ScanRunner._emit_result()`. The first verdict for a frequency always emits; a CHANGED `signal_type` at a frequency always emits immediately; an UNCHANGED verdict (same frequency, same `signal_type`) is suppressed until `unchanged_emit_interval_sec` (default 5.0 seconds) has elapsed since the last emit for that frequency. Uses `time.monotonic()` (NTP-immune) for the clock.
+
+**Changes:**
+
+1. **`core/pipeline/scanner.py`** — Added per-frequency emission gate at the top of `_emit_result()` (lines 415-436). Dictionary `self._last_emit_by_freq` keyed on centre frequency stores `(signal_type, last_emit_ts)`. Three emit rules: first emit always passes, changed verdict emits immediately, unchanged verdict is throttled. Placed at the single emit choke point so it covers both the noise-gate path and the real-signal path.
+
+2. **`config/mimir.yaml`** — Added `scanner.unchanged_emit_interval_sec: 5.0` (line 81). Comment explains it suppresses repeat emissions of an UNCHANGED verdict for the same frequency; changes always emit immediately.
+
+3. **`core/config/loader.py`** — Added `unchanged_emit_interval_sec: float = 5.0` to `MimirConfig` dataclass (line 33). Added optional-key pattern in `load_config()` with default fallback to 5.0 (line 90). Passes through to `MimirConfig` constructor (line 124).
+
+4. **`tests/core/test_config_loader.py`** — Added 3 tests: `test_unchanged_emit_interval_default_is_5` (verifies dataclass default), `test_loads_unchanged_emit_interval_when_present` (verifies explicit value is honoured), `test_missing_unchanged_emit_interval_falls_back_to_5` (verifies optional-key pattern).
+
+5. **`tests/core/test_scanner.py`** — Added 7 tests in `TestEmitResultThrottle` class covering all three emit rules: first emit always passes, unchanged verdict within interval is suppressed, unchanged verdict after interval emits, changed verdict emits immediately within window, per-frequency independence, verdict flapping emits on each change, and suppressed emit does not print to terminal.
+
+**Why:** On dead bands, the scanner produces continuous identical "noise" verdicts that flood the dashboard and the operator terminal. The throttle reduces this noise without hiding genuine signal changes: a new verdict for a frequency or a change in verdict always gets through immediately, but repeat emissions of the same verdict are rate-limited. This keeps the UI responsive and the terminal readable.
+
+**Key functions:**
+
+`ScanRunner._emit_result(scan_result: ScanResult)` — Now contains a per-frequency throttle at the top. Uses `time.monotonic()` (NTP-immune) and a dict `self._last_emit_by_freq[freq_hz] = (signal_type, now)` to track the last emit per frequency. Three emit rules: first emit always passes, changed verdict emits immediately, unchanged verdict is throttled by `unchanged_emit_interval_sec`. Analogy: a doorbell that rings on every knock, but if the same person knocks repeatedly within a short window, only the first knock rings the bell.
+
+`MimirConfig.unchanged_emit_interval_sec` — Optional config key with default 5.0 seconds. Loaded via `scanner.get("unchanged_emit_interval_sec", 5.0)` in `load_config()` so the key can be omitted from `mimir.yaml` without error. When present, the explicit value is honoured; when absent, 5.0 is used.
+
+**Deferred items:**
+
+None.
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None — all changes are emission throttling improvements. No RF interaction.
+
+**Test counts:** 865 passing (662 pytest + 203 Vitest), 0 failures. 10 new pytest tests added (3 in test_config_loader.py, 7 in test_scanner.py).
 
 ---
 

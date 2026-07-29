@@ -87,6 +87,8 @@
 | 40b | Device-name UI surface — backend `display_name_for_device()` helper + server.py `current_device_display` payload key + frontend DEVICE row in signal-detail panel | ✅ Complete | 824 (632 pytest + 192 Vitest), 0 failures |
 | 41 | Deterministic pre-LLM noise gate — `is_noise_shaped()` + `classify_noise_deterministic()` on SignalClassifier, gate in scanner._ai_loop | ✅ Complete | 844 (652 pytest + 192 Vitest), 0 failures |
 | 42 | Per-device waterfall colour scaling — DEVICE_SCALE_PROFILES table (hackrf=30, plutosdr=15, _default=0 dB) + exported `selectDeviceProfile` and `computeScaleWindow` helpers | ✅ Complete | 855 (652 pytest + 203 Vitest), 0 failures |
+| 43 | Per-frequency unchanged-verdict emission gate — `_emit_result()` early return when `(freq, signal_type)` unchanged within `unchanged_emit_interval_sec`; optional config key `scanner.unchanged_emit_interval_sec` (default 5.0); uses `time.monotonic()` | ✅ Complete | 865 (662 pytest + 203 Vitest), 0 failures |
+| 44 | Retune settle reordering and post-retune discard read — `retune_settle_sec: float = 0.25` constructor kwarg, settle moved from post-activate to pre-activate in both `set_center_frequency` and `open()` for both device classes; one throwaway discard read in scanner._scan_loop after each retune | ✅ Complete | 877 (674 pytest + 203 Vitest), 0 failures |
 
 ---
 
@@ -1999,6 +2001,54 @@ This provides fallback precedence: `center_freq_hz` (seeds) over `freq_hz` (live
 
 #### Impact
 No phase tracker entry required. This is a targeted bug fix within Phase 23 scope. Preceded by Phase 22 LLM offline handling work. Follows successful completion of Phase 17 (focused decode panel) and Phase 18 (raw ADS-B hex decode view). Resolved after Phase 22 hotfix for rate-limiting SocketIO flood during LLM offline state.
+
+---
+
+### Phase 43 — Per-frequency unchanged-verdict emission gate ✅
+
+**Type:** Backend change. Rate-limiting logic in scanner pipeline.
+
+**What.** Added a per-frequency emission gate in `_emit_result()` that suppresses an unchanged `(freq_hz, signal_type)` verdict within `unchanged_emit_interval_sec`, but always emits immediately on a verdict change or frequency change. The gate is placed at the single emit choke point so it covers both the noise-gate path (noise rows) and the real-signal path (LLM classifications). Uses `time.monotonic()` for interval measurement to avoid wall-clock time jumps. The throttle interval is configurable via `scanner.unchanged_emit_interval_sec` (optional key, default 5.0) in `config/mimir.yaml`, following the existing `llm_cooldown_sec` optional-key pattern. State is tracked in `self._last_emit_by_freq: dict[float, tuple[str, float]]` keyed on centre frequency.
+
+**Why.** Phase 41's noise gate removed the incidental rate-limiting previously provided by LLM inference latency. Without that throttle, Signal History received dozens of identical noise verdicts per second on continuously-dead bands (e.g. aviation VHF at night). The new per-frequency throttle prevents identical verdicts from flooding the UI while preserving immediate emission on genuine changes (signal appearance, frequency switch, classification change).
+
+**Files changed.**
+- `core/pipeline/scanner.py` — `_emit_result()` early return with per-frequency throttle; added `self._last_emit_by_freq: dict[float, tuple[str, float]]`; uses `time.monotonic()`.
+- `core/config/loader.py` — `scanner.unchanged_emit_interval_sec` added via existing `scanner.get(key, default)` optional-key pattern.
+- `config/mimir.yaml` — `scanner.unchanged_emit_interval_sec: 5.0` added.
+- `tests/core/test_config_loader.py` — 1 new test class (`TestOptionalScannerConfig`) with 3 tests covering the optional key.
+- `tests/core/test_scanner.py` — new class `TestEmitResultThrottle` with 7 tests: first emit per frequency always passes, identical verdict within the interval suppressed, identical verdict after the interval emits, changed signal type emits immediately inside the window, per-frequency independence, verdict flapping emits on each change, suppressed emits produce no terminal output.
+
+**Test counts.** 865 passing (662 pytest + 203 Vitest), 0 failures. +10 pytest over Phase 42 (no Vitest change): 3 in tests/core/test_config_loader.py and 7 in TestEmitResultThrottle.
+
+**Known follow-up (not this phase).** None.
+
+**RF-Legal notes.** Receive-only. Jurisdiction: AU/SA, ACMA, Radiocommunications Act 1992 (Cth). All changes are passive RX-only rate-limiting logic; no TX surfaces introduced or touched.
+
+---
+
+### Phase 44 — Retune settle reordering and post-retune discard read ✅
+
+**Type:** Backend change. Hardware-timing fix in device layer.
+
+**What.** Added `retune_settle_sec: float = 0.25` constructor kwarg to both `HackRFReceiver` and `PlutoReceiver`. Reordered `set_center_frequency` so `time.sleep(self._retune_settle_sec)` precedes `activateStream` (was previously after). Added the same settle to `open()` before `activateStream` to cover the `capture_iq` path used by ChromaDB re-seed. The open() change also widens the vulnerable interrupt window — if a KeyboardInterrupt occurs during the 250 ms sleep before `self._is_open = True` is set, the device handle leaks. This is pre-existing on HackRF; Pluto already avoids it by setting `_is_open = True` immediately after `SoapySDR.Device(args)` returns. Added a throwaway discard read in `scanner._scan_loop` inside the `if freq_hz != _last_tuned_hz:` block, with its own try/except (no error recording, no re-raise). Discard drains any residual transient from the driver's ring buffer after a retune.
+
+**Why.** Both device classes slept for 250 ms after `activateStream`, so the stream was live while the PLL settled and the ring buffer captured the transient. The first read after every retune returned it, producing one wrong low-confidence row and a waterfall stripe per band change. The structural fix is to settle BEFORE stream activation so the transient never enters the buffer. The discard read is secondary defence — drains anything stale still in the buffer after a retune. Why not just a bigger discard read: pre-activate settle is the structural fix; discard read is belt-and-braces. Why not shared logic in DeviceBase: DeviceBase is a pure ABC; hoisting settle into it would require lifting implementation, out of scope.
+
+**Files changed.**
+- `core/device/hackrf_rx.py` — added `retune_settle_sec: float = 0.25` to `__init__` (last in arg list); reordered `set_center_frequency` so `time.sleep(self._retune_settle_sec)` precedes `activateStream`; added the same sleep to `open()` before `activateStream`; updated docstrings.
+- `core/device/pluto_rx.py` — identical changes to HackRF wrapper.
+- `core/pipeline/scanner.py` — added discard read inside `if freq_hz != _last_tuned_hz:` block in `_scan_loop`. Discard has its own try/except (no error recording, no re-raise).
+- `tests/core/test_hackrf_rx.py` — new class `TestHackRFRetuneSettle` with 5 tests.
+- `tests/core/test_pluto_rx.py` — new class `TestPlutoRetuneSettle` with 5 tests.
+- `tests/core/test_scanner.py` — new class `TestScanLoopRetuneDiscard` with 2 tests (T6, T7).
+- 11 existing Pluto tests retrofitted with `retune_settle_sec=0.0` to keep them wall-clock-fast.
+
+**Test counts.** 877 passing (674 pytest + 203 Vitest), 0 failures. +12 pytest over Phase 43 (no Vitest change). 11 existing Pluto tests were also RETROFITTED with `retune_settle_sec=0.0` for test speed — those are NOT new tests, they are existing tests given a non-default constructor value.
+
+**Known follow-up (not this phase).** Four tech debt rows added to AGENTS.md: LOW-01 (HackRF open() device-handle leak), T7 test weakness, retune_settle_sec not yet a config key, suite runtime +2.8 s (advisory).
+
+**RF-Legal notes.** Receive-only. Jurisdiction: AU/SA, ACMA, Radiocommunications Act 1992 (Cth). All changes are passive RX-only hardware timing; no TX surfaces introduced or touched. Hardware verified on HackRF One.
 
 ---
 

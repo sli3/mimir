@@ -242,10 +242,10 @@ uv run python tools/seed_chromadb.py
 > when a governance step fails. Trimmed 2026-07-21 to a pointer, so there is
 > only one table left to go stale.
 
-**Current phase:** 42 — Per-device waterfall colour scaling (see
+**Current phase:** 44 — Retune settle reordering and post-retune discard read (see
 `docs/ROADMAP.md` for full detail).
 
-**Current total:** 855 passing (652 pytest + 203 Vitest), 0 failures.
+**Current total:** 877 passing (674 pytest + 203 Vitest), 0 failures.
 
 **Reserved:** None.
 
@@ -562,6 +562,10 @@ Do not apply this pre-emptively — only if context problems are observed.
 | ChromaDB store contaminated with noise-labelled vectors (Phase 41) | The ChromaDB store has noise-labelled vectors from earlier sessions. The Phase 41 gate fixes the live path (no more noise gets sent to the LLM), but the stored vectors still bias L2 neighbour distances when a real signal is queried. Deferred follow-up: wire `is_noise_shaped()` into `tools/capture_to_vectorstore.py` to reject noise-shaped fingerprints during ingestion, and run `tools/delete_low_snr.py` (or a custom script) to purge existing noise vectors. The predicate is now a public method on SignalClassifier, so this is desk-fixable. | Future desk-fixable phase |
 | `_EXPECTED_KEYS` in `core/config/loader.py` is dead code | `_EXPECTED_KEYS` (loader.py lines 35-45) is defined but never referenced by `load_config()`. Confirmed by `git grep` — only the definition exists, no consumers. The actual type validation uses `scanner_required` (lines 66-75) for the scanner section and `dashboard_required` (lines 90-93) for the dashboard section. `_EXPECTED_KEYS` has not been consulted in any current code path. Identified during Phase 43 review of the optional-key pattern. Safe to delete, but out of scope for Phase 43. | Future phase |
 | `[PEAK]` burst-detection metric is structurally unsound | `chunk_peak_db` (fft.py, full-span max over bins × chunks) is compared against `peak_power_db` (features.py, crop-masked). Three faults: (1) crop asymmetry defeats Phase 30 for this metric; (2) the gap is dominated by periodogram variance so it fires on white noise and scales with num_chunks; (3) with `trace_key='psd_max_hold_db'` the two operands converge, so the tag can never fire on ADS-B. Requires redesign, not retuning. Owner: DC-offset / fingerprinting chat. | Owner: DC-offset / fingerprinting chat |
+| LOW-01 — HackRF open() device-handle leak on KeyboardInterrupt during settle | An interrupt (KeyboardInterrupt or similar) during the new 250 ms retune settle in `core/device/hackrf_rx.py:open()` leaks the SoapySDR device handle. Pre-existing on HackRF — Phase 44 widened the vulnerable window from microseconds to 250 ms by inserting `time.sleep(self._retune_settle_sec)` before `activateStream()`. Pluto already avoids this by setting `self._is_open = True` immediately after `SoapySDR.Device(args)` returns. | Own phase — mirror Pluto's early-set pattern in HackRF's open(). |
+| `test_no_discard_read_when_freq_unchanged` in tests/core/test_scanner.py | T7 passes whether or not the discard read is gated inside the retune conditional — the test never exercises a focus switch, so it cannot detect a bug where the discard is performed on every iteration regardless of whether `freq_hz != _last_tuned_hz`. Needs a two-frequency version that switches focus mid-run and asserts exactly two discards (one per retune), not just one total. | Future phase — extend T7 with a set_focus_frequency call partway through the run. |
+| retune_settle_sec is a constructor kwarg, not a config key | `retune_settle_sec: float = 0.25` is a constructor keyword argument on `HackRFReceiver` and `PlutoReceiver` only. Not in `MimirConfig`, not in `scanner_required`, not in `core/config/loader.py`. Deliberate deferral — promoting to a config key is a candidate future phase if hardware testing shows the 0.25 default needs dialling. Current call sites: factory.py, capture.py, and tools/capture_to_vectorstore.py all inherit the 0.25 default with no override needed. | Future phase — if hardware testing shows 0.25 needs dialling per device, add to `scanner_required` in loader.py and to config/mimir.yaml. |
+| Phase 44 suite runtime +2.8 s | Two new thread-based scanner tests (T6 and T7) each run the scan loop for ~0.3 s and block on the AI loop's `q.get(timeout=1.0)` at shutdown, adding ~1 s of test wall-clock per test. Consistent with the existing thread-based scanner tests in the same file. Noted, not a defect — the cost is spec-mandated for T6 (ordering assertion) and T7 (frequency-unchanged assertion). | None (advisory only). |
 
 ### Accepted / Won't Fix (documented, working as intended — not active work)
 
