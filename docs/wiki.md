@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: "45"
+last_updated_phase: "46"
 ---
 
 # Mimir Wiki
@@ -77,6 +77,48 @@ Step  Function / Component          What it does
 ## Phase Log
 
 Phases are listed newest-first so the current phase is always at the top.
+
+---
+
+### Phase 46 — FM Broadcast False-Positive Suppression (Wide-Window Burst Metric) ✓ DONE
+
+**What:** Fixed the FM broadcast false-positive on the [PEAK] burst tag by adding an opt-in wide-window total-power ratio metric, gated per-band via a new `burst_use_wide_window` key in `BAND_PROFILES`. The root cause was that the Phase 45 narrow metric (single-bin max-hold minus averaged power) fires on continuous-but-frequency-agile signals: FM's carrier sweeps ±75 kHz, so any given bin is "hot" in max-hold but cool in the average, creating a large gap even though the transmission is continuous. The fix computes the ratio by summing linear power across the entire crop window for both max-hold and averaged traces, then expressing the ratio in dB. For FM, noise dilutes both sums roughly equally (the carrier visits every bin over time), so the ratio collapses; for genuine bursts, max-hold sum is dominated by burst contrast, so the ratio stays high. The new `burst_use_wide_window` optional parameter on `fingerprint_spectrum()` defaults to False, preserving byte-identical Phase 45 behaviour for all bands except `fm_broadcast`, which opts in via `BAND_PROFILES["fm_broadcast"]["burst_use_wide_window"] = True`. The spec deviation: the original spec fixture was mathematically broken (`peak_idx` selected a noise bin not a hot bin because hot bins were below noise in the averaged trace), so the senior-dev corrected the test parameters before any live run. Attempt 1 (np.max of per-bin max-hold/average gaps across the window) was implemented, tested, and rolled back WITHOUT a commit because it was proven mathematically incapable of suppression (it returned the same value as the narrow metric for the FM case).
+
+**Changes:**
+
+1. **`dashboard/shared_state.py`** — Added `"burst_use_wide_window": True` to the `fm_broadcast` entry in `BAND_PROFILES` (line 118). This is the only band that opts in; all other bands inherit the default False behaviour.
+
+2. **`core/pipeline/scanner.py`** — Added plumbing to read `burst_use_wide_window` from the band profile and pass it to `fingerprint_spectrum()` (lines 273, 278). Uses `.get("burst_use_wide_window", False)` with default False so the absence of the key is safe.
+
+3. **`core/pipeline/features.py`** — Added `burst_use_wide_window: bool = False` parameter to `fingerprint_spectrum()` (line 58). Updated docstring to explain the wide-window behaviour (lines 97-109). Added the if/else branch (lines 242-268): when True AND `crop_half_width_hz` is not None, computes total-power ratio by summing linear power across the crop window for both max-hold and averaged traces; otherwise uses the narrow Phase 45 single-bin metric. Added TODO comment (TD-46-1) noting that the 6.0 dB `BURST_MARGIN_DB` margin and the `expected_noise_ratio_db` formula are unvalidated for the multi-bin power-sum case.
+
+4. **`tests/core/test_fft_features.py`** — Added `TestBurstWideWindow` class (line 842) with 5 tests: `test_wide_window_suppresses_fm_style_scattered_energy` (proves wide = 8.84 dB, is_burst=False; narrow = 20.0 dB, is_burst=True), `test_wide_window_preserves_genuine_burst` (50-bin 1%-duty burst, wide = 13.53 dB, is_burst=True), `test_wide_window_flag_off_matches_narrow` (default and explicit-False are identical, True diverges), `test_only_fm_broadcast_has_wide_window_flag` (fm_broadcast is the only BAND_PROFILES entry with True), and `test_fingerprint_spectrum_default_kwarg_matches_phase45` (default-False wiring on real compute_psd() output is inert). No changes to the existing `TestBurstDetection` class (T1-T10) or `TestFingerprintSpectrum`.
+
+**Why:** The wide-window metric works where the narrow metric fails because it measures signal energy distribution across the whole crop window, not just at one bin. For FM (continuous but frequency-agile), the carrier sweeps across all bins over time, so max-hold is roughly uniform across the window (every bin has been "hot" at some point) while the averaged trace is also roughly uniform at a lower level. When you sum linear power across the window, noise dominates both sums similarly, so the ratio is small. For a genuine time-bursty signal (e.g. ADS-B squitter), max-hold at the burst bins is high while the averaged trace at those bins is low (burst is only present in a small fraction of chunks), AND the rest of the window is noise on both traces. The sum is dominated by the burst contrast, so the ratio stays high. This distinguishes continuous-but-frequency-agile signals from genuine time-bursty signals.
+
+**Key functions:**
+
+`burst_use_wide_window` — Optional parameter on `fingerprint_spectrum()` (defaults to False). When True AND `crop_half_width_hz` is not None, computes burst ratio using wide-window total-power sums instead of narrow single-bin max-hold/average difference. Opt-in only for `fm_broadcast` via `BAND_PROFILES`. Analogy: a bouncer who watches the whole crowd for repeated rowdy behaviour over time, not just one person in a snapshot.
+
+`fingerprint_spectrum()` — Added if/else branch (lines 242-268): when `burst_use_wide_window=True` and `crop_mask is not None`, computes wide-window metric by converting dB to linear, summing across the crop window for both max-hold and averaged traces, then converting back to dB. Otherwise uses the narrow Phase 45 metric. Both paths share the same `BURST_MARGIN_DB` (6.0 dB) and `expected_noise_ratio_db` formula.
+
+`band.get("burst_use_wide_window", False)` — Plumbing in `core/pipeline/scanner.py` (line 273) that reads the flag from `BAND_PROFILES` and passes it to `fingerprint_spectrum()`. Default False ensures backward compatibility for bands without the key.
+
+`BAND_PROFILES["fm_broadcast"]["burst_use_wide_window"]` — The only band profile entry that opts in to wide-window detection (set to True). All other bands inherit the default False and use the narrow Phase 45 metric.
+
+**Deferred items:**
+
+1. **TD-46-1 — expected_noise_ratio_db unvalidated for multi-bin case** — The 6.0 dB `BURST_MARGIN_DB` margin and the `expected_noise_ratio_db` formula (`10*log10(ln(N) + 0.5772)`) were derived for single-bin max-hold behaviour and have NOT been re-derived for the multi-bin power-sum case. The wide-window metric inherits this uncertainty. The 6.0 dB margin may need retuning once live FM data is checked beyond the ~2 min verification session. Documented in features.py TODO comment (line 28).
+
+2. **TD-46-2 — burst_use_wide_window not validated against real burst signal** — The wide-window metric was validated only against synthetic data: it suppresses FM-style scattered energy and preserves a 50-bin 1%-duty burst. It has NOT been validated against a real burst signal (e.g. live ADS-B squitters on 1090 MHz). Field verification required.
+
+3. **TD-45-2 — FM broadcast false-positive on [PEAK] (RESOLVED)** — This deferred item from Phase 45 is now resolved by this phase. The narrow metric's limitation (FM's carrier sweep makes single-bin max-hold exceed average even though FM is continuous) is addressed by the wide-window metric, which dilutes the frequency-agile contrast. Live verification at 98.306 MHz over ~2 min showed 21/21 entries as `fm_broadcast` with 0 [PEAK] tags.
+
+**RF/Legal Notes:**
+- TX safety incidents: None
+- AU legal flags: None — all changes are burst-detection algorithm improvements. No RF interaction beyond receive-only spectral analysis.
+
+**Test counts:** 898 passing (692 pytest + 206 Vitest), 0 failures. 5 new pytest tests added (all in test_fft_features.py under `TestBurstWideWindow`). Vitest untouched.
 
 ---
 
