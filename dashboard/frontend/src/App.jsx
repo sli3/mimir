@@ -5,6 +5,7 @@ import SpectrometerBar from './components/SpectrometerBar.jsx'
 import AcarsMessagePanel from './components/AcarsMessagePanel.jsx'
 import AisVesselPanel from './components/AisVesselPanel.jsx'
 import AdsbAircraftPanel from './components/AdsbAircraftPanel.jsx'
+import RadarScopePanel from './components/RadarScopePanel.jsx'
 import SignalHistoryLog from './components/SignalHistoryLog.jsx'
 import AIReasoningPanel from './components/AIReasoningPanel.jsx'
 
@@ -1360,6 +1361,21 @@ export default function App() {
               )}
             </div>
           </div>
+        </div>
+
+        {/* Bottom-radar — PPI Scope (Phase 49) */}
+        <div style={{
+          width: '380px',
+          flexShrink: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          borderLeft: '1px solid var(--border)',
+          overflow: 'hidden',
+        }}>
+          <RadarScopePanel
+            adsbAircraft={adsbAircraft}
+            focusedFreq={focusedFreq}
+          />
         </div>
       </div>
     </div>
