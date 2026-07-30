@@ -7,6 +7,7 @@ import pytest
 from modules.adsb.bearing_tracker import (
     BearingTracker,
     angular_diff_deg,
+    great_circle_distance_nm,
     initial_bearing_deg,
 )
 from modules.adsb.constants import (
@@ -79,6 +80,30 @@ class TestAngularDiff:
         assert angular_diff_deg(180.0, 180.0) == pytest.approx(0.0)
 
 
+class TestGreatCircleDistance:
+    def test_great_circle_distance_nm_zero_for_same_point(self):
+        """Haversine of a point to itself is 0 (a == 0)."""
+        assert great_circle_distance_nm(-34.93, 138.60, -34.93, 138.60) == 0.0
+
+    def test_great_circle_distance_nm_known_pair(self):
+        """One degree of latitude is 60 nautical miles.
+
+        Source: the nautical mile is defined as one arc-minute of great-
+        circle angle, so 60 arc-minutes = 1 degree = 60 NM on a spherical
+        Earth (Bowditch, American Practical Navigator). EARTH_RADIUS_NM is
+        the IUGG mean radius (3440.065 NM), which gives ~60.04 NM per
+        degree; asserted with a 0.1 NM tolerance.
+        """
+        d = great_circle_distance_nm(0.0, 0.0, 1.0, 0.0)
+        assert d == pytest.approx(60.0, abs=0.1)
+
+    def test_great_circle_distance_nm_symmetric(self):
+        """distance(a, b) == distance(b, a)."""
+        d_ab = great_circle_distance_nm(-34.93, 138.60, -35.5, 139.8)
+        d_ba = great_circle_distance_nm(-35.5, 139.8, -34.93, 138.60)
+        assert d_ab == pytest.approx(d_ba)
+
+
 class TestBearingTracker:
     def test_first_message_has_no_delta_r(self):
         tracker = BearingTracker()
@@ -86,6 +111,26 @@ class TestBearingTracker:
         assert report is not None
         assert report.delta_r_deg_per_sec is None
         assert 0.0 <= report.bearing_deg < 360.0
+
+    def test_update_attaches_range_nm(self):
+        """A message with a valid position yields a float range_nm."""
+        tracker = BearingTracker()
+        report = tracker.update(make_msg(lat=-34.0, lon=139.0))
+        assert report is not None
+        assert isinstance(report.range_nm, float)
+        assert report.range_nm > 0.0
+        # Sanity: (-34.0, 139.0) is within a few hundred NM of Adelaide.
+        assert report.range_nm < 1000.0
+
+    def test_update_sets_range_nm_none_without_position(self):
+        """No position -> update() returns None (range never consulted).
+
+        Mirrors the bearing_deg no-position guard test: the subscriber
+        attaches None for all derived fields when the report is None.
+        """
+        tracker = BearingTracker()
+        assert tracker.update(make_msg(lat=None)) is None
+        assert tracker.update(make_msg(lon=None)) is None
 
     def test_second_message_computes_delta_r(self):
         tracker = BearingTracker()

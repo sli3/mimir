@@ -51,6 +51,13 @@ from modules.adsb.constants import ADELAIDE_LAT, ADELAIDE_LON, AIRCRAFT_EXPIRY_S
 from modules.adsb.message import AdsbMessage
 
 
+# Mean Earth radius in nautical miles. A nautical mile is defined as one
+# arc-minute of latitude, so a spherical Earth of this radius has a
+# circumference of 2*pi*3440.065 ≈ 21615 NM (the IUGG mean-radius-derived
+# value; the classical definition assumes exactly 21600 NM).
+EARTH_RADIUS_NM: float = 3440.065
+
+
 def initial_bearing_deg(lat1_deg: float, lon1_deg: float, lat2_deg: float, lon2_deg: float) -> float:
     """Great-circle initial bearing from point 1 to point 2.
 
@@ -72,6 +79,28 @@ def initial_bearing_deg(lat1_deg: float, lon1_deg: float, lat2_deg: float, lon2_
     x = math.cos(phi1) * math.sin(phi2) - math.sin(phi1) * math.cos(phi2) * math.cos(delta_lambda)
     theta = math.atan2(y, x)
     return (math.degrees(theta) + 360) % 360
+
+
+def great_circle_distance_nm(lat1_deg: float, lon1_deg: float, lat2_deg: float, lon2_deg: float) -> float:
+    """Haversine great-circle distance between two lat/lon points, in nautical miles.
+
+    Args:
+        lat1_deg: Latitude of point 1, in degrees.
+        lon1_deg: Longitude of point 1, in degrees.
+        lat2_deg: Latitude of point 2, in degrees.
+        lon2_deg: Longitude of point 2, in degrees.
+
+    Returns:
+        Surface distance in nautical miles.  0.0 for a coincident pair
+        (Haversine with ``a == 0``).
+    """
+    phi1 = math.radians(lat1_deg)
+    phi2 = math.radians(lat2_deg)
+    d_phi = phi2 - phi1
+    d_lambda = math.radians(lon2_deg - lon1_deg)
+    a = math.sin(d_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(d_lambda / 2) ** 2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return EARTH_RADIUS_NM * c
 
 
 def angular_diff_deg(a_deg: float, b_deg: float) -> float:
@@ -96,6 +125,7 @@ class BearingReport:
     icao: str                          # normalised ICAO key (stripped, upper-cased)
     bearing_deg: float                 # initial bearing, 0-360, from the fixed receiver position
     delta_r_deg_per_sec: float | None  # bearing rate of change; None when no valid prior reading
+    range_nm: float | None             # great-circle range from the receiver; None when no position
     timestamp: datetime                # timestamp of the message that produced this report
 
 
@@ -131,9 +161,16 @@ class BearingTracker:
                 resolved, a normal expected state) are ignored.
 
         Returns:
-            A ``BearingReport`` with the current bearing and, when a valid
-            prior reading exists, the bearing rate of change in degrees per
-            second.  ``None`` if the message carries no position.
+            A ``BearingReport`` with the current bearing, the great-circle
+            range from the receiver, and, when a valid prior reading exists,
+            the bearing rate of change in degrees per second.  ``None`` if
+            the message carries no position.
+
+        Range is computed here in the backend rather than in the frontend:
+        ``ADELAIDE_LAT`` / ``ADELAIDE_LON`` are the single source of truth
+        for the receiver position, and duplicating them in JS would create
+        a second source of truth that could silently disagree if the
+        receiver ever moves.
         """
         # Short-circuit before any trigonometry — never feed None into
         # math.sin / math.cos.
@@ -143,6 +180,7 @@ class BearingTracker:
         self._evict_stale(msg.timestamp)  # eviction-first ensures expired aircraft are treated as fresh (see test_expired_aircraft_treated_as_fresh)
 
         bearing = initial_bearing_deg(self._ref_lat_deg, self._ref_lon_deg, msg.latitude, msg.longitude)
+        range_nm = great_circle_distance_nm(self._ref_lat_deg, self._ref_lon_deg, msg.latitude, msg.longitude)
         icao_key = str(msg.icao).strip().upper()
 
         delta_r: float | None = None
@@ -165,6 +203,7 @@ class BearingTracker:
             icao=icao_key,
             bearing_deg=bearing,
             delta_r_deg_per_sec=delta_r,
+            range_nm=range_nm,
             timestamp=msg.timestamp,
         )
 

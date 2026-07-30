@@ -379,7 +379,9 @@ def emit_adsb_aircraft(msg: AdsbMessage) -> None:
     for diagnostic display in the ADS-B panel. The raw_hex field
     carries the original DF17/DF18 frame as a hex string, enabling
     the frontend to show both hex and binary representations in the
-    raw decode view.
+    raw decode view. The range_nm field (great-circle distance from
+    the receiver, computed by the backend BearingTracker) feeds the
+    Phase 49 radar scope panel.
     """
     socketio.emit("adsb_aircraft", {
         "icao": msg.icao,
@@ -392,6 +394,7 @@ def emit_adsb_aircraft(msg: AdsbMessage) -> None:
         "vertical_rate": msg.vertical_rate,
         "bearing_deg": getattr(msg, "bearing_deg", None),
         "delta_r_deg_per_sec": getattr(msg, "delta_r_deg_per_sec", None),
+        "range_nm": getattr(msg, "range_nm", None),
         "timestamp": msg.timestamp.isoformat(),
         "raw_hex": msg.raw_hex,
     })

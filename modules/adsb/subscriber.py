@@ -83,6 +83,7 @@ class AdsbSubscriber:
             report = self._bearing_tracker.update(msg)
             msg.bearing_deg = report.bearing_deg if report else None
             msg.delta_r_deg_per_sec = report.delta_r_deg_per_sec if report else None
+            msg.range_nm = report.range_nm if report else None
             if self._broadcast_fn is not None:
                 self._broadcast_fn(msg)
             if self._scan_result_fn is not None:
@@ -119,6 +120,7 @@ class AdsbSubscriber:
                         report = self._bearing_tracker.update(msg)
                         msg.bearing_deg = report.bearing_deg if report else None
                         msg.delta_r_deg_per_sec = report.delta_r_deg_per_sec if report else None
+                        msg.range_nm = report.range_nm if report else None
                         if self._broadcast_fn is not None:
                             self._broadcast_fn(msg)
                         if self._scan_result_fn is not None:

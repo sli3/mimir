@@ -373,6 +373,55 @@ class TestAdsbSubscriber:
         assert len(harvested) == 1
         assert harvested[0].bearing_deg is not None
 
+    def test_decode_loop_attaches_range_nm(self):
+        """A successful decode attaches range_nm onto the message."""
+        broadcast_messages = []
+
+        def broadcast_spy(msg):
+            broadcast_messages.append(msg)
+
+        msg = AdsbMessage(
+            icao="7C4B4C", callsign="QFA456", latitude=-34.0, longitude=138.0,
+            altitude_ft=35000, groundspeed=450.0, track=180.0, vertical_rate=0,
+            raw_hex="8D406B902015A678D4D220AA4BDA",
+        )
+
+        sub = AdsbSubscriber(broadcast_fn=broadcast_spy)
+
+        def fake_demodulate(iq_chunk):
+            return ["8D406B902015A678D4D220AA4BDA"]
+
+        def fake_decode(raw_hex):
+            return msg
+
+        sub._demodulator.demodulate = fake_demodulate
+        sub._decoder.decode = fake_decode
+
+        iq_chunk = np.zeros(1024, dtype=np.complex64)
+        sub.receive(iq_chunk, AU_ADSB_FREQUENCY_HZ, 2_000_000.0)
+
+        sub.start()
+        time.sleep(0.2)
+        sub.stop()
+
+        assert len(broadcast_messages) >= 1
+        assert isinstance(broadcast_messages[0].range_nm, float)
+        assert broadcast_messages[0].range_nm > 0.0
+
+    def test_stop_attaches_range_nm_on_harvested_messages(self):
+        """stop() attaches range_nm to messages harvested by flush()."""
+        harvested = []
+        msg = AdsbMessage(
+            icao="ABC123", callsign="TEST1", latitude=-34.0, longitude=138.0,
+            altitude_ft=35000, groundspeed=450.0, track=180.0, vertical_rate=0,
+            raw_hex="8D406B902015A678D4D220AA4BDA",
+        )
+        sub = AdsbSubscriber(broadcast_fn=lambda m: harvested.append(m))
+        sub._decoder.flush = lambda: [msg]
+        sub.stop()
+        assert len(harvested) == 1
+        assert isinstance(harvested[0].range_nm, float)
+
     def test_decode_loop_handles_message_with_no_position(self):
         """Messages with unresolved position carry None bearing fields."""
         broadcast_messages = []
@@ -407,3 +456,4 @@ class TestAdsbSubscriber:
         assert len(broadcast_messages) >= 1
         assert broadcast_messages[0].bearing_deg is None
         assert broadcast_messages[0].delta_r_deg_per_sec is None
+        assert broadcast_messages[0].range_nm is None
