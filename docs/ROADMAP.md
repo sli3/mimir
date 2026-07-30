@@ -91,6 +91,7 @@
 | 44 | Retune settle reordering and post-retune discard read — `retune_settle_sec: float = 0.25` constructor kwarg, settle moved from post-activate to pre-activate in both `set_center_frequency` and `open()` for both device classes; one throwaway discard read in scanner._scan_loop after each retune | ✅ Complete | 877 (674 pytest + 203 Vitest), 0 failures |
 | 45 | Burst-detection metric redesign (covers Phase 45 backend + Phase 45b frontend and ADS-B path) — new per-bin max-hold ratio metric in `fingerprint_spectrum()` (BURST_MARGIN_DB = 6.0, is_burst, burst_ratio_db, expected_noise_ratio_db, burst_excess_db); `emit_adsb_scan_result()` now carries the four burst fields as None; `SignalHistoryLog.jsx` deleted the local PEAK_BURST_MARGIN_DB constant and gap computation, now reads `entry.is_burst === true`. [PEAK] no longer fires on dead-spectrum noise; live test on HackRF One. | ✅ Complete | 893 (687 pytest + 206 Vitest), 0 failures |
 | 46 | FM broadcast [PEAK] false-positive fix (TD-45-2) — wide-window total-power-ratio metric, opt-in per band via `burst_use_wide_window` BAND_PROFILES key; enabled for `fm_broadcast` only; live-verified 21/21 entries at 98.306 MHz, 0 [PEAK] tags. FM-only, no other band path changed. | ✅ Complete | 898 (692 pytest + 206 Vitest), 0 failures |
+| 47 | Bearing / delta-r tracking for ADS-B (BearingTracker) — new module `modules/adsb/bearing_tracker.py` (193 lines) + tests (206 lines, 21 tests); sphere-correct great-circle initial bearing from Adelaide to each decoded aircraft; delta_r tracking with wraparound-safe math; lazy stale eviction (AIRCRAFT_EXPIRY_SEC=90.0s, MAX_AIRCRAFT=30); BearingReport dataclass (icao, bearing_deg, delta_r_deg_per_sec, timestamp). Two-layer separation: pure functions `initial_bearing_deg()` and `angular_diff_deg()` (no AdsbMessage import) and `BearingTracker` class. Not true angle-of-arrival — pure trig on ADS-B self-reported GPS position. Not wired to live AdsbSubscriber broadcast path in this phase. | ✅ Complete | 919 (713 pytest + 206 Vitest), 0 failures |
 
 ---
 
@@ -2080,6 +2081,38 @@ No phase tracker entry required. This is a targeted bug fix within Phase 23 scop
 - TD-45-5: `useSocket.js` aiReasoning path omits the burst fields — benign today since AI panel does not render [PEAK], but contract is asymmetric. No action unless AI panel is extended.
 
 **RF-Legal notes.** Receive-only. Jurisdiction: AU/SA, ACMA, Radiocommunications Act 1992 (Cth). All changes are passive RX-only; no TX surfaces introduced or touched. Hardware verified on HackRF One.
+
+---
+
+### Phase 47 — Bearing / delta-r tracking for ADS-B (BearingTracker) ✅
+
+**Goal.** Add a bearing and delta_r (bearing angular rate) tracking layer for ADS-B aircraft using pure trigonometry on decoded GPS positions from the existing ADS-B decoder. This is a post-decoder analysis layer, not true angle-of-arrival — it computes the great-circle initial bearing from the fixed Adelaide receiver position (ADELAIDE_LAT=-34.93, ADELAIDE_LON=138.60) to each decoded aircraft's self-reported lat/lon.
+
+**What was built.** New module `modules/adsb/bearing_tracker.py` (194 lines, per git diff) + comprehensive test suite `tests/modules/test_adsb_bearing_tracker.py` (206 lines, 21 tests, per git diff). The module implements:
+
+- Pure functions `initial_bearing_deg(from_lat, from_lon, to_lat, to_lon)` and `angular_diff_deg(a_deg, b_deg)` — no AdsbMessage import, fully deterministic unit-testable helpers for sphere-correct great-circle bearing and wraparound-safe angular difference.
+- `BearingTracker` class — stateful per-ICAO tracker with lazy stale eviction (AIRCRAFT_EXPIRY_SEC=90.0s, MAX_AIRCRAFT=30, both imported from modules/adsb/constants). Maintains `self._state: dict[str, tuple[float, datetime]]` mapping ICAO -> (bearing_deg, timestamp) — NOT a stored BearingReport object; BearingReport is constructed only on update()'s return value. Public API: `update(msg: AdsbMessage) -> BearingReport | None` (returns None for first-seen aircraft or unresolved position, report thereafter). There is no `get()` method.
+- `BearingReport` dataclass — icao, bearing_deg, delta_r_deg_per_sec (float | None), timestamp.
+- Wraparound-safe delta_r computation via the `((a - b + 180) % 360) - 180` pattern, avoiding the ±180° discontinuity jump on bearing transit.
+- Two-layer separation: inner pure functions (no AdsbMessage import, no constants import) and outer BearingTracker class (the only place that imports AdsbMessage and ADELAIDE_LAT/ADELAIDE_LON). This keeps the trig math isolated and testable without the decoder import chain.
+
+**What was not changed.** No modification to modules/adsb/decoder.py, modules/adsb/subscriber.py, modules/adsb/message.py, modules/adsb/constants.py, modules/adsb/demodulator.py, or dashboard/server.py. All six confirmed untouched via `git diff --stat` against the pre-build tree (empty diff). The BearingTracker is not wired into the live AdsbSubscriber broadcast path in this phase — deliberate deferral, pending a future decision on UI integration.
+
+**Key decisions.**
+- Not true angle-of-arrival — pure trig on ADS-B self-reported GPS position, no antenna array, no RF measurement. This is a display aid, not a new RF capability.
+- Lazy stale eviction — evicts only on update() when a new message arrives for a different aircraft and MAX_AIRCRAFT is full; expired aircraft are treated as fresh on re-entry.
+- Wraparound-safe delta_r — the `((a - b + 180) % 360) - 180` pattern correctly handles the 179° → -179° jump on bearing transit, so delta_r stays continuous.
+
+**Test counts.** 919 passing (713 pytest + 206 Vitest), 0 failures. Phase 47 added +21 pytest (new test_adsb_bearing_tracker.py, 21 tests) and +0 Vitest (no frontend changes). Total net +21 over Phase 46: +21 pytest, +0 Vitest.
+
+**Known follow-up (not this phase).**
+- TD-47-1: ±180° delta_r discontinuity — when an aircraft's bearing transits the 180°/−180° axis, delta_r jumps from large-positive to large-negative in a single update. Mathematically inherent, not a bug. Future UI consumer should cap or smooth.
+- TD-47-2: `min()` tie-break nondeterminism on equal-timestamp eviction — `_insert` uses `min(self._state, key=lambda k: self._state[k][1])`; on tied timestamps the eviction choice is dict-insertion-order dependent. Acceptable for a display aid.
+- TD-47-3: tz-naive timestamp risk — `(msg.timestamp - prev_ts).total_seconds()` raises TypeError if one operand is naive. The decoder always produces tz-aware timestamps, so single-producer-safe today.
+- TD-47-4: `delta_r` naming collision with radar terminology — `BearingReport.delta_r_deg_per_sec` is a public-API field; in radar nomenclature, "delta-r" denotes range rate, not bearing angular rate. Consider renaming to `bearing_rate_deg_per_sec` if/ever wired to UI.
+- TD-47-5: Eviction-first ordering is load-bearing but undocumented — `update()` calls `_evict_stale(msg.timestamp)` BEFORE looking up `prev`; reordering these two lines would silently break the "expired aircraft treated as fresh" semantics. @doc-writer added a one-line comment in this build, but the load-bearing nature is still worth documenting for future contributors.
+
+**RF/Legal notes.** No TX surfaces; all changes are pure computation on already-decoded ADS-B GPS position data. No new RF capability or hardware interaction. Jurisdiction: AU/SA, ACMA, Radiocommunications Act 1992 (Cth). ADS-B is legal to receive passively at 1090 MHz in Australia.
 
 ---
 

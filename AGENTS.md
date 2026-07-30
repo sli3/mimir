@@ -242,10 +242,10 @@ uv run python tools/seed_chromadb.py
 > when a governance step fails. Trimmed 2026-07-21 to a pointer, so there is
 > only one table left to go stale.
 
-**Current phase:** 45 — Burst-detection metric redesign (backend + UI; covers 45 and 45b) (see
+**Current phase:** 47 — Bearing / delta-r tracking for ADS-B (BearingTracker) (see
 `docs/ROADMAP.md` for full detail).
 
-**Current total:** 893 passing (687 pytest + 206 Vitest), 0 failures.
+**Current total:** 919 passing (713 pytest + 206 Vitest), 0 failures.
 
 **Reserved:** None.
 
@@ -573,6 +573,11 @@ Do not apply this pre-emptively — only if context problems are observed.
 | `test_no_discard_read_when_freq_unchanged` in tests/core/test_scanner.py | T7 passes whether or not the discard read is gated inside the retune conditional — the test never exercises a focus switch, so it cannot detect a bug where the discard is performed on every iteration regardless of whether `freq_hz != _last_tuned_hz`. Needs a two-frequency version that switches focus mid-run and asserts exactly two discards (one per retune), not just one total. | Future phase — extend T7 with a set_focus_frequency call partway through the run. |
 | retune_settle_sec is a constructor kwarg, not a config key | `retune_settle_sec: float = 0.25` is a constructor keyword argument on `HackRFReceiver` and `PlutoReceiver` only. Not in `MimirConfig`, not in `scanner_required`, not in `core/config/loader.py`. Deliberate deferral — promoting to a config key is a candidate future phase if hardware testing shows the 0.25 default needs dialling. Current call sites: factory.py, capture.py, and tools/capture_to_vectorstore.py all inherit the 0.25 default with no override needed. | Future phase — if hardware testing shows 0.25 needs dialling per device, add to `scanner_required` in loader.py and to config/mimir.yaml. |
 | Phase 44 suite runtime +2.8 s | Two new thread-based scanner tests (T6 and T7) each run the scan loop for ~0.3 s and block on the AI loop's `q.get(timeout=1.0)` at shutdown, adding ~1 s of test wall-clock per test. Consistent with the existing thread-based scanner tests in the same file. Noted, not a defect — the cost is spec-mandated for T6 (ordering assertion) and T7 (frequency-unchanged assertion). | None (advisory only). |
+| TD-47-1 — ±180° delta_r discontinuity | When an aircraft's bearing transits the 180°/−180° axis, delta_r jumps from large-positive to large-negative in a single update. Mathematically inherent, not a bug. Future UI consumer should cap or smooth. | Future phase |
+| TD-47-2 — `min()` tie-break nondeterminism on equal-timestamp eviction | `_insert` uses `min(self._state, key=lambda k: self._state[k][1])`; on tied timestamps the eviction choice is dict-insertion-order dependent. Acceptable for a display aid. | Future phase |
+| TD-47-3 — tz-naive timestamp risk | `(msg.timestamp - prev_ts).total_seconds()` raises TypeError if one operand is naive. The decoder always produces tz-aware timestamps, so single-producer-safe today. | Future phase |
+| TD-47-4 — `delta_r` naming collision with radar terminology | `BearingReport.delta_r_deg_per_sec` is a public-API field; in radar nomenclature, "delta-r" denotes range rate, not bearing angular rate. Consider renaming to `bearing_rate_deg_per_sec` if/ever wired to UI. | Future phase |
+| TD-47-5 — Eviction-first ordering is load-bearing but undocumented | `update()` calls `_evict_stale(msg.timestamp)` BEFORE looking up `prev`; reordering these two lines would silently break the "expired aircraft treated as fresh" semantics. @doc-writer added a one-line comment in this build, but the load-bearing nature is still worth documenting for future contributors. | Future phase |
 
 ### Accepted / Won't Fix (documented, working as intended — not active work)
 

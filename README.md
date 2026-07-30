@@ -149,8 +149,8 @@ Full phase-by-phase history lives in [`docs/ROADMAP.md`](./docs/ROADMAP.md), whi
 single source of truth for phase status and test counts. This section shows
 only a quick-glance summary — update `docs/ROADMAP.md` first, then sync this block.
 
-**Current phase: 46 — FM broadcast [PEAK] false-positive fix (TD-45-2)**
-**Total: 898 passing (692 pytest + 206 Vitest), 0 failures**
+**Current phase: 47 — Bearing / delta-r tracking for ADS-B (BearingTracker)**
+**Total: 919 passing (713 pytest + 206 Vitest), 0 failures**
 
 > **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector
 > store (`data/vectorstore/`) must be re-seeded after deploying this build.

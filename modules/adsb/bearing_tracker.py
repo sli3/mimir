@@ -25,6 +25,16 @@ Sign convention for ``delta_r_deg_per_sec``:
     SIGHT from the receiver to the aircraft, NOT the aircraft's own
     heading / track.
 
+    When an aircraft's bearing transits the 180°/−180° axis, ``delta_r`` jumps
+    from large-positive to large-negative in a single update. This is
+    mathematically inherent, not a code bug — UI consumers should cap or
+    smooth this.
+
+    Naming note: ``delta_r`` is the public API field name for bearing angular
+    rate. In radar terminology, "delta-r" denotes range rate, not bearing rate.
+    Consider a future rename to ``bearing_rate_deg_per_sec`` if/ever wired to
+    UI to avoid confusion.
+
 Design note:
     The inner trigonometric functions (``initial_bearing_deg`` and
     ``angular_diff_deg``) are intentionally decoupled from ``AdsbMessage``
@@ -130,7 +140,7 @@ class BearingTracker:
         if msg.latitude is None or msg.longitude is None:
             return None
 
-        self._evict_stale(msg.timestamp)
+        self._evict_stale(msg.timestamp)  # eviction-first ensures expired aircraft are treated as fresh (see test_expired_aircraft_treated_as_fresh)
 
         bearing = initial_bearing_deg(self._ref_lat_deg, self._ref_lon_deg, msg.latitude, msg.longitude)
         icao_key = str(msg.icao).strip().upper()
@@ -140,6 +150,7 @@ class BearingTracker:
         if prev is not None:
             prev_bearing, prev_ts = prev
             elapsed_sec = (msg.timestamp - prev_ts).total_seconds()
+            # Assumes tz-aware timestamps from AdsbMessage decoder.
             if elapsed_sec > 0:
                 delta_r = angular_diff_deg(bearing, prev_bearing) / elapsed_sec
             # elapsed_sec <= 0 means a duplicate or out-of-order message:
@@ -158,7 +169,11 @@ class BearingTracker:
         )
 
     def _insert(self, icao_key: str, bearing: float, timestamp: datetime) -> None:
-        """Store a reading, dropping the oldest entry if at capacity."""
+        """Store a reading, dropping the oldest entry if at capacity.
+
+        On tied timestamps, the eviction choice depends on dict insertion order.
+        Acceptable for a display aid.
+        """
         if icao_key not in self._state and len(self._state) >= MAX_AIRCRAFT:
             oldest_key = min(self._state, key=lambda k: self._state[k][1])
             del self._state[oldest_key]
