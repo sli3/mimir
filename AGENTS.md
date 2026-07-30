@@ -242,10 +242,10 @@ uv run python tools/seed_chromadb.py
 > when a governance step fails. Trimmed 2026-07-21 to a pointer, so there is
 > only one table left to go stale.
 
-**Current phase:** 47 — Bearing / delta-r tracking for ADS-B (BearingTracker) (see
-`docs/ROADMAP.md` for full detail).
+**Current phase:** 48 — BearingTracker wired into the live ADS-B pipeline (see
+docs/ROADMAP.md for full detail).
 
-**Current total:** 919 passing (713 pytest + 206 Vitest), 0 failures.
+**Current total:** 926 passing (717 pytest + 209 Vitest), 0 failures.
 
 **Reserved:** None.
 
@@ -578,6 +578,8 @@ Do not apply this pre-emptively — only if context problems are observed.
 | TD-47-3 — tz-naive timestamp risk | `(msg.timestamp - prev_ts).total_seconds()` raises TypeError if one operand is naive. The decoder always produces tz-aware timestamps, so single-producer-safe today. | Future phase |
 | TD-47-4 — `delta_r` naming collision with radar terminology | `BearingReport.delta_r_deg_per_sec` is a public-API field; in radar nomenclature, "delta-r" denotes range rate, not bearing angular rate. Consider renaming to `bearing_rate_deg_per_sec` if/ever wired to UI. | Future phase |
 | TD-47-5 — Eviction-first ordering is load-bearing but undocumented | `update()` calls `_evict_stale(msg.timestamp)` BEFORE looking up `prev`; reordering these two lines would silently break the "expired aircraft treated as fresh" semantics. @doc-writer added a one-line comment in this build, but the load-bearing nature is still worth documenting for future contributors. | Future phase |
+| TD-48-1 — Pre-existing race pattern in AdsbSubscriber.stop() (Phase 9F origin, not Phase 48 regression) | `self._running` is set to False AFTER the flush loop completes, so the decode thread could in principle still be running concurrently with the flush. Consequences assessed as benign — CPython GIL makes dict operations atomic; both threads would typically be inserting readings for different ICAOs. Possible future tightening: move `self._running = False` to the top of stop(), before the flush call. Identified by @deep-analyst in Phase 48 dual review; flagged here for visibility, not as a Phase 48 regression. | Future phase — pre-existing pattern, low priority, no current observable impact |
+| TD-48-2 — `dataclasses.asdict()` or `repr()` would silently drop bearing_deg / delta_r_deg_per_sec | AdsbSubscriber dynamically sets `bearing_deg` and `delta_r_deg_per_sec` on AdsbMessage instances after decode; these are not declared dataclass fields. A future maintainer adding `dataclasses.asdict(msg)` or `repr(msg)` for logging/serialisation/debug output would silently lose bearing data with no error. Zero current call sites do this (grep-confirmed at time of Phase 48 finalise). Mitigated by the doc-writer comment added to modules/adsb/message.py in the same finalise run. This tech-debt row tracks the risk even though the immediate mitigation has already landed. | Future phase — defensive guards (e.g. monkey-patch __repr__ to include dynamic fields, or a custom asdict wrapper) are possible but not required today |
 
 ### Accepted / Won't Fix (documented, working as intended — not active work)
 

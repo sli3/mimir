@@ -92,6 +92,7 @@
 | 45 | Burst-detection metric redesign (covers Phase 45 backend + Phase 45b frontend and ADS-B path) — new per-bin max-hold ratio metric in `fingerprint_spectrum()` (BURST_MARGIN_DB = 6.0, is_burst, burst_ratio_db, expected_noise_ratio_db, burst_excess_db); `emit_adsb_scan_result()` now carries the four burst fields as None; `SignalHistoryLog.jsx` deleted the local PEAK_BURST_MARGIN_DB constant and gap computation, now reads `entry.is_burst === true`. [PEAK] no longer fires on dead-spectrum noise; live test on HackRF One. | ✅ Complete | 893 (687 pytest + 206 Vitest), 0 failures |
 | 46 | FM broadcast [PEAK] false-positive fix (TD-45-2) — wide-window total-power-ratio metric, opt-in per band via `burst_use_wide_window` BAND_PROFILES key; enabled for `fm_broadcast` only; live-verified 21/21 entries at 98.306 MHz, 0 [PEAK] tags. FM-only, no other band path changed. | ✅ Complete | 898 (692 pytest + 206 Vitest), 0 failures |
 | 47 | Bearing / delta-r tracking for ADS-B (BearingTracker) — new module `modules/adsb/bearing_tracker.py` (193 lines) + tests (206 lines, 21 tests); sphere-correct great-circle initial bearing from Adelaide to each decoded aircraft; delta_r tracking with wraparound-safe math; lazy stale eviction (AIRCRAFT_EXPIRY_SEC=90.0s, MAX_AIRCRAFT=30); BearingReport dataclass (icao, bearing_deg, delta_r_deg_per_sec, timestamp). Two-layer separation: pure functions `initial_bearing_deg()` and `angular_diff_deg()` (no AdsbMessage import) and `BearingTracker` class. Not true angle-of-arrival — pure trig on ADS-B self-reported GPS position. Not wired to live AdsbSubscriber broadcast path in this phase. | ✅ Complete | 919 (713 pytest + 206 Vitest), 0 failures |
+| 48 | BearingTracker wired into the live ADS-B pipeline — bearing_deg and delta_r_deg_per_sec added to adsb_aircraft SocketIO payload; two new display columns in AdsbAircraftPanel.jsx. Backend: `modules/adsb/subscriber.py` (construct BearingTracker in __init__, call in _decode_loop and stop()); `dashboard/server.py` (emit_adsb_aircraft payload with getattr defaults). Frontend: `AdsbAircraftPanel.jsx` (bearing/delta_r columns). Files untouched: bearing_tracker.py, decoder.py, demodulator.py, constants.py, useSocket.js; core/legal/compliance_guard.py. | ✅ Complete | 926 (717 pytest + 209 Vitest), 0 failures |
 
 ---
 
@@ -2113,6 +2114,42 @@ No phase tracker entry required. This is a targeted bug fix within Phase 23 scop
 - TD-47-5: Eviction-first ordering is load-bearing but undocumented — `update()` calls `_evict_stale(msg.timestamp)` BEFORE looking up `prev`; reordering these two lines would silently break the "expired aircraft treated as fresh" semantics. @doc-writer added a one-line comment in this build, but the load-bearing nature is still worth documenting for future contributors.
 
 **RF/Legal notes.** No TX surfaces; all changes are pure computation on already-decoded ADS-B GPS position data. No new RF capability or hardware interaction. Jurisdiction: AU/SA, ACMA, Radiocommunications Act 1992 (Cth). ADS-B is legal to receive passively at 1090 MHz in Australia.
+
+---
+
+### Phase 48 — BearingTracker wired into the live ADS-B pipeline ✅
+
+**Goal.** Wire the Phase 47 BearingTracker into the live AdsbSubscriber pipeline so bearing and delta_r (bearing angular rate) data are computed on each decoded ADS-B message and broadcast via SocketIO to the dashboard. Add two new display columns ("Bearing (°)" and "Δr (°/s)") to the ADS-B aircraft panel.
+
+**What shipped.** BearingTracker wired into the live AdsbSubscriber pipeline (constructed in `__init__`, called in both `_decode_loop()` and `stop()`'s flush path). `bearing_deg` and `delta_r_deg_per_sec` added to the `adsb_aircraft` SocketIO payload (via `getattr` defensive defaults). Two new display columns ("Bearing (°)" and "Δr (°/s)") added to `AdsbAircraftPanel.jsx`'s active and previously-seen aircraft tables.
+
+**BearingTracker public API.** `update(msg: AdsbMessage) -> BearingReport | None` (where `BearingReport` has `icao: str`, `bearing_deg: float`, `delta_r_deg_per_sec: float | None`, `timestamp: datetime`). No new methods were added in Phase 48. The change surface was entirely call-site wiring plus payload/display plumbing — `bearing_tracker.py` itself was untouched.
+
+**useSocket.js untouched.** The existing `adsb_aircraft` handler's `...data` spread (around line 157) already passes new payload keys through to the per-ICAO map. No code change needed there. The spec explicitly forbade touching it.
+
+**New baseline.** 926 passing (717 pytest + 209 Vitest), 0 failures. Was 919 pre-Phase-48. Phase 48 added +4 pytest (new test file `tests/modules/test_adsb_subscriber.py` extended) and +3 Vitest (new test file `AdsbAircraftBearing.test.jsx`, 3 tests).
+
+**Files touched (backend commit).**
+- `modules/adsb/subscriber.py` — construct BearingTracker in `__init__`, call `tracker.update(msg)` in `_decode_loop`, call in `stop()`'s flush path via `flush()` helper.
+- `dashboard/server.py` — `emit_adsb_aircraft()` now includes `bearing_deg` and `delta_r_deg_per_sec` via `getattr(report, "bearing_deg", None)` and `getattr(report, "delta_r_deg_per_sec", None)` defensive defaults.
+- `tests/modules/test_adsb_subscriber.py` — 4 new tests covering BearingTracker construction, decode-loop updates, flush-path updates, and all-positive delta_r fallback.
+
+**Files touched (frontend commit).**
+- `dashboard/frontend/src/components/AdsbAircraftPanel.jsx` — added "Bearing (°)" and "Δr (°/s)" columns to both active and previously-seen aircraft tables. Bearing displayed as integer degrees; delta_r displayed with one decimal place, None as "—" dash.
+- `dashboard/frontend/src/tests/AdsbAircraftBearing.test.jsx` — 3 new tests: bearing column renders bearing, delta_r column renders rate, None values render as dash.
+
+**Files untouched.** `modules/adsb/bearing_tracker.py`, `modules/adsb/decoder.py`, `modules/adsb/demodulator.py`, `modules/adsb/constants.py`, `dashboard/frontend/src/hooks/useSocket.js`, `core/legal/compliance_guard.py`. AGENTS.md's Phase Tracker pointer-only section also untouched. (`modules/adsb/message.py` received a docstring comment in the same finalise run, but no field changes.)
+
+**Key decisions.**
+- BearingTracker ownership decided to live inside AdsbSubscriber (not as a scan.py-level callback), since no other consumer needs this specific instance — only the reusable pure functions `initial_bearing_deg` and `angular_diff_deg` are meant for reuse.
+- Defensive `getattr` defaults in server.py ensure legacy SocketIO events (before Phase 48) are handled gracefully even if a client has cached message expectations.
+- Dash rendering for None delta_r values follows existing pattern (zero-width dash) for visual consistency with other optional fields.
+
+**Known follow-up (not this phase).**
+- TD-48-1: Pre-existing race pattern in AdsbSubscriber.stop() (Phase 9F origin, not Phase 48 regression) — `self._running` is set to False AFTER the flush loop completes, so the decode thread could in principle still be running concurrently with the flush. Consequences assessed as benign — CPython GIL makes dict operations atomic; both threads would typically be inserting readings for different ICAOs. Future tightening: move `self._running = False` to the top of `stop()`, before the flush call. Identified by @deep-analyst in Phase 48 dual review.
+- TD-48-2: `dataclasses.asdict()` or `repr()` would silently drop bearing_deg / delta_r_deg_per_sec — AdsbSubscriber dynamically sets these fields on AdsbMessage instances after decode; they are not declared dataclass fields. A future maintainer adding `dataclasses.asdict(msg)` or `repr(msg)` for logging/serialisation/debug output would silently lose bearing data. Zero current call sites do this (grep-confirmed at time of Phase 48 finalise). Mitigated by the doc-writer comment added to `modules/adsb/message.py` in the same finalise run.
+
+**RF/Legal notes.** No TX surfaces; all changes are pure payload plumbing on already-decoded ADS-B GPS position data. No new RF capability or hardware interaction. Jurisdiction: AU/SA, ACMA, Radiocommunications Act 1992 (Cth). ADS-B is legal to receive passively at 1090 MHz in Australia.
 
 ---
 

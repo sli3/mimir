@@ -22,3 +22,7 @@ class AdsbMessage:
     vertical_rate: int | None          # ft/min, positive = climbing
     raw_hex: str                       # original hex string from demodulator
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    # NOTE: bearing_deg (float | None) and delta_r_deg_per_sec (float | None)
+    # are dynamically set by AdsbSubscriber after decode. They are NOT
+    # declared fields — asdict()/repr() will silently drop them.
