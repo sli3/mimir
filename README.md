@@ -149,8 +149,8 @@ Full phase-by-phase history lives in [`docs/ROADMAP.md`](./docs/ROADMAP.md), whi
 single source of truth for phase status and test counts. This section shows
 only a quick-glance summary — update `docs/ROADMAP.md` first, then sync this block.
 
-**Current phase: 48 — BearingTracker wired into the live ADS-B pipeline**
-**Total: 926 passing (717 pytest + 209 Vitest), 0 failures**
+**Current phase: 49 — SVG PPI radar scope panel**
+**Total: 949 passing (724 pytest + 225 Vitest), 0 failures**
 
 > **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector
 > store (`data/vectorstore/`) must be re-seeded after deploying this build.

@@ -242,10 +242,10 @@ uv run python tools/seed_chromadb.py
 > when a governance step fails. Trimmed 2026-07-21 to a pointer, so there is
 > only one table left to go stale.
 
-**Current phase:** 48 — BearingTracker wired into the live ADS-B pipeline (see
+**Current phase:** 49 — SVG PPI radar scope panel (see
 docs/ROADMAP.md for full detail).
 
-**Current total:** 926 passing (717 pytest + 209 Vitest), 0 failures.
+**Current total:** 949 passing (724 pytest + 225 Vitest), 0 failures.
 
 **Reserved:** None.
 
@@ -580,6 +580,11 @@ Do not apply this pre-emptively — only if context problems are observed.
 | TD-47-5 — Eviction-first ordering is load-bearing but undocumented | `update()` calls `_evict_stale(msg.timestamp)` BEFORE looking up `prev`; reordering these two lines would silently break the "expired aircraft treated as fresh" semantics. @doc-writer added a one-line comment in this build, but the load-bearing nature is still worth documenting for future contributors. | Future phase |
 | TD-48-1 — Pre-existing race pattern in AdsbSubscriber.stop() (Phase 9F origin, not Phase 48 regression) | `self._running` is set to False AFTER the flush loop completes, so the decode thread could in principle still be running concurrently with the flush. Consequences assessed as benign — CPython GIL makes dict operations atomic; both threads would typically be inserting readings for different ICAOs. Possible future tightening: move `self._running = False` to the top of stop(), before the flush call. Identified by @deep-analyst in Phase 48 dual review; flagged here for visibility, not as a Phase 48 regression. | Future phase — pre-existing pattern, low priority, no current observable impact |
 | TD-48-2 — `dataclasses.asdict()` or `repr()` would silently drop bearing_deg / delta_r_deg_per_sec | AdsbSubscriber dynamically sets `bearing_deg` and `delta_r_deg_per_sec` on AdsbMessage instances after decode; these are not declared dataclass fields. A future maintainer adding `dataclasses.asdict(msg)` or `repr(msg)` for logging/serialisation/debug output would silently lose bearing data with no error. Zero current call sites do this (grep-confirmed at time of Phase 48 finalise). Mitigated by the doc-writer comment added to modules/adsb/message.py in the same finalise run. This tech-debt row tracks the risk even though the immediate mitigation has already landed. | Future phase — defensive guards (e.g. monkey-patch __repr__ to include dynamic fields, or a custom asdict wrapper) are possible but not required today |
+| TD-49-1 | Callsign labels have no collision detection and may overlap when aircraft are close in bearing and range. The glow filter makes overlapping labels visually merge. A label solver would fix it. | Future phase |
+| TD-49-3 | isWithinRange accepts a negative rangeNm. Unreachable via the Haversine backend, which always returns >= 0, so there is no observable impact today, but a < 0 guard would be symmetric with the existing null and NaN checks. | Future phase |
+| TD-49-4 | The RADAR SCOPE header renders its contact count unconditionally, so it can show a non-zero count while the body says "Not tuned to ADS-B frequency" — useSocket retains aircraft for 90 seconds after retuning. Optional fix: gate the header on isAdsbFreq. | Future phase |
+| TD-49-6 | maxRangeNm is dead configurability. The prop exists with a default of 40, but App.jsx does not pass it and no test exercises a non-default value. Recorded so a future maintainer does not thread it through without also wiring a UI control. | Future phase |
+| TD-49-7 | Close/far blip radius contrast is weaker in SVG than the earlier prototype (r 3.1 vs 2.2, a 1.41:1 ratio, partially compensated by the glow halo). Advisory only — flag if close and distant contacts prove hard to distinguish with real traffic. | Future phase |
 
 ### Accepted / Won't Fix (documented, working as intended — not active work)
 

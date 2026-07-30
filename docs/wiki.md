@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — pipeline reference, phase log, acronym glossary, and frontend stack. Updated by @doc-writer at the end of each build."
 status: live
-last_updated_phase: "46"
+last_updated_phase: "49"
 ---
 
 # Mimir Wiki
@@ -2987,6 +2987,50 @@ User clicks [ADS-B] button in browser
 | `dashboard/frontend/src/components/AIReasoningPanel.jsx` | React | Displays LLM classification output. Shows ◆ PINNED badge when `isPinned` prop is true. Fade transition on new reasoning data. |
 | `dashboard/frontend/src/components/FrequencyList.jsx` | React | Sidebar band list. FREQ_CONFIGS (7 entries) drives the clickable band rows. Shows latest signal type and confidence per band. Kept in sync with STRIP_CONFIGS and BAND_GROUPS. |
 | `dashboard/frontend/src/components/AisVesselPanel.jsx` | React | AIS vessel data table. Shows decoded AIS messages (MMSI, vessel name, position, speed, course, channel). Displays "Listening on 162.000 MHz..." when tuned to AIS frequency, "Not tuned to AIS frequency" otherwise. |
+| `dashboard/frontend/src/components/RadarScopePanel.jsx` | React | PPI-style radar scope displaying ADS-B aircraft contacts as an SVG polar plot. Renders static chrome (range rings at 25% intervals, 30° radial spokes, centre crosshair, compass labels N/E/S/W) plus dynamic aircraft blips. Each blip is a neon-cyan circle with `filter="url(#mimir-radar-glow)"`; close contacts (inner 25% of range) get a larger blip (3.1 vs 2.2 px radius). Label shows callsign if present, otherwise ICAO. Panel only renders when tuned to ADS-B frequency (1090 ± 2 MHz). Guard filter rejects aircraft with null/undefined/NaN `bearing_deg` or `range_nm`. Uses projection.js for coordinate mapping. |
+| `dashboard/frontend/src/components/radar/projection.js` | JS | Pure-math projection module, renderer-agnostic. Two exported functions: `projectToScope(bearingDeg, rangeNm, maxRangeNm, cx, cy, maxR)` converts polar to screen pixels (bearing 0° = north = negative Y, clockwise = positive X), and `isWithinRange(rangeNm, maxRangeNm)` is a null-safe guard that rejects null/undefined/NaN and out-of-range values. No React dependencies. |
+
+### Radar Scope Panel (Phase 49)
+
+The radar scope panel (`RadarScopePanel.jsx`) provides a classic plan-position-indicator (PPI) polar plot of ADS-B aircraft positions. It is a passive receive display only — no transmit capability.
+
+**Location and sizing:**
+- Rendered in the third column of Row 3 (DECODED SIGNALS row) in App.jsx.
+- Fixed 380px width column with `flexShrink: 0`.
+- Single `<svg viewBox="0 0 380 325">` with named constants: `SCOPE_CX=190`, `SCOPE_CY=162.5`, `SCOPE_MAX_R=150`.
+
+**Coordinate system:**
+- Bearing 0° = true north (top of scope), increasing clockwise.
+- Y is inverted: north maps to `y < cy` because screen Y grows downward.
+- All coordinates rounded to 2 decimal places (`r2()`) to avoid float noise in SVG attributes.
+
+**Rendering flow:**
+1. Chrome (static): 4 concentric range rings (25%, 50%, 75%, 100% of `maxRangeNm`), 12 radial spokes (30° intervals), centre crosshair (cyan, 1px), compass labels (N/E/S/W). Computed once via `useMemo()` and never re-rendered.
+2. Aircraft filtering: Filters `adsbAircraft` array to reject entries with null/undefined/NaN `bearing_deg` or `range_nm`. Also filters by `isWithinRange(ac.range_nm, maxRangeNm)`. Guard runs before projection so no NaN coordinate reaches SVG.
+3. Projection: For each filtered aircraft, calls `projectToScope(ac.bearing_deg, ac.range_nm, maxRangeNm, SCOPE_CX, SCOPE_CY, SCOPE_MAX_R)` to get screen coordinates.
+4. Blip rendering: Each aircraft renders as a `<circle>` with `fill="var(--neon-cyan)"`, `filter="url(#mimir-radar-glow)"`. Close contacts (inner 25% of range) get larger radius (3.1 vs 2.2 px). Label (`<text>`) shows callsign if present, otherwise ICAO. Uses `key={ac.icao}` for stable React keys.
+5. "Not tuned to ADS-B frequency" placeholder: When `isAdsbFreq` is false, shows grey text message instead of SVG.
+
+**Mount-lifecycle contract (CRIT-01):**
+- Empty `useEffect(() => {}, [isAdsbFreq])` with load-bearing dependency array.
+- Currently the SVG renderer has no state to measure, so the body is trivially safe.
+- The contract exists for future renderer state that might attach here — any future state must be keyed on `isAdsbFreq` to avoid stale state when tuning into/out of ADS-B.
+
+**Glow filter:**
+- SVG `<filter id="mimir-radar-glow" x="-80%" y="-80%" width="260%" height="260%">` with `feGaussianBlur stdDeviation="2.4"`.
+- Applied via `filter="url(#mimir-radar-glow)"` on all aircraft blips.
+- Creates a subtle neon glow effect around each contact without obscuring the core blip.
+
+**Data contract with backend:**
+- Backend: `BearingTracker.update()` computes `range_nm` using `great_circle_distance_nm()` (haversine, spherical Earth radius 3440.065 NM).
+- Backend: `AdsbSubscriber.stop()` and `_decode_loop()` set `msg.range_nm = report.range_nm if report else None`.
+- Backend: `emit_adsb_aircraft()` (server.py:397) emits `"range_nm": getattr(msg, "range_nm", None)`.
+- Frontend: RadarScopePanel expects each `adsbAircraft` entry to have `bearing_deg`, `range_nm`, `icao`, and optionally `callsign`. Null/undefined/NaN values are filtered out before projection.
+
+**Why the geometry:**
+- 380×325 viewBox fits the 380px column width with reasonable vertical proportion.
+- `SCOPE_MAX_R=150` provides margin: 150 px from centre to edge leaves 40 px for labels (N/E/S/W) and crosshair without clipping.
+- 4 range rings (25%, 50%, 75%, 100%) give the operator quick distance reference without visual clutter.
 
 ### Pin-to-Reasoning Data Flow
 
