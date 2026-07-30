@@ -44,6 +44,19 @@ function formatTrack(value) {
   return `${String(deg).padStart(3, '0')}°`
 }
 
+function formatBearing(value) {
+  if (value === null || value === undefined || value === '---') return '—'
+  const deg = Math.round(Number(value)) % 360
+  return `${String(deg).padStart(3, '0')}°`
+}
+
+function formatDeltaR(value) {
+  if (value === null || value === undefined || value === '---') return '—'
+  const num = Number(value)
+  const sign = num >= 0 ? '+' : '-'
+  return `${sign}${Math.abs(num).toFixed(1)}°/s`
+}
+
 function elapsedSeconds(receivedAt) {
   if (!receivedAt) return '—'
   return Math.floor((Date.now() - receivedAt) / 1000)
@@ -154,6 +167,8 @@ export default function AdsbAircraftPanel({ adsbAircraft = {}, adsbAircraftHisto
                   <th style={{ textAlign: 'left', padding: '2px 4px' }}>Alt (ft)</th>
                   <th style={{ textAlign: 'left', padding: '2px 4px' }}>Spd (kt)</th>
                   <th style={{ textAlign: 'left', padding: '2px 4px' }}>Track (°)</th>
+                  <th style={{ textAlign: 'left', padding: '2px 4px' }}>Bearing (°)</th>
+                  <th style={{ textAlign: 'left', padding: '2px 4px' }}>Δr (°/s)</th>
                   <th style={{ textAlign: 'left', padding: '2px 4px' }}>Last Seen</th>
                 </tr>
               </thead>
@@ -181,6 +196,12 @@ export default function AdsbAircraftPanel({ adsbAircraft = {}, adsbAircraftHisto
                       </td>
                       <td style={{ padding: '2px 4px', whiteSpace: 'nowrap' }}>
                         {formatTrack(ac.track)}
+                      </td>
+                      <td style={{ padding: '2px 4px', whiteSpace: 'nowrap' }}>
+                        {formatBearing(ac.bearing_deg)}
+                      </td>
+                      <td style={{ padding: '2px 4px', whiteSpace: 'nowrap' }}>
+                        {formatDeltaR(ac.delta_r_deg_per_sec)}
                       </td>
                       <td style={{ padding: '2px 4px', whiteSpace: 'nowrap' }}>
                         {elapsedSeconds(ac.receivedAt)}s
@@ -219,6 +240,8 @@ export default function AdsbAircraftPanel({ adsbAircraft = {}, adsbAircraftHisto
                     <th style={{ textAlign: 'left', padding: '2px 4px' }}>Alt (ft)</th>
                     <th style={{ textAlign: 'left', padding: '2px 4px' }}>Spd (kt)</th>
                     <th style={{ textAlign: 'left', padding: '2px 4px' }}>Track (°)</th>
+                    <th style={{ textAlign: 'left', padding: '2px 4px' }}>Bearing (°)</th>
+                    <th style={{ textAlign: 'left', padding: '2px 4px' }}>Δr (°/s)</th>
                     <th style={{ textAlign: 'left', padding: '2px 4px' }}>Last Seen</th>
                   </tr>
                 </thead>
@@ -241,6 +264,12 @@ export default function AdsbAircraftPanel({ adsbAircraft = {}, adsbAircraftHisto
                         </td>
                         <td style={{ padding: '2px 4px', whiteSpace: 'nowrap' }}>
                           {formatTrack(ac.track)}
+                        </td>
+                        <td style={{ padding: '2px 4px', whiteSpace: 'nowrap' }}>
+                          {formatBearing(ac.bearing_deg)}
+                        </td>
+                        <td style={{ padding: '2px 4px', whiteSpace: 'nowrap' }}>
+                          {formatDeltaR(ac.delta_r_deg_per_sec)}
                         </td>
                         <td style={{ padding: '2px 4px', whiteSpace: 'nowrap' }}>
                           {elapsedSeconds(ac.receivedAt)}s
