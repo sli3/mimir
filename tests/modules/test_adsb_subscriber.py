@@ -2,6 +2,7 @@
 
 import threading
 import time
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 
@@ -273,3 +274,136 @@ class TestAdsbSubscriber:
 
         assert len(harvested_scan) == 1
         assert harvested_scan[0].icao == "7C4B4C"
+
+    def test_decode_loop_attaches_bearing_report(self):
+        """Decode loop attaches bearing_deg (delta_r None on first sighting)."""
+        broadcast_messages = []
+
+        def broadcast_spy(msg):
+            broadcast_messages.append(msg)
+
+        msg = AdsbMessage(
+            icao="7C4B4C", callsign="QFA456", latitude=-34.0, longitude=138.0,
+            altitude_ft=35000, groundspeed=450.0, track=180.0, vertical_rate=0,
+            raw_hex="8D406B902015A678D4D220AA4BDA",
+        )
+
+        sub = AdsbSubscriber(broadcast_fn=broadcast_spy)
+
+        def fake_demodulate(iq_chunk):
+            return ["8D406B902015A678D4D220AA4BDA"]
+
+        def fake_decode(raw_hex):
+            return msg
+
+        sub._demodulator.demodulate = fake_demodulate
+        sub._decoder.decode = fake_decode
+
+        iq_chunk = np.zeros(1024, dtype=np.complex64)
+        sub.receive(iq_chunk, AU_ADSB_FREQUENCY_HZ, 2_000_000.0)
+
+        sub.start()
+        time.sleep(0.2)
+        sub.stop()
+
+        assert len(broadcast_messages) >= 1
+        assert isinstance(broadcast_messages[0].bearing_deg, float)
+        assert broadcast_messages[0].delta_r_deg_per_sec is None
+
+    def test_decode_loop_computes_delta_r_on_second_message(self):
+        """Second position report for the same ICAO yields a delta_r rate."""
+        broadcast_messages = []
+
+        def broadcast_spy(msg):
+            broadcast_messages.append(msg)
+
+        ts1 = datetime.now(timezone.utc)
+        ts2 = ts1 + timedelta(seconds=1.0)
+        msg1 = AdsbMessage(
+            icao="7C4B4C", callsign="QFA456", latitude=-34.0, longitude=138.0,
+            altitude_ft=35000, groundspeed=450.0, track=180.0, vertical_rate=0,
+            raw_hex="8D406B902015A678D4D220AA4BDA", timestamp=ts1,
+        )
+        msg2 = AdsbMessage(
+            icao="7C4B4C", callsign="QFA456", latitude=-34.01, longitude=138.01,
+            altitude_ft=35000, groundspeed=450.0, track=180.0, vertical_rate=0,
+            raw_hex="8D4840D6202CC371C32CE0576098", timestamp=ts2,
+        )
+
+        sub = AdsbSubscriber(broadcast_fn=broadcast_spy)
+
+        hex_strings = [
+            "8D406B902015A678D4D220AA4BDA",
+            "8D4840D6202CC371C32CE0576098",
+        ]
+        msgs = [msg1, msg2]
+
+        def fake_demodulate(iq_chunk):
+            return [hex_strings.pop(0)] if hex_strings else []
+
+        def fake_decode(raw_hex):
+            return msgs.pop(0) if msgs else None
+
+        sub._demodulator.demodulate = fake_demodulate
+        sub._decoder.decode = fake_decode
+
+        iq_chunk = np.zeros(1024, dtype=np.complex64)
+        sub.receive(iq_chunk, AU_ADSB_FREQUENCY_HZ, 2_000_000.0)
+        sub.receive(iq_chunk, AU_ADSB_FREQUENCY_HZ, 2_000_000.0)
+
+        sub.start()
+        time.sleep(0.3)
+        sub.stop()
+
+        assert len(broadcast_messages) >= 2
+        assert broadcast_messages[1].delta_r_deg_per_sec is not None
+        assert isinstance(broadcast_messages[1].delta_r_deg_per_sec, float)
+
+    def test_stop_flush_attaches_bearing_report(self):
+        """stop() attaches bearing_deg to messages harvested by flush()."""
+        harvested = []
+        msg = AdsbMessage(
+            icao="ABC123", callsign="TEST1", latitude=-34.0, longitude=138.0,
+            altitude_ft=35000, groundspeed=450.0, track=180.0, vertical_rate=0,
+            raw_hex="8D406B902015A678D4D220AA4BDA",
+        )
+        sub = AdsbSubscriber(broadcast_fn=lambda m: harvested.append(m))
+        sub._decoder.flush = lambda: [msg]
+        sub.stop()
+        assert len(harvested) == 1
+        assert harvested[0].bearing_deg is not None
+
+    def test_decode_loop_handles_message_with_no_position(self):
+        """Messages with unresolved position carry None bearing fields."""
+        broadcast_messages = []
+
+        def broadcast_spy(msg):
+            broadcast_messages.append(msg)
+
+        msg = AdsbMessage(
+            icao="7C4B4C", callsign="QFA456", latitude=None, longitude=None,
+            altitude_ft=35000, groundspeed=450.0, track=180.0, vertical_rate=0,
+            raw_hex="8D406B902015A678D4D220AA4BDA",
+        )
+
+        sub = AdsbSubscriber(broadcast_fn=broadcast_spy)
+
+        def fake_demodulate(iq_chunk):
+            return ["8D406B902015A678D4D220AA4BDA"]
+
+        def fake_decode(raw_hex):
+            return msg
+
+        sub._demodulator.demodulate = fake_demodulate
+        sub._decoder.decode = fake_decode
+
+        iq_chunk = np.zeros(1024, dtype=np.complex64)
+        sub.receive(iq_chunk, AU_ADSB_FREQUENCY_HZ, 2_000_000.0)
+
+        sub.start()
+        time.sleep(0.2)
+        sub.stop()
+
+        assert len(broadcast_messages) >= 1
+        assert broadcast_messages[0].bearing_deg is None
+        assert broadcast_messages[0].delta_r_deg_per_sec is None

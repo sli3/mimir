@@ -17,6 +17,7 @@ import numpy as np
 from modules.adsb.constants import AU_ADSB_FREQUENCY_HZ, FREQ_TOLERANCE_HZ
 from modules.adsb.demodulator import AdsbDemodulator
 from modules.adsb.decoder import AdsbDecoder
+from modules.adsb.bearing_tracker import BearingTracker
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,7 @@ class AdsbSubscriber:
         self._running = False
         self._demodulator = AdsbDemodulator()
         self._decoder = AdsbDecoder()
+        self._bearing_tracker = BearingTracker()
 
     def receive(
         self,
@@ -78,6 +80,9 @@ class AdsbSubscriber:
         """
         harvested = self._decoder.flush()
         for msg in harvested:
+            report = self._bearing_tracker.update(msg)
+            msg.bearing_deg = report.bearing_deg if report else None
+            msg.delta_r_deg_per_sec = report.delta_r_deg_per_sec if report else None
             if self._broadcast_fn is not None:
                 self._broadcast_fn(msg)
             if self._scan_result_fn is not None:
@@ -111,6 +116,9 @@ class AdsbSubscriber:
                             msg.callsign,
                             msg.altitude_ft,
                         )
+                        report = self._bearing_tracker.update(msg)
+                        msg.bearing_deg = report.bearing_deg if report else None
+                        msg.delta_r_deg_per_sec = report.delta_r_deg_per_sec if report else None
                         if self._broadcast_fn is not None:
                             self._broadcast_fn(msg)
                         if self._scan_result_fn is not None:

@@ -390,6 +390,8 @@ def emit_adsb_aircraft(msg: AdsbMessage) -> None:
         "groundspeed": msg.groundspeed,
         "track": msg.track,
         "vertical_rate": msg.vertical_rate,
+        "bearing_deg": getattr(msg, "bearing_deg", None),
+        "delta_r_deg_per_sec": getattr(msg, "delta_r_deg_per_sec", None),
         "timestamp": msg.timestamp.isoformat(),
         "raw_hex": msg.raw_hex,
     })
