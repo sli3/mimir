@@ -825,7 +825,7 @@ export default function App() {
       }}>
         {/* Bottom-left — System & Signal */}
         <div style={{
-          flex: 2,
+          flex: 1,
           display: 'flex',
           flexDirection: 'column',
           borderRight: '1px solid var(--border)',
@@ -1111,7 +1111,7 @@ export default function App() {
 
         {/* Bottom-right — AI Reasoning & Decoded Signals */}
         <div style={{
-          flex: 3,
+          flex: 4,
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
