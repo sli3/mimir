@@ -748,6 +748,21 @@ Do not apply this pre-emptively — only if context problems are observed.
   and `setAdsbAircraftHistory` (previously-seen ring buffer) use it. Commit: `7e453e1` (merge) + `96ed965` (cosmetic Row 3 layout).
   Test counts: 965 passing (727 pytest + 238 Vitest), 0 failures.
 
+- **BUG-07 (RESOLVED — 2026-07-31):** `dashboard/server.py`'s `emit_adsb_scan_result()` previously built its AI Reasoning /
+  Signal History text from a single triggering `AdsbMessage`. Since Mode S typecodes carry disjoint field sets (tc4 = callsign only,
+  tc19 = speed/track/vertical_rate, tc9-18 = altitude/lat/lon), the reasoning string reported "unknown" for any field absent from
+  whichever frame happened to trigger that call — even when that field had already been resolved from an earlier frame for the same aircraft.
+  This mirrored the exact category of bug BUG-06 had already fixed on the frontend (`dashboard/frontend/src/utils/mergeAircraftRecord.js`),
+  but on the backend reasoning-text path, which BUG-06 never touched. Fix: new `AdsbFieldTracker` class added to `dashboard/server.py`
+  (lines 62–156), mirroring `modules/adsb/bearing_tracker.py:BearingTracker`'s design — one merged view per ICAO
+  (callsign, altitude_ft, groundspeed, track, vertical_rate), non-None incoming values overwrite stored ones, None values leave stored
+  values untouched, retention via `AIRCRAFT_EXPIRY_SEC`/`MAX_AIRCRAFT` from `modules/adsb/constants.py` (no redefinition).
+  `emit_adsb_scan_result()` now builds its reasoning string from the merged view; a field reads "unknown" only if that ICAO has never
+  had a non-None value for it (genuinely unresolved), not merely absent from the current frame. Reasoning string surfaces callsign,
+  altitude, speed, and track (vertical_rate tracked but not displayed; bearing_deg/delta_r_deg_per_sec/range_nm intentionally out of scope —
+  BearingTracker's concern, has its own dedicated table). `modules/adsb/subscriber.py`, `message.py`, `decoder.py`,
+  and `mergeAircraftRecord.js` untouched. Commit: `4803ada`. Test counts: 978 passing (740 pytest + 238 Vitest), 0 failures.
+
 - **Mascot/CharacterPanel.jsx wiring deferred:** `CharacterPanel.jsx` component exists
   in `dashboard/frontend/src/components/` but is not yet wired into the live operator
   state system. Integration will connect mascot display to OPERATOR_STATE_CONFIG

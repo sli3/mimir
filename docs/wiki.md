@@ -1023,7 +1023,7 @@ produces higher-quality classification output (confidence 1.0 vs LLM's typical
 Acquires `_focused_freq_lock`, reads focused frequency, releases lock, then
 emits a `scan_result` event with `confidence=1.0` and all fingerprint fields
 as `None`. The reasoning string reads: "Confirmed ADS-B decode - ICAO {icao},
-callsign {callsign}, altitude {alt} ft". Analogy: a barcode scanner that
+callsign {callsign}, altitude {alt} ft, speed {speed} kt, track {track} deg". Analogy: a barcode scanner that
 already knows what it scanned — no need to ask the AI to guess.
 
 `AdsbSubscriber.__init__(broadcast_fn, scan_result_fn=None)` — now accepts an
