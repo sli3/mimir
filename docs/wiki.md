@@ -1382,7 +1382,9 @@ bottom strip.
    ``self._decoder.flush()`` before ``self._running = False`` in ``stop()`` to
    release bootstrap-held CPR positions before shutdown. Previously, aircraft
    with fewer than ``BOOTSTRAP_K=5`` CPR pairs silently lost their positions.
-   A full harvest-and-emit pattern would be needed for complete recovery.
+   BUG-05 implemented the full harvest-and-emit pattern via a shared
+   ``_harvest_and_broadcast()`` helper, used by both ``stop()`` and a periodic
+   5s harvest inside ``_decode_loop()``.
 
 **Why:** The startup message was misleading, the fatal error exit path had no
 test coverage (MED-01), the test_server_stats.py refactor was a pre-existing
@@ -1402,16 +1404,14 @@ docstring already documented the ``fatal_error`` flag and exit code semantics
 uses only the PSD array length and canvas width. Added a JSDoc block
 describing the parameter change.
 
-`AdsbSubscriber.stop()` — now calls ``self._decoder.flush()`` before setting
-``_running = False``, releasing bootstrap-held CPR pairs. A full harvest
-and emit of flushed positions is not implemented — they are silently released
-rather than discarded without attempt.
+`AdsbSubscriber.stop()` — calls ``self._decoder.flush()`` before setting
+   ``_running = False``. The flush is performed via the shared
+   ``_harvest_and_broadcast()`` helper, which broadcasts each harvested message
+   via both ``broadcast_fn`` and ``scan_result_fn`` before stopping. BUG-05
+   added this helper and the periodic 5s harvest in ``_decode_loop()``.
 
 **Deferred items:**
-- ``AdsbSubscriber.stop()`` flush does not emit flushed positions to the
-  dashboard — they are silently released. A harvest-and-emit pattern would
-  need a pre-shutdown callback that collects released positions and broadcasts
-  them before the thread dies.
+None.
 
 **RF/Legal Notes:**
 - TX safety incidents: None

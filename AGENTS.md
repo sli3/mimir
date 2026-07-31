@@ -726,6 +726,28 @@ Do not apply this pre-emptively — only if context problems are observed.
   path and the precedence rule. Colour case (TASK 2) and live-capture key names
   (TASK 3) required no changes. Test counts: 582 passing (420 pytest + 162 Vitest).
 
+- **BUG-05 (RESOLVED — 2026-07-31):** `AdsbDecoder` has two distinct flush mechanisms.
+  The internal 5s timer inside `decode()` calls `self._pipe.flush()` which only retro-fills
+  lat/lon onto pyModeS's internal bootstrap dicts. The separate `AdsbDecoder.flush()` wrapper
+  — which walks `_pending_bootstrap`, rebuilds `AdsbMessage` objects via `_build_message()`,
+  clears the list, and returns them — was previously only ever called from `AdsbSubscriber.stop()`,
+  meaning resolved positions only surfaced by luck or at shutdown during live operation.
+  Fix: `_decode_loop()` now harvests on the same `FLUSH_INTERVAL_SEC` (5.0s) cadence via a
+  shared `_harvest_and_broadcast()` helper, used by both the periodic path and `stop()`.
+  The periodic harvest is wrapped in try/except. `_last_harvest_ts` is set AFTER the except
+  block (not in finally) so a persistently-failing harvest retries on cadence rather than every iteration.
+  Commit: `80ca6d5`. Test counts: 952 passing (727 pytest + 225 Vitest), 0 failures.
+
+- **BUG-06 (RESOLVED — 2026-07-31):** Mode S typecodes carry disjoint field sets (tc4 = callsign only,
+  tc19 = speed/track/vrate, tc9-18 = altitude/lat/lon). `dashboard/server.py`'s `emit_adsb_aircraft()`
+  builds every SocketIO payload from a single `AdsbMessage`, so each frame emits nulls for every field it does not carry.
+  Pre-BUG-06, frontend `useSocket.js` was doing a wholesale spread — `{ ...prev, [data.icao]: { ...data, receivedAt: now } }` —
+  so nulls clobbered previously-known good values on every update. Fix: new pure helper `mergeAircraftRecord(prev, data, now)`
+  in `dashboard/frontend/src/utils/mergeAircraftRecord.js`. Non-null incoming values overwrite stored ones, null values preserve
+  what's stored, a brand-new ICAO stores as-is, receivedAt always refreshes regardless. Both `setAdsbAircraft` (live table)
+  and `setAdsbAircraftHistory` (previously-seen ring buffer) use it. Commit: `7e453e1` (merge) + `96ed965` (cosmetic Row 3 layout).
+  Test counts: 965 passing (727 pytest + 238 Vitest), 0 failures.
+
 - **Mascot/CharacterPanel.jsx wiring deferred:** `CharacterPanel.jsx` component exists
   in `dashboard/frontend/src/components/` but is not yet wired into the live operator
   state system. Integration will connect mascot display to OPERATOR_STATE_CONFIG
