@@ -35,6 +35,7 @@ import os
 import re
 import threading
 import time
+from typing import Any
 
 import numpy as np
 from flask import Flask, jsonify, request
@@ -44,13 +45,115 @@ from core.pipeline.scan_result import ScanResult
 from embeddings.store import SignalStore
 from modules.acars.message import AcarsMessage
 from modules.adsb.message import AdsbMessage
-from modules.adsb.constants import AU_ADSB_FREQUENCY_HZ, FREQ_TOLERANCE_HZ
+from modules.adsb.constants import (
+    AIRCRAFT_EXPIRY_SEC,
+    AU_ADSB_FREQUENCY_HZ,
+    FREQ_TOLERANCE_HZ,
+    MAX_AIRCRAFT,
+)
 from modules.ais.message import AisMessage
 import dashboard.shared_state as shared_state
 
 from pyModeS import decode
 
 logger = logging.getLogger(__name__)
+
+
+class AdsbFieldTracker:
+    """Per-ICAO merge of the disjoint field sets carried by ADS-B frames.
+
+    ADS-B frames carry disjoint field sets by typecode: a typecode 4 frame
+    carries only a callsign, a typecode 19 frame carries velocity (no
+    callsign or altitude), and typecodes 9-18 carry position and altitude
+    only.  Building the AI Reasoning string from the single triggering
+    frame therefore reported "unknown" for fields an earlier frame for the
+    same aircraft had already resolved.  This tracker keeps the last known
+    non-None value of each field per ICAO so the reasoning string can be
+    built from the merged view, matching what the dashboard's own ADS-B
+    AIRCRAFT table already shows (merged on the frontend by BUG-06 /
+    mergeAircraftRecord.js).
+
+    Merge semantics: any non-None field on an incoming message overwrites
+    the stored value; any None field leaves the stored value untouched.
+
+    Retention discipline mirrors ``modules/adsb/bearing_tracker.py``:
+    entries older than ``AIRCRAFT_EXPIRY_SEC`` are swept lazily on each
+    ``update()`` call (no separate timer), and if the table reaches
+    ``MAX_AIRCRAFT`` the oldest entry (by stored timestamp) is dropped on
+    the next insert of an untracked ICAO.  On tied timestamps the eviction
+    choice depends on dict insertion order; acceptable for a display aid.
+
+    Single-producer assumption: in steady state ``emit_adsb_scan_result()``
+    is only called from AdsbSubscriber's decode thread. The shutdown
+    flush in ``AdsbSubscriber.stop()`` runs on the caller's thread and can
+    briefly overlap the decode thread for a small window — the same
+    pre-existing pattern as TD-48-1 for BearingTracker. No lock is taken:
+    the overlap is benign (display aid, GIL-atomic dict ops, the two
+    threads typically target different ICAOs).
+
+    If a 6th field is ever tracked, both ``_FIELDS`` (used by ``update()``)
+    and any consumer of the returned dict must be extended in lockstep:
+    same pattern-divergence risk as TD-45-3.
+    """
+
+    # Tracked field names on AdsbMessage.  vertical_rate is merged here but
+    # intentionally not shown in the reasoning string (per Phase 50 plan).
+    _FIELDS = ("callsign", "altitude_ft", "groundspeed", "track", "vertical_rate")
+
+    def __init__(self) -> None:
+        # icao_key -> {field_name: last_known_value, "_ts": datetime}
+        self._state: dict[str, dict[str, Any]] = {}
+
+    def update(self, msg: AdsbMessage) -> dict[str, Any]:
+        """Merge one decoded ADS-B message into the stored per-ICAO view.
+
+        Args:
+            msg: Decoded ADS-B message from AdsbDecoder.
+
+        Returns:
+            The current merged view for the message's ICAO: a dict with
+            keys ``icao`` (normalised: stripped, upper-cased) plus one key
+            per tracked field, each holding the last known non-None value
+            or None if that field has never been resolved for this ICAO.
+        """
+        # Eviction-first ensures an expired ICAO's next message is treated
+        # as a fresh aircraft (see test_expired_aircraft_treated_as_fresh).
+        self._evict_stale(msg.timestamp)
+
+        icao_key = str(msg.icao).strip().upper()
+        entry = self._state.get(icao_key)
+        if entry is None:
+            if len(self._state) >= MAX_AIRCRAFT:
+                oldest_key = min(self._state, key=lambda k: self._state[k]["_ts"])
+                del self._state[oldest_key]
+            entry = {field: None for field in self._FIELDS}
+            self._state[icao_key] = entry
+
+        for field in self._FIELDS:
+            value = getattr(msg, field, None)
+            if value is not None:
+                entry[field] = value
+        entry["_ts"] = msg.timestamp
+
+        merged: dict[str, Any] = {"icao": icao_key}
+        for field in self._FIELDS:
+            merged[field] = entry[field]
+        return merged
+
+    def _evict_stale(self, now) -> None:
+        """Sweep entries older than ``AIRCRAFT_EXPIRY_SEC``.
+
+        Called lazily from ``update()`` so a stale ICAO's next message is
+        treated as a fresh aircraft.  No separate timer is used.
+        """
+        stale = [
+            key
+            for key, entry in self._state.items()
+            if (now - entry["_ts"]).total_seconds() > AIRCRAFT_EXPIRY_SEC
+        ]
+        for key in stale:
+            del self._state[key]
+
 
 app = Flask(__name__, static_folder="static", static_url_path="")
 socketio = SocketIO(
@@ -81,6 +184,12 @@ _VECTORSTORE_CACHE_LOCK = threading.Lock()
 
 _signal_store = None
 _signal_store_lock = threading.Lock()
+
+# Per-ICAO ADS-B field-merge tracker for the AI Reasoning panel.  See
+# AdsbFieldTracker docstring; mirrors the design of
+# modules/adsb/bearing_tracker.py:BearingTracker.  Lightweight in-memory
+# dict, so direct instantiation with no lazy-with-lock needed.
+_field_tracker = AdsbFieldTracker()
 
 
 def _get_signal_store():
@@ -427,6 +536,14 @@ def emit_adsb_scan_result(msg: AdsbMessage) -> None:
     shape parity with broadcast() — the frontend does not need to special-case
     missing keys.
 
+    The reasoning string is built from the merged per-ICAO view maintained
+    by ``_field_tracker`` (AdsbFieldTracker), not from the single triggering
+    frame: ADS-B frames carry disjoint field sets by typecode, so a field
+    an earlier frame already resolved would otherwise show "unknown" here
+    while the ADS-B AIRCRAFT table (merged on the frontend) shows the real
+    value. A field shows "unknown" only when it has NEVER been resolved for
+    that ICAO.
+
     NOTE: In busy airspace, ADS-B traffic can produce a high rate of decoded
     frames (potentially dozens per second). Each decode emits a separate
     scan_result event. If this floods Signal History or the AI Reasoning
@@ -440,9 +557,15 @@ def emit_adsb_scan_result(msg: AdsbMessage) -> None:
     if focused is not None and abs(focused - AU_ADSB_FREQUENCY_HZ) > FREQ_TOLERANCE_HZ:
         return
 
-    callsign_str = msg.callsign.strip() if msg.callsign else 'unknown'
-    alt_str = str(msg.altitude_ft) + ' ft' if msg.altitude_ft is not None else 'unknown'
-    reasoning = f'Confirmed ADS-B decode - ICAO {msg.icao}, callsign {callsign_str}, altitude {alt_str}'
+    merged = _field_tracker.update(msg)
+    callsign_str = merged["callsign"].strip() if merged["callsign"] else 'unknown'
+    alt_str = str(merged["altitude_ft"]) + ' ft' if merged["altitude_ft"] is not None else 'unknown'
+    speed_str = str(merged["groundspeed"]) + ' kt' if merged["groundspeed"] is not None else 'unknown'
+    track_str = f'{merged["track"]:.0f} deg' if merged["track"] is not None else 'unknown'
+    reasoning = (
+        f'Confirmed ADS-B decode - ICAO {merged["icao"]}, callsign {callsign_str}, '
+        f'altitude {alt_str}, speed {speed_str}, track {track_str}'
+    )
 
     socketio.emit('scan_result', {
         'timestamp': msg.timestamp.isoformat(),

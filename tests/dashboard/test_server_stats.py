@@ -1,7 +1,7 @@
 import sys
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -358,13 +358,17 @@ class TestEmitAdsbScanResult:
     def setup_method(self):
         self._saved_focused_freq = server._focused_freq_hz
         server._focused_freq_hz = None
+        # Clear the module-level per-ICAO field tracker so merged state
+        # cannot leak between tests (mirrors the _focused_freq_hz pattern).
+        server._field_tracker._state.clear()
 
     def teardown_method(self):
         server._focused_freq_hz = self._saved_focused_freq
+        server._field_tracker._state.clear()
 
-    def _make_adsb_message(self, icao="ABCDEF", callsign="TEST123"):
+    def _make_adsb_message(self, icao="ABCDEF", callsign="TEST123", **overrides):
         from datetime import datetime, timezone
-        return AdsbMessage(
+        fields = dict(
             icao=icao,
             callsign=callsign,
             latitude=-34.0,
@@ -376,6 +380,8 @@ class TestEmitAdsbScanResult:
             raw_hex="8D406B902015A678D4D220AA4BDA",
             timestamp=datetime.now(timezone.utc),
         )
+        fields.update(overrides)
+        return AdsbMessage(**fields)
 
     def test_emits_scan_result_event(self):
         """emit_adsb_scan_result() calls socketio.emit('scan_result')."""
@@ -417,6 +423,99 @@ class TestEmitAdsbScanResult:
             emit_adsb_scan_result(msg)
             data = mock_emit.call_args[0][1]
             assert "ABCDEF" in data["reasoning"]
+
+    def test_reasoning_merges_callsign_and_altitude_across_frames(self):
+        """Fields resolved by an earlier frame survive a frame that lacks them."""
+        from dashboard.server import emit_adsb_scan_result
+
+        # Frame 1 (e.g. typecode 4 + position): callsign and altitude only.
+        msg1 = self._make_adsb_message(
+            icao="ABCDEF",
+            callsign="ABC123",
+            altitude_ft=35000,
+            groundspeed=None,
+            track=None,
+        )
+        # Frame 2 (e.g. typecode 19 velocity): no callsign, no altitude.
+        msg2 = self._make_adsb_message(
+            icao="ABCDEF",
+            callsign=None,
+            altitude_ft=None,
+            groundspeed=450.0,
+            track=90.0,
+        )
+        with patch("dashboard.server.socketio.emit") as mock_emit:
+            emit_adsb_scan_result(msg1)
+            emit_adsb_scan_result(msg2)
+            data = mock_emit.call_args[0][1]
+            reasoning = data["reasoning"]
+            # Callsign and altitude from frame 1 survived, NOT "unknown".
+            assert "callsign ABC123" in reasoning
+            assert "35000 ft" in reasoning
+            # Speed and track newly resolved by frame 2.
+            assert "450.0 kt" in reasoning
+            assert "90 deg" in reasoning
+            assert "unknown" not in reasoning
+
+    def test_reasoning_unknown_when_field_never_resolved(self):
+        """A field that has never carried a value still shows 'unknown'."""
+        from dashboard.server import emit_adsb_scan_result
+
+        msg = self._make_adsb_message(
+            icao="ABCDEF",
+            callsign="ABC123",
+            altitude_ft=None,
+            groundspeed=None,
+            track=None,
+        )
+        with patch("dashboard.server.socketio.emit") as mock_emit:
+            emit_adsb_scan_result(msg)
+            data = mock_emit.call_args[0][1]
+            reasoning = data["reasoning"]
+            assert "callsign ABC123" in reasoning
+            assert "altitude unknown" in reasoning
+            assert "speed unknown" in reasoning
+            assert "track unknown" in reasoning
+
+    def test_reasoning_per_icao_independence(self):
+        """Merged state is per-ICAO: updates for B never affect A's view."""
+        from dashboard.server import emit_adsb_scan_result
+
+        with patch("dashboard.server.socketio.emit") as mock_emit:
+            emit_adsb_scan_result(
+                self._make_adsb_message(icao="AAAAAA", callsign="AAA123", altitude_ft=None)
+            )
+            emit_adsb_scan_result(
+                self._make_adsb_message(icao="BBBBBB", callsign="BBB456", altitude_ft=None)
+            )
+            b_reasoning = mock_emit.call_args[0][1]["reasoning"]
+            # Second frame for A: no callsign, but altitude newly resolved.
+            emit_adsb_scan_result(
+                self._make_adsb_message(icao="AAAAAA", callsign=None, altitude_ft=35000)
+            )
+            a_reasoning = mock_emit.call_args[0][1]["reasoning"]
+
+        # A's callsign from its first frame survived AND altitude resolved.
+        assert "ICAO AAAAAA" in a_reasoning
+        assert "callsign AAA123" in a_reasoning
+        assert "35000 ft" in a_reasoning
+        # B's view was untouched by A's updates.
+        assert "ICAO BBBBBB" in b_reasoning
+        assert "callsign BBB456" in b_reasoning
+        assert "altitude unknown" in b_reasoning
+
+    def test_reasoning_does_not_carry_bearing_or_delta_r_or_range(self):
+        """Regression guard: the reasoning string never carries BearingTracker fields."""
+        from dashboard.server import emit_adsb_scan_result
+
+        msg = self._make_adsb_message()
+        with patch("dashboard.server.socketio.emit") as mock_emit:
+            emit_adsb_scan_result(msg)
+            data = mock_emit.call_args[0][1]
+            reasoning = data["reasoning"]
+            assert "bearing" not in reasoning
+            assert "delta_r" not in reasoning
+            assert "nm" not in reasoning
 
     def test_focus_filter_blocks_wrong_frequency(self):
         """When focused on FM (98 MHz), ADS-B emissions are blocked."""
@@ -577,7 +676,10 @@ class TestScanResultSourceProvenance:
         """
         from dashboard.server import emit_adsb_scan_result
         msg = AdsbMessage(
-            timestamp=datetime(2026, 7, 29, 12, 0, 0),
+            # tz-aware to match what the real decoder produces (the module-
+            # level AdsbFieldTracker subtracts stored timestamps on update;
+            # a naive value would raise TypeError against aware entries).
+            timestamp=datetime(2026, 7, 29, 12, 0, 0, tzinfo=timezone.utc),
             icao="7C1234",
             callsign="TEST01",
             altitude_ft=35000,
