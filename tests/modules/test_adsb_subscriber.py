@@ -457,3 +457,107 @@ class TestAdsbSubscriber:
         assert broadcast_messages[0].bearing_deg is None
         assert broadcast_messages[0].delta_r_deg_per_sec is None
         assert broadcast_messages[0].range_nm is None
+
+    def test_periodic_harvest_broadcasts_messages(self, monkeypatch):
+        """Periodic harvest in _decode_loop broadcasts flush-harvested messages.
+
+        FLUSH_INTERVAL_SEC is patched down to 0.05 s so the test does not
+        need to run the loop for the real 5 s cadence.
+        """
+        monkeypatch.setattr("modules.adsb.subscriber.FLUSH_INTERVAL_SEC", 0.05)
+
+        broadcast_event = threading.Event()
+        broadcast_messages = []
+        scan_result_messages = []
+
+        def broadcast_spy(msg):
+            broadcast_messages.append(msg)
+            broadcast_event.set()
+
+        def scan_result_spy(msg):
+            scan_result_messages.append(msg)
+
+        msg = AdsbMessage(
+            icao="ABC123", callsign="TEST1", latitude=-34.0, longitude=138.0,
+            altitude_ft=35000, groundspeed=450.0, track=180.0, vertical_rate=0,
+            raw_hex="8D406B902015A678D4D220AA4BDA",
+        )
+        pending = [msg]
+
+        sub = AdsbSubscriber(
+            broadcast_fn=broadcast_spy,
+            scan_result_fn=scan_result_spy,
+        )
+        # Return the crafted message once, then empty, so the stop() harvest
+        # at teardown cannot mask whether the periodic path fired.
+        sub._decoder.flush = lambda: [pending.pop(0)] if pending else []
+
+        sub.start()
+        # Broadcast must arrive while the loop is still running, i.e. via
+        # the periodic harvest, not via the stop() harvest.
+        fired_before_stop = broadcast_event.wait(timeout=2.0)
+        sub.stop()
+
+        assert fired_before_stop
+        assert len(broadcast_messages) == 1
+        assert broadcast_messages[0].icao == "ABC123"
+        assert isinstance(broadcast_messages[0].bearing_deg, float)
+        assert broadcast_messages[0].delta_r_deg_per_sec is None
+        assert isinstance(broadcast_messages[0].range_nm, float)
+        assert len(scan_result_messages) == 1
+        assert scan_result_messages[0].icao == "ABC123"
+
+    def test_periodic_harvest_does_not_fire_every_iteration(self):
+        """The timer gate is real: flush is not called on every loop iteration.
+
+        Runs the loop for ~0.4 s (several queue-timeout iterations) with the
+        real 5 s FLUSH_INTERVAL_SEC and asserts flush is never called until
+        stop() performs its final harvest.
+        """
+        flush_calls = []
+        sub = AdsbSubscriber(broadcast_fn=lambda m: None)
+        sub._decoder.flush = lambda: flush_calls.append(time.monotonic()) or []
+
+        sub.start()
+        time.sleep(0.4)
+        assert len(flush_calls) == 0
+        sub.stop()
+        assert len(flush_calls) == 1
+
+    def test_harvest_helper_matches_stop_payload_shape(self):
+        """_harvest_and_broadcast() produces the same payload shape as stop().
+
+        Calls the helper directly and asserts the identical field set the
+        stop() flush tests assert against: broadcast_fn and scan_result_fn
+        both invoked, bearing_deg / delta_r_deg_per_sec / range_nm attached.
+        """
+        broadcast_messages = []
+        scan_result_messages = []
+
+        def broadcast_spy(msg):
+            broadcast_messages.append(msg)
+
+        def scan_result_spy(msg):
+            scan_result_messages.append(msg)
+
+        msg = AdsbMessage(
+            icao="ABC123", callsign="TEST1", latitude=-34.0, longitude=138.0,
+            altitude_ft=35000, groundspeed=450.0, track=180.0, vertical_rate=0,
+            raw_hex="8D406B902015A678D4D220AA4BDA",
+        )
+
+        sub = AdsbSubscriber(
+            broadcast_fn=broadcast_spy,
+            scan_result_fn=scan_result_spy,
+        )
+        sub._decoder.flush = lambda: [msg]
+
+        sub._harvest_and_broadcast()
+
+        assert len(broadcast_messages) == 1
+        assert broadcast_messages[0].icao == "ABC123"
+        assert isinstance(broadcast_messages[0].bearing_deg, float)
+        assert broadcast_messages[0].delta_r_deg_per_sec is None
+        assert isinstance(broadcast_messages[0].range_nm, float)
+        assert len(scan_result_messages) == 1
+        assert scan_result_messages[0] is broadcast_messages[0]
