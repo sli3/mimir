@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { io } from 'socket.io-client'
+import { mergeAircraftRecord } from '../utils/mergeAircraftRecord.js'
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000'
 
@@ -152,18 +153,30 @@ export function useSocket() {
     })
 
     socket.on('adsb_aircraft', (data) => {
+      const now = Date.now()
       setAdsbAircraft((prev) => {
-        const now = Date.now()
-        const updated = { ...prev, [data.icao]: { ...data, receivedAt: now } }
+        // BUG-06: merge field-by-field instead of wholesale replace.
+        // Mode S typecodes carry disjoint field sets (callsign-only,
+        // velocity-only, position-only), so a partial frame must not
+        // clobber previously-known fields with nulls. receivedAt always
+        // updates so the 90-second cutoff below still tracks liveness.
+        const merged = mergeAircraftRecord(prev[data.icao] || null, data, now)
+        const updated = { ...prev, [data.icao]: merged }
         const cutoff = now - 90000
         return Object.fromEntries(
           Object.entries(updated).filter(([, v]) => v.receivedAt > cutoff)
         )
       })
       setAdsbAircraftHistory((prev) => {
-        const entry = { ...data, receivedAt: Date.now() }
+        // BUG-06: the history is a most-recent-per-ICAO snapshot ring
+        // buffer (consumed as previouslySeenList in AdsbAircraftPanel),
+        // so its entries need the same field-preserving merge — the user
+        // wants the best-known snapshot of a dropped aircraft, not the
+        // partial last frame it happened to send.
+        const existing = prev.find((ac) => ac.icao === data.icao) || null
+        const merged = mergeAircraftRecord(existing, data, now)
         const filtered = prev.filter((ac) => ac.icao !== data.icao)
-        return [entry, ...filtered].slice(0, 50)
+        return [merged, ...filtered].slice(0, 50)
       })
       setAdsbRawLog((prev) => {
         if (!data.raw_hex) return prev

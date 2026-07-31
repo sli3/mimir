@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import React from 'react'
 
@@ -7,6 +7,7 @@ vi.mock('socket.io-client', () => ({
 }))
 
 import { useSocket } from '../hooks/useSocket.js'
+import { mergeAircraftRecord } from '../utils/mergeAircraftRecord.js'
 import { io } from 'socket.io-client'
 
 describe('useSocket', () => {
@@ -403,5 +404,313 @@ describe('useSocket', () => {
 
     expect(result.current.device).toBeNull()
     expect(result.current.unsupportedBands).toEqual({})
+  })
+
+  // ------------------------------------------------------------------
+  // BUG-06 — field-preserving merge for adsb_aircraft
+  // Mode S typecodes carry disjoint field sets (typecode 4 = callsign,
+  // typecode 19 = velocity, typecodes 9-18 = position). The old wholesale
+  // replace clobbered known fields with nulls on every partial frame.
+  // ------------------------------------------------------------------
+  describe('BUG-06 adsb_aircraft field-preserving merge', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    const FULL_FRAME = {
+      icao: 'ABCDEF',
+      callsign: 'JST681',
+      altitude_ft: 37000,
+      latitude: -34.5,
+      longitude: 138.6,
+      groundspeed: 450,
+      track: 90,
+      vertical_rate: 0,
+      bearing_deg: 45,
+      delta_r_deg_per_sec: 0.5,
+      range_nm: 12.3,
+      timestamp: '2026-07-31T10:00:00Z',
+      raw_hex: '8D4840D6202CC371C32CE057A8CF',
+    }
+
+    it('adsb_aircraft with position fields followed by velocity-only frame preserves altitude/lat/lon', () => {
+      const { result } = renderHook(() => useSocket())
+      const handler = eventHandlers['adsb_aircraft'][0]
+
+      act(() => {
+        handler({
+          icao: 'ABCDEF',
+          callsign: null,
+          altitude_ft: 37000,
+          latitude: -34.5,
+          longitude: 138.6,
+          groundspeed: null,
+          track: null,
+          vertical_rate: null,
+          timestamp: '2026-07-31T10:00:00Z',
+          raw_hex: '8D4840D6202CC371C32CE057A8CF',
+        })
+      })
+      act(() => {
+        handler({
+          icao: 'ABCDEF',
+          callsign: null,
+          altitude_ft: null,
+          latitude: null,
+          longitude: null,
+          groundspeed: 450,
+          track: 90,
+          vertical_rate: -64,
+          timestamp: '2026-07-31T10:00:01Z',
+          raw_hex: '8D4840D6994001B8380B22A1B3E4',
+        })
+      })
+
+      const ac = result.current.adsbAircraft['ABCDEF']
+      expect(ac.altitude_ft).toBe(37000)
+      expect(ac.latitude).toBe(-34.5)
+      expect(ac.longitude).toBe(138.6)
+      expect(ac.groundspeed).toBe(450)
+      expect(ac.track).toBe(90)
+      expect(ac.vertical_rate).toBe(-64)
+    })
+
+    it('adsb_aircraft with identification frame (callsign only) does not wipe previously-known altitude/groundspeed/track', () => {
+      const { result } = renderHook(() => useSocket())
+      const handler = eventHandlers['adsb_aircraft'][0]
+
+      act(() => {
+        handler({ ...FULL_FRAME, callsign: null })
+      })
+      act(() => {
+        handler({
+          icao: 'ABCDEF',
+          callsign: 'JST681',
+          altitude_ft: null,
+          latitude: null,
+          longitude: null,
+          groundspeed: null,
+          track: null,
+          vertical_rate: null,
+          timestamp: '2026-07-31T10:00:01Z',
+          raw_hex: '8D4840D6202CC371C32CE057A8CF',
+        })
+      })
+
+      const ac = result.current.adsbAircraft['ABCDEF']
+      expect(ac.callsign).toBe('JST681')
+      expect(ac.altitude_ft).toBe(37000)
+      expect(ac.groundspeed).toBe(450)
+      expect(ac.track).toBe(90)
+    })
+
+    it('adsb_aircraft non-null incoming value overwrites a stored value', () => {
+      const { result } = renderHook(() => useSocket())
+      const handler = eventHandlers['adsb_aircraft'][0]
+
+      act(() => {
+        handler({ ...FULL_FRAME })
+      })
+      act(() => {
+        handler({ ...FULL_FRAME, altitude_ft: 36000, timestamp: '2026-07-31T10:00:02Z' })
+      })
+
+      expect(result.current.adsbAircraft['ABCDEF'].altitude_ft).toBe(36000)
+    })
+
+    it('adsb_aircraft with brand-new ICAO stores correctly with no prior record', () => {
+      const { result } = renderHook(() => useSocket())
+      const handler = eventHandlers['adsb_aircraft'][0]
+
+      act(() => {
+        handler({ ...FULL_FRAME })
+      })
+
+      const ac = result.current.adsbAircraft['ABCDEF']
+      expect(ac).toBeDefined()
+      expect(ac.icao).toBe('ABCDEF')
+      expect(ac.callsign).toBe('JST681')
+      expect(ac.altitude_ft).toBe(37000)
+      expect(ac.receivedAt).toBeDefined()
+    })
+
+    it('adsb_aircraft receivedAt updates on a frame that carries no new field data', () => {
+      vi.useFakeTimers()
+      const t0 = new Date('2026-07-31T10:00:00Z').getTime()
+      vi.setSystemTime(t0)
+
+      const { result } = renderHook(() => useSocket())
+      const handler = eventHandlers['adsb_aircraft'][0]
+
+      act(() => {
+        handler({ ...FULL_FRAME })
+      })
+      const firstReceivedAt = result.current.adsbAircraft['ABCDEF'].receivedAt
+      expect(firstReceivedAt).toBe(t0)
+
+      const t1 = t0 + 5000
+      vi.setSystemTime(t1)
+      act(() => {
+        handler({
+          icao: 'ABCDEF',
+          callsign: null,
+          altitude_ft: null,
+          latitude: null,
+          longitude: null,
+          groundspeed: null,
+          track: null,
+          vertical_rate: null,
+          timestamp: '2026-07-31T10:00:05Z',
+          raw_hex: '8D4840D6202CC371C32CE057A8CF',
+        })
+      })
+
+      const ac = result.current.adsbAircraft['ABCDEF']
+      expect(ac.receivedAt).toBe(t1)
+      expect(ac.receivedAt).toBeGreaterThan(firstReceivedAt)
+      // Field data preserved despite the empty frame
+      expect(ac.altitude_ft).toBe(37000)
+      expect(ac.callsign).toBe('JST681')
+    })
+
+    it('adsb_aircraft 90-second cutoff still evicts a genuinely silent aircraft', () => {
+      vi.useFakeTimers()
+      const t0 = new Date('2026-07-31T10:00:00Z').getTime()
+      vi.setSystemTime(t0)
+
+      const { result } = renderHook(() => useSocket())
+      const handler = eventHandlers['adsb_aircraft'][0]
+
+      act(() => {
+        handler({ ...FULL_FRAME, icao: 'SILENT' })
+      })
+      expect(result.current.adsbAircraft['SILENT']).toBeDefined()
+
+      // 100 seconds later a different aircraft transmits — the cutoff
+      // pass inside the same update must evict the silent one.
+      vi.setSystemTime(t0 + 100000)
+      act(() => {
+        handler({ ...FULL_FRAME, icao: 'ACTIVE' })
+      })
+
+      expect(result.current.adsbAircraft['SILENT']).toBeUndefined()
+      expect(result.current.adsbAircraft['ACTIVE']).toBeDefined()
+    })
+
+    it('adsb_aircraft bearing_deg / delta_r_deg_per_sec / range_nm survive a subsequent position-less frame', () => {
+      const { result } = renderHook(() => useSocket())
+      const handler = eventHandlers['adsb_aircraft'][0]
+
+      act(() => {
+        handler({ ...FULL_FRAME })
+      })
+      act(() => {
+        handler({
+          icao: 'ABCDEF',
+          callsign: 'JST681',
+          altitude_ft: null,
+          latitude: null,
+          longitude: null,
+          groundspeed: null,
+          track: null,
+          vertical_rate: null,
+          bearing_deg: null,
+          delta_r_deg_per_sec: null,
+          range_nm: null,
+          timestamp: '2026-07-31T10:00:01Z',
+          raw_hex: '8D4840D6202CC371C32CE057A8CF',
+        })
+      })
+
+      const ac = result.current.adsbAircraft['ABCDEF']
+      expect(ac.bearing_deg).toBe(45)
+      expect(ac.delta_r_deg_per_sec).toBe(0.5)
+      expect(ac.range_nm).toBe(12.3)
+    })
+
+    it('adsb_aircraft history entry also merges field-by-field (not just the active dict)', () => {
+      const { result } = renderHook(() => useSocket())
+      const handler = eventHandlers['adsb_aircraft'][0]
+
+      act(() => {
+        handler({ ...FULL_FRAME, callsign: null })
+      })
+      act(() => {
+        handler({
+          icao: 'ABCDEF',
+          callsign: 'JST681',
+          altitude_ft: null,
+          latitude: null,
+          longitude: null,
+          groundspeed: null,
+          track: null,
+          vertical_rate: null,
+          timestamp: '2026-07-31T10:00:01Z',
+          raw_hex: '8D4840D6202CC371C32CE057A8CF',
+        })
+      })
+
+      // One entry per ICAO, carrying the best-known merged snapshot.
+      expect(result.current.adsbAircraftHistory.length).toBe(1)
+      const hist = result.current.adsbAircraftHistory[0]
+      expect(hist.icao).toBe('ABCDEF')
+      expect(hist.callsign).toBe('JST681')
+      expect(hist.altitude_ft).toBe(37000)
+      expect(hist.latitude).toBe(-34.5)
+      expect(hist.groundspeed).toBe(450)
+      expect(hist.bearing_deg).toBe(45)
+    })
+  })
+
+  // ------------------------------------------------------------------
+  // BUG-06 — mergeAircraftRecord pure helper
+  // ------------------------------------------------------------------
+  describe('mergeAircraftRecord helper', () => {
+    const NOW = 1753965600000
+
+    it('mergeAircraftRecord: brand-new ICAO returns data with receivedAt = now', () => {
+      const data = { icao: 'ABCDEF', callsign: 'JST681', altitude_ft: 37000 }
+      const merged = mergeAircraftRecord(null, data, NOW)
+      expect(merged.icao).toBe('ABCDEF')
+      expect(merged.callsign).toBe('JST681')
+      expect(merged.altitude_ft).toBe(37000)
+      expect(merged.receivedAt).toBe(NOW)
+    })
+
+    it('mergeAircraftRecord: incoming non-null field overwrites prev', () => {
+      const prev = { icao: 'ABCDEF', altitude_ft: 37000, receivedAt: NOW - 1000 }
+      const data = { icao: 'ABCDEF', altitude_ft: 36000 }
+      const merged = mergeAircraftRecord(prev, data, NOW)
+      expect(merged.altitude_ft).toBe(36000)
+    })
+
+    it('mergeAircraftRecord: incoming null field preserves prev', () => {
+      const prev = { icao: 'ABCDEF', altitude_ft: 37000, groundspeed: 450, receivedAt: NOW - 1000 }
+      const data = { icao: 'ABCDEF', altitude_ft: null, groundspeed: null }
+      const merged = mergeAircraftRecord(prev, data, NOW)
+      expect(merged.altitude_ft).toBe(37000)
+      expect(merged.groundspeed).toBe(450)
+    })
+
+    it('mergeAircraftRecord: prev keys not in data are preserved (e.g. bearing from a prior frame)', () => {
+      const prev = { icao: 'ABCDEF', bearing_deg: 45, delta_r_deg_per_sec: 0.5, receivedAt: NOW - 1000 }
+      const data = { icao: 'ABCDEF', groundspeed: 450 }
+      const merged = mergeAircraftRecord(prev, data, NOW)
+      expect(merged.bearing_deg).toBe(45)
+      expect(merged.delta_r_deg_per_sec).toBe(0.5)
+      expect(merged.groundspeed).toBe(450)
+      expect(merged.receivedAt).toBe(NOW)
+    })
+
+    it('mergeAircraftRecord: returns a NEW object (not a reference to prev or data)', () => {
+      const prev = { icao: 'ABCDEF', altitude_ft: 37000, receivedAt: NOW - 1000 }
+      const data = { icao: 'ABCDEF', altitude_ft: 36000 }
+      const merged = mergeAircraftRecord(prev, data, NOW)
+      expect(merged).not.toBe(prev)
+      expect(merged).not.toBe(data)
+      // Inputs must not be mutated by the merge
+      expect(prev.altitude_ft).toBe(37000)
+      expect(data.receivedAt).toBeUndefined()
+    })
   })
 })
