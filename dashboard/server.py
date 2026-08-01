@@ -826,6 +826,24 @@ def vector_space_page():
     )
 
 
+@app.route("/radar")
+def radar_page():
+    """Serve the React app for the isolated radar scope page.
+
+    The /radar route is reached directly; the React entry point
+    then inspects window.location.pathname and renders RadarPage
+    instead of the main dashboard App.
+
+    Returns:
+        Flask response: The index.html file for the RadarPage React app.
+    """
+    from flask import send_from_directory
+    return send_from_directory(
+        os.path.join(os.path.dirname(__file__), "static"),
+        "index.html"
+    )
+
+
 @app.route("/api/vectorstore/points")
 def api_vectorstore_points():
     """Return all stored ChromaDB embeddings projected into 3D.
