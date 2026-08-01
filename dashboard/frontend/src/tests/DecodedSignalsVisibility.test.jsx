@@ -46,7 +46,9 @@ describe('Decoded signals visibility', () => {
     // ACARS and AIS sub-panel headers must be absent entirely
     expect(screen.queryAllByText('ACARS MESSAGES').length).toBe(0)
     expect(screen.queryAllByText('AIS VESSELS').length).toBe(0)
-    expect(screen.queryByText('NO DECODER FOR THIS BAND')).toBeNull()
+    // UI-OVERHAUL (Change 6): all three decoded-signal columns are active
+    // when tuned to ADS-B, so no column shows the fallback.
+    expect(screen.queryAllByText('NO DECODER FOR THIS BAND').length).toBe(0)
   })
 
   it('shows only ACARS sub-panel when focusedFreq is 129125000', () => {
@@ -57,7 +59,9 @@ describe('Decoded signals visibility', () => {
     // ADS-B and AIS sub-panel headers must be absent entirely
     expect(screen.queryAllByText('ADS-B AIRCRAFT').length).toBe(0)
     expect(screen.queryAllByText('AIS VESSELS').length).toBe(0)
-    expect(screen.queryByText('NO DECODER FOR THIS BAND')).toBeNull()
+    // UI-OVERHAUL (Change 6): SIGNAL INTERCEPT has a decoder, but the
+    // ADS-B-only RAW DECODE and FRAME INSPECTOR columns show the fallback.
+    expect(screen.queryAllByText('NO DECODER FOR THIS BAND').length).toBe(2)
   })
 
   it('shows only ACARS sub-panel when focusedFreq is 130025000', () => {
@@ -66,7 +70,7 @@ describe('Decoded signals visibility', () => {
     expect(screen.getAllByText('ACARS MESSAGES').length).toBeGreaterThanOrEqual(1)
     expect(screen.queryAllByText('ADS-B AIRCRAFT').length).toBe(0)
     expect(screen.queryAllByText('AIS VESSELS').length).toBe(0)
-    expect(screen.queryByText('NO DECODER FOR THIS BAND')).toBeNull()
+    expect(screen.queryAllByText('NO DECODER FOR THIS BAND').length).toBe(2)
   })
 
   it('shows only AIS sub-panel when focusedFreq is 162000000', () => {
@@ -77,7 +81,8 @@ describe('Decoded signals visibility', () => {
     // ADS-B and ACARS sub-panel headers must be absent entirely
     expect(screen.queryAllByText('ADS-B AIRCRAFT').length).toBe(0)
     expect(screen.queryAllByText('ACARS MESSAGES').length).toBe(0)
-    expect(screen.queryByText('NO DECODER FOR THIS BAND')).toBeNull()
+    // UI-OVERHAUL (Change 6): ADS-B-only columns 2 and 3 show the fallback.
+    expect(screen.queryAllByText('NO DECODER FOR THIS BAND').length).toBe(2)
   })
 
   it('shows placeholder when focusedFreq is 98000000 (FM — no decoder)', () => {
@@ -86,7 +91,8 @@ describe('Decoded signals visibility', () => {
     expect(screen.queryAllByText('ADS-B AIRCRAFT').length).toBe(0)
     expect(screen.queryAllByText('ACARS MESSAGES').length).toBe(0)
     expect(screen.queryAllByText('AIS VESSELS').length).toBe(0)
-    expect(screen.getByText('NO DECODER FOR THIS BAND')).toBeInTheDocument()
+    // All three decoded-signal columns show the fallback.
+    expect(screen.queryAllByText('NO DECODER FOR THIS BAND').length).toBe(3)
   })
 
   it('shows placeholder when focusedFreq is null', () => {
@@ -95,6 +101,6 @@ describe('Decoded signals visibility', () => {
     expect(screen.queryAllByText('ADS-B AIRCRAFT').length).toBe(0)
     expect(screen.queryAllByText('ACARS MESSAGES').length).toBe(0)
     expect(screen.queryAllByText('AIS VESSELS').length).toBe(0)
-    expect(screen.getByText('NO DECODER FOR THIS BAND')).toBeInTheDocument()
+    expect(screen.queryAllByText('NO DECODER FOR THIS BAND').length).toBe(3)
   })
 })

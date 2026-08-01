@@ -33,6 +33,7 @@ const defaultUseSocket = () => ({
   aisVessels: [],
   adsbAircraft: {},
   adsbAircraftHistory: [],
+  adsbRawLog: [],
   acarsRawLog: [],
   aisRawLog: [],
 })
@@ -114,19 +115,22 @@ describe('App', () => {
     render(<App />)
     const buttons = screen.getAllByRole('button')
     const labels = buttons.map((b) => b.textContent)
-    expect(labels).toContain('FM')
-    expect(labels).toContain('AVIATION')
-    expect(labels).toContain('ACARS')
-    expect(labels).toContain('APRS')
-    expect(labels).toContain('ISM')
-    expect(labels).toContain('ADS-B')
-    expect(labels).toContain('AIS')
+    // UI-OVERHAUL (Change 3): band buttons are now two-line — the label
+    // line followed by the frequency line — so match on the label prefix
+    // rather than the full textContent.
+    expect(labels.some((l) => l.startsWith('FM'))).toBe(true)
+    expect(labels.some((l) => l.startsWith('AVIATION'))).toBe(true)
+    expect(labels.some((l) => l.startsWith('ACARS'))).toBe(true)
+    expect(labels.some((l) => l.startsWith('APRS'))).toBe(true)
+    expect(labels.some((l) => l.startsWith('ISM'))).toBe(true)
+    expect(labels.some((l) => l.startsWith('ADS-B'))).toBe(true)
+    expect(labels.some((l) => l.startsWith('AIS'))).toBe(true)
   })
 
   it('clicking FM band button calls focusFrequency with 98000000', () => {
     render(<App />)
     const buttons = screen.getAllByRole('button')
-    const fmButton = buttons.find((b) => b.textContent === 'FM')
+    const fmButton = buttons.find((b) => b.textContent.startsWith('FM'))
     fireEvent.click(fmButton)
     expect(mockFocusFrequency).toHaveBeenCalledWith(98000000)
   })
@@ -134,7 +138,7 @@ describe('App', () => {
   it('clicking ADS-B band button calls focusFrequency with 1090000000', () => {
     render(<App />)
     const buttons = screen.getAllByRole('button')
-    const adsbButton = buttons.find((b) => b.textContent === 'ADS-B')
+    const adsbButton = buttons.find((b) => b.textContent.startsWith('ADS-B'))
     fireEvent.click(adsbButton)
     expect(mockFocusFrequency).toHaveBeenCalledWith(1090000000)
   })
@@ -142,7 +146,7 @@ describe('App', () => {
   it('clicking AIS band button calls focusFrequency with 162000000', () => {
     render(<App />)
     const buttons = screen.getAllByRole('button')
-    const aisButton = buttons.find((b) => b.textContent === 'AIS')
+    const aisButton = buttons.find((b) => b.textContent.startsWith('AIS'))
     fireEvent.click(aisButton)
     expect(mockFocusFrequency).toHaveBeenCalledWith(162000000)
   })
@@ -164,21 +168,24 @@ describe('App', () => {
     expect(mockFocusFrequency).toHaveBeenCalledWith(145175000)
   })
 
-  it('renders 4 mini band overview cells', () => {
+  it('renders band nav buttons with their frequencies (UI-OVERHAUL Change 3)', () => {
     render(<App />)
-    const spans = screen.getAllByText('FM BROADCAST')
-    expect(spans.length).toBeGreaterThanOrEqual(1)
-    const ismSpans = screen.getAllByText('ISM / LoRa')
-    expect(ismSpans.length).toBeGreaterThanOrEqual(1)
-  })
-
-  it('renders mini band overview with correct frequencies', () => {
-    render(<App />)
+    // The mini band overview strip was removed in Change 2; the per-band
+    // frequency readout now lives on the second line of each band nav
+    // button in the top bar.
     expect(screen.getByText('98.000 MHz')).toBeInTheDocument()
     expect(screen.getByText('145.175 MHz')).toBeInTheDocument()
     expect(screen.getByText('162.000 MHz')).toBeInTheDocument()
     expect(screen.getByText('915.000 MHz')).toBeInTheDocument()
     expect(screen.getByText('1090.000 MHz')).toBeInTheDocument()
+  })
+
+  it('does not render the removed mini band overview strip (UI-OVERHAUL Change 2)', () => {
+    render(<App />)
+    // 'FM BROADCAST' and 'ISM / LoRa' only ever appeared in the removed
+    // OVERVIEW_BANDS strip — BAND_GROUPS buttons use short labels.
+    expect(screen.queryByText('FM BROADCAST')).toBeNull()
+    expect(screen.queryByText('ISM / LoRa')).toBeNull()
   })
 
   it('renders SDR STATUS disconnected when systemStats is null', () => {
@@ -311,7 +318,7 @@ describe('App', () => {
       const { container } = render(<App />)
       // FM is the BAND_GROUPS "BROADCAST" band
       const buttons = [...container.querySelectorAll('button')]
-      const fmButton = buttons.find((b) => b.textContent === 'FM')
+      const fmButton = buttons.find((b) => b.textContent.startsWith('FM'))
       expect(fmButton).toBeDefined()
       // Title must be the reason string
       expect(fmButton.getAttribute('title')).toBe(plutoReason.fm_broadcast)
@@ -330,36 +337,8 @@ describe('App', () => {
       })
       render(<App />)
       const buttons = [...document.querySelectorAll('button')]
-      const fmButton = buttons.find((b) => b.textContent === 'FM')
+      const fmButton = buttons.find((b) => b.textContent.startsWith('FM'))
       fireEvent.click(fmButton)
-      expect(mockFocusFrequency).not.toHaveBeenCalled()
-    })
-
-    it('OVERVIEW_BANDS unsupported cell has title and data-unsupported', () => {
-      useSocket.mockReturnValueOnce({
-        ...defaultUseSocket(),
-        device: 'plutosdr',
-        unsupportedBands: plutoReason,
-      })
-      const { container } = render(<App />)
-      // The overview strip cells are divs with data-unsupported="true"
-      const unsupportedCells = container.querySelectorAll('div[data-unsupported="true"]')
-      // Five of seven cells (fm, aviation, acars, aprs, ais) are unsupported on Pluto
-      expect(unsupportedCells.length).toBe(5)
-      // The first one (FM BROADCAST) must carry the reason as title
-      expect(unsupportedCells[0].getAttribute('title')).toBe(plutoReason.fm_broadcast)
-    })
-
-    it('clicking an unsupported OVERVIEW_BANDS cell does not call focusFrequency', () => {
-      useSocket.mockReturnValueOnce({
-        ...defaultUseSocket(),
-        device: 'plutosdr',
-        unsupportedBands: plutoReason,
-      })
-      render(<App />)
-      const unsupportedCells = document.querySelectorAll('div[data-unsupported="true"]')
-      // Click the first unsupported overview cell
-      fireEvent.click(unsupportedCells[0])
       expect(mockFocusFrequency).not.toHaveBeenCalled()
     })
   })

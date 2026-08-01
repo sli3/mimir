@@ -1,20 +1,60 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import React from 'react'
-import AdsbAircraftPanel from '../components/AdsbAircraftPanel.jsx'
+import React, { useEffect, useState } from 'react'
+import RawDecodePanel from '../components/RawDecodePanel.jsx'
+import FrameInspectorPanel from '../components/FrameInspectorPanel.jsx'
+
+// UI-OVERHAUL (Change 6): the FRAME INSPECTOR block was extracted from
+// AdsbAircraftPanel into FrameInspectorPanel, and the pinnedFrame /
+// frameData state plus the /api/adsb/parse effect were lifted to App.jsx.
+// The harness below replicates that App-level wiring (including the fetch
+// effect) so the pin/unpin and auto-fetch behaviours are tested through
+// the same state flow the real dashboard uses.
+
+function Harness({ adsbRawLog }) {
+  const [rawView, setRawView] = useState('hex')
+  const [pinnedFrame, setPinnedFrame] = useState(null)
+  const [frameData, setFrameData] = useState(null)
+
+  const targetHex = pinnedFrame ? pinnedFrame.raw_hex : adsbRawLog[0]?.raw_hex ?? null
+
+  useEffect(() => {
+    if (targetHex === null) {
+      setFrameData(null)
+      return
+    }
+
+    fetch(`/api/adsb/parse?hex=${targetHex}`)
+      .then((r) => r.json())
+      .then(setFrameData)
+      .catch(() => setFrameData(null))
+  }, [targetHex])
+
+  return (
+    <>
+      <RawDecodePanel
+        adsbRawLog={adsbRawLog}
+        rawView={rawView}
+        setRawView={setRawView}
+        pinnedFrame={pinnedFrame}
+        setPinnedFrame={setPinnedFrame}
+      />
+      <FrameInspectorPanel
+        pinnedFrame={pinnedFrame}
+        frameData={frameData}
+        adsbRawLog={adsbRawLog}
+      />
+    </>
+  )
+}
 
 describe('AdsbFrameInspector', () => {
-  const mockAircraft = {}
-  const mockHistory = []
-  const mockFocusedFreq = 1090000000
-
   describe('FRAME INSPECTOR header', () => {
     it('test_frame_inspector_header_always_rendered_when_tuned', () => {
       render(
-        <AdsbAircraftPanel
-          adsbAircraft={mockAircraft}
-          adsbAircraftHistory={mockHistory}
-          focusedFreq={mockFocusedFreq}
+        <FrameInspectorPanel
+          pinnedFrame={null}
+          frameData={null}
           adsbRawLog={[]}
         />
       )
@@ -25,14 +65,7 @@ describe('AdsbFrameInspector', () => {
       const fetchMock = vi.fn()
       vi.stubGlobal('fetch', fetchMock)
 
-      render(
-        <AdsbAircraftPanel
-          adsbAircraft={mockAircraft}
-          adsbAircraftHistory={mockHistory}
-          focusedFreq={mockFocusedFreq}
-          adsbRawLog={[]}
-        />
-      )
+      render(<Harness adsbRawLog={[]} />)
 
       expect(fetchMock).not.toHaveBeenCalled()
       vi.unstubAllGlobals()
@@ -63,14 +96,7 @@ describe('AdsbFrameInspector', () => {
         { icao: '7C1CA5', raw_hex: '8D7C1CA5902136CF', timestamp: '2026-06-25T12:00:00Z' },
       ]
 
-      render(
-        <AdsbAircraftPanel
-          adsbAircraft={mockAircraft}
-          adsbAircraftHistory={mockHistory}
-          focusedFreq={mockFocusedFreq}
-          adsbRawLog={mockRawLog}
-        />
-      )
+      render(<Harness adsbRawLog={mockRawLog} />)
 
       expect(fetchMock).toHaveBeenCalled()
       const fetchCallArgs = fetchMock.mock.calls[0][0]
@@ -112,14 +138,7 @@ describe('AdsbFrameInspector', () => {
       const entry1 = { icao: 'ENTRY1', raw_hex: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', timestamp: '2026-06-25T12:00:00Z' }
       const entry2 = { icao: 'ENTRY2', raw_hex: 'BBBBBBBBBBBBBBBBBBBBBBBBBBBB', timestamp: '2026-06-25T12:01:00Z' }
 
-      const { container } = render(
-        <AdsbAircraftPanel
-          adsbAircraft={mockAircraft}
-          adsbAircraftHistory={mockHistory}
-          focusedFreq={mockFocusedFreq}
-          adsbRawLog={[entry1, entry2]}
-        />
-      )
+      const { container } = render(<Harness adsbRawLog={[entry1, entry2]} />)
 
       // Wait for the automatic mount-time fetch (targetHex defaults to
       // entry1, the newest entry, before any pin exists) to actually
@@ -165,10 +184,9 @@ describe('AdsbFrameInspector', () => {
       ]
 
       render(
-        <AdsbAircraftPanel
-          adsbAircraft={mockAircraft}
-          adsbAircraftHistory={mockHistory}
-          focusedFreq={mockFocusedFreq}
+        <FrameInspectorPanel
+          pinnedFrame={null}
+          frameData={null}
           adsbRawLog={mockRawLog}
         />
       )
@@ -179,22 +197,16 @@ describe('AdsbFrameInspector', () => {
     })
 
     it('shows "Awaiting frames..." when adsbRawLog is empty', () => {
-      const fetchMock = vi.fn()
-      vi.stubGlobal('fetch', fetchMock)
-
       render(
-        <AdsbAircraftPanel
-          adsbAircraft={mockAircraft}
-          adsbAircraftHistory={mockHistory}
-          focusedFreq={mockFocusedFreq}
+        <FrameInspectorPanel
+          pinnedFrame={null}
+          frameData={null}
           adsbRawLog={[]}
         />
       )
 
       const awaitingText = screen.getAllByText('Awaiting frames...')
       expect(awaitingText.length).toBeGreaterThanOrEqual(1)
-
-      vi.unstubAllGlobals()
     })
   })
 })
