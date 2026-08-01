@@ -1,0 +1,68 @@
+/* RadarPage.css — isolated cyberpunk styling for the /radar PPI scope page. */
+
+/* Suppress the global scanline overlay while this page is mounted. */
+body.radar-page::before {
+  display: none;
+}
+
+.radar-shell {
+  width: 100vw;
+  height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  grid-template-columns: 1fr;
+  background: var(--bg-root, #080F14);
+  color: var(--text-primary, #C8D8E0);
+  font-family: var(--font-data, 'Share Tech Mono', 'Courier New', monospace);
+  overflow: hidden;
+}
+
+.radar-header {
+  grid-row: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 20px;
+  background: var(--bg-header, #050C11);
+  border-bottom: 1px solid var(--border, #1A3040);
+}
+
+.radar-header-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.radar-header-title h1 {
+  font-size: 18px;
+  font-weight: 400;
+  color: var(--neon-cyan, #00FFFF);
+  letter-spacing: 2px;
+  margin: 0;
+}
+
+.radar-header-subtitle {
+  font-size: 11px;
+  color: var(--text-dim, #4A7A90);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.radar-header-stats {
+  display: flex;
+  gap: 24px;
+}
+
+.radar-header-stat {
+  font-size: 16px;
+  color: var(--neon-cyan, #00FFFF);
+  letter-spacing: 1px;
+}
+
+.radar-scope-container {
+  grid-row: 2;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}

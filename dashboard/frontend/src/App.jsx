@@ -5,7 +5,8 @@ import SpectrometerBar from './components/SpectrometerBar.jsx'
 import AcarsMessagePanel from './components/AcarsMessagePanel.jsx'
 import AisVesselPanel from './components/AisVesselPanel.jsx'
 import AdsbAircraftPanel from './components/AdsbAircraftPanel.jsx'
-import RadarScopePanel from './components/RadarScopePanel.jsx'
+import RawDecodePanel from './components/RawDecodePanel.jsx'
+import FrameInspectorPanel from './components/FrameInspectorPanel.jsx'
 import SignalHistoryLog from './components/SignalHistoryLog.jsx'
 import AIReasoningPanel from './components/AIReasoningPanel.jsx'
 
@@ -56,16 +57,6 @@ const BAND_GROUPS = [
       { name: 'ISM', freq_hz: 915000000, label: 'ISM', band_key: 'ism' },
     ],
   },
-]
-
-const OVERVIEW_BANDS = [
-  { name: 'FM BROADCAST', freq_hz: 98000000, band_key: 'fm_broadcast' },
-  { name: 'APRS',         freq_hz: 145175000, band_key: 'aprs' },
-  { name: 'AVIATION VHF', freq_hz: 127000000, band_key: 'aviation' },
-  { name: 'ACARS',        freq_hz: 129125000, band_key: 'acars' },
-  { name: 'AIS',          freq_hz: 162000000, band_key: 'ais' },  // dual-channel centre, matches BAND_PROFILES
-  { name: 'ISM / LoRa',   freq_hz: 915000000, band_key: 'ism' },
-  { name: 'ADS-B',        freq_hz: 1090000000, band_key: 'adsb' },
 ]
 
 function useClock() {
@@ -245,6 +236,27 @@ export default function App() {
   const operatorConfig = OPERATOR_STATE_CONFIG[operatorState]
   const pinnedTimestamp = pinnedReasoning ? pinnedReasoning.timestamp : null
 
+  // UI-OVERHAUL (Change 6): RAW DECODE / FRAME INSPECTOR state lifted out of
+  // AdsbAircraftPanel so the two new standalone column panels share it.
+  // The /api/adsb/parse effect below previously lived in AdsbAircraftPanel.
+  const [rawView, setRawView] = useState('hex')
+  const [pinnedFrame, setPinnedFrame] = useState(null)
+  const [frameData, setFrameData] = useState(null)
+
+  const targetHex = pinnedFrame ? pinnedFrame.raw_hex : adsbRawLog?.[0]?.raw_hex ?? null
+
+  useEffect(() => {
+    if (targetHex === null) {
+      setFrameData(null)
+      return
+    }
+
+    fetch(`/api/adsb/parse?hex=${targetHex}`)
+      .then((r) => r.json())
+      .then(setFrameData)
+      .catch(() => setFrameData(null))
+  }, [targetHex])
+
   const handlePinReasoning = useCallback((entry) => {
     setPinnedReasoning((prev) => {
       if (prev && prev.timestamp === entry.timestamp && prev.freq_hz === entry.center_freq_hz) {
@@ -329,6 +341,22 @@ export default function App() {
           alignItems: 'center',
           gap: '16px',
         }}>
+          {/* UI-OVERHAUL (Change 7e) — link to the standalone /radar page
+              hosting the PPI scope that used to live inline at bottom-right. */}
+          <a
+            href="/radar"
+            style={{
+              fontSize: '11px',
+              color: 'var(--neon-cyan)',
+              letterSpacing: '2px',
+              fontFamily: 'var(--font-data)',
+              textDecoration: 'none',
+              border: '1px solid var(--border)',
+              padding: '2px 8px',
+            }}
+          >
+            RADAR
+          </a>
           <span style={{
             fontSize: '11px',
             color: 'var(--text-dim)',
@@ -339,12 +367,13 @@ export default function App() {
         </div>
       </div>
 
-      {/* Row 2 — Top half */}
+      {/* Main content row — left stack + consolidated right column
+          (UI-OVERHAUL Change 4: the old Row 2 / Row 3 split is gone) */}
       <div style={{
         display: 'flex',
         flexDirection: 'row',
-        height: '52vh',
-        flexShrink: 0,
+        flex: 1,
+        minHeight: 0,
         overflow: 'hidden',
       }}>
         {/* Left column */}
@@ -352,236 +381,550 @@ export default function App() {
           flex: 1,
           display: 'flex',
           flexDirection: 'column',
-          borderRight: '1px solid var(--border)',
           overflow: 'hidden',
         }}>
-          {/* Section A — Band nav bar */}
+          {/* Top block — band nav + waterfall + spectrometer
+              (UI-OVERHAUL Change 1: was 52vh, now 42vh) */}
           <div style={{
             display: 'flex',
-            flexDirection: 'row',
-            alignItems: 'center',
-            height: '48px',
+            flexDirection: 'column',
+            height: '42vh',
             flexShrink: 0,
-            background: 'var(--bg-header)',
-            borderBottom: '1px solid var(--border)',
-            padding: '0 8px',
-            gap: '0px',
+            overflow: 'hidden',
           }}>
-            {BAND_GROUPS.map((group, groupIdx) => (
-              <React.Fragment key={group.label}>
-                {groupIdx > 0 && (
-                  <div style={{
-                    width: '1px',
-                    background: 'var(--border)',
-                    alignSelf: 'stretch',
-                    margin: '4px 8px',
-                  }} />
-                )}
-                <div style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'center',
-                }}>
-                  <span style={{
-                    fontFamily: 'var(--font-data)',
-                    fontSize: '9px',
-                    color: 'var(--text-dim)',
-                    letterSpacing: '1px',
-                    textTransform: 'uppercase',
-                    marginBottom: '2px',
-                    whiteSpace: 'nowrap',
-                  }}>
-                    {group.label}
-                  </span>
-                  <div style={{
-                    display: 'flex',
-                    flexDirection: 'row',
-                    gap: '4px',
-                  }}>
-                    {group.bands.map((band) => {
-                      // Exact match only — custom frequencies must not highlight named band buttons.
-                      // isTuned() with its 2 MHz default margin causes adjacent bands (e.g. AVIATION
-                      // at 127 MHz and ACARS at 129.125 MHz) to both light up for a custom input.
-                      const active = focusedFreq === band.freq_hz
-                      const hasAdsb = band.label === 'ADS-B' && (adsbAircraftList.length > 0 || (adsbAircraftHistory && adsbAircraftHistory.length > 0))
-                      // Phase 38 — grey out bands the active device cannot
-                      // physically receive. Empty map (HackRF / pre-first-stats)
-                      // means everything renders exactly as before.
-                      const unsupportedReason = unsupportedBands[band.band_key]
-                      const isUnsupported = unsupportedReason != null
-                      // Phase 38-Hotfix-1: no `disabled` attribute here on
-                      // purpose. Native `title` tooltips do not fire on
-                      // HTML disabled controls (the browser removes them
-                      // from hit-testing, so mouseover never fires). The
-                      // tooltip IS the reason this row is greyed, so it
-                      // must be visible on hover. Click is blocked by
-                      // the onClick omission above; do not re-add
-                      // `disabled` here.
-                      return (
-                        <button
-                          key={band.freq_hz}
-                          onClick={isUnsupported ? undefined : () => focusFrequency(band.freq_hz)}
-                          title={isUnsupported ? unsupportedReason : undefined}
-                          data-unsupported={isUnsupported ? 'true' : undefined}
-                          style={{
-                            fontFamily: 'monospace',
-                            fontSize: '12px',
-                            padding: '3px 8px',
-                            background: isUnsupported ? 'transparent' : (active ? 'rgba(0,255,255,0.07)' : 'transparent'),
-                            cursor: isUnsupported ? 'not-allowed' : 'pointer',
-                            letterSpacing: '1px',
-                            border: isUnsupported ? '1px solid var(--border)' : (active ? '1px solid var(--neon-cyan)' : '1px solid var(--border)'),
-                            color: isUnsupported ? 'var(--text-dim)' : (active ? 'var(--neon-cyan)' : 'var(--text-dim)'),
-                            opacity: isUnsupported ? 0.35 : 1,
-                          }}
-                        >
-                          {band.label}{hasAdsb ? ' ●' : ''}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              </React.Fragment>
-            ))}
+            {/* Section A — Band nav bar
+                (UI-OVERHAUL Change 3: two-line buttons forced a height
+                bump from 48px to 56px) */}
             <div style={{
-              marginLeft: 'auto',
               display: 'flex',
               flexDirection: 'row',
-              gap: '6px',
               alignItems: 'center',
+              height: '56px',
+              flexShrink: 0,
+              background: 'var(--bg-header)',
+              borderBottom: '1px solid var(--border)',
+              padding: '0 8px',
+              gap: '0px',
             }}>
+              {BAND_GROUPS.map((group, groupIdx) => (
+                <React.Fragment key={group.label}>
+                  {groupIdx > 0 && (
+                    <div style={{
+                      width: '1px',
+                      background: 'var(--border)',
+                      alignSelf: 'stretch',
+                      margin: '4px 8px',
+                    }} />
+                  )}
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'center',
+                  }}>
+                    <span style={{
+                      fontFamily: 'var(--font-data)',
+                      fontSize: '9px',
+                      color: 'var(--text-dim)',
+                      letterSpacing: '1px',
+                      textTransform: 'uppercase',
+                      marginBottom: '2px',
+                      whiteSpace: 'nowrap',
+                    }}>
+                      {group.label}
+                    </span>
+                    <div style={{
+                      display: 'flex',
+                      flexDirection: 'row',
+                      gap: '4px',
+                    }}>
+                      {group.bands.map((band) => {
+                        // Exact match only — custom frequencies must not highlight named band buttons.
+                        // isTuned() with its 2 MHz default margin causes adjacent bands (e.g. AVIATION
+                        // at 127 MHz and ACARS at 129.125 MHz) to both light up for a custom input.
+                        const active = focusedFreq === band.freq_hz
+                        const hasAdsb = band.label === 'ADS-B' && (adsbAircraftList.length > 0 || (adsbAircraftHistory && adsbAircraftHistory.length > 0))
+                        // Phase 38 — grey out bands the active device cannot
+                        // physically receive. Empty map (HackRF / pre-first-stats)
+                        // means everything renders exactly as before.
+                        const unsupportedReason = unsupportedBands[band.band_key]
+                        const isUnsupported = unsupportedReason != null
+                        // Phase 38-Hotfix-1: no `disabled` attribute here on
+                        // purpose. Native `title` tooltips do not fire on
+                        // HTML disabled controls (the browser removes them
+                        // from hit-testing, so mouseover never fires). The
+                        // tooltip IS the reason this row is greyed, so it
+                        // must be visible on hover. Click is blocked by
+                        // the onClick omission above; do not re-add
+                        // `disabled` here.
+                        return (
+                          <button
+                            key={band.freq_hz}
+                            onClick={isUnsupported ? undefined : () => focusFrequency(band.freq_hz)}
+                            title={isUnsupported ? unsupportedReason : undefined}
+                            data-unsupported={isUnsupported ? 'true' : undefined}
+                            style={{
+                              fontFamily: 'monospace',
+                              fontSize: '12px',
+                              padding: '2px 6px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              background: isUnsupported ? 'transparent' : (active ? 'rgba(0,255,255,0.07)' : 'transparent'),
+                              cursor: isUnsupported ? 'not-allowed' : 'pointer',
+                              letterSpacing: '1px',
+                              border: isUnsupported ? '1px solid var(--border)' : (active ? '1px solid var(--neon-cyan)' : '1px solid var(--border)'),
+                              color: isUnsupported ? 'var(--text-dim)' : (active ? 'var(--neon-cyan)' : 'var(--text-dim)'),
+                              opacity: isUnsupported ? 0.35 : 1,
+                            }}
+                          >
+                            <span>{band.label}{hasAdsb ? ' ●' : ''}</span>
+                            <span style={{
+                              fontSize: '11px',
+                              color: 'var(--text-dim)',
+                              fontFamily: 'var(--font-data)',
+                            }}>
+                              {(band.freq_hz / 1e6).toFixed(3) + ' MHz'}
+                            </span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </React.Fragment>
+              ))}
+              <div style={{
+                marginLeft: 'auto',
+                display: 'flex',
+                flexDirection: 'row',
+                gap: '6px',
+                alignItems: 'center',
+              }}>
+                <span style={{
+                  fontSize: '11px',
+                  color: 'var(--text-dim)',
+                  letterSpacing: '1px',
+                  fontFamily: 'var(--font-data)',
+                }}>
+                  CUSTOM MHz
+                </span>
+                <input
+                  type="text"
+                  placeholder="e.g. 162.025"
+                  value={customInput}
+                  onChange={(e) => setCustomInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  style={{
+                    background: 'var(--bg-header)',
+                    border: '1px solid rgba(0,255,255,0.3)',
+                    color: 'var(--neon-cyan)',
+                    fontFamily: 'monospace',
+                    fontSize: '12px',
+                    padding: '3px 8px',
+                    width: '100px',
+                    outline: 'none',
+                  }}
+                />
+                <button
+                  onClick={handleTune}
+                  style={{
+                    border: '1px solid var(--neon-cyan)',
+                    color: 'var(--neon-cyan)',
+                    background: 'rgba(0,255,255,0.1)',
+                    fontFamily: 'monospace',
+                    fontSize: '12px',
+                    padding: '3px 8px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  TUNE ▶
+                </button>
+              </div>
+            </div>
+
+            {/* Section B — Main waterfall */}
+            <div data-testid="waterfall" style={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
+              <WaterfallPanel
+                focusedFreq={focusedFreq}
+                focusFrequency={focusFrequency}
+                singleBand={true}
+              />
+            </div>
+
+            {/* Section C — SpectrometerBar */}
+            <SpectrometerBar
+              spectrumUpdates={spectrumUpdates}
+              focusedFreq={focusedFreq}
+              focusFrequency={focusFrequency}
+            />
+          </div>
+
+          {/* AI Reasoning — UI-OVERHAUL Change 5: moved from the old
+              bottom-right slot into the vacated bottom-left area */}
+          <div style={{
+            minHeight: '220px',
+            flexShrink: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            borderTop: '1px solid var(--border)',
+          }}>
+            <div style={{
+              height: '28px',
+              flexShrink: 0,
+              background: 'var(--bg-header)',
+              borderBottom: '1px solid var(--border)',
+              display: 'flex',
+              flexDirection: 'row',
+              alignItems: 'center',
+              padding: '0 10px',
+              justifyContent: 'space-between',
+            }}>
+              <span style={{
+                fontSize: '11px',
+                color: 'var(--neon-magenta)',
+                letterSpacing: '2px',
+                fontFamily: 'var(--font-data)',
+              }}>
+                AI REASONING
+              </span>
               <span style={{
                 fontSize: '11px',
                 color: 'var(--text-dim)',
                 letterSpacing: '1px',
                 fontFamily: 'var(--font-data)',
               }}>
-                CUSTOM MHz
+                HOLDS 8s · UPDATES ON NEW SIGNAL
               </span>
-              <input
-                type="text"
-                placeholder="e.g. 162.025"
-                value={customInput}
-                onChange={(e) => setCustomInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                style={{
-                  background: 'var(--bg-header)',
-                  border: '1px solid rgba(0,255,255,0.3)',
-                  color: 'var(--neon-cyan)',
-                  fontFamily: 'monospace',
-                  fontSize: '12px',
-                  padding: '3px 8px',
-                  width: '100px',
-                  outline: 'none',
-                }}
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto' }}>
+              <AIReasoningPanel
+                aiReasoning={pinnedReasoning || aiReasoning}
+                isPinned={!!pinnedReasoning}
+                onUnpin={() => setPinnedReasoning(null)}
               />
-              <button
-                onClick={handleTune}
-                style={{
-                  border: '1px solid var(--neon-cyan)',
-                  color: 'var(--neon-cyan)',
-                  background: 'rgba(0,255,255,0.1)',
-                  fontFamily: 'monospace',
-                  fontSize: '12px',
-                  padding: '3px 8px',
-                  cursor: 'pointer',
-                }}
-              >
-                TUNE ▶
-              </button>
             </div>
           </div>
 
-          {/* Section B — Main waterfall */}
-          <div data-testid="waterfall" style={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
-            <WaterfallPanel
-              focusedFreq={focusedFreq}
-              focusFrequency={focusFrequency}
-              singleBand={true}
-            />
-          </div>
-
-          {/* Section C — SpectrometerBar */}
-          <SpectrometerBar
-            spectrumUpdates={spectrumUpdates}
-            focusedFreq={focusedFreq}
-            focusFrequency={focusFrequency}
-          />
-
-          {/* Section D — Mini band overview strip */}
+          {/* Decoded Signals — UI-OVERHAUL Change 6: three independently
+              scrolling equal-width columns */}
           <div style={{
+            flex: 1,
+            minHeight: 0,
             display: 'flex',
             flexDirection: 'row',
-            height: '44px',
-            flexShrink: 0,
-            background: 'var(--bg-header)',
+            overflow: 'hidden',
             borderTop: '1px solid var(--border)',
           }}>
-            {OVERVIEW_BANDS.map((band, idx) => {
-              const active = isTuned(focusedFreq, band.freq_hz)
-              const now = Date.now()
-              const hasRecent = scanResults.some((r) => {
-                const ts = r.timestamp ? new Date(r.timestamp).getTime() : 0
-                return Math.abs(r.center_freq_hz - band.freq_hz) <= 2_000_000 && (now - ts) < 10000
-              })
-              // Phase 38 — grey out bands the active device cannot physically
-              // receive. The "recent signal" bar still renders: hearing
-              // something near that frequency is information even when the
-              // band is not tunable on this device.
-              const unsupportedReason = unsupportedBands[band.band_key]
-              const isUnsupported = unsupportedReason != null
-              return (
-                <div
-                  key={band.freq_hz}
-                  onClick={isUnsupported ? undefined : () => focusFrequency(band.freq_hz)}
-                  title={isUnsupported ? unsupportedReason : undefined}
-                  data-unsupported={isUnsupported ? 'true' : undefined}
-                  style={{
-                    flex: 1,
+            {/* Column 1 — SIGNAL INTERCEPT */}
+            <div style={{
+              flex: 1,
+              minWidth: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              borderRight: '1px solid var(--border)',
+            }}>
+              <div style={{
+                height: '28px',
+                flexShrink: 0,
+                background: 'var(--bg-header)',
+                borderBottom: '1px solid var(--border)',
+                padding: '0 10px',
+                display: 'flex',
+                alignItems: 'center',
+              }}>
+                <span style={{
+                  fontSize: '11px',
+                  color: 'var(--neon-amber)',
+                  letterSpacing: '2px',
+                  fontFamily: 'var(--font-data)',
+                }}>
+                  SIGNAL INTERCEPT
+                </span>
+              </div>
+              <div style={{
+                flex: 1,
+                overflowY: 'auto',
+                overflowX: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
+              }}>
+                {isAdsbTuned(focusedFreq) && (
+                  <div style={{
+                    borderBottom: '1px solid var(--border)',
                     display: 'flex',
                     flexDirection: 'column',
-                    justifyContent: 'center',
-                    padding: '2px 6px',
-                    borderRight: idx < OVERVIEW_BANDS.length - 1 ? '1px solid var(--border)' : 'none',
-                    cursor: isUnsupported ? 'not-allowed' : 'pointer',
-                    opacity: isUnsupported ? 0.35 : 1,
-                    position: 'relative',
-                    overflow: 'hidden',
-                    borderTop: active ? '2px solid var(--neon-cyan)' : '2px solid transparent',
-                  }}
-                >
-                  <span style={{
-                    fontSize: '9px',
-                    color: 'var(--text-dim)',
-                    letterSpacing: '1px',
-                    textTransform: 'uppercase',
-                    fontFamily: 'var(--font-data)',
+                    flex: 1,
+                    minHeight: 0,
                   }}>
-                    {band.name}
-                  </span>
-                  <span style={{
+                    {/* SUB-PANEL 1 — ADS-B AIRCRAFT */}
+                    <div style={{
+                      display: 'flex',
+                      flexDirection: 'row',
+                      padding: '6px 10px',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                    }}>
+                      <span style={{
+                        fontSize: '11px',
+                        color: 'var(--neon-amber)',
+                        letterSpacing: '1px',
+                        fontFamily: 'var(--font-data)',
+                      }}>
+                        ADS-B AIRCRAFT
+                      </span>
+                      <div style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        border: '1px solid var(--neon-green)',
+                        background: 'rgba(0, 255, 136, 0.08)',
+                        boxShadow: '0 0 6px rgba(0, 255, 136, 0.25)',
+                        padding: '2px 8px',
+                        fontFamily: 'var(--font-display)',
+                        fontSize: 10,
+                        color: 'var(--neon-green)',
+                        letterSpacing: 1,
+                      }}>
+                        ◆ <span>TUNED</span>
+                      </div>
+                    </div>
+                    <div style={{ padding: '0 10px 8px', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+                      <div style={{ flex: 1, overflow: 'hidden' }}>
+                        <AdsbAircraftPanel
+                          adsbAircraft={adsbAircraft}
+                          adsbAircraftHistory={adsbAircraftHistory}
+                          focusedFreq={focusedFreq}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {isAcarsTuned(focusedFreq) && (
+                  <div style={{
+                    borderBottom: '1px solid var(--border)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    flexShrink: 0,
+                  }}>
+                    {/* SUB-PANEL 2 — ACARS MESSAGES
+                        FIX (Phase 18b-hotfix): removed acarsMessages.length > 0 inner gate.
+                        AcarsMessagePanel always mounts when tuned — component handles its own
+                        empty state ("Listening..." / "Awaiting decodes...") internally. */}
+                    <div style={{
+                      display: 'flex',
+                      flexDirection: 'row',
+                      padding: '6px 10px',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                    }}>
+                      <span style={{
+                        fontSize: '11px',
+                        color: 'var(--neon-amber)',
+                        letterSpacing: '1px',
+                        fontFamily: 'var(--font-data)',
+                      }}>
+                        ACARS MESSAGES
+                      </span>
+                      <div style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        border: '1px solid var(--neon-green)',
+                        background: 'rgba(0, 255, 136, 0.08)',
+                        boxShadow: '0 0 6px rgba(0, 255, 136, 0.25)',
+                        padding: '2px 8px',
+                        fontFamily: 'var(--font-display)',
+                        fontSize: 10,
+                        color: 'var(--neon-green)',
+                        letterSpacing: 1,
+                      }}>
+                        ◆ <span>TUNED</span>
+                      </div>
+                    </div>
+                    <div style={{ padding: '0 10px 8px' }}>
+                      <div style={{ height: '150px', overflow: 'auto' }}>
+                        <AcarsMessagePanel
+                          acarsMessages={acarsMessages}
+                          focusedFreq={focusedFreq}
+                          acarsRawLog={acarsRawLog}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {isAisTuned(focusedFreq) && (
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    flexShrink: 0,
+                  }}>
+                    {/* SUB-PANEL 3 — AIS VESSELS
+                        162.000 MHz = dual-channel centre (matches backend BAND_PROFILES).
+                        100 kHz tolerance covers both CH1 (161.975 MHz) and CH2 (162.025 MHz).
+                        FIX (Phase 18b-hotfix): removed aisVessels.length > 0 inner gate.
+                        AisVesselPanel always mounts when tuned — component handles its own
+                        empty state ("Listening..." / "Awaiting decodes...") internally. */}
+                    <div style={{
+                      display: 'flex',
+                      flexDirection: 'row',
+                      padding: '6px 10px',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                    }}>
+                      <span style={{
+                        fontSize: '11px',
+                        color: 'var(--neon-amber)',
+                        letterSpacing: '1px',
+                        fontFamily: 'var(--font-data)',
+                      }}>
+                        AIS VESSELS
+                      </span>
+                      <div style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        border: '1px solid var(--neon-green)',
+                        background: 'rgba(0, 255, 136, 0.08)',
+                        boxShadow: '0 0 6px rgba(0, 255, 136, 0.25)',
+                        padding: '2px 8px',
+                        fontFamily: 'var(--font-display)',
+                        fontSize: 10,
+                        color: 'var(--neon-green)',
+                        letterSpacing: 1,
+                      }}>
+                        ◆ <span>TUNED</span>
+                      </div>
+                    </div>
+                    <div style={{ padding: '0 10px 8px' }}>
+                      <div style={{ height: '150px', overflow: 'auto' }}>
+                        <AisVesselPanel
+                          aisMessages={aisVessels}
+                          focusedFreq={focusedFreq}
+                          aisRawLog={aisRawLog}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {!anyDecoderTuned && (
+                  <div style={{
+                    padding: '16px 10px',
                     fontSize: '11px',
                     color: 'var(--text-dim)',
-                    marginTop: '1px',
                     fontFamily: 'var(--font-data)',
+                    letterSpacing: '1px',
                   }}>
-                    {(band.freq_hz / 1e6).toFixed(3)} MHz
-                  </span>
+                    NO DECODER FOR THIS BAND
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Column 2 — RAW DECODE (gated on ADS-B tuning) */}
+            <div style={{
+              flex: 1,
+              minWidth: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              borderRight: '1px solid var(--border)',
+            }}>
+              {isAdsbTuned(focusedFreq) ? (
+                <RawDecodePanel
+                  adsbRawLog={adsbRawLog}
+                  rawView={rawView}
+                  setRawView={setRawView}
+                  pinnedFrame={pinnedFrame}
+                  setPinnedFrame={setPinnedFrame}
+                />
+              ) : (
+                <>
                   <div style={{
-                    position: 'absolute',
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    height: '3px',
-                    background: hasRecent ? 'var(--neon-green)' : '#1A3040',
-                  }} />
-                </div>
-              )
-            })}
+                    height: '28px',
+                    flexShrink: 0,
+                    background: 'var(--bg-header)',
+                    borderBottom: '1px solid var(--border)',
+                    padding: '0 10px',
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}>
+                    <span style={{
+                      fontSize: '11px',
+                      color: 'var(--neon-cyan)',
+                      letterSpacing: '2px',
+                      fontFamily: 'var(--font-data)',
+                    }}>
+                      RAW DECODE
+                    </span>
+                  </div>
+                  <div style={{
+                    padding: '16px 10px',
+                    fontSize: '11px',
+                    color: 'var(--text-dim)',
+                    fontFamily: 'var(--font-data)',
+                    letterSpacing: '1px',
+                  }}>
+                    NO DECODER FOR THIS BAND
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Column 3 — FRAME INSPECTOR (gated on ADS-B tuning) */}
+            <div style={{
+              flex: 1,
+              minWidth: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+            }}>
+              {isAdsbTuned(focusedFreq) ? (
+                <FrameInspectorPanel
+                  pinnedFrame={pinnedFrame}
+                  frameData={frameData}
+                  adsbRawLog={adsbRawLog}
+                />
+              ) : (
+                <>
+                  <div style={{
+                    height: '28px',
+                    flexShrink: 0,
+                    background: 'var(--bg-header)',
+                    borderBottom: '1px solid var(--border)',
+                    padding: '0 10px',
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}>
+                    <span style={{
+                      fontSize: '11px',
+                      color: 'var(--neon-cyan)',
+                      letterSpacing: '2px',
+                      fontFamily: 'var(--font-data)',
+                    }}>
+                      FRAME INSPECTOR
+                    </span>
+                  </div>
+                  <div style={{
+                    padding: '16px 10px',
+                    fontSize: '11px',
+                    color: 'var(--text-dim)',
+                    fontFamily: 'var(--font-data)',
+                    letterSpacing: '1px',
+                  }}>
+                    NO DECODER FOR THIS BAND
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* Right column — Signal Details panel */}
+        {/* Right column — consolidated full-height panel stack
+            (UI-OVERHAUL Change 4): Signal Details + System Status +
+            Signal History. Pure JSX move; all internals unchanged. */}
         <div style={{
           width: '380px',
           flexShrink: 0,
@@ -591,247 +934,237 @@ export default function App() {
           borderLeft: '1px solid var(--border)',
           overflow: 'hidden',
         }}>
-          {/* Header */}
+          {/* Section 1 — Signal Details */}
           <div style={{
-            height: '28px',
             flexShrink: 0,
-            background: 'var(--bg-header)',
-            borderBottom: '1px solid var(--border)',
-            padding: '0 10px',
-            display: 'flex',
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}>
-            <span style={{
-              fontSize: '11px',
-              color: 'var(--text-dim)',
-              letterSpacing: '2px',
-              fontFamily: 'var(--font-data)',
-            }}>
-              SIGNAL DETAILS
-            </span>
-              {displayed.signal_type != null ? (
-                <div style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  border: '1px solid #ff4444',
-                  background: 'rgba(255, 68, 68, 0.14)',
-                  boxShadow: '0 0 6px rgba(255, 68, 68, 0.35)',
-                  padding: '2px 8px',
-                  fontFamily: 'var(--font-display)',
-                  fontSize: 10,
-                  color: '#ff4444',
-                  letterSpacing: 1,
-                  animation: 'blink 1.2s infinite',
-                }}>
-                  ◆ <span>ACTIVE</span>
-                </div>
-              ) : (
-                <div style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  border: '1px solid var(--text-dim)',
-                  background: 'transparent',
-                  padding: '2px 8px',
-                  fontFamily: 'var(--font-display)',
-                  fontSize: 10,
-                  color: 'var(--text-dim)',
-                  letterSpacing: 1,
-                }}>
-                  ◆ <span>IDLE</span>
-                </div>
-              )}
-          </div>
-
-          {/* Body */}
-          <div style={{
-            flex: 1,
-            overflowY: 'auto',
-            padding: '8px 10px',
             display: 'flex',
             flexDirection: 'column',
-            gap: '0',
+            borderBottom: '1px solid var(--border)',
           }}>
-            {(() => {
-              const isConfirmedDecode = displayed.source === 'decode'
-              const hasRealMeasurement =
-                displayed.snr_db != null &&
-                displayed.bandwidth_hz != null &&
-                displayed.bandwidth_hz > 0
-              const dimConfidence = !isConfirmedDecode && !hasRealMeasurement
-              return [
-              { label: 'DEVICE', value: systemStats?.current_device_display || '---', color: 'var(--neon-cyan)' },
-              { label: 'FREQUENCY', value: displayed.freq_hz != null ? (displayed.freq_hz / 1e6).toFixed(3) + ' MHz' : (systemStats?.active_frequency_hz ? (systemStats.active_frequency_hz / 1e6).toFixed(3) + ' MHz' : '---'), color: 'var(--neon-cyan)' },
-              { label: 'CLASSIFICATION', value: displayed.signal_type ? displayed.signal_type.toUpperCase() : '---', color: 'var(--neon-cyan)' },
-              { label: 'CONFIDENCE', value: displayed.confidence_score != null ? (displayed.confidence_score * 100).toFixed(0) + '%' : '---', color: dimConfidence ? 'var(--text-dim)' : 'var(--neon-green)' },
-              { label: 'POWER', value: displayed.peak_power_db != null ? displayed.peak_power_db.toFixed(1) + ' dBFS' : '---', color: 'var(--neon-amber)' },
-              { label: 'SNR', value: displayed.snr_db != null ? displayed.snr_db.toFixed(1) + ' dB' : '---', color: 'var(--neon-green)' },
-              { label: 'THRESHOLD', value: displayed.signal_threshold_db != null ? displayed.signal_threshold_db.toFixed(1) + ' dB' : '---', color: 'var(--text-dim)' },
-              { label: 'SNR MARGIN', value: displayed.snr_margin_db != null ? `${displayed.snr_margin_db >= 0 ? '+' : ''}${displayed.snr_margin_db.toFixed(1)} dB` : '---', color: displayed.snr_margin_db != null && displayed.snr_margin_db >= 0 ? 'var(--neon-green)' : 'var(--neon-amber)' },
-              { label: 'BANDWIDTH', value: displayed.bandwidth_hz != null && displayed.bandwidth_hz > 0 ? (displayed.bandwidth_hz / 1e6).toFixed(3) + ' MHz' : '---', color: 'var(--text-primary)' },
-              { label: 'SPECTRAL FLATNESS', value: displayed.spectral_flatness != null ? displayed.spectral_flatness.toFixed(3) : '---', color: 'var(--text-primary)' },
-              { label: 'CHROMA DISTANCE', value: displayed.chroma_distance != null ? displayed.chroma_distance.toFixed(3) : '---', color: 'var(--neon-magenta)' },
-              { label: 'AU LEGAL', value: displayed.au_legal_status || '---', color: (displayed.au_legal_status || '').includes('LEGAL') ? 'var(--neon-green)' : 'var(--neon-red)' },
-              { label: 'FIRST SEEN', value: getFirstSeen(displayed.signal_type, scanResults), color: 'var(--text-dim)' },
-              { label: 'LAST SEEN', value: displayed.timestamp ? new Date(displayed.timestamp).toLocaleTimeString('en-AU', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '---', color: 'var(--neon-green)' },
-            ].map((row, i) => (
-              <div key={i}>
-                <div style={{
-                  display: 'flex',
-                  flexDirection: 'row',
-                  justifyContent: 'space-between',
-                  alignItems: 'baseline',
-                  borderBottom: '1px solid #0F2030',
-                  padding: '5px 0',
-                }}>
-                  <span style={{
-                    fontSize: '10px',
-                    color: 'var(--text-dim)',
-                    letterSpacing: '1px',
-                    textTransform: 'uppercase',
-                    fontFamily: 'var(--font-data)',
-                    flexShrink: 0,
-                  }}>
-                    {row.label}
-                  </span>
-                  <span style={{
-                    fontSize: '13px',
-                    fontWeight: 'bold',
-                    color: row.color,
-                    fontFamily: 'var(--font-data)',
-                    flexShrink: 0,
-                    textAlign: 'right',
-                  }}>
-                    {row.value}
-                  </span>
-                </div>
-                {row.label === 'CONFIDENCE' && displayed.confidence_score != null && (
-                  <div style={{
-                    width: '100%',
-                    height: '3px',
-                    background: '#0F2030',
-                    marginTop: '2px',
-                  }}>
-                    <div style={{
-                      width: (displayed.confidence_score * 100) + '%',
-                      height: '100%',
-                      background: dimConfidence ? 'var(--text-dim)' : 'var(--neon-green)',
-                    }} />
-                  </div>
-                )}
-              </div>
-            ))
-            })()}
+            {/* Header */}
             <div style={{
-            borderTop: '1px solid #0F2030',
-              marginTop: '8px',
-              paddingTop: '8px',
+              height: '28px',
+              flexShrink: 0,
+              background: 'var(--bg-header)',
+              borderBottom: '1px solid var(--border)',
+              padding: '0 10px',
               display: 'flex',
               flexDirection: 'row',
               alignItems: 'center',
-              gap: '10px',
-              height: '28px',
+              justifyContent: 'space-between',
             }}>
-              <div
-                tabIndex={0}
-                aria-label={`OPERATOR status: ${operatorState.toLowerCase()}${aiReasoning?.reasoning ? `. ${aiReasoning.reasoning}` : ''}`}
-                onMouseEnter={() => setOperatorTooltipVisible(true)}
-                onMouseLeave={() => setOperatorTooltipVisible(false)}
-                onFocus={() => {
-                  setOperatorFocused(true)
-                  setOperatorTooltipVisible(true)
-                }}
-                onBlur={() => {
-                  setOperatorFocused(false)
-                  setOperatorTooltipVisible(false)
-                }}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: '10px',
-                  position: 'relative',
-                  outline: operatorFocused ? '1px solid var(--neon-cyan)' : 'none',
-                  outlineOffset: '2px',
-                  cursor: operatorState !== 'MONITORING' ? 'help' : 'default',
-                }}
-              >
-                <div style={{
-                  width: '28px',
-                  height: '28px',
-                  border: `1px solid ${operatorConfig.opColor}`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '9px',
-                  color: operatorConfig.opColor,
-                  letterSpacing: '1px',
-                  fontFamily: 'var(--font-data)',
-                }}>
-                  OP
-                </div>
-                <span style={{
-                  fontSize: '11px',
-                  color: operatorConfig.color,
-                  fontFamily: 'var(--font-data)',
-                }}>
-                  {operatorConfig.label}
-                </span>
-                {operatorTooltipVisible && operatorState !== 'MONITORING' && aiReasoning?.reasoning && (
+              <span style={{
+                fontSize: '11px',
+                color: 'var(--text-dim)',
+                letterSpacing: '2px',
+                fontFamily: 'var(--font-data)',
+              }}>
+                SIGNAL DETAILS
+              </span>
+                {displayed.signal_type != null ? (
                   <div style={{
-                    position: 'absolute',
-                    bottom: '100%',
-                    left: 0,
-                    marginBottom: '8px',
-                    width: '320px',
-                    padding: '8px 10px',
-                    background: 'var(--bg-header)',
-                    border: '1px solid var(--border)',
-                    color: 'var(--text-primary)',
-                    fontSize: '11px',
-                    fontFamily: 'var(--font-data)',
-                    lineHeight: '1.4',
-                    zIndex: 10,
-                    pointerEvents: 'none',
-                    boxShadow: '0 0 8px rgba(0,0,0,0.5)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    border: '1px solid #ff4444',
+                    background: 'rgba(255, 68, 68, 0.14)',
+                    boxShadow: '0 0 6px rgba(255, 68, 68, 0.35)',
+                    padding: '2px 8px',
+                    fontFamily: 'var(--font-display)',
+                    fontSize: 10,
+                    color: '#ff4444',
+                    letterSpacing: 1,
+                    animation: 'blink 1.2s infinite',
                   }}>
-                    {aiReasoning.reasoning}
+                    ◆ <span>ACTIVE</span>
+                  </div>
+                ) : (
+                  <div style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    border: '1px solid var(--text-dim)',
+                    background: 'transparent',
+                    padding: '2px 8px',
+                    fontFamily: 'var(--font-display)',
+                    fontSize: 10,
+                    color: 'var(--text-dim)',
+                    letterSpacing: 1,
+                  }}>
+                    ◆ <span>IDLE</span>
                   </div>
                 )}
-              </div>
-              <span style={{
-                marginLeft: 'auto',
-                fontSize: '10px',
-                color: 'var(--neon-red)',
-                letterSpacing: '1px',
-                fontFamily: 'var(--font-data)',
-                visibility: operatorState === 'ANOMALY' ? 'visible' : 'hidden',
+            </div>
+
+            {/* Body */}
+            <div style={{
+              flex: 1,
+              overflowY: 'auto',
+              padding: '8px 10px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0',
+            }}>
+              {(() => {
+                const isConfirmedDecode = displayed.source === 'decode'
+                const hasRealMeasurement =
+                  displayed.snr_db != null &&
+                  displayed.bandwidth_hz != null &&
+                  displayed.bandwidth_hz > 0
+                const dimConfidence = !isConfirmedDecode && !hasRealMeasurement
+                return [
+                { label: 'DEVICE', value: systemStats?.current_device_display || '---', color: 'var(--neon-cyan)' },
+                { label: 'FREQUENCY', value: displayed.freq_hz != null ? (displayed.freq_hz / 1e6).toFixed(3) + ' MHz' : (systemStats?.active_frequency_hz ? (systemStats.active_frequency_hz / 1e6).toFixed(3) + ' MHz' : '---'), color: 'var(--neon-cyan)' },
+                { label: 'CLASSIFICATION', value: displayed.signal_type ? displayed.signal_type.toUpperCase() : '---', color: 'var(--neon-cyan)' },
+                { label: 'CONFIDENCE', value: displayed.confidence_score != null ? (displayed.confidence_score * 100).toFixed(0) + '%' : '---', color: dimConfidence ? 'var(--text-dim)' : 'var(--neon-green)' },
+                { label: 'POWER', value: displayed.peak_power_db != null ? displayed.peak_power_db.toFixed(1) + ' dBFS' : '---', color: 'var(--neon-amber)' },
+                { label: 'SNR', value: displayed.snr_db != null ? displayed.snr_db.toFixed(1) + ' dB' : '---', color: 'var(--neon-green)' },
+                { label: 'THRESHOLD', value: displayed.signal_threshold_db != null ? displayed.signal_threshold_db.toFixed(1) + ' dB' : '---', color: 'var(--text-dim)' },
+                { label: 'SNR MARGIN', value: displayed.snr_margin_db != null ? `${displayed.snr_margin_db >= 0 ? '+' : ''}${displayed.snr_margin_db.toFixed(1)} dB` : '---', color: displayed.snr_margin_db != null && displayed.snr_margin_db >= 0 ? 'var(--neon-green)' : 'var(--neon-amber)' },
+                { label: 'BANDWIDTH', value: displayed.bandwidth_hz != null && displayed.bandwidth_hz > 0 ? (displayed.bandwidth_hz / 1e6).toFixed(3) + ' MHz' : '---', color: 'var(--text-primary)' },
+                { label: 'SPECTRAL FLATNESS', value: displayed.spectral_flatness != null ? displayed.spectral_flatness.toFixed(3) : '---', color: 'var(--text-primary)' },
+                { label: 'CHROMA DISTANCE', value: displayed.chroma_distance != null ? displayed.chroma_distance.toFixed(3) : '---', color: 'var(--neon-magenta)' },
+                { label: 'AU LEGAL', value: displayed.au_legal_status || '---', color: (displayed.au_legal_status || '').includes('LEGAL') ? 'var(--neon-green)' : 'var(--neon-red)' },
+                { label: 'FIRST SEEN', value: getFirstSeen(displayed.signal_type, scanResults), color: 'var(--text-dim)' },
+                { label: 'LAST SEEN', value: displayed.timestamp ? new Date(displayed.timestamp).toLocaleTimeString('en-AU', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '---', color: 'var(--neon-green)' },
+              ].map((row, i) => (
+                <div key={i}>
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'row',
+                    justifyContent: 'space-between',
+                    alignItems: 'baseline',
+                    borderBottom: '1px solid #0F2030',
+                    padding: '5px 0',
+                  }}>
+                    <span style={{
+                      fontSize: '10px',
+                      color: 'var(--text-dim)',
+                      letterSpacing: '1px',
+                      textTransform: 'uppercase',
+                      fontFamily: 'var(--font-data)',
+                      flexShrink: 0,
+                    }}>
+                      {row.label}
+                    </span>
+                    <span style={{
+                      fontSize: '13px',
+                      fontWeight: 'bold',
+                      color: row.color,
+                      fontFamily: 'var(--font-data)',
+                      flexShrink: 0,
+                      textAlign: 'right',
+                    }}>
+                      {row.value}
+                    </span>
+                  </div>
+                  {row.label === 'CONFIDENCE' && displayed.confidence_score != null && (
+                    <div style={{
+                      width: '100%',
+                      height: '3px',
+                      background: '#0F2030',
+                      marginTop: '2px',
+                    }}>
+                      <div style={{
+                        width: (displayed.confidence_score * 100) + '%',
+                        height: '100%',
+                        background: dimConfidence ? 'var(--text-dim)' : 'var(--neon-green)',
+                      }} />
+                    </div>
+                  )}
+                </div>
+              ))
+              })()}
+              <div style={{
+              borderTop: '1px solid #0F2030',
+                marginTop: '8px',
+                paddingTop: '8px',
+                display: 'flex',
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: '10px',
+                height: '28px',
               }}>
-                ⚠ ANOMALY
-              </span>
+                <div
+                  tabIndex={0}
+                  aria-label={`OPERATOR status: ${operatorState.toLowerCase()}${aiReasoning?.reasoning ? `. ${aiReasoning.reasoning}` : ''}`}
+                  onMouseEnter={() => setOperatorTooltipVisible(true)}
+                  onMouseLeave={() => setOperatorTooltipVisible(false)}
+                  onFocus={() => {
+                    setOperatorFocused(true)
+                    setOperatorTooltipVisible(true)
+                  }}
+                  onBlur={() => {
+                    setOperatorFocused(false)
+                    setOperatorTooltipVisible(false)
+                  }}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: '10px',
+                    position: 'relative',
+                    outline: operatorFocused ? '1px solid var(--neon-cyan)' : 'none',
+                    outlineOffset: '2px',
+                    cursor: operatorState !== 'MONITORING' ? 'help' : 'default',
+                  }}
+                >
+                  <div style={{
+                    width: '28px',
+                    height: '28px',
+                    border: `1px solid ${operatorConfig.opColor}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '9px',
+                    color: operatorConfig.opColor,
+                    letterSpacing: '1px',
+                    fontFamily: 'var(--font-data)',
+                  }}>
+                    OP
+                  </div>
+                  <span style={{
+                    fontSize: '11px',
+                    color: operatorConfig.color,
+                    fontFamily: 'var(--font-data)',
+                  }}>
+                    {operatorConfig.label}
+                  </span>
+                  {operatorTooltipVisible && operatorState !== 'MONITORING' && aiReasoning?.reasoning && (
+                    <div style={{
+                      position: 'absolute',
+                      bottom: '100%',
+                      left: 0,
+                      marginBottom: '8px',
+                      width: '320px',
+                      padding: '8px 10px',
+                      background: 'var(--bg-header)',
+                      border: '1px solid var(--border)',
+                      color: 'var(--text-primary)',
+                      fontSize: '11px',
+                      fontFamily: 'var(--font-data)',
+                      lineHeight: '1.4',
+                      zIndex: 10,
+                      pointerEvents: 'none',
+                      boxShadow: '0 0 8px rgba(0,0,0,0.5)',
+                    }}>
+                      {aiReasoning.reasoning}
+                    </div>
+                  )}
+                </div>
+                <span style={{
+                  marginLeft: 'auto',
+                  fontSize: '10px',
+                  color: 'var(--neon-red)',
+                  letterSpacing: '1px',
+                  fontFamily: 'var(--font-data)',
+                  visibility: operatorState === 'ANOMALY' ? 'visible' : 'hidden',
+                }}>
+                  ⚠ ANOMALY
+                </span>
+              </div>
             </div>
           </div>
-        </div>
-      </div>
 
-      {/* Row 3 — Bottom half */}
-      <div style={{
-        display: 'flex',
-        flexDirection: 'row',
-        flex: 1,
-        minHeight: 0,
-        overflow: 'hidden',
-      }}>
-        {/* Bottom-left — System & Signal */}
-        <div style={{
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          borderRight: '1px solid var(--border)',
-          overflow: 'hidden',
-        }}>
-          {/* Section A — System Status */}
+          {/* Section 2 — System Status */}
           <div style={{ flexShrink: 0 }}>
             <div style={{
               height: '28px',
@@ -1060,7 +1393,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* Section B — Signal History */}
+          {/* Section 3 — Signal History */}
           <div style={{
             flex: 1,
             overflow: 'hidden',
@@ -1107,275 +1440,6 @@ export default function App() {
               />
             </div>
           </div>
-        </div>
-
-        {/* Bottom-right — AI Reasoning & Decoded Signals */}
-        <div style={{
-          flex: 4,
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        }}>
-          {/* Section A — AI Reasoning */}
-          <div style={{ minHeight: '210px', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
-            <div style={{
-              height: '28px',
-              flexShrink: 0,
-              background: 'var(--bg-header)',
-              borderBottom: '1px solid var(--border)',
-              display: 'flex',
-              flexDirection: 'row',
-              alignItems: 'center',
-              padding: '0 10px',
-              justifyContent: 'space-between',
-            }}>
-              <span style={{
-                fontSize: '11px',
-                color: 'var(--neon-magenta)',
-                letterSpacing: '2px',
-                fontFamily: 'var(--font-data)',
-              }}>
-                AI REASONING
-              </span>
-              <span style={{
-                fontSize: '11px',
-                color: 'var(--text-dim)',
-                letterSpacing: '1px',
-                fontFamily: 'var(--font-data)',
-              }}>
-                HOLDS 8s · UPDATES ON NEW SIGNAL
-              </span>
-            </div>
-            <div style={{ flex: 1, overflow: 'hidden' }}>
-              <AIReasoningPanel
-                aiReasoning={pinnedReasoning || aiReasoning}
-                isPinned={!!pinnedReasoning}
-                onUnpin={() => setPinnedReasoning(null)}
-              />
-            </div>
-          </div>
-
-          {/* Section B — Decoded Signals */}
-          <div style={{
-            flex: 1,
-            overflow: 'hidden',
-            display: 'flex',
-            flexDirection: 'column',
-          }}>
-            <div style={{
-              height: '28px',
-              flexShrink: 0,
-              background: 'var(--bg-header)',
-              borderBottom: '1px solid var(--border)',
-              padding: '0 10px',
-              display: 'flex',
-              alignItems: 'center',
-            }}>
-              <span style={{
-                fontSize: '11px',
-                color: 'var(--neon-amber)',
-                letterSpacing: '2px',
-                fontFamily: 'var(--font-data)',
-              }}>
-                SIGNAL INTERCEPT
-              </span>
-            </div>
-            <div style={{
-              flex: 1,
-              overflowY: 'auto',
-              display: 'flex',
-              flexDirection: 'column',
-            }}>
-              {isAdsbTuned(focusedFreq) && (
-                <div style={{
-                  borderBottom: '1px solid var(--border)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  flex: 1,
-                  minHeight: 0,
-                }}>
-                  {/* SUB-PANEL 1 — ADS-B AIRCRAFT */}
-                  <div style={{
-                    display: 'flex',
-                    flexDirection: 'row',
-                    padding: '6px 10px',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                  }}>
-                    <span style={{
-                      fontSize: '11px',
-                      color: 'var(--neon-amber)',
-                      letterSpacing: '1px',
-                      fontFamily: 'var(--font-data)',
-                    }}>
-                      ADS-B AIRCRAFT
-                    </span>
-                    <div style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '5px',
-                      border: '1px solid var(--neon-green)',
-                      background: 'rgba(0, 255, 136, 0.08)',
-                      boxShadow: '0 0 6px rgba(0, 255, 136, 0.25)',
-                      padding: '2px 8px',
-                      fontFamily: 'var(--font-display)',
-                      fontSize: 10,
-                      color: 'var(--neon-green)',
-                      letterSpacing: 1,
-                    }}>
-                      ◆ <span>TUNED</span>
-                    </div>
-                  </div>
-                  <div style={{ padding: '0 10px 8px', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-                    <div style={{ flex: 1, overflow: 'hidden' }}>
-                      <AdsbAircraftPanel
-                        adsbAircraft={adsbAircraft}
-                        adsbAircraftHistory={adsbAircraftHistory}
-                        focusedFreq={focusedFreq}
-                        adsbRawLog={adsbRawLog}
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {isAcarsTuned(focusedFreq) && (
-                <div style={{
-                  borderBottom: '1px solid var(--border)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  flexShrink: 0,
-                }}>
-                  {/* SUB-PANEL 2 — ACARS MESSAGES
-                      FIX (Phase 18b-hotfix): removed acarsMessages.length > 0 inner gate.
-                      AcarsMessagePanel always mounts when tuned — component handles its own
-                      empty state ("Listening..." / "Awaiting decodes...") internally. */}
-                  <div style={{
-                    display: 'flex',
-                    flexDirection: 'row',
-                    padding: '6px 10px',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                  }}>
-                    <span style={{
-                      fontSize: '11px',
-                      color: 'var(--neon-amber)',
-                      letterSpacing: '1px',
-                      fontFamily: 'var(--font-data)',
-                    }}>
-                      ACARS MESSAGES
-                    </span>
-                    <div style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '5px',
-                      border: '1px solid var(--neon-green)',
-                      background: 'rgba(0, 255, 136, 0.08)',
-                      boxShadow: '0 0 6px rgba(0, 255, 136, 0.25)',
-                      padding: '2px 8px',
-                      fontFamily: 'var(--font-display)',
-                      fontSize: 10,
-                      color: 'var(--neon-green)',
-                      letterSpacing: 1,
-                    }}>
-                      ◆ <span>TUNED</span>
-                    </div>
-                  </div>
-                  <div style={{ padding: '0 10px 8px' }}>
-                    <div style={{ height: '150px', overflow: 'auto' }}>
-                      <AcarsMessagePanel
-                        acarsMessages={acarsMessages}
-                        focusedFreq={focusedFreq}
-                        acarsRawLog={acarsRawLog}
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {isAisTuned(focusedFreq) && (
-                <div style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  flexShrink: 0,
-                }}>
-                  {/* SUB-PANEL 3 — AIS VESSELS
-                      162.000 MHz = dual-channel centre (matches backend BAND_PROFILES).
-                      100 kHz tolerance covers both CH1 (161.975 MHz) and CH2 (162.025 MHz).
-                      FIX (Phase 18b-hotfix): removed aisVessels.length > 0 inner gate.
-                      AisVesselPanel always mounts when tuned — component handles its own
-                      empty state ("Listening..." / "Awaiting decodes...") internally. */}
-                  <div style={{
-                    display: 'flex',
-                    flexDirection: 'row',
-                    padding: '6px 10px',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                  }}>
-                    <span style={{
-                      fontSize: '11px',
-                      color: 'var(--neon-amber)',
-                      letterSpacing: '1px',
-                      fontFamily: 'var(--font-data)',
-                    }}>
-                      AIS VESSELS
-                    </span>
-                    <div style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '5px',
-                      border: '1px solid var(--neon-green)',
-                      background: 'rgba(0, 255, 136, 0.08)',
-                      boxShadow: '0 0 6px rgba(0, 255, 136, 0.25)',
-                      padding: '2px 8px',
-                      fontFamily: 'var(--font-display)',
-                      fontSize: 10,
-                      color: 'var(--neon-green)',
-                      letterSpacing: 1,
-                    }}>
-                      ◆ <span>TUNED</span>
-                    </div>
-                  </div>
-                  <div style={{ padding: '0 10px 8px' }}>
-                    <div style={{ height: '150px', overflow: 'auto' }}>
-                      <AisVesselPanel
-                        aisMessages={aisVessels}
-                        focusedFreq={focusedFreq}
-                        aisRawLog={aisRawLog}
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {!anyDecoderTuned && (
-                <div style={{
-                  padding: '16px 10px',
-                  fontSize: '11px',
-                  color: 'var(--text-dim)',
-                  fontFamily: 'var(--font-data)',
-                  letterSpacing: '1px',
-                }}>
-                  NO DECODER FOR THIS BAND
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Bottom-radar — PPI Scope (Phase 49) */}
-        <div style={{
-          width: '380px',
-          flexShrink: 0,
-          display: 'flex',
-          flexDirection: 'column',
-          borderLeft: '1px solid var(--border)',
-          overflow: 'hidden',
-        }}>
-          <RadarScopePanel
-            adsbAircraft={adsbAircraft}
-            focusedFreq={focusedFreq}
-          />
         </div>
       </div>
     </div>

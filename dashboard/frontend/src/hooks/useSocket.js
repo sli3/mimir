@@ -34,7 +34,16 @@ const INITIAL_AI_REASONING = {
   novel: null,
 }
 
-export function useSocket() {
+/**
+ * Subscribe to the Mimir SocketIO event stream.
+ *
+ * @param {Object} [options] - Hook options.
+ * @param {boolean} [options.skipInitialRetune=false] - If true, do not emit
+ *   `set_focus_frequency` on socket connect. Used by read-only display pages
+ *   (e.g. /radar) that should observe the stream without controlling the SDR.
+ * @returns {Object} The full socket state object.
+ */
+export function useSocket({ skipInitialRetune = false } = {}) {
   const [scanResults, setScanResults] = useState([])
   const [spectrumUpdates, setSpectrumUpdates] = useState([])
   const [systemStats, setSystemStats] = useState(null)
@@ -66,7 +75,7 @@ export function useSocket() {
 
     socket.on('connect', () => {
       setIsConnected(true)
-      if (focusedFreqRef.current !== null) {
+      if (!skipInitialRetune && focusedFreqRef.current !== null) {
         socket.emit('set_focus_frequency', { freq_hz: focusedFreqRef.current })
       }
     })
