@@ -19,10 +19,15 @@
     "three": "^0.185.1"
   },
   "devDependencies": {
+    "@babel/generator": "^7.29.8",
+    "@babel/parser": "^7.29.8",
+    "@babel/traverse": "^7.29.8",
+    "@swc/core": "^1.15.47",
     "@testing-library/jest-dom": "^6.5.0",
     "@testing-library/react": "^16.0.0",
     "@vitejs/plugin-react": "^4.3.3",
     "jsdom": "^25.0.0",
+    "puppeteer": "^25.4.0",
     "vite": "^5.4.11",
     "vitest": "^2.1.0"
   }
