@@ -34,6 +34,27 @@ core work (Phases 1–3) — it reads source files and writes
 `.stitch/DESIGN.md`. Stitch tools are only touched in the optional Phase 4
 handoff.
 
+## Reference Material (read before generating)
+
+Before generating a DESIGN.md, read both:
+
+- `reference/spec-summary.md` — the exact YAML frontmatter schema and
+  the 8-section body order from the real upstream `design.md` spec.
+- `examples/heritage-design-md.md` — a worked example of correct
+  frontmatter shape from the same upstream source.
+
+The frontmatter MUST include `colors`, AND SHOULD include `typography`,
+`rounded`, `spacing`, and `components` sections if the analysed
+codebase has enough information to populate them meaningfully — do not
+default to a name+colors-only frontmatter. Use the `omitted`
+frontmatter list to declare any body sections intentionally skipped
+from the 8-section order; do not silently drop them. Custom or
+domain-specific token names (e.g. `neon-cyan`, `bg-root`, `wf-noise`)
+are spec-compliant and do NOT need to be renamed to match generic
+Material Design naming.
+
+---
+
 ## Why This Exists
 
 The `design-md` skill works from rendered HTML. But often you have a codebase
