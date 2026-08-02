@@ -95,6 +95,7 @@
 | 48 | BearingTracker wired into the live ADS-B pipeline — bearing_deg and delta_r_deg_per_sec added to adsb_aircraft SocketIO payload; two new display columns in AdsbAircraftPanel.jsx. Backend: `modules/adsb/subscriber.py` (construct BearingTracker in __init__, call in _decode_loop and stop()); `dashboard/server.py` (emit_adsb_aircraft payload with getattr defaults). Frontend: `AdsbAircraftPanel.jsx` (bearing/delta_r columns). Files untouched: bearing_tracker.py, decoder.py, demodulator.py, constants.py, useSocket.js; core/legal/compliance_guard.py. | ✅ Complete | 926 (717 pytest + 209 Vitest), 0 failures |
 | 49 | SVG PPI radar scope panel — `range_nm` added to BearingTracker (`great_circle_distance_nm` Haversine, `EARTH_RADIUS_NM = 3440.065`) and emitted in `emit_adsb_aircraft` SocketIO payload; subscriber attaches `msg.range_nm` at both call sites (decode loop and stop flush). Frontend: new `dashboard/frontend/src/components/radar/projection.js` (pure-math, renderer-agnostic — `projectToScope`, `isWithinRange`) and `RadarScopePanel.jsx` (single `<svg viewBox="0 0 380 325">` with named constants SCOPE_CX=190, SCOPE_CY=162.5, SCOPE_MAX_R=150, static chrome in empty-dep useMemo, glow filter `mimir-radar-glow`, NaN-guarded blips keyed on icao). App.jsx Row 3 third column (380px, flexShrink 0, borderLeft 1px). Range computed backend, not frontend, because ADELAIDE_LAT/LON in modules/adsb/constants.py is the single source of truth for receiver position. CRIT-01 fixed: isAdsbFreq added to measurement effect dep array (mount-lifecycle contract). MINOR-01 fixed: Number.isNaN bearing guard added. | ✅ Complete | 949 (724 pytest + 225 Vitest), 0 failures |
 
+
 ---
 
 ### BUG-04 — /vectordb Tooltip Frequency Field Mismatch ✅
@@ -2202,6 +2203,39 @@ No phase tracker entry required. This is a targeted bug fix within Phase 23 scop
 - TD-49-5 (asymmetric NaN guard): CLOSED — fixed by MINOR-01's Number.isNaN guard.
 
 **RF/Legal notes.** No TX surfaces; all changes are pure projection and display logic on already-decoded ADS-B GPS position data. No new RF capability or hardware interaction. Jurisdiction: AU/SA, ACMA, Radiocommunications Act 1992 (Cth). ADS-B is legal to receive passively at 1090 MHz in Australia.
+
+### Phase 49b — Dashboard UI Overhaul + Radar Page Extraction ✅
+
+**Commits:** 1c85975 (layout restructure + radar extraction), ce0a6e9 (frontend tests), 1d4653c (backend /radar route)
+**Type:** Build session (frontend restructure + backend route), three separate `/build` runs, no CHECKPOINT on any — backfilled post-hoc
+**Baseline:** 978 passing (740 pytest + 238 Vitest), 0 failures (post-BUG-07)
+**Result:** 981 passing (741 pytest + 240 Vitest), 0 failures — verified live against disk 2026-08-01
+**Delta:** +3 net (+1 pytest, +2 Vitest)
+
+#### What shipped
+
+- Waterfall panel height reduced 52vh → 42vh
+- Mini band overview strip removed; frequency selection folded into top band nav buttons
+- Signal Details + System Status + Signal History consolidated into one scrollable right-hand column
+- AI Reasoning panel relocated into the vacated bottom-left slot, fixed at `minHeight: '220px'` (fixed-but-reasonable height, not auto-resizing, per standing layout preference)
+- Bottom-middle row split into three columns: Signal Intercept | Raw Decode | Frame Inspector
+- `RawDecodePanel.jsx` and `FrameInspectorPanel.jsx` extracted out of `AdsbAircraftPanel.jsx` (481 → 288 lines). Corrected mid-build after an initial scoping error — these were nested inside `AdsbAircraftPanel.jsx`, not top-level `App.jsx` siblings as first assumed
+- **Radar Scope extracted to its own `/radar` page** (`RadarPage.jsx`, `RadarPage.css`), mirroring the existing `/vectordb` pattern. This is the page Phase 50 builds on top of
+- Font size tweaks in `FrameInspectorPanel.jsx` / `RawDecodePanel.jsx`
+
+#### Bugs found and fixed during build
+
+- **HIGH-01:** `/radar` was retuning the SDR to 98 MHz on page load. Fixed with a new `skipInitialRetune` option on `useSocket`.
+
+#### Commit shape
+
+1. `1c85975` — frontend code (layout restructure + radar page extraction)
+2. `ce0a6e9` — frontend tests
+3. `1d4653c` — backend (`server.py` `/radar` route + `test_radar_page.py`)
+
+#### RF/Legal notes
+
+No TX surfaces. All changes are display/layout/routing logic on already-decoded data. No new RF capability or hardware interaction. Jurisdiction: AU/SA, ACMA, Radiocommunications Act 1992 (Cth).
 
 ---
 

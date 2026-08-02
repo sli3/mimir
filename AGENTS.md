@@ -585,6 +585,11 @@ Do not apply this pre-emptively — only if context problems are observed.
 | TD-49-4 | The RADAR SCOPE header renders its contact count unconditionally, so it can show a non-zero count while the body says "Not tuned to ADS-B frequency" — useSocket retains aircraft for 90 seconds after retuning. Optional fix: gate the header on isAdsbFreq. | Future phase |
 | TD-49-6 | maxRangeNm is dead configurability. The prop exists with a default of 40, but App.jsx does not pass it and no test exercises a non-default value. Recorded so a future maintainer does not thread it through without also wiring a UI control. | Future phase |
 | TD-49-7 | Close/far blip radius contrast is weaker in SVG than the earlier prototype (r 3.1 vs 2.2, a 1.41:1 ratio, partially compensated by the glow halo). Advisory only — flag if close and distant contacts prove hard to distinguish with real traffic. | Future phase |
+| TD-49b-1 | If `RadarScopePanel` is ever called with a non-default `maxRangeNm`, the page header's and panel header's contact counts could diverge — both currently use the same `isWithinRange` filter, computed independently in `RadarPage.jsx` and `RadarScopePanel.jsx`. | Future phase |
+| TD-49b-2 | Dead code in `AdsbAircraftPanel.jsx`: `rawView`, `pinnedFrame`, `frameData`, `targetHex`, local `isAdsbFreq`, the `/api/adsb/parse` `useEffect`, the `adsbRawLog` prop default, and the `hexToBin`/`hexToSpaced` helpers — all preserved deliberately under a "nothing else should change" build constraint. The dead `useEffect` is a footgun if `adsbRawLog` is ever reconnected as a prop. | Future phase |
+| TD-49b-3 | `hexToBin`/`hexToSpaced` are duplicated — dead-in-place in `AdsbAircraftPanel.jsx`, live in `RawDecodePanel.jsx`. Drift risk if one is edited and not the other. | Future phase |
+| TD-49b-4 | Font size inconsistency — Frame Inspector and Raw Decode panels sit at 12–13px, `AdsbAircraftPanel`'s own table is still 12px. Minor, undecided whether worth reconciling. | Future phase |
+| TD-49b-5 | `/vectordb` has no header nav link, unlike `/radar`. Navigation asymmetry, not a functional bug. | Future phase |
 
 ### Accepted / Won't Fix (documented, working as intended — not active work)
 
