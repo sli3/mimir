@@ -3,9 +3,10 @@ description: >
   Documentation agent for Mimir. Runs in the /finalise-build command (after a
   /build, once the code is final and the suite is verified green) to update
   inline docstrings on changed functions, record technical debt or deferred
-  items surfaced during the build, and keep docs/wiki.md in sync with the
-  current phase. Does NOT touch the AGENTS.md phase tracker or docs/ROADMAP.md
-  — those are handled separately by @memo-writer in the same command.
+  items surfaced during the build, and keep docs/wiki.md accurate. Does NOT
+  touch the AGENTS.md phase tracker or docs/ROADMAP.md — those are handled
+  separately by @memo-writer in the same command. The wiki carries no phase
+  history; it holds only cross-cutting knowledge with no other home.
 mode: subagent
 model: zai-coding-plan/glm-4.7
 temperature: 0.2
@@ -101,32 +102,36 @@ contradict what is already there — write as a continuation.
 The wiki has a YAML frontmatter block at the top. After updating, set:
   `last_updated_phase:` to the current phase number (the PM will tell you).
 
-**Phase Log** — this section lists phases newest-first. For each phase touched
-by this build:
-  - If the phase is newly DONE: change its status marker from `▶ ACTIVE` to
-    `✓ DONE`.
-  - If a new phase is starting: add a new entry at the top of the Phase Log
-    with status `▶ ACTIVE`. Use the same format as existing entries: heading,
-    what the phase does, its key file(s), key function(s) with plain-English
-    explanation, and an analogy where helpful.
-  - If an existing phase was extended or bugfixed: add a brief note under that
-    phase's entry describing what changed.
+**The wiki does NOT carry phase history.** It has no Phase Log and no per-phase
+sections. Phase history lives in `docs/ROADMAP.md` and belongs to @memo-writer.
+Never add a phase entry, phase heading, or phase status marker to the wiki, and
+never restore a phase log if you notice one is missing. Its absence is
+deliberate: the old log duplicated ROADMAP and drifted out of sync until it was
+removed.
 
-**Functions** — if new functions were added or existing ones significantly
-changed, add or update their entry under the relevant phase. Format:
-  - Function signature on its own line, copied from the file you read
-  - Parameters listed with plain-English descriptions
-  - Returns: one line
-  - Analogy: one line (optional but encouraged for non-obvious functions)
+The wiki holds only cross-cutting knowledge with no other home. Its sections
+are, in order: What Mimir Is, Signal Pipeline, Frontend Stack, Tools, Hardware
+Concepts, Environment and Gotchas, Acronym Glossary. If what you want to write
+does not belong in one of those, it does not belong in the wiki.
 
-**Frontend Stack** — if any dashboard file was changed, updated, or added:
-update the relevant entry in the Frontend Files table and any affected step in
-the Data Flow or Band Switching sections.
+**Frontend Stack** — if any dashboard file was changed, updated, or added,
+update its row in the Frontend Files table. Add a row for a genuinely new
+component file. Do not add a per-feature subsection for routine changes; the
+existing feature subsections are exceptions, not a pattern to extend.
+
+**Tools** — if this build added, removed, or changed the arguments of a script
+in `tools/`, update the Tools section. Put it in the right group (Calibration,
+Diagnostics, Vector store, Reference data) and fill in the Writes column
+honestly: state whether the script mutates the vector store, calibration data,
+or any file on disk. Take the description from the script's own docstring and
+argparse definition, not from the build summary. Known defects in a tool go in
+the AGENTS.md tech-debt table, not here — reference them, do not restate them.
 
 **Acronym Glossary** — if any new term, abbreviation, or project-specific name
 appeared in this build that is not already in the glossary, add a row. Keep the
 table sorted alphabetically. Read the existing glossary before adding, so you
-do not duplicate an entry.
+do not duplicate an entry. If a build changes the stack such that a glossary
+row becomes wrong, correct or remove that row and say so in your report.
 
 **Do NOT write rationale you were not given.** Do not explain why a design
 choice was made, what a future maintainer should infer from it, or what an
@@ -136,11 +141,19 @@ describe only the observable behaviour. Inventing intent is the most common
 fabrication in this project's history.
 
 **What NOT to change in the wiki:**
-- Do not rewrite phases that were not touched in this build.
-- Do not alter the glossary entries for terms already defined.
+- Do not add a Phase Log, phase entry, or phase heading. Ever.
+- Do not duplicate content that lives in ROADMAP, AGENTS.md, a docstring, or
+  README. The wiki states at the top what it deliberately does not carry;
+  respect that table.
+- Do not alter the glossary entries for terms already defined, unless the build
+  made one factually wrong.
 - Do not change the Contents section links unless you add a new top-level
   section.
-- Do not add sections that are not already in the wiki structure.
+- Do not add top-level sections. The seven that exist are the whole structure.
+- Do not fill the "Gap — architecture overview needed" note by writing an
+  overview from the build summary or from general knowledge of the stack. That
+  gap is deliberate and must be filled by reading `dashboard/server.py` and
+  `dashboard/frontend/src/App.jsx` directly. If you cannot, leave it.
 
 ## Build scope discipline (hard constraint)
 The Project Manager will tell you which files this build touched. Only add
