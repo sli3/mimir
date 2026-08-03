@@ -133,15 +133,19 @@ The radar scope panel (`RadarScopePanel.jsx`) provides a classic plan-position-i
 
 **Rendering flow:**
 1. Chrome (static): 4 concentric range rings (25%, 50%, 75%, 100% of `maxRangeNm`), 12 radial spokes (30° intervals), centre crosshair (cyan, 1px), compass labels (N/E/S/W). Computed once via `useMemo()` and never re-rendered.
-2. Aircraft filtering: Filters `adsbAircraft` array to reject entries with null/undefined/NaN `bearing_deg` or `range_nm`. Also filters by `isWithinRange(ac.range_nm, maxRangeNm)`. Guard runs before projection so no NaN coordinate reaches SVG.
+2. Aircraft filtering: Filters `adsbAircraft` via the shared `isValidContact(ac, maxRangeNm)` (from `radar/projection.js`), which rejects entries with null/undefined/NaN `bearing_deg` and out-of-range `range_nm`. This same function is also called by `RadarPage` for its header contact count, so the two can never disagree (Phase 50, resolved TD-49-6). Guard runs before projection so no NaN coordinate reaches SVG. Aircraft that fail this check on a single frame but have recent trail history render at their last known position instead of disappearing — see "Breadcrumb trail" below.
 3. Projection: For each filtered aircraft, calls `projectToScope(ac.bearing_deg, ac.range_nm, maxRangeNm, SCOPE_CX, SCOPE_CY, SCOPE_MAX_R)` to get screen coordinates.
 4. Blip rendering: Each aircraft renders as a `<circle>` with `fill="var(--neon-cyan)"`, `filter="url(#mimir-radar-glow)"`. Close contacts (inner 25% of range) get larger radius (3.1 vs 2.2 px). Label (`<text>`) shows callsign if present, otherwise ICAO. Uses `key={ac.icao}` for stable React keys.
 5. "Not tuned to ADS-B frequency" placeholder: When `isAdsbFreq` is false, shows grey text message instead of SVG.
 
-**Mount-lifecycle contract (CRIT-01):**
-- Empty `useEffect(() => {}, [isAdsbFreq])` with load-bearing dependency array.
-- Currently the SVG renderer has no state to measure, so the body is trivially safe.
-- The contract exists for future renderer state that might attach here — any future state must be keyed on `isAdsbFreq` to avoid stale state when tuning into/out of ADS-B.
+**Breadcrumb trail (Phase 50):**
+- Each contact shows up to 8 prior positions (`TRAIL_MAX_POINTS`) as a fading `<polyline>` + per-point `<circle>` trail behind the current blip, older points fainter and smaller.
+- Trail points are stored bearing_deg + range_nm (not raw lat/lon), reusing `projectToScope()` unchanged, in a `useRef` Map keyed by ICAO — a ref rather than state, since trail mutation is a side effect of processing `adsbAircraft` and must not itself trigger a re-render.
+- Staleness cutoff: 90 seconds (`TRAIL_STALE_MS`), mirroring the existing literal in `useSocket.js:174`. A gap longer than this clears the trail rather than drawing a straight line across dead time.
+- On a single bad frame (missing/NaN `bearing_deg`), the aircraft renders at its last known stored position — blip and trail both — rather than disappearing for that render. This handles ADS-B's irregular message mix (many message types carry no position data at all) without visual flicker. Only once the gap exceeds the staleness cutoff does the aircraft actually stop rendering.
+- Trail update/prune logic runs inside the same `useMemo` that computes `contacts`, not a separate `useEffect` — deliberate, so trail state updates in the same render tick it feeds rather than lagging one render behind.
+
+Note: an earlier version of this section described a "load-bearing" empty `useEffect(() => {}, [isAdsbFreq])` as an intentional mount-lifecycle contract for future renderer state. That effect did nothing (the SVG renderer had no state to measure) and the comment was later confirmed to be fabricated documentation, not a real design decision. It was deleted in Phase 50.
 
 **Glow filter:**
 - SVG `<filter id="mimir-radar-glow" x="-80%" y="-80%" width="260%" height="260%">` with `feGaussianBlur stdDeviation="2.4"`.
