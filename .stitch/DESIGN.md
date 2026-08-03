@@ -5,6 +5,7 @@ description: >-
   spectrum scanner: dark CRT terminal surfaces, neon accent colours,
   and an all-monospace type system across three routes.
 colors:
+  primary: "{colors.neon-cyan}"
   bg-root: "#080F14"
   bg-panel: "#0A1520"
   bg-header: "#050C11"
@@ -86,8 +87,20 @@ components:
     textColor: "{colors.neon-green}"
     typography: "{typography.label-caps}"
     padding: 2px 8px
+  status-badge-tuned:
+    textColor: "{colors.neon-green}"
+    typography: "{typography.label-caps}"
+    padding: 2px 8px
+  status-badge-active:
+    textColor: "{colors.neon-red}"
+    typography: "{typography.label-caps}"
+    padding: 2px 8px
   band-button:
     textColor: "{colors.text-dim}"
+    typography: "{typography.data-mono}"
+    padding: 2px 6px
+  band-button-active:
+    textColor: "{colors.neon-cyan}"
     typography: "{typography.data-mono}"
     padding: 2px 6px
   tune-button:
@@ -111,6 +124,14 @@ components:
   details-row:
     textColor: "{colors.text-primary}"
     typography: "{typography.details-value}"
+  vector-message:
+    backgroundColor: "{colors.bg-panel}"
+    padding: 24px 32px
+    width: 520px
+  legend-panel:
+    backgroundColor: "{colors.bg-header}"
+    padding: 12px
+    width: 150px
 ---
 
 ## Overview
