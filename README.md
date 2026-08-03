@@ -149,8 +149,8 @@ Full phase-by-phase history lives in [`docs/ROADMAP.md`](./docs/ROADMAP.md), whi
 single source of truth for phase status and test counts. This section shows
 only a quick-glance summary — update `docs/ROADMAP.md` first, then sync this block.
 
-**Current phase: 49 — SVG PPI radar scope panel**
-**Total: 949 passing (724 pytest + 225 Vitest), 0 failures**
+**Current phase: 50 — Radar Scope: Breadcrumb Trail + Header Dedup + Dead Code Removal (includes fix-pass)**
+**Total: 991 passing (741 pytest + 250 Vitest), 0 failures**
 
 > **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector
 > store (`data/vectorstore/`) must be re-seeded after deploying this build.
