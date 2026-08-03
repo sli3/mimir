@@ -20,6 +20,10 @@ function Harness({ adsbRawLog }) {
 
   useEffect(() => {
     if (targetHex === null) {
+      // Fetch effect clearing stale data when there's nothing to fetch,
+      // not derived state — no update-loop risk, this only runs on the
+      // "nothing to look up" branch.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setFrameData(null)
       return
     }
