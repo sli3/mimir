@@ -1,20 +1,29 @@
 import React, { useEffect, useMemo } from 'react'
 import { useSocket } from '../hooks/useSocket.js'
 import RadarScopePanel from '../components/RadarScopePanel.jsx'
-import { isWithinRange } from '../components/radar/projection.js'
+import { isValidContact } from '../components/radar/projection.js'
 import './RadarPage.css'
 
-// Mirrors RadarScopePanel's default maxRangeNm so the page header's
-// contact count and range readout agree with the scope's own header.
+// Sole source of truth for max displayed range. Passed down to
+// RadarScopePanel explicitly (Phase 50) rather than relying on the two
+// components' defaults happening to agree.
 const MAX_RANGE_NM = 40
 
 /**
  * Standalone /radar page (UI-OVERHAUL Change 7a).
  *
- * Hosts the existing RadarScopePanel (unchanged) on its own full-viewport
- * page, mirroring how /vectordb hosts VectorSpacePage. The Flask backend
+ * Hosts the existing RadarScopePanel on its own full-viewport page,
+ * mirroring how /vectordb hosts VectorSpacePage. The Flask backend
  * serves index.html at /radar; main.jsx inspects window.location.pathname
  * and mounts this page instead of the main dashboard App.
+ *
+ * Header: this page owns the page-level header (title, contact count,
+ * range readout) exclusively — RadarScopePanel no longer renders its own
+ * internal header (Phase 50 dedup fix, was TD-49-6: two independent
+ * computations of the same contact count could silently disagree).
+ * Both this page's contactCount and RadarScopePanel's contacts filter
+ * now call the same isValidContact() function from projection.js, so
+ * there is exactly one place the "valid, in-range contact" rule lives.
  *
  * Passive receive display only — no TX capability.
  */
@@ -31,16 +40,12 @@ export default function RadarPage() {
     return () => document.body.classList.remove('radar-page')
   }, [])
 
-  // Contact count for the page header, computed with the same guard and
-  // range filter RadarScopePanel applies before projecting blips, so the
-  // header readout matches what the scope actually shows.
+  // Contact count for the page header. Uses the same isValidContact()
+  // rule RadarScopePanel applies before projecting blips, so the header
+  // readout can never diverge from what the scope actually shows.
   const contactCount = useMemo(() => (
     Object.values(adsbAircraft || {})
-      .filter((ac) => {
-        if (ac.bearing_deg === null || ac.bearing_deg === undefined) return false
-        if (Number.isNaN(ac.bearing_deg)) return false
-        return isWithinRange(ac.range_nm, MAX_RANGE_NM)
-      })
+      .filter((ac) => isValidContact(ac, MAX_RANGE_NM))
       .length
   ), [adsbAircraft])
 
@@ -60,7 +65,11 @@ export default function RadarPage() {
         </div>
       </header>
       <div className="radar-scope-container">
-        <RadarScopePanel adsbAircraft={adsbAircraft} focusedFreq={effectiveFocusedFreq} />
+        <RadarScopePanel
+          adsbAircraft={adsbAircraft}
+          focusedFreq={effectiveFocusedFreq}
+          maxRangeNm={MAX_RANGE_NM}
+        />
       </div>
     </div>
   )

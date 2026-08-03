@@ -35,3 +35,27 @@ export function isWithinRange(rangeNm, maxRangeNm) {
   if (Number.isNaN(rangeNm)) return false
   return rangeNm <= maxRangeNm
 }
+
+/**
+ * Determines whether an aircraft record is a valid, in-range contact
+ * that should be counted and rendered on the radar scope.
+ *
+ * Single source of truth for the "valid contact" rule (Phase 50),
+ * shared by RadarScopePanel (blip/trail rendering) and RadarPage
+ * (header contact count) so the two can never disagree — see TD-49-6.
+ *
+ * bearing_deg is guarded separately from rangeNm: isWithinRange() only
+ * covers the range field, but a contact with a missing/NaN bearing_deg
+ * still cannot be projected even if its range is fine.
+ *
+ * @param {Object} ac - Aircraft state record
+ * @param {number|null|undefined} ac.bearing_deg
+ * @param {number|null|undefined} ac.range_nm
+ * @param {number} maxRangeNm - Maximum displayed range, in nautical miles
+ * @returns {boolean}
+ */
+export function isValidContact(ac, maxRangeNm) {
+  if (ac.bearing_deg === null || ac.bearing_deg === undefined) return false
+  if (Number.isNaN(ac.bearing_deg)) return false
+  return isWithinRange(ac.range_nm, maxRangeNm)
+}

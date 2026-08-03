@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo } from 'react'
-import { projectToScope, isWithinRange } from './radar/projection.js'
+import React, { useMemo, useRef } from 'react'
+import { projectToScope, isWithinRange, isValidContact } from './radar/projection.js'
 
 // Phase 49 tech-debt markers (recorded in AGENTS.md by the /finalise-build
 // run, NOT by this build):
@@ -11,6 +11,15 @@ import { projectToScope, isWithinRange } from './radar/projection.js'
 const SCOPE_CX = 190
 const SCOPE_CY = 162.5
 const SCOPE_MAX_R = 150
+
+// Trail history. TRAIL_STALE_MS mirrors useSocket.js's adsbAircraft
+// cutoff (useSocket.js:174) and the backend's AIRCRAFT_EXPIRY_SEC — both
+// are meant to represent "how long before we consider an aircraft's last
+// known position too old to trust", but are currently three independent
+// hardcoded literals with no shared source. Documented pre-existing
+// pattern; not something Phase 50 fixes.
+const TRAIL_MAX_POINTS = 8
+const TRAIL_STALE_MS = 90000
 
 // Round to 2 decimal places so no float noise (e.g. 162.49999999999999)
 // ever reaches an SVG attribute.
@@ -26,6 +35,16 @@ const r2 = (n) => Number(n.toFixed(2))
  * to whatever size the panel body ends up, so no runtime measurement,
  * ResizeObserver, or font metric is involved.
  *
+ * Header: RadarPage owns the page-level header (title, contact count,
+ * range readout) exclusively. This panel renders scope content only —
+ * see TD-49-6 / Phase 50 header-dedup fix.
+ *
+ * Trail and passthrough: Each aircraft maintains a breadcrumb trail of
+ * up to 8 historical positions (TRAIL_MAX_POINTS). When a frame lacks
+ * position data (e.g. callsign/altitude/velocity-only ADS-B messages),
+ * the passthrough branch re-renders the aircraft from its last known
+ * position, preventing flicker while keeping the stored trail untouched.
+ *
  * @param {Object} adsbAircraft - Map of ICAO address -> aircraft state
  * @param {number|null} focusedFreq - Currently tuned frequency in Hz
  * @param {number} maxRangeNm - Maximum displayed range, in nautical miles
@@ -35,13 +54,11 @@ export default function RadarScopePanel({ adsbAircraft = {}, focusedFreq, maxRan
     Math.abs(focusedFreq - 1_090_000_000) <= 2_000_000
   )
 
-  // Intentionally empty body, load-bearing dep. The SVG below is only
-  // mounted when tuned to 1090 MHz; keeping this effect keyed on
-  // isAdsbFreq preserves the tune-in mount-lifecycle contract fixed by
-  // CRIT-01 for any future renderer state that attaches here. With the
-  // SVG renderer there is nothing to measure, so the body is trivially
-  // safe.
-  useEffect(() => {}, [isAdsbFreq])
+  // Per-ICAO trail history: icao -> [{ bearing_deg, range_nm, ts }, ...],
+  // oldest first, capped at TRAIL_MAX_POINTS. A ref, not state, because
+  // trail mutation is a side effect of processing adsbAircraft and must
+  // not itself trigger an extra re-render.
+  const trailsRef = useRef(new Map())
 
   // Static chrome: range rings, radial spokes, centre crosshair, compass
   // labels. Never varies with range or traffic, so computed once.
@@ -100,54 +117,116 @@ export default function RadarScopePanel({ adsbAircraft = {}, focusedFreq, maxRan
     )
   }, [])
 
-  // Filter and project aircraft. Guard BEFORE projecting so no NaN
-  // coordinate can reach the SVG.
-  const contacts = useMemo(() => (
-    Object.values(adsbAircraft)
-      .filter((ac) => {
-        if (ac.bearing_deg === null || ac.bearing_deg === undefined) return false
-        if (Number.isNaN(ac.bearing_deg)) return false  // NaN passes null/undefined check; would reach sin/cos and emit NaN into SVG
-        return isWithinRange(ac.range_nm, maxRangeNm)
-      })
-      .map((ac) => {
+  // Filter, project, and trail-track aircraft. Guard BEFORE projecting so
+  // no NaN coordinate can reach the SVG.
+  //
+  // Trail update/prune runs in this same useMemo (not a separate
+  // useEffect) so the trail mutation happens in the same tick as the
+  // render it feeds. A useEffect would run one render behind, showing
+  // stale trail points on the first render after adsbAircraft changes.
+  // This is a deliberate departure from normal React purity conventions —
+  // flagged explicitly so a code reviewer doesn't read it as an
+  // accidental anti-pattern.
+  const contacts = useMemo(() => {
+    const trails = trailsRef.current
+    const liveIcaos = new Set(Object.keys(adsbAircraft))
+
+    // Drop trail history for any ICAO no longer present at all.
+    for (const icao of trails.keys()) {
+      if (!liveIcaos.has(icao)) trails.delete(icao)
+    }
+
+    const result = []
+    for (const ac of Object.values(adsbAircraft)) {
+      if (!isValidContact(ac, maxRangeNm)) {
+        // Bad frame (e.g. a callsign/altitude/velocity-only ADS-B
+        // message carries no position): do NOT drop the aircraft for
+        // this frame if we have a recent last-known position. ADS-B
+        // messages are irregular, so one position-less frame does not
+        // mean the aircraft's position became unknown. Passthrough of
+        // last-known state only: no push, no evict, no staleness-clear
+        // — the stored trail is left byte-for-byte untouched.
+        const history = trails.get(ac.icao)
+        if (!history || history.length === 0) continue
+        const last = history[history.length - 1]
+        const ts = ac.timestamp ?? Date.now()
+        if (ts - last.ts > TRAIL_STALE_MS) continue
         const pos = projectToScope(
-          ac.bearing_deg, ac.range_nm, maxRangeNm,
+          last.bearing_deg, last.range_nm, maxRangeNm,
           SCOPE_CX, SCOPE_CY, SCOPE_MAX_R,
         )
-        return { ...ac, x: r2(pos.x), y: r2(pos.y) }
-      })
-  ), [adsbAircraft, maxRangeNm])
+        // Same trail projection as the valid path, over the existing
+        // history, so the trail still renders behind the stale blip.
+        const trailPoints = history
+          .slice(0, -1)
+          .filter((pt) => isWithinRange(pt.range_nm, maxRangeNm))
+          .map((pt) => {
+            const p = projectToScope(pt.bearing_deg, pt.range_nm, maxRangeNm, SCOPE_CX, SCOPE_CY, SCOPE_MAX_R)
+            return { x: r2(p.x), y: r2(p.y) }
+          })
+        result.push({
+          ...ac,
+          // Render from last-known position, not this frame's bad data.
+          // Callsign still comes from the current frame (may fall back
+          // to ICAO); the close/far blip radius uses the last-stored
+          // range_nm — cosmetic only, both accepted by the Phase 50
+          // fix-pass plan review.
+          bearing_deg: last.bearing_deg,
+          range_nm: last.range_nm,
+          x: r2(pos.x),
+          y: r2(pos.y),
+          trailPoints,
+        })
+        continue
+      }
+
+      const pos = projectToScope(
+        ac.bearing_deg, ac.range_nm, maxRangeNm,
+        SCOPE_CX, SCOPE_CY, SCOPE_MAX_R,
+      )
+
+      // Trail bookkeeping. Note: gap-skip on null/NaN bearing_deg was
+      // handled by the passthrough branch above, so the trail is only
+      // ever mutated here for valid contacts. If a contact disappears
+      // for a frame and reappears later, the staleness check below
+      // will clear the trail appropriately.
+      const ts = ac.timestamp ?? Date.now()
+      let history = trails.get(ac.icao)
+      if (!history) {
+        history = []
+        trails.set(ac.icao, history)
+      }
+      const last = history[history.length - 1]
+      if (last && ts - last.ts > TRAIL_STALE_MS) {
+        // Gap too large to imply continuous motion — start fresh
+        // rather than drawing a straight line across dead time.
+        history.length = 0
+      }
+      if (!last || last.ts !== ts) {
+        history.push({ bearing_deg: ac.bearing_deg, range_nm: ac.range_nm, ts })
+        if (history.length > TRAIL_MAX_POINTS) history.shift()
+      }
+
+      // Trail points, projected, excluding the current position
+      // (which renders separately as the main blip). Only render
+      // points that are still within the currently displayed range —
+      // storage above is not range-limited, only rendering is.
+      // `history` above is guaranteed non-null at this point.
+      const trailPoints = history
+        .slice(0, -1)
+        .filter((pt) => isWithinRange(pt.range_nm, maxRangeNm))
+        .map((pt) => {
+          const p = projectToScope(pt.bearing_deg, pt.range_nm, maxRangeNm, SCOPE_CX, SCOPE_CY, SCOPE_MAX_R)
+          return { x: r2(p.x), y: r2(p.y) }
+        })
+
+      result.push({ ...ac, x: r2(pos.x), y: r2(pos.y), trailPoints })
+    }
+    return result
+  }, [adsbAircraft, maxRangeNm])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      <div style={{
-        height: '28px',
-        flexShrink: 0,
-        background: 'var(--bg-header)',
-        borderBottom: '1px solid var(--border)',
-        display: 'flex',
-        flexDirection: 'row',
-        alignItems: 'center',
-        padding: '0 10px',
-        justifyContent: 'space-between',
-      }}>
-        <span style={{
-          fontSize: '11px',
-          color: 'var(--neon-cyan)',
-          letterSpacing: '2px',
-          fontFamily: 'var(--font-data)',
-        }}>
-          RADAR SCOPE
-        </span>
-        <span style={{
-          fontSize: '11px',
-          color: 'var(--text-dim)',
-          letterSpacing: '1px',
-          fontFamily: 'var(--font-data)',
-        }}>
-          {contacts.length} CONTACTS · {maxRangeNm}NM
-        </span>
-      </div>
       {!isAdsbFreq ? (
         <div style={{
           padding: '8px 10px',
@@ -175,27 +254,52 @@ export default function RadarScopePanel({ adsbAircraft = {}, focusedFreq, maxRan
               </filter>
             </defs>
             {chrome}
-            {contacts.map((ac) => (
-              <g key={ac.icao} data-testid="radar-blip">
-                {/* Close contacts (inner 25% of range) get a larger blip. */}
-                <circle
-                  cx={ac.x}
-                  cy={ac.y}
-                  r={ac.range_nm < maxRangeNm * 0.25 ? 3.1 : 2.2}
-                  fill="var(--neon-cyan)"
-                  filter="url(#mimir-radar-glow)"
-                />
-                <text
-                  x={r2(ac.x + 7)}
-                  y={r2(ac.y + 3)}
-                  fontFamily="var(--font-data)"
-                  fontSize={10}
-                  fill="var(--neon-cyan)"
-                >
-                  {ac.callsign || ac.icao}
-                </text>
-              </g>
-            ))}
+            {contacts.map((ac) => {
+              const showTrail = ac.trailPoints.length > 0
+              const n = ac.trailPoints.length
+              return (
+                <g key={ac.icao} data-testid="radar-blip">
+                  {showTrail && (
+                    <>
+                      <polyline
+                        points={[...ac.trailPoints, { x: ac.x, y: ac.y }].map((p) => `${p.x},${p.y}`).join(' ')}
+                        fill="none"
+                        stroke="var(--neon-cyan)"
+                        strokeWidth={1.2}
+                        opacity={0.4}
+                      />
+                      {ac.trailPoints.map((pt, i) => (
+                        <circle
+                          key={`trail-${ac.icao}-${i}`}
+                          cx={pt.x}
+                          cy={pt.y}
+                          r={r2(1.4 + (i / n) * 1.2)}
+                          fill="var(--neon-cyan)"
+                          opacity={r2(0.15 + (i / n) * 0.55)}
+                        />
+                      ))}
+                    </>
+                  )}
+                  {/* Close contacts (inner 25% of range) get a larger blip. */}
+                  <circle
+                    cx={ac.x}
+                    cy={ac.y}
+                    r={ac.range_nm < maxRangeNm * 0.25 ? 3.1 : 2.2}
+                    fill="var(--neon-cyan)"
+                    filter="url(#mimir-radar-glow)"
+                  />
+                  <text
+                    x={r2(ac.x + 7)}
+                    y={r2(ac.y + 3)}
+                    fontFamily="var(--font-data)"
+                    fontSize={10}
+                    fill="var(--neon-cyan)"
+                  >
+                    {ac.callsign || ac.icao}
+                  </text>
+                </g>
+              )
+            })}
           </svg>
         </div>
       )}

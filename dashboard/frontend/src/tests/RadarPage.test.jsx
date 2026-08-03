@@ -23,11 +23,11 @@ describe('RadarPage', () => {
   it('renders empty state with zero contacts and no aircraft', () => {
     useSocket.mockReturnValue(makeMock())
     render(<RadarPage />)
-    // The page header and RadarScopePanel's own header both carry the
-    // RADAR SCOPE title and the contacts readout — more than one match
-    // is expected.
-    expect(screen.getAllByText('RADAR SCOPE').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText(/0 CONTACTS · 40NM/).length).toBeGreaterThanOrEqual(1)
+    // Phase 50: RadarPage owns the header exclusively — RadarScopePanel
+    // no longer renders its own duplicate header (dedup fix, was
+    // TD-49-6). Exactly one match expected for each, not "at least one".
+    expect(screen.getAllByText('RADAR SCOPE').length).toBe(1)
+    expect(screen.getAllByText(/0 CONTACTS · 40NM/).length).toBe(1)
     // Not tuned to 1090 MHz, so the scope body shows its placeholder.
     expect(screen.getByText('Not tuned to ADS-B frequency')).toBeInTheDocument()
     expect(screen.queryByTestId('radar-blip')).toBeNull()
@@ -41,11 +41,29 @@ describe('RadarPage', () => {
       },
     }))
     render(<RadarPage />)
-    // Both the page header and the panel header agree on the count.
-    expect(screen.getAllByText(/1 CONTACTS · 40NM/).length).toBeGreaterThanOrEqual(2)
+    // Phase 50: only RadarPage's header renders the count now — exactly
+    // one match, not "at least two" (that assumed the old duplicate
+    // header in RadarScopePanel, which has been removed).
+    expect(screen.getAllByText(/1 CONTACTS · 40NM/).length).toBe(1)
     // RadarScopePanel received the aircraft and projected a blip.
     expect(screen.getByTestId('radar-blip')).toBeInTheDocument()
     expect(screen.getByText('TEST1')).toBeInTheDocument()
+  })
+
+  it('passes maxRangeNm down to RadarScopePanel explicitly', () => {
+    // Phase 50 regression guard: RadarPage must pass its MAX_RANGE_NM
+    // constant to RadarScopePanel rather than relying on the two
+    // components' default values happening to agree (was a silent gap —
+    // RadarPage previously never passed maxRangeNm at all).
+    useSocket.mockReturnValue(makeMock({
+      systemStats: { active_frequency_hz: 1090000000 },
+      adsbAircraft: {
+        ABC123: { icao: 'ABC123', callsign: 'TEST1', bearing_deg: 45, range_nm: 35 },
+      },
+    }))
+    render(<RadarPage />)
+    expect(screen.getByTestId('radar-blip')).toBeInTheDocument()
+    expect(screen.getAllByText(/40NM/).length).toBe(1)
   })
 
   it('reads focused frequency from systemStats.active_frequency_hz, not from the 98 MHz default (HIGH-01)', () => {
