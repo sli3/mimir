@@ -41,6 +41,16 @@ class TestMimirConfigDefaults:
         cfg = MimirConfig()
         assert cfg.unchanged_emit_interval_sec == 5.0
 
+    def test_llm_reason_timeout_default_is_45(self):
+        """MimirConfig.llm_reason_timeout_sec default must be 45.0 (Phase 53)."""
+        cfg = MimirConfig()
+        assert cfg.llm_reason_timeout_sec == 45.0
+
+    def test_llm_reason_cooldown_default_is_60(self):
+        """MimirConfig.llm_reason_cooldown_sec default must be 60.0 (Phase 53)."""
+        cfg = MimirConfig()
+        assert cfg.llm_reason_cooldown_sec == 60.0
+
 
 def _valid_config() -> dict:
     return copy.deepcopy({
@@ -134,5 +144,29 @@ class TestConfigLoader:
         try:
             cfg = load_config(path)
             assert cfg.unchanged_emit_interval_sec == 5.0
+        finally:
+            os.unlink(path)
+
+    def test_missing_llm_reason_keys_fall_back_to_defaults(self):
+        """Phase 53 keys are optional: a config without them falls back
+        to llm_reason_timeout_sec=45.0 and llm_reason_cooldown_sec=60.0."""
+        path = _write_config(_valid_config())
+        try:
+            cfg = load_config(path)
+            assert cfg.llm_reason_timeout_sec == 45.0
+            assert cfg.llm_reason_cooldown_sec == 60.0
+        finally:
+            os.unlink(path)
+
+    def test_llm_reason_keys_override_from_yaml(self):
+        """Explicit Phase 53 keys in scanner: are honoured."""
+        data = _valid_config()
+        data["scanner"]["llm_reason_timeout_sec"] = 30.0
+        data["scanner"]["llm_reason_cooldown_sec"] = 120.0
+        path = _write_config(data)
+        try:
+            cfg = load_config(path)
+            assert cfg.llm_reason_timeout_sec == 30.0
+            assert cfg.llm_reason_cooldown_sec == 120.0
         finally:
             os.unlink(path)

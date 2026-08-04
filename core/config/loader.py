@@ -28,6 +28,8 @@ class MimirConfig:
     llm_url: str = "http://192.168.0.66:8080/v1"
     llm_cooldown_sec: float = 60.0  # seconds to suppress LLM retries after connection failure
     llm_connect_timeout_sec: float = 5.0  # timeout in seconds for the startup health-check probe
+    llm_reason_timeout_sec: float = 45.0  # per-request timeout for the /radar LLM reasoning button (Phase 53)
+    llm_reason_cooldown_sec: float = 60.0  # cooldown for the /radar reasoner after a connection failure (Phase 53)
     dashboard_host: str = "127.0.0.1"
     dashboard_port: int = 5000
     unchanged_emit_interval_sec: float = 5.0  # min seconds between repeat emissions of an UNCHANGED verdict for the same frequency; changes always emit immediately
@@ -87,6 +89,8 @@ def load_config(path: str = "config/mimir.yaml") -> MimirConfig:
 
     llm_cooldown_sec = float(scanner.get("llm_cooldown_sec", 60.0))
     llm_connect_timeout_sec = float(scanner.get("llm_connect_timeout_sec", 5.0))
+    llm_reason_timeout_sec = float(scanner.get("llm_reason_timeout_sec", 45.0))
+    llm_reason_cooldown_sec = float(scanner.get("llm_reason_cooldown_sec", 60.0))
     unchanged_emit_interval_sec = float(scanner.get("unchanged_emit_interval_sec", 5.0))
 
     dashboard_required = {
@@ -119,6 +123,8 @@ def load_config(path: str = "config/mimir.yaml") -> MimirConfig:
         llm_url=str(scanner["llm_url"]),
         llm_cooldown_sec=llm_cooldown_sec,
         llm_connect_timeout_sec=llm_connect_timeout_sec,
+        llm_reason_timeout_sec=llm_reason_timeout_sec,
+        llm_reason_cooldown_sec=llm_reason_cooldown_sec,
         dashboard_host=str(dashboard["host"]),
         dashboard_port=int(dashboard["port"]),
         unchanged_emit_interval_sec=unchanged_emit_interval_sec,

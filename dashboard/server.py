@@ -43,6 +43,7 @@ from flask_socketio import SocketIO
 
 from core.pipeline.scan_result import ScanResult
 from embeddings.store import SignalStore
+from llm.path_reasoner import PathReasoner
 from modules.acars.message import AcarsMessage
 from modules.adsb.message import AdsbMessage
 from modules.adsb.constants import (
@@ -185,6 +186,16 @@ _VECTORSTORE_CACHE_LOCK = threading.Lock()
 _signal_store = None
 _signal_store_lock = threading.Lock()
 
+# Lazily-created singleton PathReasoner for POST /api/radar/reason (Phase
+# 53). Follows the same lazy-with-lock pattern as _signal_store below: one
+# instance per process, configured from MimirConfig on first use, never
+# spawned per request. The reasoner is effectively immutable across
+# requests — reason() only ever mutates the single float _offline_until
+# (a GIL-atomic assignment), so no lock is held around the call itself;
+# the worst case of two concurrent requests is a duplicate LLM call.
+_path_reasoner = None
+_path_reasoner_lock = threading.Lock()
+
 # Per-ICAO ADS-B field-merge tracker for the AI Reasoning panel.  See
 # AdsbFieldTracker docstring; mirrors the design of
 # modules/adsb/bearing_tracker.py:BearingTracker.  Lightweight in-memory
@@ -209,6 +220,152 @@ def _get_signal_store():
             if _signal_store is None:
                 _signal_store = SignalStore()
     return _signal_store
+
+
+def _get_path_reasoner() -> PathReasoner:
+    """Return the shared PathReasoner instance, creating it lazily.
+
+    Configured from load_config() on first use (LLM URL plus the Phase 53
+    llm_reason_timeout_sec / llm_reason_cooldown_sec keys). If the config
+    file cannot be loaded, falls back to PathReasoner's own defaults so
+    the endpoint still serves a well-formed "unavailable" answer instead
+    of failing at import or startup time.
+
+    Returns:
+        PathReasoner: The singleton reasoner instance.
+    """
+    global _path_reasoner
+    if _path_reasoner is None:
+        with _path_reasoner_lock:
+            if _path_reasoner is None:
+                try:
+                    from core.config.loader import load_config
+                    cfg = load_config()
+                    _path_reasoner = PathReasoner(
+                        base_url=cfg.llm_url,
+                        cooldown_sec=cfg.llm_reason_cooldown_sec,
+                        timeout_sec=cfg.llm_reason_timeout_sec,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Config load failed for PathReasoner (%s) — "
+                        "using constructor defaults", exc,
+                    )
+                    _path_reasoner = PathReasoner()
+    return _path_reasoner
+
+
+# ── /api/radar/reason payload validation (Phase 53) ──────────────────────────
+# Whitelist charsets and numeric ranges applied BEFORE any value is
+# interpolated into an LLM prompt. Anything outside the whitelist is a 400;
+# nothing the operator (or a crafted request) sends can reach the LLM raw.
+
+_REASON_CALLSIGN_RE = re.compile(r"^[A-Z0-9 ]{1,8}$")
+_REASON_SQUAWK_RE = re.compile(r"^[0-7]{4}$")
+_REASON_ICAO_RE = re.compile(r"^[0-9A-Fa-f]{6}$")
+
+# Numeric fields that must always be present and finite: (min, max).
+_REASON_NUMERIC_RANGES = {
+    "bearing_deg": (0.0, 360.0),
+    "range_nm": (0.0, 1000.0),
+    "theta_deg_per_sec": (-30.0, 30.0),
+    "delta_r_nm_per_sec": (-1.0, 1.0),
+    "projected_bearing_deg": (0.0, 360.0),
+    "projected_range_nm": (0.0, 1000.0),
+}
+# Per-frame ADS-B fields that legitimately arrive as null (velocity and
+# position travel in disjoint Mode S typecodes). Null passes through; a
+# non-null value must be finite and in range.
+_REASON_NULLABLE_NUMERIC_RANGES = {
+    "altitude_ft": (-1000.0, 100000.0),
+    "groundspeed": (0.0, 700.0),
+    "track": (0.0, 360.0),
+    "vertical_rate": (-12000.0, 12000.0),
+}
+
+
+def _coerce_finite_float(value):
+    """Coerce to a finite float, or return None on any failure.
+
+    Rejects NaN and Infinity (json.loads accepts both by default, so they
+    CAN arrive over the wire), booleans, non-numeric strings, and None.
+    """
+    if isinstance(value, bool):
+        return None
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not (result == result) or result in (float("inf"), float("-inf")):
+        return None
+    return result
+
+
+def _validate_reason_payload(data: dict) -> tuple[dict, str | None]:
+    """Validate and clean a POST /api/radar/reason JSON body.
+
+    Returns:
+        (cleaned, None) on success — cleaned holds only the known keys,
+        coerced to their expected types.
+        ({}, error_message) on any validation failure — the route turns
+        this into a 400 with the message.
+    """
+    icao = data.get("icao")
+    if not isinstance(icao, str) or not _REASON_ICAO_RE.fullmatch(icao):
+        return {}, "Invalid icao (want 6 hex characters)"
+
+    callsign = data.get("callsign")
+    if callsign is None:
+        # No callsign frame decoded yet for this ICAO — valid real state.
+        callsign = None
+    elif isinstance(callsign, str) and _REASON_CALLSIGN_RE.fullmatch(callsign.upper()):
+        callsign = callsign.upper()
+    else:
+        return {}, "Invalid callsign (want 1-8 chars of A-Z, 0-9, space)"
+
+    squawk = data.get("squawk")
+    if squawk is not None:
+        if not isinstance(squawk, str) or not _REASON_SQUAWK_RE.fullmatch(squawk):
+            return {}, "Invalid squawk (want 4 octal digits)"
+
+    cleaned: dict[str, Any] = {
+        "icao": icao.upper(),
+        "callsign": callsign,
+        "squawk": squawk,
+    }
+
+    for field, (lo, hi) in _REASON_NUMERIC_RANGES.items():
+        value = _coerce_finite_float(data.get(field))
+        if value is None:
+            return {}, f"Invalid {field} (want a finite number)"
+        if not (lo <= value <= hi):
+            return {}, f"Invalid {field} (out of range {lo}..{hi})"
+        cleaned[field] = value
+
+    for field, (lo, hi) in _REASON_NULLABLE_NUMERIC_RANGES.items():
+        raw = data.get(field)
+        if raw is None:
+            cleaned[field] = None
+            continue
+        value = _coerce_finite_float(raw)
+        if value is None:
+            return {}, f"Invalid {field} (want a finite number or null)"
+        if not (lo <= value <= hi):
+            return {}, f"Invalid {field} (out of range {lo}..{hi})"
+        cleaned[field] = value
+
+    trail_raw = data.get("trail_length")
+    if isinstance(trail_raw, bool):
+        return {}, "Invalid trail_length (want an integer)"
+    try:
+        trail_length = int(float(trail_raw))
+    except (TypeError, ValueError):
+        return {}, "Invalid trail_length (want an integer)"
+    if not (0 <= trail_length <= 1000):
+        return {}, "Invalid trail_length (out of range 0..1000)"
+    cleaned["trail_length"] = trail_length
+
+    return cleaned, None
 
 
 @socketio.on("set_focus_frequency")
@@ -806,6 +963,75 @@ def api_adsb_parse():
             logger.debug("Field extraction failed for typecode %d: %s", typecode, exc)
 
     return jsonify(response), 200
+
+
+@app.route("/api/radar/reason", methods=["POST"])
+def api_radar_reason():
+    """Run LLM trajectory reasoning over one aircraft's physics facts.
+
+    Purpose: Backs the manual "request LLM analysis" button in the /radar
+    Path & Trajectory Prediction panel (Phase 53). The browser sends the
+    physics readout it already displays (position, motion vector, 45 s
+    projection); the server validates every field against whitelists and
+    ranges, then hands the cleaned facts to the shared PathReasoner.
+
+    Input format: POST with a JSON body:
+    {
+        "icao": str (6 hex),                 — required
+        "callsign": str (1-8 [A-Z0-9 ]) | null,
+        "squawk": str (4 octal) | null,
+        "altitude_ft": number | null,        — per-frame fields are
+        "track": number | null,                legitimately null when the
+        "groundspeed": number | null,          current frame's typecode
+        "vertical_rate": number | null,        did not carry them
+        "bearing_deg": number, "range_nm": number,
+        "theta_deg_per_sec": number, "delta_r_nm_per_sec": number,
+        "projected_bearing_deg": number, "projected_range_nm": number,
+        "trail_length": int
+    }
+
+    Output format: always HTTP 200 with a structured body once validation
+    has passed:
+    {
+        "status": "ok" | "unavailable",
+        "verdict": str,       — one short headline line ("unavailable" on failure)
+        "confidence": "high" | "medium" | "low",
+        "notes": str,         — caveats, or why the call failed
+        "cause": str | null   — "timeout" | "network" | "parse" | "http" |
+                                "unknown" on failure; null on success
+    }
+
+    Validation rules (400 on failure — the ONLY non-200 path):
+    - Body must be a JSON object.
+    - icao / callsign / squawk must match their whitelist charsets.
+    - Numeric fields must coerce to finite floats (NaN/Infinity rejected)
+      and sit inside their documented ranges (see _REASON_NUMERIC_RANGES
+      and _REASON_NULLABLE_NUMERIC_RANGES).
+
+    LLM failures NEVER produce a 500: PathReasoner.reason() never raises,
+    and any failure arrives here as status="unavailable" with a cause.
+
+    Implementation notes:
+    - This endpoint is receive-only — no RF transmission or hardware control.
+    - Legal constraint: Radiocommunications Act 1992 (Cth), AU/SA
+      jurisdiction, ACMA authority. ADS-B 1090 MHz is legal passive RX.
+    """
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "Request body must be a JSON object"}), 400
+
+    cleaned, error = _validate_reason_payload(data)
+    if error is not None:
+        return jsonify({"error": error}), 400
+
+    result = _get_path_reasoner().reason(cleaned)
+    return jsonify({
+        "status": result.status,
+        "verdict": result.verdict,
+        "confidence": result.confidence,
+        "notes": result.notes,
+        "cause": result.cause,
+    }), 200
 
 
 @app.route("/vectordb")

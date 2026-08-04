@@ -250,3 +250,120 @@ body.radar-page::before {
   min-width: 0;
   text-align: right;
 }
+
+/* --- LlmReasoningPanel (Phase 53) --- */
+/* The .radar-prediction-llm-pending rule above is superseded by these
+   styles but kept for one release in case of a rollback. All colours
+   reuse the existing cyberpunk custom properties; no new hardcoded
+   palette entries. Everything fits inside the panel's fixed 70px row:
+   result state is three short lines at 12/9/10px (~45px with gaps). */
+
+.radar-prediction-llm {
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  overflow: hidden;
+  text-align: right;
+}
+
+.radar-prediction-llm-idle {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.radar-prediction-llm-idle-button {
+  background: transparent;
+  border: 1px solid var(--neon-cyan, #00FFFF);
+  color: var(--neon-cyan, #00FFFF);
+  font-family: var(--font-data, 'Share Tech Mono', 'Courier New', monospace);
+  font-size: 11px;
+  letter-spacing: 1px;
+  padding: 4px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.radar-prediction-llm-idle-button:hover {
+  background: rgba(0, 255, 255, 0.08);
+}
+
+.radar-prediction-llm-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.radar-prediction-llm-loading-message {
+  color: var(--text-dim, #4A7A90);
+  font-size: 11px;
+  letter-spacing: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.radar-prediction-llm-idle-button:disabled {
+  border-color: var(--text-dim, #4A7A90);
+  color: var(--text-dim, #4A7A90);
+  cursor: default;
+}
+
+.radar-prediction-llm-result {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.radar-prediction-llm-verdict {
+  /* Amber matches the prediction panel's accent (selection ring,
+     ghost line). */
+  color: var(--neon-amber, #FFCC00);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.radar-prediction-llm-confidence {
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.radar-prediction-llm-confidence-high {
+  color: var(--neon-cyan, #00FFFF);
+}
+
+.radar-prediction-llm-confidence-medium {
+  color: var(--neon-amber, #FFCC00);
+}
+
+.radar-prediction-llm-confidence-low {
+  color: var(--neon-red, #FF3344);
+}
+
+.radar-prediction-llm-notes {
+  color: var(--text-dim, #4A7A90);
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.radar-prediction-llm-error {
+  color: var(--neon-red, #FF3344);
+  font-size: 11px;
+  letter-spacing: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

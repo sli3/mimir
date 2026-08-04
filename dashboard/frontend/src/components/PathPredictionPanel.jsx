@@ -6,24 +6,29 @@ import {
   derivePredictionVector,
   projectPosition,
 } from '../utils/pathPrediction.js'
+import LlmReasoningPanel from './LlmReasoningPanel.jsx'
 
 /**
- * Path & Trajectory Prediction strip for the /radar page (Phase 52).
+ * Path & Trajectory Prediction strip for the /radar page (Phase 52;
+ * right column wired in Phase 53).
  *
  * Sits below the radar-scope-container as a fixed-height, two-column
  * strip. The LEFT column is a physics-only dead-reckoning readout:
  * bearing rate and range rate derived from the selected aircraft's
  * stored trail history, projected PREDICTION_HORIZON_SEC seconds ahead.
- * The RIGHT column is a static "LLM REASONING — PENDING" placeholder;
- * the LLM endpoint is wired in a later phase. This component makes NO
- * network, socket, or inference call of any kind.
+ * The RIGHT column is the Phase 53 LlmReasoningPanel child: a manual
+ * "ANALYSE PATH WITH LLM" button that POSTs the physics facts to
+ * /api/radar/reason and renders the verdict. PathPredictionPanel itself
+ * still makes NO network, socket, or inference call of any kind — all
+ * request state lives inside the child component.
  *
  * Three render states, mirroring the AircraftDetailPanel pattern:
  *   1. No selection (or the selected ICAO is gone) — placeholder text.
  *   2. Selection but fewer than 2 trail fixes — "gathering" text.
- *   3. Selection with 2+ trail fixes — physics readout + LLM placeholder.
+ *   3. Selection with 2+ trail fixes — physics readout + LlmReasoningPanel.
  *
- * Passive receive display only — no TX capability, no inference calls.
+ * Passive receive display only — no TX capability, no inference calls
+ * from this component (the LLM column is a separate child).
  *
  * @param {Object} adsbAircraft - Map of ICAO address -> aircraft state
  * @param {string|null} selectedIcao - Currently selected ICAO address
@@ -32,6 +37,13 @@ import {
  * @param {number} maxRangeNm - Maximum displayed range, in nautical
  *   miles. Only used for the "has a current position" guard, mirroring
  *   the valid-contact rule the scope and detail panel apply.
+ *
+ * Child components:
+ *   LlmReasoningPanel — receives icao/callsign/squawk, the per-frame
+ *   ADS-B fields (altitude_ft, track, groundspeed, vertical_rate), the
+ *   current bearing_deg/range_nm, the derived motion vector, the 45 s
+ *   projected position, and the trail length. Owns the entire fetch
+ *   lifecycle (idle/loading/result/error) for the LLM column.
  */
 export default function PathPredictionPanel({
   adsbAircraft = {},
@@ -121,7 +133,7 @@ export default function PathPredictionPanel({
     )
   }
 
-  // State 3: physics readout (left) + static LLM placeholder (right).
+  // State 3: physics readout (left) + LlmReasoningPanel (right, Phase 53).
   // deltaR sign is rendered as-is via toFixed: a leading minus already
   // reads as "closing" and a bare number as "opening", so no explicit
   // '+' prefix is added (unlike formatDeltaR for theta).
@@ -134,12 +146,20 @@ export default function PathPredictionPanel({
       >
         {`θ: ${formatDeltaR(vector.thetaDegPerSec)}  Δr: ${vector.deltaRNmPerSec.toFixed(1)}nm/s — projecting ${PREDICTION_HORIZON_SEC}s ahead`}
       </div>
-      <div
-        className="radar-prediction-llm-pending"
-        data-testid="radar-prediction-llm-pending"
-      >
-        LLM REASONING — PENDING
-      </div>
+      <LlmReasoningPanel
+        icao={selectedIcao}
+        callsign={selected.callsign ?? null}
+        squawk={selected.squawk ?? null}
+        altitude_ft={selected.altitude_ft ?? null}
+        track={selected.track ?? null}
+        groundspeed={selected.groundspeed ?? null}
+        vertical_rate={selected.vertical_rate ?? null}
+        bearing_deg={selected.bearing_deg}
+        range_nm={selected.range_nm}
+        vector={prediction.vector}
+        projected={prediction.projected}
+        trailLength={prediction.history?.length ?? 0}
+      />
     </div>
   )
 }

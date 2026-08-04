@@ -119,7 +119,11 @@ describe('PathPredictionPanel', () => {
       expect(screen.getByTestId('radar-prediction-physics')).toBeInTheDocument()
     })
 
-    it('renders the static LLM pending placeholder in the right column', () => {
+    it('renders the LlmReasoningPanel child in the right column', () => {
+      // Phase 53: the static "LLM REASONING — PENDING" placeholder was
+      // replaced by the live LlmReasoningPanel child (idle state = the
+      // manual trigger button). This is the only Phase 52 test whose
+      // testid changed as a result.
       render(
         <PathPredictionPanel
           adsbAircraft={{ ABC123: makeAc() }}
@@ -132,9 +136,11 @@ describe('PathPredictionPanel', () => {
           })}
         />
       )
-      const llm = screen.getByTestId('radar-prediction-llm-pending')
+      const llm = screen.getByTestId('radar-prediction-llm')
       expect(llm).toBeInTheDocument()
-      expect(llm.textContent).toBe('LLM REASONING — PENDING')
+      expect(
+        screen.getByRole('button', { name: 'ANALYSE PATH WITH LLM' })
+      ).toBeInTheDocument()
     })
   })
 
