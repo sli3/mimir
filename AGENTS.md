@@ -242,10 +242,10 @@ uv run python tools/seed_chromadb.py
 > when a governance step fails. Trimmed 2026-07-21 to a pointer, so there is
 > only one table left to go stale.
 
-**Current phase:** 49 — SVG PPI radar scope panel (see
+**Current phase:** 51 — Aircraft Detail panel for /radar (see
 docs/ROADMAP.md for full detail).
 
-**Current total:** 949 passing (724 pytest + 225 Vitest), 0 failures.
+**Current total:** 1010 passing (741 pytest + 269 Vitest), 0 failures.
 
 **Reserved:** None.
 
@@ -590,6 +590,11 @@ Do not apply this pre-emptively — only if context problems are observed.
 | TD-49b-3 | `hexToBin`/`hexToSpaced` are duplicated — dead-in-place in `AdsbAircraftPanel.jsx`, live in `RawDecodePanel.jsx`. Drift risk if one is edited and not the other. | Future phase |
 | TD-49b-4 | Font size inconsistency — Frame Inspector and Raw Decode panels sit at 12–13px, `AdsbAircraftPanel`'s own table is still 12px. Minor, undecided whether worth reconciling. | Future phase |
 | TD-49b-5 | `/vectordb` has no header nav link, unlike `/radar`. Navigation asymmetry, not a functional bug. | Future phase |
+| TD-51-A | Pre-existing `AdsbAircraftPanel` `useState(Date.now())` + 1s interval is dead code — `elapsedSeconds()` calls `Date.now()` directly and never reads the state the timer updates. Pre-Phase-51, cosmetic, out of scope for this build. | Future phase |
+| TD-51-B | Blip `<g onClick>` and list-row `<div onClick>` are not keyboard-accessible (no `role`, `tabIndex`, or key handler). Consistent with existing codebase patterns elsewhere, but a real a11y gap worth a future polish pass. | Future phase |
+| TD-51-C | `AircraftDetailPanel` does not import its own CSS — relies on `RadarPage.css` already being loaded by `RadarPage.jsx`. Fine while the panel is only used on `/radar`; implicit coupling worth documenting if the panel is ever reused elsewhere. | Future phase |
+| TD-51-D | Selection is never auto-cleared when the selected aircraft leaves range or goes stale — the pinned card silently falls back to the placeholder. Deliberate choice to avoid state churn; would need explicit clearing logic for any future "follow this aircraft" feature. | Future phase |
+| TD-51-E | Vertical rate of exactly 0 displays "—" rather than "Level" — the spec's null/undefined/NaN/zero placeholder rule was interpreted as authoritative over the climbing/descending/level classification rule at the zero boundary. If live traffic later shows genuine encoded 0 ft/min values being masked by this instead of showing "Level", revisit the threshold. | Future phase |
 
 ### Accepted / Won't Fix (documented, working as intended — not active work)
 
