@@ -1,5 +1,6 @@
 import React, { useMemo, useRef } from 'react'
 import { projectToScope, isWithinRange, isValidContact } from './radar/projection.js'
+import { PREDICTION_HORIZON_SEC, derivePredictionVector, projectPosition } from '../utils/pathPrediction.js'
 
 // Phase 49 tech-debt markers (recorded in AGENTS.md by the /finalise-build
 // run, NOT by this build):
@@ -59,6 +60,7 @@ export default function RadarScopePanel({
   maxRangeNm = 40,
   selectedIcao = null,
   onSelectAircraft,
+  trailsRef: trailsRefProp = null,   // NEW: optional lifted ref (Phase 52)
 }) {
   const isAdsbFreq = focusedFreq && (
     Math.abs(focusedFreq - 1_090_000_000) <= 2_000_000
@@ -68,7 +70,13 @@ export default function RadarScopePanel({
   // oldest first, capped at TRAIL_MAX_POINTS. A ref, not state, because
   // trail mutation is a side effect of processing adsbAircraft and must
   // not itself trigger an extra re-render.
-  const trailsRef = useRef(new Map())
+  // Phase 52: trailsRef is normally owned by RadarPage so the new
+  // PathPredictionPanel can read the same history. The own-ref fallback
+  // keeps standalone mounting (e.g. existing tests) working without
+  // violating the rules of hooks: useRef is called unconditionally
+  // every render, the ?? pick is just at the read site.
+  const ownTrailsRef = useRef(new Map())
+  const trailsRef = trailsRefProp ?? ownTrailsRef
 
   // Static chrome: range rings, radial spokes, centre crosshair, compass
   // labels. Never varies with range or traffic, so computed once.
@@ -296,6 +304,44 @@ export default function RadarScopePanel({
                       ))}
                     </>
                   )}
+                  {/* Phase 52: projected ghost line for the selected aircraft only.
+                      Physics-only linear extrapolation from oldest/newest trail points,
+                      fading toward the projected end. No prediction renders if <2 trail
+                      points exist yet (normal startup state, not an error). Rendered
+                      before the main blip so the cyan blip and amber selection ring
+                      still visually sit on top (consistent with existing z-order). */}
+                  {ac.icao === selectedIcao && (() => {
+                    const history = trailsRef.current.get(ac.icao)
+                    if (!history || history.length < 2) return null
+                    const v = derivePredictionVector(history)
+                    if (!v) return null
+                    const proj = projectPosition(ac.bearing_deg, ac.range_nm, v.thetaDegPerSec, v.deltaRNmPerSec, PREDICTION_HORIZON_SEC)
+                    // Clamp the projected range to the outer ring: an aircraft
+                    // projecting beyond maxRangeNm still shows a line ending at
+                    // the ring edge, rather than vanishing. A fast-departing
+                    // aircraft hitting the ring is genuinely informative, not
+                    // noise (Phase 52 follow-up — originally this branch
+                    // silently hid the line past maxRangeNm; the bearing is
+                    // unaffected by the clamp, only the range component).
+                    const clampedRangeNm = Math.min(proj.range_nm, maxRangeNm)
+                    const here = projectToScope(ac.bearing_deg, ac.range_nm, maxRangeNm, SCOPE_CX, SCOPE_CY, SCOPE_MAX_R)
+                    const there = projectToScope(proj.bearing_deg, clampedRangeNm, maxRangeNm, SCOPE_CX, SCOPE_CY, SCOPE_MAX_R)
+                    return (
+                      <g data-testid="radar-prediction-line" data-icao={ac.icao}>
+                        <line
+                          x1={r2(here.x)}
+                          y1={r2(here.y)}
+                          x2={r2(there.x)}
+                          y2={r2(there.y)}
+                          stroke="var(--neon-amber)"
+                          strokeWidth={1.2}
+                          strokeDasharray="4 3"
+                          opacity={0.7}
+                        />
+                      </g>
+                    )
+                  })()}
+
                   {/* Close contacts (inner 25% of range) get a larger blip. */}
                   <circle
                     cx={ac.x}

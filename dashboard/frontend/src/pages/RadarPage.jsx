@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useSocket } from '../hooks/useSocket.js'
 import RadarScopePanel from '../components/RadarScopePanel.jsx'
 import AircraftDetailPanel from '../components/AircraftDetailPanel.jsx'
+import PathPredictionPanel from '../components/PathPredictionPanel.jsx'
 import { isValidContact } from '../components/radar/projection.js'
 import './RadarPage.css'
 
@@ -37,6 +38,13 @@ export default function RadarPage() {
   // amber scope ring, the highlighted list row, and the pinned detail
   // card always refer to the same aircraft.
   const [selectedIcao, setSelectedIcao] = useState(null)
+
+  // Phase 52: trailsRef lifted out of RadarScopePanel so the new
+  // PathPredictionPanel can read the same history. Single writer
+  // (RadarScopePanel's contacts useMemo), read-only consumer here
+  // and in PathPredictionPanel. The Map itself is intentionally
+  // mutable in place — radar history is a stream, not React state.
+  const trailsRef = useRef(new Map())
 
   // Read the actual SDR focused frequency from system_stats (not from the
   // useSocket default of 98 MHz, which is only correct for the main dashboard).
@@ -78,6 +86,7 @@ export default function RadarPage() {
           maxRangeNm={MAX_RANGE_NM}
           selectedIcao={selectedIcao}
           onSelectAircraft={setSelectedIcao}
+          trailsRef={trailsRef}
         />
         <AircraftDetailPanel
           adsbAircraft={adsbAircraft}
@@ -86,6 +95,12 @@ export default function RadarPage() {
           onSelectAircraft={setSelectedIcao}
         />
       </div>
+      <PathPredictionPanel
+        adsbAircraft={adsbAircraft}
+        selectedIcao={selectedIcao}
+        trailsRef={trailsRef}
+        maxRangeNm={MAX_RANGE_NM}
+      />
     </div>
   )
 }

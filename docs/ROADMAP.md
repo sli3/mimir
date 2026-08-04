@@ -97,6 +97,7 @@
 | 49b | Dashboard UI Overhaul + Radar Page Extraction — layout restructure (waterfall 52vh→42vh, mini band overview removed, right-hand column consolidation), AI Reasoning relocated (bottom-left, minHeight 220px), bottom-middle row split three columns, RawDecodePanel/FrameInspectorPanel extracted from AdsbAircraftPanel (481→288 lines), radar scope extracted to /radar page (RadarPage.jsx, RadarPage.css) mirroring /vectordb pattern. Backend: /radar route added to server.py. +3 net (+1 pytest, +2 Vitest). | ✅ Complete | 981 (741 pytest + 240 Vitest), 0 failures |
 | 50 | Radar Scope: Breadcrumb Trail + Header Dedup + Dead Code Removal (includes fix-pass) — each ADS-B contact shows up to 8 prior positions as fading polyline+dots trail (bearing/range-derived, 90s staleness, eviction via shift()); TD-49-6 RESOLVED via shared isValidContact() in projection.js; deleted empty useEffect(() => {}, [isAdsbFreq]) and fabricated "load-bearing" comment; FIX-PASS: aircraft with bad-bearing frames render at last known position (blip + trail) as pure passthrough, preventing false flicker from irregular ADS-B traffic. +10 net (Vitest-only: 240→250, pytest unchanged at 741). | ✅ Complete | 991 (741 pytest + 250 Vitest), 0 failures |
 | 51 | Aircraft Detail panel for /radar — new `AircraftDetailPanel.jsx` (scrollable in-range contact list + fixed-height 180px pinned detail card); 2-column grid layout in `RadarPage.css` (scope left, detail right); `RadarScopePanel` gained `selectedIcao`/`onSelectAircraft` props with amber selection ring AFTER main blip (preserves existing position tests); 5 formatter helpers (`formatAltitude`/`formatSpeed`/`formatTrack`/`formatBearing`/`formatDeltaR`) extracted from `AdsbAircraftPanel.jsx` to new shared `utils/aircraftFormat.js`; new `formatVerticalRate` with 200 ft/min dead-zone (Climbing/Descending/Level); selection state lifted to `RadarPage`; all 5 plan-reviewer clarifications followed; one existing `RadarPage.test.jsx` assertion strengthened (callsign now correctly renders in 2 places). +19 net Vitest-only. | ✅ Complete | 1010 (741 pytest + 269 Vitest), 0 failures |
+| 52 | Path & Trajectory Prediction panel (/radar) — `trailsRef` lifted from RadarScopePanel to RadarPage; new pure-math `pathPrediction.js` (oldest/newest vector + linear projection, PREDICTION_HORIZON_SEC=45s, bearing wrap into [-180,180], range clamp at 0); dashed amber ghost line on scope for selected aircraft, projected endpoint clamped to outer range ring (range component only, bearing unaffected); new fixed-height (70px) PathPredictionPanel strip with three states (no selection / gathering <2 fixes / physics + LLM-pending placeholder); `.radar-shell` grid `auto 1fr` → `auto 1fr auto`. No LLM, network, or inference call (static placeholder). | ✅ Complete | 1043 (741 pytest + 302 Vitest), 0 failures |
 
 
 ---
@@ -2311,6 +2312,51 @@ No TX surfaces. All changes are display/layout/routing logic on already-decoded 
 **RF/Legal notes.** No TX surfaces; all changes are pure display logic on already-decoded ADS-B data. No new RF capability or hardware interaction. Jurisdiction: AU/SA, ACMA, Radiocommunications Act 1992 (Cth).
 
 **Test counts:** 991 passing (741 pytest + 250 Vitest), 0 failures.
+
+---
+
+### Phase 52 — Path & Trajectory Prediction panel (/radar) ✅
+
+**Type:** Frontend-only. Visual + math — no protocol, decoder, or backend change.
+
+**Goal.** Add a physics-only, dead-reckoning ghost line on the radar scope for the currently-selected aircraft, plus a fixed-height bottom strip showing the derived motion vector.
+
+**What was built.**
+
+- `dashboard/frontend/src/utils/pathPrediction.js` (NEW) — pure functions, no React, no I/O. `derivePredictionVector(history)` derives a constant bearing-rate/range-rate motion vector from the OLDEST and NEWEST fixes in a trail history (not the last two — a longer trail averages out per-fix jitter), returning null when fewer than 2 fixes exist or elapsed time is non-positive. Bearing delta is wrapped into [-180, 180] for shortest-path angular distance. `projectPosition()` linearly extrapolates a horizon ahead, normalising bearing into [0, 360) and clamping range at a minimum of 0. `PREDICTION_HORIZON_SEC` fixed at 45 seconds.
+
+- `dashboard/frontend/src/components/PathPredictionPanel.jsx` (NEW) — full-width fixed-height (70px) strip below the scope/detail row. Three states: (1) no selection / "Select an aircraft to see trajectory prediction"; (2) gathering position history, <2 fixes / "Gathering position history..."; (3) >=2 fixes / physics readout on left (bearing rate, range rate, projected position after 45s) plus static "LLM REASONING — PENDING" placeholder on right (styled dim/italic to read clearly as not-yet-implemented rather than broken/empty data). No LLM, network, or inference call of any kind — confirmed by @security-analyst and by grep across the diff.
+
+- `dashboard/frontend/src/components/RadarScopePanel.jsx` (MODIFIED) — `trailsRef` lifted from private useRef to optional prop; RadarScopePanel falls back to its own internally-created ref if none is passed, preserving standalone test mounting. Renders a dashed amber ghost line from the selected aircraft's current position to its projected position, only when >=2 trail points exist for that aircraft (normal startup state otherwise, not an error). Amber was a deliberate choice to pair with the existing amber selection ring — cyan stays reserved for real/historical data (blip + trail), amber now reads as "selection + prediction" together. Follow-up fix (same session): the ghost line's projected endpoint is now clamped to the outer range ring when a projection would exceed maxRangeNm, rather than the line silently disappearing. Only the range component is clamped; bearing is unaffected.
+
+- `dashboard/frontend/src/pages/RadarPage.jsx` (MODIFIED) — page-owned `trailsRef`, mounted as 3rd grid row in `.radar-shell` (grid-template-rows changed from "auto 1fr" to "auto 1fr auto"). Threads maxRangeNm to both RadarScopePanel and PathPredictionPanel.
+
+- `dashboard/frontend/src/pages/RadarPage.css` (MODIFIED) — `.radar-shell` grid-template-rows `auto 1fr` → `auto 1fr auto` (a genuine third row, not a split of the existing scope/detail row). New `.radar-prediction-strip` rules (height 70px, border-top 1px solid var(--cyber-border)).
+
+- `dashboard/frontend/src/tests/pathPrediction.test.js` (NEW) — 22 math unit tests covering `derivePredictionVector` (bearing wrap into [-180,180], null returns for <2 points or non-positive time, oldest/newest vs last-two discriminating fixture) and `projectPosition` (linear extrapolation, bearing normalisation, range clamp at 0).
+
+- `dashboard/frontend/src/tests/PathPredictionPanel.test.jsx` (NEW) — 11 component tests covering all three states (no selection, gathering <2 fixes, >=2 fixes) and the physics readout rendering.
+
+**Key design decisions.**
+
+- Ghost-line range clamp (Prin's fix). Original implementation projected beyond maxRangeNm without clamping, causing the ghost line to silently disappear when a fast-opening-rate aircraft would exit the scope within the 45-second horizon. Fix: clamp only the range component to maxRangeNm; bearing is unaffected. This preserves the predicted bearing direction even when the projected point falls outside the display radius.
+
+- Oldest/newest vs last-two math. `derivePredictionVector` uses the OLDEST and NEWEST fixes in the trail history to compute the motion vector, not the last two. This averages out per-fix GPS jitter and produces a more stable trajectory. A discriminating fixture was added to pathPrediction.test.js because the spec's original example fixture gave identical values under both methods, which would have been a meaningless test.
+
+- Passthrough-frame placeholder. When an aircraft is selected but has no current position (only historical positions from the trail, all now evicted), the component renders "No current position for selected aircraft" rather than a blank or broken-looking state. This is a deliberate UX choice to explain why no prediction appears.
+
+- maxRangeNm prop threading. maxRangeNm is threaded explicitly as a prop to PathPredictionPanel rather than read from RadarPage's internal state. This makes the component more testable in isolation and preserves the option to use a different max range in a future "zoom level" feature.
+
+**Test counts.** 1043 passing (741 pytest + 302 Vitest), 0 failures. +33 net Vitest-only (+22 pathPrediction.test.js + 11 PathPredictionPanel.test.jsx + 0 pytest). Verified twice by Prin directly running the suite from dashboard/frontend/ (not repo root — an earlier same-session run from the wrong directory produced 211 false failures via "document is not defined", since Vitest's jsdom environment setup lives in the frontend package's own config).
+
+**Hand-verification.** Prin visually confirmed the 3-row layout, all three PathPredictionPanel states, and the ghost line's rendering using temporary synthetic aircraft data injected directly in RadarPage.jsx (never committed, fully reverted before this finalise — confirmed via git diff showing only the intended Phase 52 files). This caught the range-clamp mismatch (comment/behaviour divergence) that automated tests alone had not covered.
+
+**Resolved tech debt.** None.
+
+**Known follow-up (not this phase).**
+- TD-52-A: Ghost-line range clamp has no dedicated test. Future phase: add a RadarScopePanel test case with a synthetic history producing deltaRNmPerSec large enough that projectPosition's range exceeds maxRangeNm, asserting the rendered radar-prediction-line's endpoint radius is at or very near SCOPE_MAX_R.
+
+**RF/Legal notes.** No TX surfaces; all changes are pure UI display logic on already-decoded ADS-B data. No new RF capability or hardware interaction. Jurisdiction: AU/SA, ACMA, Radiocommunications Act 1992 (Cth).
 
 ---
 

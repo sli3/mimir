@@ -242,10 +242,10 @@ uv run python tools/seed_chromadb.py
 > when a governance step fails. Trimmed 2026-07-21 to a pointer, so there is
 > only one table left to go stale.
 
-**Current phase:** 51 — Aircraft Detail panel for /radar (see
+**Current phase:** 52 — Path & Trajectory Prediction panel for /radar (see
 docs/ROADMAP.md for full detail).
 
-**Current total:** 1010 passing (741 pytest + 269 Vitest), 0 failures.
+**Current total:** 1043 passing (741 pytest + 302 Vitest), 0 failures.
 
 **Reserved:** None.
 
@@ -595,6 +595,7 @@ Do not apply this pre-emptively — only if context problems are observed.
 | TD-51-C | `AircraftDetailPanel` does not import its own CSS — relies on `RadarPage.css` already being loaded by `RadarPage.jsx`. Fine while the panel is only used on `/radar`; implicit coupling worth documenting if the panel is ever reused elsewhere. | Future phase |
 | TD-51-D | Selection is never auto-cleared when the selected aircraft leaves range or goes stale — the pinned card silently falls back to the placeholder. Deliberate choice to avoid state churn; would need explicit clearing logic for any future "follow this aircraft" feature. | Future phase |
 | TD-51-E | Vertical rate of exactly 0 displays "—" rather than "Level" — the spec's null/undefined/NaN/zero placeholder rule was interpreted as authoritative over the climbing/descending/level classification rule at the zero boundary. If live traffic later shows genuine encoded 0 ft/min values being masked by this instead of showing "Level", revisit the threshold. | Future phase |
+| TD-52-A | The ghost-line range clamp has no dedicated test asserting a fast-opening-rate aircraft's projected line ends at/near the outer ring radius rather than the raw unclamped projection. This gap is exactly what let the original comment/behaviour mismatch ship through the initial build's code review and PM audit undetected. Future phase: add a RadarScopePanel test case with a synthetic history producing deltaRNmPerSec large enough that projectPosition's range exceeds maxRangeNm, asserting the rendered radar-prediction-line's endpoint radius is at or very near SCOPE_MAX_R. | Phase 52b / future |
 
 ### Accepted / Won't Fix (documented, working as intended — not active work)
 

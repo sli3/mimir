@@ -149,8 +149,8 @@ Full phase-by-phase history lives in [`docs/ROADMAP.md`](./docs/ROADMAP.md), whi
 single source of truth for phase status and test counts. This section shows
 only a quick-glance summary — update `docs/ROADMAP.md` first, then sync this block.
 
-**Current phase: 51 — Aircraft Detail panel for /radar**
-**Total: 1010 passing (741 pytest + 269 Vitest), 0 failures**
+**Current phase: 52 — Path & Trajectory Prediction panel (/radar)**
+**Total: 1043 passing (741 pytest + 302 Vitest), 0 failures**
 
 > **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector
 > store (`data/vectorstore/`) must be re-seeded after deploying this build.

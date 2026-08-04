@@ -9,7 +9,7 @@ body.radar-page::before {
   width: 100vw;
   height: 100vh;
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto 1fr auto;
   grid-template-columns: 1fr;
   background: var(--bg-root, #080F14);
   color: var(--text-primary, #C8D8E0);
@@ -191,4 +191,62 @@ body.radar-page::before {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* --- PathPredictionPanel (Phase 52) --- */
+
+.radar-prediction-panel {
+  grid-row: 3;
+  /* Fixed height per Phase 52 spec: the strip must never resize
+     between its three states. Single-row layout (not 4-row grid
+     like the pinned detail section), so shorter than the 180px
+     .radar-detail-pinned. 70px comfortably fits the two-column
+     text at 13px with vertical padding. */
+  height: 70px;
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0 16px;
+  align-items: center;
+  padding: 0 16px;
+  background: var(--bg-header, #050C11);
+  border-top: 1px solid var(--border, #1A3040);
+  font-family: var(--font-data, 'Share Tech Mono', 'Courier New', monospace);
+  font-size: 13px;
+  color: var(--text-primary, #C8D8E0);
+  overflow: hidden;
+}
+
+.radar-prediction-placeholder,
+.radar-prediction-gathering {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-data, 'Share Tech Mono', 'Courier New', monospace);
+  font-size: 12px;
+  color: var(--text-dim, #4A7A90);
+  letter-spacing: 1px;
+}
+
+.radar-prediction-physics {
+  color: var(--text-bright, #aaddff);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.radar-prediction-llm-pending {
+  /* Visually distinct from real data: dimmer colour, smaller font,
+     and italic to read as "not implemented yet" not "empty data". */
+  color: var(--text-dim, #4A7A90);
+  font-size: 11px;
+  font-style: italic;
+  letter-spacing: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  text-align: right;
 }
