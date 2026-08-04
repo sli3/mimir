@@ -242,10 +242,10 @@ uv run python tools/seed_chromadb.py
 > when a governance step fails. Trimmed 2026-07-21 to a pointer, so there is
 > only one table left to go stale.
 
-**Current phase:** 52 — Path & Trajectory Prediction panel for /radar (see
+**Current phase:** 53 — LLM Reasoning wiring for the /radar Path & Trajectory Prediction panel (see
 docs/ROADMAP.md for full detail).
 
-**Current total:** 1043 passing (741 pytest + 302 Vitest), 0 failures.
+**Current total:** 1110 passing (794 pytest + 316 Vitest), 0 failures.
 
 **Reserved:** None.
 
@@ -596,6 +596,8 @@ Do not apply this pre-emptively — only if context problems are observed.
 | TD-51-D | Selection is never auto-cleared when the selected aircraft leaves range or goes stale — the pinned card silently falls back to the placeholder. Deliberate choice to avoid state churn; would need explicit clearing logic for any future "follow this aircraft" feature. | Future phase |
 | TD-51-E | Vertical rate of exactly 0 displays "—" rather than "Level" — the spec's null/undefined/NaN/zero placeholder rule was interpreted as authoritative over the climbing/descending/level classification rule at the zero boundary. If live traffic later shows genuine encoded 0 ft/min values being masked by this instead of showing "Level", revisit the threshold. | Future phase |
 | TD-52-A | The ghost-line range clamp has no dedicated test asserting a fast-opening-rate aircraft's projected line ends at/near the outer ring radius rather than the raw unclamped projection. This gap is exactly what let the original comment/behaviour mismatch ship through the initial build's code review and PM audit undetected. Future phase: add a RadarScopePanel test case with a synthetic history producing deltaRNmPerSec large enough that projectPosition's range exceeds maxRangeNm, asserting the rendered radar-prediction-line's endpoint radius is at or very near SCOPE_MAX_R. | Phase 52b / future |
+| TD-53-A | Emergency squawk flagging (7500/7600/7700) is implemented, tested, and UNREACHABLE against live traffic. Mimir's PipeDecoder does not decode DF4/DF5 surveillance replies, which is where Mode A squawk lives. `AdsbMessage` has no squawk field at all — verified by repo-wide grep, which found squawk referenced only in code written by Phase 53 (`llm/path_reasoner.py` and `dashboard/server.py`) and nowhere in the decoder pipeline. squawk is therefore always None from real data, and the hard-rule flag never fires. Mimir does NOT detect emergency squawks today; the code is correct and will work unchanged once DF4/DF5 decoding exists, but the capability is not live. Related pre-existing symptom: the Phase 51 `AircraftDetailPanel` squawk row has rendered a permanent '—' since it shipped, for the same root cause. | Future phase (DF4/DF5 decoder) |
+| TD-53-B | The Phase 53 build report claimed prompt injection is "structurally impossible". That is true of the ENDPOINT path (`_validate_reason_payload()` whitelist charsets before any interpolation), NOT of `PathReasoner` itself, which trusts whatever its caller passes and performs no validation of its own. The Phase 53 @doc-writer added a Note block to `PathReasoner.reason()`'s docstring (`llm/path_reasoner.py:211-218`) explicitly warning callers, so the module docstring no longer over-promises. The guarantee still relies on the endpoint; a future maintainer reading only the module docstring now sees the warning, but a defence-in-depth move (e.g. type-checking the inputs in `reason()` itself) is not done. | Future phase |
 
 ### Accepted / Won't Fix (documented, working as intended — not active work)
 
