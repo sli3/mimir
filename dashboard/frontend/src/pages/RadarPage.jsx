@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useSocket } from '../hooks/useSocket.js'
 import RadarScopePanel from '../components/RadarScopePanel.jsx'
+import AircraftDetailPanel from '../components/AircraftDetailPanel.jsx'
 import { isValidContact } from '../components/radar/projection.js'
 import './RadarPage.css'
 
@@ -30,6 +31,12 @@ const MAX_RANGE_NM = 40
 export default function RadarPage() {
   const socket = useSocket({ skipInitialRetune: true })
   const { adsbAircraft, systemStats } = socket
+
+  // Selected aircraft (Phase 51): clicking a scope blip or a row in
+  // the detail panel list sets this; both children receive it so the
+  // amber scope ring, the highlighted list row, and the pinned detail
+  // card always refer to the same aircraft.
+  const [selectedIcao, setSelectedIcao] = useState(null)
 
   // Read the actual SDR focused frequency from system_stats (not from the
   // useSocket default of 98 MHz, which is only correct for the main dashboard).
@@ -69,6 +76,14 @@ export default function RadarPage() {
           adsbAircraft={adsbAircraft}
           focusedFreq={effectiveFocusedFreq}
           maxRangeNm={MAX_RANGE_NM}
+          selectedIcao={selectedIcao}
+          onSelectAircraft={setSelectedIcao}
+        />
+        <AircraftDetailPanel
+          adsbAircraft={adsbAircraft}
+          maxRangeNm={MAX_RANGE_NM}
+          selectedIcao={selectedIcao}
+          onSelectAircraft={setSelectedIcao}
         />
       </div>
     </div>

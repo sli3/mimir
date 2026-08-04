@@ -1,4 +1,11 @@
 import React, { useEffect, useState } from 'react'
+import {
+  formatAltitude,
+  formatSpeed,
+  formatTrack,
+  formatBearing,
+  formatDeltaR,
+} from '../utils/aircraftFormat.js'
 
 /**
  * Convert a hex string to space-separated 8-bit binary groups.
@@ -28,34 +35,9 @@ function hexToSpaced(hex) {
 
 const MAX_AIRCRAFT = 30
 
-function formatAltitude(value) {
-  if (value === null || value === undefined || value === '---') return '—'
-  return Number(value).toLocaleString()
-}
-
-function formatSpeed(value) {
-  if (value === null || value === undefined || value === '---') return '—'
-  return Math.round(Number(value)).toString()
-}
-
-function formatTrack(value) {
-  if (value === null || value === undefined || value === '---') return '—'
-  const deg = Math.round(Number(value)) % 360
-  return `${String(deg).padStart(3, '0')}°`
-}
-
-function formatBearing(value) {
-  if (value === null || value === undefined || value === '---') return '—'
-  const deg = Math.round(Number(value)) % 360
-  return `${String(deg).padStart(3, '0')}°`
-}
-
-function formatDeltaR(value) {
-  if (value === null || value === undefined || value === '---') return '—'
-  const num = Number(value)
-  const sign = num >= 0 ? '+' : '-'
-  return `${sign}${Math.abs(num).toFixed(1)}°/s`
-}
+// formatAltitude / formatSpeed / formatTrack / formatBearing /
+// formatDeltaR now live in ../utils/aircraftFormat.js (Phase 51
+// extraction, shared with AircraftDetailPanel) and are imported above.
 
 function elapsedSeconds(receivedAt) {
   if (!receivedAt) return '—'

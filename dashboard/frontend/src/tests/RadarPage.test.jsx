@@ -47,7 +47,9 @@ describe('RadarPage', () => {
     expect(screen.getAllByText(/1 CONTACTS · 40NM/).length).toBe(1)
     // RadarScopePanel received the aircraft and projected a blip.
     expect(screen.getByTestId('radar-blip')).toBeInTheDocument()
-    expect(screen.getByText('TEST1')).toBeInTheDocument()
+    // Phase 51: callsign now renders in two places, the RadarScopePanel blip
+    // label AND the new AircraftDetailPanel list row, so assert exactly 2.
+    expect(screen.getAllByText('TEST1').length).toBe(2)
   })
 
   it('passes maxRangeNm down to RadarScopePanel explicitly', () => {

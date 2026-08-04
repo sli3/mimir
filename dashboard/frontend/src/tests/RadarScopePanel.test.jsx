@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen, fireEvent } from '@testing-library/react'
 import React from 'react'
 
 import { projectToScope, isWithinRange, isValidContact } from '../components/radar/projection.js'
@@ -399,6 +399,90 @@ describe('RadarScopePanel', () => {
         <RadarScopePanel adsbAircraft={{ ABC123: { ...base, bearing_deg: null, timestamp: 95000 } }} focusedFreq={TUNED_FREQ} />
       )
       expect(container.querySelectorAll('[data-testid="radar-blip"]').length).toBe(0)
+    })
+  })
+
+  describe('selection (Phase 51)', () => {
+    const twoAircraft = {
+      ABC123: { icao: 'ABC123', callsign: 'TEST1', bearing_deg: 45, range_nm: 10 },
+      DEF456: { icao: 'DEF456', callsign: 'TEST2', bearing_deg: 270, range_nm: 30 },
+    }
+
+    it('calls onSelectAircraft with the correct icao when a blip is clicked', () => {
+      const onSelectAircraft = vi.fn()
+      const { container } = render(
+        <RadarScopePanel
+          adsbAircraft={twoAircraft}
+          focusedFreq={TUNED_FREQ}
+          onSelectAircraft={onSelectAircraft}
+        />
+      )
+      fireEvent.click(container.querySelector('[data-testid="radar-blip"][data-icao="DEF456"]'))
+      expect(onSelectAircraft).toHaveBeenCalledTimes(1)
+      expect(onSelectAircraft).toHaveBeenCalledWith('DEF456')
+    })
+
+    it('does not throw when a blip is clicked with no onSelectAircraft prop', () => {
+      // Existing callers (and older tests) render without the callback;
+      // the click handler must be a safe no-op in that case.
+      const { container } = render(
+        <RadarScopePanel adsbAircraft={twoAircraft} focusedFreq={TUNED_FREQ} />
+      )
+      expect(() => {
+        fireEvent.click(container.querySelector('[data-testid="radar-blip"][data-icao="ABC123"]'))
+      }).not.toThrow()
+    })
+
+    it('renders the amber highlight ring on the selected blip only', () => {
+      const { container } = render(
+        <RadarScopePanel
+          adsbAircraft={twoAircraft}
+          focusedFreq={TUNED_FREQ}
+          selectedIcao="ABC123"
+        />
+      )
+      const rings = container.querySelectorAll('[data-testid="radar-blip-highlight"]')
+      expect(rings.length).toBe(1)
+      // The ring sits inside the selected aircraft's blip group, not
+      // the other one.
+      const selectedGroup = container.querySelector('[data-testid="radar-blip"][data-icao="ABC123"]')
+      const otherGroup = container.querySelector('[data-testid="radar-blip"][data-icao="DEF456"]')
+      expect(selectedGroup.querySelector('[data-testid="radar-blip-highlight"]')).not.toBeNull()
+      expect(otherGroup.querySelector('[data-testid="radar-blip-highlight"]')).toBeNull()
+      // Amber stroke, no fill, larger radius than the main blip.
+      const ring = rings[0]
+      expect(ring.getAttribute('stroke')).toBe('var(--neon-amber)')
+      expect(ring.getAttribute('fill')).toBe('none')
+      const mainBlip = selectedGroup.querySelector('circle[filter="url(#mimir-radar-glow)"]')
+      expect(Number(ring.getAttribute('r'))).toBeGreaterThan(Number(mainBlip.getAttribute('r')))
+    })
+
+    it('renders no highlight ring when nothing is selected', () => {
+      const { container } = render(
+        <RadarScopePanel
+          adsbAircraft={twoAircraft}
+          focusedFreq={TUNED_FREQ}
+          selectedIcao={null}
+        />
+      )
+      expect(container.querySelectorAll('[data-testid="radar-blip-highlight"]').length).toBe(0)
+    })
+
+    it('renders the highlight ring after the main blip circle inside the group', () => {
+      // Placement guard: existing position tests select the FIRST
+      // circle inside a blip group and expect the main blip, so the
+      // ring must never precede it in document order.
+      const { container } = render(
+        <RadarScopePanel
+          adsbAircraft={twoAircraft}
+          focusedFreq={TUNED_FREQ}
+          selectedIcao="ABC123"
+        />
+      )
+      const selectedGroup = container.querySelector('[data-testid="radar-blip"][data-icao="ABC123"]')
+      const circles = selectedGroup.querySelectorAll('circle')
+      expect(circles[0].getAttribute('filter')).toBe('url(#mimir-radar-glow)')
+      expect(circles[1].getAttribute('data-testid')).toBe('radar-blip-highlight')
     })
   })
 })

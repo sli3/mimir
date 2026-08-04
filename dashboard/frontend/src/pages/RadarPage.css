@@ -65,4 +65,130 @@ body.radar-page::before {
   width: 100%;
   height: 100%;
   overflow: hidden;
+  /* Phase 51: scope on the left (~70%), aircraft detail panel on the
+     right (~30%). minmax(0, ...) stops grid items from blowing out the
+     track sizing on long callsigns; the scope's preserveAspectRatio
+     scaling depends on its track sizing correctly. */
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 3fr);
+}
+
+/* --- AircraftDetailPanel (Phase 51) --- */
+
+.radar-detail-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-panel, #0A1520);
+  border-left: 1px solid var(--border, #1A3040);
+}
+
+.radar-detail-list-header {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr;
+  gap: 4px;
+  padding: 6px 10px;
+  font-family: var(--font-data, 'Share Tech Mono', 'Courier New', monospace);
+  font-size: 10px;
+  color: var(--text-dim, #4A7A90);
+  letter-spacing: 1px;
+  border-bottom: 1px solid var(--border, #1A3040);
+}
+
+.radar-detail-list {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.radar-detail-list-empty {
+  padding: 10px;
+  font-family: var(--font-data, 'Share Tech Mono', 'Courier New', monospace);
+  font-size: 12px;
+  color: var(--text-dim, #4A7A90);
+}
+
+.radar-detail-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr;
+  gap: 4px;
+  padding: 4px 10px;
+  font-family: var(--font-data, 'Share Tech Mono', 'Courier New', monospace);
+  font-size: 12px;
+  color: var(--text-primary, #C8D8E0);
+  border-bottom: 1px solid var(--border, #1A3040);
+  border-left: 2px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.radar-detail-row:hover {
+  background: rgba(0, 255, 255, 0.05);
+}
+
+.radar-detail-row-selected {
+  /* Amber accent matches the selection ring RadarScopePanel draws
+     around the same aircraft's blip. */
+  background: rgba(255, 204, 0, 0.08);
+  border-left: 2px solid var(--neon-amber, #FFCC00);
+}
+
+.radar-detail-pinned {
+  /* Fixed height per Phase 51 spec: the section must never resize
+     when a selection is made or cleared - content swap only. */
+  height: 180px;
+  flex-shrink: 0;
+  overflow: hidden;
+  padding: 10px;
+  border-top: 1px solid var(--border, #1A3040);
+  background: var(--bg-header, #050C11);
+}
+
+.radar-detail-pinned-placeholder {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-data, 'Share Tech Mono', 'Courier New', monospace);
+  font-size: 12px;
+  color: var(--text-dim, #4A7A90);
+}
+
+.radar-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 12px;
+  height: 100%;
+}
+
+.radar-detail-column {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.radar-detail-field {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.radar-detail-label {
+  font-family: var(--font-data, 'Share Tech Mono', 'Courier New', monospace);
+  font-size: 9px;
+  color: var(--text-dim, #4A7A90);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.radar-detail-value {
+  font-family: var(--font-data, 'Share Tech Mono', 'Courier New', monospace);
+  font-size: 13px;
+  color: var(--text-bright, #aaddff);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

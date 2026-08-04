@@ -48,8 +48,18 @@ const r2 = (n) => Number(n.toFixed(2))
  * @param {Object} adsbAircraft - Map of ICAO address -> aircraft state
  * @param {number|null} focusedFreq - Currently tuned frequency in Hz
  * @param {number} maxRangeNm - Maximum displayed range, in nautical miles
+ * @param {string|null} selectedIcao - ICAO of the currently selected
+ *   aircraft; its blip gets an amber highlight ring (Phase 51)
+ * @param {Function} [onSelectAircraft] - Called with the icao string
+ *   when a blip is clicked (Phase 51)
  */
-export default function RadarScopePanel({ adsbAircraft = {}, focusedFreq, maxRangeNm = 40 }) {
+export default function RadarScopePanel({
+  adsbAircraft = {},
+  focusedFreq,
+  maxRangeNm = 40,
+  selectedIcao = null,
+  onSelectAircraft,
+}) {
   const isAdsbFreq = focusedFreq && (
     Math.abs(focusedFreq - 1_090_000_000) <= 2_000_000
   )
@@ -258,7 +268,13 @@ export default function RadarScopePanel({ adsbAircraft = {}, focusedFreq, maxRan
               const showTrail = ac.trailPoints.length > 0
               const n = ac.trailPoints.length
               return (
-                <g key={ac.icao} data-testid="radar-blip">
+                <g
+                  key={ac.icao}
+                  data-testid="radar-blip"
+                  data-icao={ac.icao}
+                  onClick={() => onSelectAircraft?.(ac.icao)}
+                  style={{ cursor: 'pointer' }}
+                >
                   {showTrail && (
                     <>
                       <polyline
@@ -288,6 +304,22 @@ export default function RadarScopePanel({ adsbAircraft = {}, focusedFreq, maxRan
                     fill="var(--neon-cyan)"
                     filter="url(#mimir-radar-glow)"
                   />
+                  {/* Selection ring (Phase 51). MUST render AFTER the
+                      main blip circle above: existing tests select the
+                      first circle inside a blip group and expect the
+                      main blip's coordinates. Amber is distinct from
+                      the cyan glow so the selection reads at a glance. */}
+                  {ac.icao === selectedIcao && (
+                    <circle
+                      data-testid="radar-blip-highlight"
+                      cx={ac.x}
+                      cy={ac.y}
+                      r={ac.range_nm < maxRangeNm * 0.25 ? 6 : 5}
+                      fill="none"
+                      stroke="var(--neon-amber)"
+                      strokeWidth={1.2}
+                    />
+                  )}
                   <text
                     x={r2(ac.x + 7)}
                     y={r2(ac.y + 3)}
