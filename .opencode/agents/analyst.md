@@ -7,7 +7,7 @@ description: >
   Part of the standard analysis team — pairs with @deep-analyst for complex
   investigations. Read-only — never modifies files.
 mode: subagent
-model: opencode-go/deepseek-v4-flash
+model: opencode-go/gpt-5.6-luna
 temperature: 0.2
 tools:
   write: false
