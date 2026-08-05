@@ -2,6 +2,8 @@
 
 from unittest.mock import MagicMock
 
+from pyModeS import PipeDecoder
+
 from modules.adsb.decoder import AdsbDecoder
 from modules.adsb.message import AdsbMessage
 
@@ -18,6 +20,30 @@ POS_ODD_MSG = "8D40058B58C904A87F402D3B8C59"
 # PipeDecoder: DF4 decodes altitude 2850 ft, DF5 decodes squawk "7500".
 DF4_MSG = "2006023AF07500" + "00" * 7   # DF4 altitude reply, 2850 ft
 DF5_MSG = "28000AA2000000" + "00" * 7   # DF5 identity reply, squawk 7500
+
+# The ICAO each fixture's address-parity resolves to. Verified empirically
+# against real 3.3.0 PipeDecoder output — these are NOT arbitrary; they must
+# match exactly for the TD-54-6 trust gate tests below to seed the correct
+# entry. DF4_MSG and DF5_MSG resolve to two DIFFERENT ICAOs from each other
+# and from IDENT_MSG's 406B90.
+DF4_ICAO = "6BC876"
+DF5_ICAO = "F03A37"
+
+
+def _seed_trust(decoder: AdsbDecoder, icao: str, ts: float = 1.0) -> None:
+    """Seed the decoder's DF4/DF5 trust cache via a synthetic DF17 result.
+
+    Swaps in a MagicMock pipe for exactly one call — the same pattern this
+    file already uses elsewhere for driving specific gate states directly
+    — then restores a real PipeDecoder so the frame under test afterwards
+    still goes through the genuine production decode path.
+    """
+    decoder._pipe = MagicMock()
+    decoder._pipe.decode.return_value = {
+        "df": 17, "crc_valid": True, "icao": icao, "typecode": 4,
+    }
+    decoder.decode("00" * 14, timestamp=ts)
+    decoder._pipe = PipeDecoder(pair_window=10.0, eviction_ttl=300.0)
 
 
 class TestAdsbDecoder:
@@ -40,8 +66,6 @@ class TestAdsbDecoder:
         """A single CPR frame gives no position before a pair is formed."""
         decoder = AdsbDecoder()
         msg = decoder.decode(POS_EVEN_MSG, timestamp=1000.0)
-        # May be None (if ICAO has no non-position fields) or an
-        # AdsbMessage with latitude=None. Either is acceptable.
         if msg is not None:
             assert msg.latitude is None
             assert msg.longitude is None
@@ -53,7 +77,6 @@ class TestAdsbDecoder:
         decoder.decode(POS_EVEN_MSG, timestamp=t)
         decoder.decode(POS_ODD_MSG, timestamp=t + 0.5)
         decoder.flush()
-        # Second pair — ICAO is now locked, position should resolve
         msg_even = decoder.decode(POS_EVEN_MSG, timestamp=t + 2.0)
         msg_odd = decoder.decode(POS_ODD_MSG, timestamp=t + 2.5)
         positioned = next(
@@ -85,7 +108,6 @@ class TestAdsbDecoder:
     def test_non_adsb_downlink_format_returns_none(self):
         """A DF11 all-call reply is rejected."""
         decoder = AdsbDecoder()
-        # DF11 short all-call reply (56 bits, but padded to 28 hex = 112 bits)
         df11 = "5D406B90E11A9F" + "00" * 7
         assert decoder.decode(df11) is None
 
@@ -104,35 +126,40 @@ class TestAdsbDecoder:
 
 
 class TestAdsbDecoderDf4Df5:
-    """DF4/DF5 Mode S surveillance replies admitted by the Phase 54 df filter."""
+    """DF4/DF5 Mode S surveillance replies admitted by the Phase 54 df filter.
+
+    All DF4/DF5 decodes here seed trust first (TD-54-6 gate) — a real DF4/DF5
+    frame is only accepted once its ICAO has been confirmed via genuine
+    DF17/18 traffic within the trust TTL.
+    """
 
     def test_df4_frame_accepted(self):
-        """A DF4 altitude reply with valid parity is accepted, not dropped."""
+        """A trusted DF4 altitude reply is accepted, not dropped."""
         decoder = AdsbDecoder()
-        msg = decoder.decode(DF4_MSG)
+        _seed_trust(decoder, DF4_ICAO)
+        msg = decoder.decode(DF4_MSG, timestamp=2.0)
         assert isinstance(msg, AdsbMessage)
         assert msg.altitude_ft == 2850
 
     def test_df5_frame_accepted_and_squawk_populated(self):
-        """A DF5 identity reply is accepted and its squawk is populated."""
+        """A trusted DF5 identity reply is accepted and its squawk is populated."""
         decoder = AdsbDecoder()
-        msg = decoder.decode(DF5_MSG)
+        _seed_trust(decoder, DF5_ICAO)
+        msg = decoder.decode(DF5_MSG, timestamp=2.0)
         assert isinstance(msg, AdsbMessage)
         assert msg.squawk == "7500"
 
     def test_df5_squawk_is_four_char_string(self):
         """The squawk value is exactly a 4-character string."""
         decoder = AdsbDecoder()
-        msg = decoder.decode(DF5_MSG)
+        _seed_trust(decoder, DF5_ICAO)
+        msg = decoder.decode(DF5_MSG, timestamp=2.0)
         assert isinstance(msg.squawk, str)
         assert len(msg.squawk) == 4
 
     def test_df17_invalid_typecode_still_rejected(self):
         """Regression: typecode validation must still apply to DF17/18."""
         decoder = AdsbDecoder()
-        # PipeDecoder.decode is a read-only C-level attribute, so swap the
-        # whole pipe for a stub returning a DF17 result with an out-of-range
-        # typecode.
         decoder._pipe = MagicMock()
         decoder._pipe.decode.return_value = {
             "df": 17, "crc_valid": True, "icao": "406B90", "typecode": 25,
@@ -150,27 +177,25 @@ class TestAdsbDecoderDf4Df5:
     def test_df11_still_rejected(self):
         """A downlink format outside (4, 5, 17, 18) is still rejected."""
         decoder = AdsbDecoder()
-        # DF11 short all-call reply (56 bits, padded to 28 hex = 112 bits).
         df11 = "5D406B90E11A9F" + "00" * 7
         assert decoder.decode(df11) is None
 
     def test_df4_crc_fail_rejected(self):
         """A frame failing CRC is rejected regardless of downlink format."""
         decoder = AdsbDecoder()
-        # pyModeS resolves an ICAO from the address parity on short frames,
-        # so a real DF4/DF5 always reports crc_valid=True. Drive the gate
-        # directly: any result with crc_valid False must be rejected.
         decoder._pipe = MagicMock()
         decoder._pipe.decode.return_value = {
-            "df": 4, "crc_valid": False, "icao": "6BC876", "altitude": 2850,
+            "df": 4, "crc_valid": False, "icao": DF4_ICAO, "altitude": 2850,
         }
         assert decoder.decode(DF4_MSG) is None
 
     def test_df4_df5_fields_unset(self):
         """Fields DF4/DF5 do not carry are None on the decoded message."""
         decoder = AdsbDecoder()
+        _seed_trust(decoder, DF4_ICAO, ts=1.0)
+        _seed_trust(decoder, DF5_ICAO, ts=1.0)
         for raw in (DF4_MSG, DF5_MSG):
-            msg = decoder.decode(raw)
+            msg = decoder.decode(raw, timestamp=2.0)
             assert isinstance(msg, AdsbMessage)
             assert msg.callsign is None
             assert msg.latitude is None
@@ -181,6 +206,61 @@ class TestAdsbDecoderDf4Df5:
     def test_df4_df5_not_appended_to_bootstrap(self):
         """DF4/DF5 carry no CPR data, so they never enter the bootstrap buffer."""
         decoder = AdsbDecoder()
-        assert decoder.decode(DF4_MSG) is not None
-        assert decoder.decode(DF5_MSG) is not None
+        _seed_trust(decoder, DF4_ICAO, ts=1.0)
+        _seed_trust(decoder, DF5_ICAO, ts=1.0)
+        assert decoder.decode(DF4_MSG, timestamp=2.0) is not None
+        assert decoder.decode(DF5_MSG, timestamp=2.0) is not None
         assert decoder._pending_bootstrap == []
+
+
+class TestAdsbDecoderTrustGate:
+    """TD-54-6 fix: pyModeS 3.3.0's crc_valid for DF4/DF5 is unconditionally
+    True (`self.crc_valid = self.df in (0, 4, 5, 11, 16, 20, 21)` in
+    message.py) — it is not an independent check. Mimir enforces its own:
+    a DF4/DF5-derived ICAO is only trusted once it has been confirmed by a
+    genuine CRC-valid DF17/18 extended squitter for the same ICAO.
+    """
+
+    def test_df4_rejected_without_prior_trust(self):
+        """A DF4 frame for an ICAO never seen via DF17/18 is rejected."""
+        decoder = AdsbDecoder()
+        assert decoder.decode(DF4_MSG, timestamp=1.0) is None
+
+    def test_df5_rejected_without_prior_trust(self):
+        """A DF5 frame for an ICAO never seen via DF17/18 is rejected."""
+        decoder = AdsbDecoder()
+        assert decoder.decode(DF5_MSG, timestamp=1.0) is None
+
+    def test_df4_accepted_after_genuine_df17_for_same_icao(self):
+        """DF4 is accepted once its own ICAO has real DF17 confirmation.
+
+        Genuine DF17 traffic for a DIFFERENT ICAO (IDENT_MSG -> 406B90) does
+        not accidentally trust DF4_MSG's ICAO (6BC876) — trust is per-ICAO.
+        """
+        decoder = AdsbDecoder()
+        ident_msg = decoder.decode(IDENT_MSG, timestamp=1.0)
+        assert ident_msg is not None
+        assert ident_msg.icao == "406B90"
+        assert decoder.decode(DF4_MSG, timestamp=1.5) is None
+
+        _seed_trust(decoder, DF4_ICAO, ts=2.0)
+        msg = decoder.decode(DF4_MSG, timestamp=2.5)
+        assert isinstance(msg, AdsbMessage)
+        assert msg.altitude_ft == 2850
+
+    def test_trust_expires_after_ttl(self):
+        """A DF4 frame is rejected once its trust entry has gone stale."""
+        decoder = AdsbDecoder()
+        _seed_trust(decoder, DF4_ICAO, ts=1000.0)
+        msg = decoder.decode(DF4_MSG, timestamp=1000.0 + 299.0)
+        assert isinstance(msg, AdsbMessage)
+        msg2 = decoder.decode(DF4_MSG, timestamp=1000.0 + 301.0)
+        assert msg2 is None
+
+    def test_trust_refreshed_by_repeated_df17(self):
+        """Repeated genuine DF17 traffic keeps the trust window rolling."""
+        decoder = AdsbDecoder()
+        _seed_trust(decoder, DF4_ICAO, ts=0.0)
+        _seed_trust(decoder, DF4_ICAO, ts=250.0)
+        msg = decoder.decode(DF4_MSG, timestamp=350.0)
+        assert isinstance(msg, AdsbMessage)
