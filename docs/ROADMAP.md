@@ -99,6 +99,7 @@
 | 51 | Aircraft Detail panel for /radar — new `AircraftDetailPanel.jsx` (scrollable in-range contact list + fixed-height 180px pinned detail card); 2-column grid layout in `RadarPage.css` (scope left, detail right); `RadarScopePanel` gained `selectedIcao`/`onSelectAircraft` props with amber selection ring AFTER main blip (preserves existing position tests); 5 formatter helpers (`formatAltitude`/`formatSpeed`/`formatTrack`/`formatBearing`/`formatDeltaR`) extracted from `AdsbAircraftPanel.jsx` to new shared `utils/aircraftFormat.js`; new `formatVerticalRate` with 200 ft/min dead-zone (Climbing/Descending/Level); selection state lifted to `RadarPage`; all 5 plan-reviewer clarifications followed; one existing `RadarPage.test.jsx` assertion strengthened (callsign now correctly renders in 2 places). +19 net Vitest-only. | ✅ Complete | 1010 (741 pytest + 269 Vitest), 0 failures |
 | 52 | Path & Trajectory Prediction panel (/radar) — `trailsRef` lifted from RadarScopePanel to RadarPage; new pure-math `pathPrediction.js` (oldest/newest vector + linear projection, PREDICTION_HORIZON_SEC=45s, bearing wrap into [-180,180], range clamp at 0); dashed amber ghost line on scope for selected aircraft, projected endpoint clamped to outer range ring (range component only, bearing unaffected); new fixed-height (70px) PathPredictionPanel strip with three states (no selection / gathering <2 fixes / physics + LLM-pending placeholder); `.radar-shell` grid `auto 1fr` → `auto 1fr auto`. No LLM, network, or inference call (static placeholder). | ✅ Complete | 1043 (741 pytest + 302 Vitest), 0 failures |
 | 53 | LLM Reasoning wiring for the /radar Path & Trajectory Prediction panel — `POST /api/radar/reason` endpoint in `dashboard/server.py` (whitelist charset validation for icao/callsign/squawk, range-bounded numerics, never-500 on LLM failure, 45s timeout, own cooldown); new `llm/path_reasoner.py` mirrors `llm/classifier.py` contracts (never-raises, ConnectionError-only cooldown, markdown fence stripping, fallback result) without sharing state or code; 3.0 deg/s turn-rate threshold (strictly greater than, boundary not flagged) and 7500/7600/7700 squawk hard-rule flags computed in Python; new `LlmReasoningPanel.jsx` (300 lines, four lifecycle guards individually test-covered: reset on icao change, AbortController on unmount and on icao change, late-response drop via captured-ICAO comparison, no setState after unmount; three distinct error causes; two-stage loading message at 10s); `PathPredictionPanel.jsx` physics column UNCHANGED, docstring amended, State 3 now renders the new child; `RadarPage.css` extended using only existing custom properties (no new hex); two new optional config fields (`llm_reason_timeout_sec=45.0`, `llm_reason_cooldown_sec=60.0`) wired in all three places (dataclass/parser/constructor); TD-53-A logged: Mimir does NOT detect emergency squawks today (PipeDecoder does not decode DF4/DF5); TD-53-B logged: prompt-injection guarantee lives in endpoint not module (docstring note added by @doc-writer); @frontend-reviewer returned empty (known subagent failure mode), ground covered by @review-second and @deep-analyst. +67 net (+53 pytest, +14 Vitest). | ✅ Complete | 1110 (794 pytest + 316 Vitest), 0 failures |
+| 54 | DF4/DF5 surveillance-reply decoding (squawk) + radar-page deselect toggle — AdsbMessage.squawk field added (dataclass, default None); AdsbDecoder widened df filter to (4, 5, 17, 18), typecode validation conditional on DF17/18, _build_message() extracts squawk from DF4/DF5 and passes to constructor; AdsbFieldTracker._FIELDS gained "squawk" as 6th tracked field; emit_adsb_aircraft() payload and emit_adsb_scan_result() reasoning string now include squawk; RadarPage.jsx handleSelectAircraft toggle handler at state-owner level (deselect via re-clicking same ICAO), both RadarScopePanel and AircraftDetailPanel switched from setSelectedIcao to handleSelectAircraft; 18 pre-existing AdsbMessage(...) construction sites unchanged (rely on dataclass default); tests/modules/test_adsb_decoder.py (+93 lines, 9 new DF4/DF5 tests); tests/modules/test_adsb_message.py (+35 lines, 2 new tests); tests/dashboard/test_adsb_field_tracker.py (+20 lines, 3 new tests); tests/dashboard/test_server_emit.py (+75 lines, 3 new tests); tests/dashboard/test_server_stats.py (+10 lines, 1 existing test modified); dashboard/frontend/src/tests/AircraftDetailPanel.test.jsx (+73 lines, 3 new tests); dashboard/frontend/src/tests/RadarPage.test.jsx (+26 lines, 1 new test); TD-53-A RESOLVED — squawk now flows from DF5 decoder; TD-53-B RESOLVED — path_reasoner hard-rule now reachable; TD-54-1 through TD-54-6 logged (6 new tech debt rows). +21 net (+16 pytest, +5 Vitest). | ✅ Complete | 1131 (810 pytest + 321 Vitest), 0 failures |
 
 
 ---
@@ -2358,6 +2359,68 @@ No TX surfaces. All changes are display/layout/routing logic on already-decoded 
 - TD-52-A: Ghost-line range clamp has no dedicated test. Future phase: add a RadarScopePanel test case with a synthetic history producing deltaRNmPerSec large enough that projectPosition's range exceeds maxRangeNm, asserting the rendered radar-prediction-line's endpoint radius is at or very near SCOPE_MAX_R.
 
 **RF/Legal notes.** No TX surfaces; all changes are pure UI display logic on already-decoded ADS-B data. No new RF capability or hardware interaction. Jurisdiction: AU/SA, ACMA, Radiocommunications Act 1992 (Cth).
+
+---
+
+### Phase 54 — DF4/DF5 surveillance-reply decoding (squawk) + radar-page deselect toggle ✅
+
+**Type:** Backend + frontend. Protocol extension + UI UX improvement.
+
+**Goal.** Add DF4/DF5 surveillance-reply decoding (carrying Mode A squawk) to AdsbDecoder and wire squawk through the live pipeline; add a deselect toggle to the radar page so the operator can deselect a pinned aircraft by re-clicking it.
+
+**What was built.**
+
+**Backend (DF4/DF5 squawk decoding):**
+
+- `modules/adsb/message.py` — added `squawk: str | None = None` field to AdsbMessage, placed after `raw_hex`, before `timestamp`. Defaulted to None. Zero existing test construction sites were modified (18 pre-existing AdsbMessage(...) construction sites confirmed via grep, all rely on the dataclass default of None).
+
+- `modules/adsb/decoder.py` — df filter widened from (17, 18) to (4, 5, 17, 18). Typecode validation (`if typecode is None or not (1 <= typecode <= 22): return None`) made conditional on df in (17, 18), because DF4/DF5 do not carry a typecode field (the Mode S TC field is absent in surveillance replies). `_build_message()` extracts squawk from DF4/DF5 frames via `result.get("squawk")` with string-strip-to-None guard and passes to constructor.
+
+- `dashboard/server.py` — AdsbFieldTracker._FIELDS (line 103) gained "squawk" as 6th tracked field; docstring updated "6th field" → "7th field". emit_adsb_aircraft() payload (line 662) gained `"squawk": msg.squawk` (direct attribute access, squawk is a real declared dataclass field on AdsbMessage, unlike the dynamically-attached bearing_deg/delta_r_deg_per_sec/range_nm which use getattr). emit_adsb_scan_result() reasoning string (line 724) gained squawk (appended after track, rendered as 'unknown' when never resolved).
+
+**Frontend (radar-page deselect toggle):**
+
+- `dashboard/frontend/src/pages/RadarPage.jsx` — new `handleSelectAircraft(icao)` toggle handler at state-owner level. If `selectedIcao === icao`, deselects via `setSelectedIcao(null)`; otherwise, selects via `setSelectedIcao(icao)`. Both `RadarScopePanel` and `AircraftDetailPanel` switched from their own `setSelectedIcao` to the new `handleSelectAircraft` prop. This centralises selection state and enables the deselect-while-pinned UX.
+
+- `AircraftDetailPanel.jsx` — UNCHANGED. Already received `onSelectAircraft` as a prop; continues to use it.
+
+- `RadarScopePanel.jsx` — UNCHANGED. Already received `onSelectAircraft` as a prop; continues to use it.
+
+**Tests:**
+
+- `tests/modules/test_adsb_decoder.py` — +93 lines, 9 new tests covering DF4/DF5 CRC validation, squawk extraction, typecode validation bypass for DF4/DF5, and invalid frame rejection.
+
+- `tests/modules/test_adsb_message.py` — +35 lines, 2 new tests covering squawk field default None and non-None construction.
+
+- `tests/dashboard/test_adsb_field_tracker.py` — +20 lines, 3 new tests covering squawk tracking in AdsbFieldTracker and merged-view behaviour, plus 1 existing test updated for the new merged-view key count.
+
+- `tests/dashboard/test_server_emit.py` — +75 lines, 3 new tests covering emit_adsb_aircraft() squawk payload and emit_adsb_scan_result() reasoning string squawk rendering.
+
+- `tests/dashboard/test_server_stats.py` — +10 lines, 1 existing test modified to replace a blanket 'unknown not in reasoning' check with per-field assertions (squawk legitimately shows 'unknown' when no DF5 has been seen yet).
+
+- `dashboard/frontend/src/tests/AircraftDetailPanel.test.jsx` — +73 lines, 3 new tests covering the deselect toggle UX and state-owner behaviour.
+
+- `dashboard/frontend/src/tests/RadarPage.test.jsx` — +26 lines, 1 new test covering the RadarPage-level toggle handler.
+
+**Pre-existing files NOT modified (verified):** `tests/modules/test_adsb_subscriber.py`, `tests/modules/test_adsb_bearing_tracker.py`. Together with the 3 pre-existing sites in `test_adsb_message.py`, that's 18 pre-existing AdsbMessage(...) construction sites that all rely on the dataclass default of None. None were edited.
+
+**Key design decisions.**
+
+- Trust decision (Option 1, no icao_verified gating): For DF4/DF5, crc_valid passes based on pyModeS's own CRC resolution, but ICAO is derived from the CRC remainder rather than carried in plaintext (unlike DF17/18, where ICAO is plaintext in the payload). The only guard against a malformed frame producing a plausible-looking but wrong ICAO is the existing empty-ICAO check. This is a deliberate, pre-existing tradeoff of trusting pyModeS's CRC-based ICAO derivation without adding a parallel icao_verified guard. No icao_verified field was added to AdsbMessage, and AdsbFieldTracker does not gate squawk on it. Logged as TD-54-2 for future defence-in-depth consideration.
+
+- Deselect toggle location: The toggle lives in RadarPage (the state owner) rather than in RadarScopePanel or AircraftDetailPanel. This centralises selection state and follows the Phase 51 lifting pattern (selection already owned by RadarPage, not by the panels). Both panels receive and use the same `handleSelectAircraft` handler, ensuring consistent behaviour.
+
+- Squawk placement in AdsbMessage: The squawk field was added after `raw_hex` and before `timestamp` (not at the end of the dataclass) to keep decoder-derived metadata (raw_hex, squawk) together before timestamp and tracking metadata.
+
+- Typecode validation conditional on DF17/18: The existing typecode validation (`if typecode is None or not (1 <= typecode <= 22): return None`) was made conditional on `df in (17, 18)`, because DF4/DF5 do not carry a typecode field. Attempting to validate a non-existent field would fail for all DF4/DF5 frames, which are now valid inputs.
+
+**Resolved tech debt.**
+- TD-53-A: Emergency squawk flagging (7500/7600/7700) is implemented, tested, and UNREACHABLE — RESOLVED. Squawk now flows from DF5 decoder, so the Phase 53 `path_reasoner.py` hard-rule (7500/7600/7700 flagging) is reachable against live traffic. Mimir now detects emergency squawks when DF4/DF5 replies are present.
+- TD-53-B: Prompt-injection guarantee lives in endpoint not module — RESOLVED. The Phase 53 doc-writer added a Note block to `PathReasoner.reason()`'s docstring explicitly warning callers, so the module no longer over-promises. The guarantee still relies on the endpoint; this is a documented risk, not an unacknowledged one.
+
+**Test counts.** 1131 passing (810 pytest + 321 Vitest), 0 failures. +21 net (+16 pytest, +5 Vitest). Verified by Prin directly running `pytest` from repo root and `npm run test` from `dashboard/frontend/`.
+
+**RF/Legal notes.** No TX surfaces; all changes are decoder extension on already-received ADS-B data and UI toggle logic. No new RF capability or hardware interaction. Jurisdiction: AU/SA, ACMA, Radiocommunications Act 1992 (Cth). ADS-B is legal to receive passively at 1090 MHz in Australia. DF4/DF5 are Mode S surveillance replies from ground radar to aircraft (interrogation→response); they carry squawk in plaintext, and Mimir's pipe-decoder path receives them passively only.
 
 ---
 

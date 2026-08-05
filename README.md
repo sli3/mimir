@@ -149,8 +149,8 @@ Full phase-by-phase history lives in [`docs/ROADMAP.md`](./docs/ROADMAP.md), whi
 single source of truth for phase status and test counts. This section shows
 only a quick-glance summary — update `docs/ROADMAP.md` first, then sync this block.
 
-**Current phase: 53 — LLM Reasoning wiring for the /radar Path & Trajectory Prediction panel**
-**Total: 1110 passing (794 pytest + 316 Vitest), 0 failures**
+**Current phase: 54 — DF4/DF5 surveillance-reply decoding (squawk) + radar-page deselect toggle**
+**Total: 1131 passing (810 pytest + 321 Vitest), 0 failures**
 
 > **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector
 > store (`data/vectorstore/`) must be re-seeded after deploying this build.
