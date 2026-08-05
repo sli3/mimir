@@ -8,6 +8,13 @@
  * constant range rate, which is a rough approximation for real aircraft
  * but adequate for a short-horizon visual aid.
  *
+ * TIMESTAMP UNITS (load-bearing): every history[].ts value in this
+ * module is epoch MILLISECONDS, as produced by utils/parseFrameTs.js
+ * at the trail-buffer boundary. The milliseconds-to-seconds conversion
+ * for the derived rates happens at the single point documented in
+ * derivePredictionVector's JSDoc below. Do not re-derive rates from
+ * ts values anywhere else without applying the same conversion.
+ *
  * No LLM, no network, no I/O — pure functions over numbers. Passive
  * receive display only.
  */
@@ -35,8 +42,15 @@ export const PREDICTION_HORIZON_SEC = 45
  * fixes, missing fixes, or non-positive elapsed time between them
  * (duplicate, reversed, or NaN timestamps).
  *
+ * TIMESTAMP UNITS: ts values are epoch MILLISECONDS (see the module
+ * docstring). The ms->s conversion happens INSIDE this function:
+ * elapsedSec = elapsedMs / 1000, applied immediately after the
+ * validity guard, so the returned rates are in genuine per-SECOND
+ * units (deg/s and nm/s), not per-millisecond.
+ *
  * @param {Array<{bearing_deg: number, range_nm: number, ts: number}>} history
  *   Trail points, oldest first, as stored by RadarScopePanel's trailsRef.
+ *   ts is epoch milliseconds (as produced by utils/parseFrameTs.js).
  * @returns {{thetaDegPerSec: number, deltaRNmPerSec: number}|null}
  *   Signed bearing rate (deg/s, positive clockwise) and range rate
  *   (nm/s, negative = closing), or null if underivable.
@@ -48,10 +62,16 @@ export function derivePredictionVector(history) {
   const newest = history[history.length - 1]
   if (oldest === null || oldest === undefined) return null
   if (newest === null || newest === undefined) return null
-  const elapsedSec = newest.ts - oldest.ts
+  const elapsedMs = newest.ts - oldest.ts
   // <= 0 also rejects NaN (NaN comparisons are always false, so a NaN
   // elapsed fails the > 0 test below rather than this one — guard both).
-  if (!(elapsedSec > 0)) return null
+  // This guard operates on the raw millisecond diff; the semantics are
+  // unchanged from the pre-ms->s-fix code since the sign of the diff is
+  // identical in either unit.
+  if (!(elapsedMs > 0)) return null
+  // ts values are epoch MILLISECONDS (see module docstring); convert to
+  // seconds BEFORE deriving per-second rates.
+  const elapsedSec = elapsedMs / 1000
 
   let delta = newest.bearing_deg - oldest.bearing_deg
   while (delta > 180) delta -= 360

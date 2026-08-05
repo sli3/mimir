@@ -81,7 +81,7 @@ describe('PathPredictionPanel', () => {
 
   describe('physics state (2+ trail points)', () => {
     it('renders theta, deltaR and the horizon with 2 trail points', () => {
-      // Oldest->newest: bearing 40 -> 60 over 10 s = +2.0 deg/s;
+      // Oldest->newest: bearing 40 -> 60 over 10 s (10000 ms) = +2.0 deg/s;
       // range 15 -> 10 over 10 s = -0.5 nm/s (closing).
       render(
         <PathPredictionPanel
@@ -90,7 +90,7 @@ describe('PathPredictionPanel', () => {
           trailsRef={makeTrailsRef({
             ABC123: [
               { bearing_deg: 40, range_nm: 15, ts: 0 },
-              { bearing_deg: 60, range_nm: 10, ts: 10 },
+              { bearing_deg: 60, range_nm: 10, ts: 10000 },
             ],
           })}
         />
@@ -110,8 +110,8 @@ describe('PathPredictionPanel', () => {
           trailsRef={makeTrailsRef({
             ABC123: [
               { bearing_deg: 40, range_nm: 15, ts: 0 },
-              { bearing_deg: 50, range_nm: 12, ts: 5 },
-              { bearing_deg: 60, range_nm: 10, ts: 10 },
+              { bearing_deg: 50, range_nm: 12, ts: 5000 },
+              { bearing_deg: 60, range_nm: 10, ts: 10000 },
             ],
           })}
         />
@@ -131,7 +131,7 @@ describe('PathPredictionPanel', () => {
           trailsRef={makeTrailsRef({
             ABC123: [
               { bearing_deg: 40, range_nm: 15, ts: 0 },
-              { bearing_deg: 60, range_nm: 10, ts: 10 },
+              { bearing_deg: 60, range_nm: 10, ts: 10000 },
             ],
           })}
         />

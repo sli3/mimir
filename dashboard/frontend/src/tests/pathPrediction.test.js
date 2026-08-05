@@ -13,6 +13,39 @@ describe('PREDICTION_HORIZON_SEC', () => {
 })
 
 describe('derivePredictionVector', () => {
+  it('converts milliseconds to seconds when computing rates (ms->s)', () => {
+    // Direct regression test for Phase 52-HOTFIX. Before the fix
+    // this computed as 0.5 / 1000 = 0.0005, which renders as
+    // "+0.0°/s" on screen. With the ms->s conversion, it is 0.5.
+    // Use exact equality (not toBeCloseTo) so any future
+    // regression that drops the /1000 fails this test
+    // unambiguously.
+    const history = [
+      { bearing_deg: 0, range_nm: 10, ts: 0 },
+      { bearing_deg: 0.5, range_nm: 10, ts: 1000 },
+    ]
+    const v = derivePredictionVector(history)
+    expect(v).not.toBeNull()
+    expect(v.thetaDegPerSec).toBe(0.5)
+  })
+
+  it('produces a single-digit deg/s rate for a realistic 1-second ADSB scenario', () => {
+    // Sanity-check at realistic scale: a typical aircraft covers
+    // a few degrees of bearing in 1 second. The rate must be
+    // single-digit (not ~0.00x), proving the ms->s conversion is
+    // applied. The exact value is a plausible example, not a
+    // precise production rate.
+    const history = [
+      { bearing_deg: 45, range_nm: 12, ts: 0 },
+      { bearing_deg: 46.5, range_nm: 11.9, ts: 1000 },
+    ]
+    const v = derivePredictionVector(history)
+    expect(v).not.toBeNull()
+    expect(v.thetaDegPerSec).toBeGreaterThan(1)
+    expect(v.thetaDegPerSec).toBeLessThan(10)
+    expect(v.deltaRNmPerSec).toBeCloseTo(-0.1, 10)
+  })
+
   it('returns null on an empty array', () => {
     expect(derivePredictionVector([])).toBeNull()
   })
@@ -64,13 +97,13 @@ describe('derivePredictionVector', () => {
   })
 
   it('uses OLDEST and NEWEST fixes, not the last two', () => {
-    // Oldest->newest: bearing 0 -> 180 over 20 s = 9 deg/s;
+    // Oldest->newest: bearing 0 -> 180 over 20 s (20000 ms) = 9 deg/s;
     // range 10 -> 20 over 20 s = 0.5 nm/s. Deriving from the last two
     // points instead would give 18 deg/s and 0.5 nm/s (different theta).
     const history = [
       { bearing_deg: 0, range_nm: 10, ts: 0 },
-      { bearing_deg: 90, range_nm: 15, ts: 10 },
-      { bearing_deg: 180, range_nm: 20, ts: 20 },
+      { bearing_deg: 90, range_nm: 15, ts: 10000 },
+      { bearing_deg: 180, range_nm: 20, ts: 20000 },
     ]
     const v = derivePredictionVector(history)
     expect(v).not.toBeNull()
@@ -79,12 +112,12 @@ describe('derivePredictionVector', () => {
   })
 
   it('discriminates oldest/newest from last-two when they differ', () => {
-    // Oldest->newest: (180-0)/20 = 9 deg/s, (20-10)/20 = 0.5 nm/s.
+    // Oldest->newest: (180-0)/20 s = 9 deg/s, (20-10)/20 s = 0.5 nm/s.
     // Last-two would give (180-5)/10 = 17.5 deg/s, (20-12)/10 = 0.8 nm/s.
     const history = [
       { bearing_deg: 0, range_nm: 10, ts: 0 },
-      { bearing_deg: 5, range_nm: 12, ts: 10 },
-      { bearing_deg: 180, range_nm: 20, ts: 20 },
+      { bearing_deg: 5, range_nm: 12, ts: 10000 },
+      { bearing_deg: 180, range_nm: 20, ts: 20000 },
     ]
     const v = derivePredictionVector(history)
     expect(v.thetaDegPerSec).toBeCloseTo(9, 10)
@@ -95,7 +128,7 @@ describe('derivePredictionVector', () => {
     // 350 -> 10 is +20 clockwise, NOT -340.
     const history = [
       { bearing_deg: 350, range_nm: 10, ts: 0 },
-      { bearing_deg: 10, range_nm: 10, ts: 10 },
+      { bearing_deg: 10, range_nm: 10, ts: 10000 },
     ]
     const v = derivePredictionVector(history)
     expect(v.thetaDegPerSec).toBeCloseTo(2.0, 10)
@@ -106,7 +139,7 @@ describe('derivePredictionVector', () => {
     // 10 -> 350 is -20 counter-clockwise, NOT +340.
     const history = [
       { bearing_deg: 10, range_nm: 10, ts: 0 },
-      { bearing_deg: 350, range_nm: 10, ts: 10 },
+      { bearing_deg: 350, range_nm: 10, ts: 10000 },
     ]
     const v = derivePredictionVector(history)
     expect(v.thetaDegPerSec).toBeCloseTo(-2.0, 10)
@@ -115,7 +148,7 @@ describe('derivePredictionVector', () => {
   it('reports a negative range rate for a closing aircraft', () => {
     const history = [
       { bearing_deg: 90, range_nm: 20, ts: 0 },
-      { bearing_deg: 90, range_nm: 15, ts: 10 },
+      { bearing_deg: 90, range_nm: 15, ts: 10000 },
     ]
     const v = derivePredictionVector(history)
     expect(v.deltaRNmPerSec).toBeLessThan(0)
@@ -125,7 +158,7 @@ describe('derivePredictionVector', () => {
   it('reports a positive range rate for an opening aircraft', () => {
     const history = [
       { bearing_deg: 90, range_nm: 10, ts: 0 },
-      { bearing_deg: 90, range_nm: 18, ts: 10 },
+      { bearing_deg: 90, range_nm: 18, ts: 10000 },
     ]
     const v = derivePredictionVector(history)
     expect(v.deltaRNmPerSec).toBeGreaterThan(0)
@@ -135,7 +168,7 @@ describe('derivePredictionVector', () => {
   it('reports zero rates for a station-keeping aircraft', () => {
     const history = [
       { bearing_deg: 45, range_nm: 10, ts: 0 },
-      { bearing_deg: 45, range_nm: 10, ts: 10 },
+      { bearing_deg: 45, range_nm: 10, ts: 10000 },
     ]
     const v = derivePredictionVector(history)
     expect(v.thetaDegPerSec).toBe(0)

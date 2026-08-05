@@ -502,12 +502,12 @@ describe('RadarScopePanel', () => {
       // returns null. With parseFrameTs coercion the stored ts values
       // are epoch ms and a vector is derived.
       //
-      // NOTE on units: the trail stores epoch MILLISECONDS
-      // (TRAIL_STALE_MS arithmetic requires it), so
-      // derivePredictionVector's "per second" rates are numerically
-      // per-millisecond here: 10 deg over 10000 ms = 0.001. That unit
-      // convention lives in pathPrediction.js and is out of scope for
-      // this hotfix; the load-bearing assertion is the non-null vector.
+      // NOTE on units (updated by Phase 52-HOTFIX): the trail stores
+      // epoch MILLISECONDS, and derivePredictionVector now applies the
+      // ms->s conversion internally, so the rates are genuine
+      // per-second values: 10 deg over 10000 ms (10 s) = 1.0 deg/s.
+      // The load-bearing assertion below is that per-second value
+      // (1.0 deg/s), not the pre-fix per-millisecond value (0.001).
       const trailsRef = { current: new Map() }
       const base = { icao: 'ABC123', callsign: 'TEST1', range_nm: 10 }
       const { rerender } = render(
@@ -535,7 +535,7 @@ describe('RadarScopePanel', () => {
       expect(history.length).toBeGreaterThanOrEqual(2)
       const v = derivePredictionVector(history)
       expect(v).not.toBeNull()
-      expect(v.thetaDegPerSec).toBeCloseTo(0.001, 10)
+      expect(v.thetaDegPerSec).toBeCloseTo(1.0, 10)
       expect(v.deltaRNmPerSec).toBeCloseTo(0, 10)
     })
 
