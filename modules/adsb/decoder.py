@@ -98,12 +98,18 @@ class AdsbDecoder:
             return None
 
         df = result.get("df")
-        if df not in (17, 18):
+        if df not in (4, 5, 17, 18):
             return None
 
-        typecode = result.get("typecode")
-        if typecode is None or not (1 <= typecode <= 22):
-            return None
+        # Typecode is a DF17/18-only concept - it subdivides ADS-B extended
+        # squitters into position / callsign / velocity / etc. DF4 (altitude
+        # reply) and DF5 (identity reply) are Mode S surveillance replies with
+        # no typecode field at all, so this validation must not apply to them
+        # or every DF4/DF5 frame would be dropped here (typecode is None).
+        if df in (17, 18):
+            typecode = result.get("typecode")
+            if typecode is None or not (1 <= typecode <= 22):
+                return None
 
         icao = str(result.get("icao", ""))
         if not icao:
@@ -153,6 +159,10 @@ class AdsbDecoder:
         if vertical_rate is not None:
             vertical_rate = int(vertical_rate)
 
+        squawk = result.get("squawk")
+        if squawk is not None:
+            squawk = str(squawk).strip() or None
+
         return AdsbMessage(
             icao=icao,
             callsign=callsign,
@@ -163,6 +173,7 @@ class AdsbDecoder:
             track=track,
             vertical_rate=vertical_rate,
             raw_hex=raw_hex,
+            squawk=squawk,
         )
 
     def flush(self) -> list[AdsbMessage]:

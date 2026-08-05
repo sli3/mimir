@@ -39,6 +39,14 @@ export default function RadarPage() {
   // card always refer to the same aircraft.
   const [selectedIcao, setSelectedIcao] = useState(null)
 
+  // Phase 54: deselect toggle lives here at the state-owner level, not
+  // inside either child panel. Clicking an already-selected row (list or
+  // scope blip) clears the selection; both children receive this same
+  // callback so the behaviour is consistent.
+  const handleSelectAircraft = (icao) => {
+    setSelectedIcao((prev) => (prev === icao ? null : icao))
+  }
+
   // Phase 52: trailsRef lifted out of RadarScopePanel so the new
   // PathPredictionPanel can read the same history. Single writer
   // (RadarScopePanel's contacts useMemo), read-only consumer here
@@ -85,14 +93,14 @@ export default function RadarPage() {
           focusedFreq={effectiveFocusedFreq}
           maxRangeNm={MAX_RANGE_NM}
           selectedIcao={selectedIcao}
-          onSelectAircraft={setSelectedIcao}
+          onSelectAircraft={handleSelectAircraft}
           trailsRef={trailsRef}
         />
         <AircraftDetailPanel
           adsbAircraft={adsbAircraft}
           maxRangeNm={MAX_RANGE_NM}
           selectedIcao={selectedIcao}
-          onSelectAircraft={setSelectedIcao}
+          onSelectAircraft={handleSelectAircraft}
         />
       </div>
       <PathPredictionPanel

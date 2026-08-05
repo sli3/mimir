@@ -21,6 +21,8 @@ class AdsbMessage:
     track: float | None                # degrees true, 0-360
     vertical_rate: int | None          # ft/min, positive = climbing
     raw_hex: str                       # original hex string from demodulator
+    squawk: str | None = None          # 4-digit octal Mode A code, e.g. "3563";
+                                       # DF5/DF21 only - None on DF17/18 and DF4
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     # NOTE: bearing_deg (float | None), delta_r_deg_per_sec (float | None)

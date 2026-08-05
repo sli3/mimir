@@ -92,14 +92,15 @@ class AdsbFieldTracker:
     the overlap is benign (display aid, GIL-atomic dict ops, the two
     threads typically target different ICAOs).
 
-    If a 6th field is ever tracked, both ``_FIELDS`` (used by ``update()``)
+    If a 7th field is ever tracked, both ``_FIELDS`` (used by ``update()``)
     and any consumer of the returned dict must be extended in lockstep:
     same pattern-divergence risk as TD-45-3.
     """
 
     # Tracked field names on AdsbMessage.  vertical_rate is merged here but
     # intentionally not shown in the reasoning string (per Phase 50 plan).
-    _FIELDS = ("callsign", "altitude_ft", "groundspeed", "track", "vertical_rate")
+    # squawk (Phase 54) is merged and shown: DF5 identity replies carry it.
+    _FIELDS = ("callsign", "altitude_ft", "groundspeed", "track", "vertical_rate", "squawk")
 
     def __init__(self) -> None:
         # icao_key -> {field_name: last_known_value, "_ts": datetime}
@@ -658,6 +659,7 @@ def emit_adsb_aircraft(msg: AdsbMessage) -> None:
         "groundspeed": msg.groundspeed,
         "track": msg.track,
         "vertical_rate": msg.vertical_rate,
+        "squawk": msg.squawk,
         "bearing_deg": getattr(msg, "bearing_deg", None),
         "delta_r_deg_per_sec": getattr(msg, "delta_r_deg_per_sec", None),
         "range_nm": getattr(msg, "range_nm", None),
@@ -719,9 +721,10 @@ def emit_adsb_scan_result(msg: AdsbMessage) -> None:
     alt_str = str(merged["altitude_ft"]) + ' ft' if merged["altitude_ft"] is not None else 'unknown'
     speed_str = str(merged["groundspeed"]) + ' kt' if merged["groundspeed"] is not None else 'unknown'
     track_str = f'{merged["track"]:.0f} deg' if merged["track"] is not None else 'unknown'
+    squawk_str = merged["squawk"] if merged["squawk"] else 'unknown'
     reasoning = (
         f'Confirmed ADS-B decode - ICAO {merged["icao"]}, callsign {callsign_str}, '
-        f'altitude {alt_str}, speed {speed_str}, track {track_str}'
+        f'altitude {alt_str}, speed {speed_str}, track {track_str}, squawk {squawk_str}'
     )
 
     socketio.emit('scan_result', {
