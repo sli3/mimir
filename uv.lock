@@ -1158,7 +1158,7 @@ requires-dist = [
     { name = "huggingface-hub", specifier = ">=0.24.0" },
     { name = "numpy", specifier = ">=1.26.0" },
     { name = "pyais", specifier = ">=3.0.0" },
-    { name = "pymodes", specifier = ">=3.0" },
+    { name = "pymodes", specifier = "==3.3.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0.0" },
     { name = "python-engineio", specifier = ">=4.8.0" },
