@@ -242,10 +242,9 @@ uv run python tools/seed_chromadb.py
 > when a governance step fails. Trimmed 2026-07-21 to a pointer, so there is
 > only one table left to go stale.
 
-**Current phase:** 53-HOTFIX — ADS-B frame timestamp coercion at the radar trail boundary (see
-docs/ROADMAP.md for full detail).
+**Current phase:** 52-HOTFIX — corrected the milliseconds/seconds unit error in derivePredictionVector() (see docs/ROADMAP.md for full detail).
 
-**Current total:** 1146 passing (815 pytest + 331 Vitest), 0 failures.
+**Current total:** 1148 passing (815 pytest + 333 Vitest), 0 failures.
 
 **Reserved:** None.
 

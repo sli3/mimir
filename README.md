@@ -149,8 +149,8 @@ Full phase-by-phase history lives in [`docs/ROADMAP.md`](./docs/ROADMAP.md), whi
 single source of truth for phase status and test counts. This section shows
 only a quick-glance summary — update `docs/ROADMAP.md` first, then sync this block.
 
-**Current phase: 53-HOTFIX — ADS-B frame timestamp coercion at the radar trail boundary**
-**Total: 1146 passing (815 pytest + 331 Vitest), 0 failures**
+**Current phase: 52-HOTFIX — corrected the milliseconds/seconds unit error in derivePredictionVector()**
+**Total: 1148 passing (815 pytest + 333 Vitest), 0 failures**
 
 > **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector
 > store (`data/vectorstore/`) must be re-seeded after deploying this build.
