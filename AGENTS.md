@@ -242,10 +242,10 @@ uv run python tools/seed_chromadb.py
 > when a governance step fails. Trimmed 2026-07-21 to a pointer, so there is
 > only one table left to go stale.
 
-**Current phase:** 54 — DF4/DF5 surveillance-reply decoding (squawk) + radar-page deselect toggle (see
+**Current phase:** 53-HOTFIX — ADS-B frame timestamp coercion at the radar trail boundary (see
 docs/ROADMAP.md for full detail).
 
-**Current total:** 1131 passing (810 pytest + 321 Vitest), 0 failures.
+**Current total:** 1146 passing (815 pytest + 331 Vitest), 0 failures.
 
 **Reserved:** None.
 

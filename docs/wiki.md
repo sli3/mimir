@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — architecture and environment reference for cross-cutting knowledge that has no other home. Phase history lives in docs/ROADMAP.md."
 status: live
-last_updated_phase: "54"
+last_updated_phase: "53-HOTFIX"
 ---
 
 # Mimir Wiki
@@ -144,6 +144,7 @@ The radar scope panel (`RadarScopePanel.jsx`) provides a classic plan-position-i
 - Staleness cutoff: 90 seconds (`TRAIL_STALE_MS`), mirroring the existing literal in `useSocket.js:174`. A gap longer than this clears the trail rather than drawing a straight line across dead time.
 - On a single bad frame (missing/NaN `bearing_deg`), the aircraft renders at its last known stored position — blip and trail both — rather than disappearing for that render. This handles ADS-B's irregular message mix (many message types carry no position data at all) without visual flicker. Only once the gap exceeds the staleness cutoff does the aircraft actually stop rendering.
 - Trail update/prune logic runs inside the same `useMemo` that computes `contacts`, not a separate `useEffect` — deliberate, so trail state updates in the same render tick it feeds rather than lagging one render behind.
+- The frame timestamp arrives from the backend as an ISO 8601 string (`dashboard/server.py:666` emits `msg.timestamp.isoformat()`). The trail buffer is arithmetic-bearing (`ts - last.ts > TRAIL_STALE_MS` and `newest.ts - oldest.ts` inside `derivePredictionVector`), so the string must be coerced to numeric epoch ms at the point of use, via `utils/parseFrameTs.js`. The ISO string wire format is preserved for the six other consumers that legitimately render it (AisVesselPanel, AcarsMessagePanel, App.jsx "LAST SEEN", AIReasoningPanel, SignalHistoryLog, VectorSpacePage). This was found and fixed in Phase 53-HOTFIX — see docs/ROADMAP.md for the root cause and the mocked-seam lesson.
 
 Note: an earlier version of this section described a "load-bearing" empty `useEffect(() => {}, [isAdsbFreq])` as an intentional mount-lifecycle contract for future renderer state. That effect did nothing (the SVG renderer had no state to measure) and the comment was later confirmed to be fabricated documentation, not a real design decision. It was deleted in Phase 50.
 
