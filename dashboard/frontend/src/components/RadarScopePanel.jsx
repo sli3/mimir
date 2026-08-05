@@ -2,6 +2,11 @@ import React, { useMemo, useRef } from 'react'
 import { projectToScope, isWithinRange, isValidContact } from './radar/projection.js'
 import { PREDICTION_HORIZON_SEC, derivePredictionVector, projectPosition } from '../utils/pathPrediction.js'
 
+// The timestamp arriving from the backend is an ISO 8601 string (see server.py:666),
+// and the trail buffer does arithmetic on it, so it must be coerced to numeric ms
+// at the point of use. See parseFrameTs.js for the full rationale.
+import { parseFrameTs } from '../utils/parseFrameTs.js'
+
 // Phase 49 tech-debt markers (recorded in AGENTS.md by the /finalise-build
 // run, NOT by this build):
 // TD-49-1 — Label overlap: callsign labels are placed at their projected
@@ -167,7 +172,7 @@ export default function RadarScopePanel({
         const history = trails.get(ac.icao)
         if (!history || history.length === 0) continue
         const last = history[history.length - 1]
-        const ts = ac.timestamp ?? Date.now()
+        const ts = parseFrameTs(ac.timestamp)
         if (ts - last.ts > TRAIL_STALE_MS) continue
         const pos = projectToScope(
           last.bearing_deg, last.range_nm, maxRangeNm,
@@ -208,7 +213,7 @@ export default function RadarScopePanel({
       // ever mutated here for valid contacts. If a contact disappears
       // for a frame and reappears later, the staleness check below
       // will clear the trail appropriately.
-      const ts = ac.timestamp ?? Date.now()
+      const ts = parseFrameTs(ac.timestamp)
       let history = trails.get(ac.icao)
       if (!history) {
         history = []

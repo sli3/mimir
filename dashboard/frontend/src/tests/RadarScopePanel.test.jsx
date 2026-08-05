@@ -4,6 +4,7 @@ import React from 'react'
 
 import { projectToScope, isWithinRange, isValidContact } from '../components/radar/projection.js'
 import RadarScopePanel from '../components/RadarScopePanel.jsx'
+import { derivePredictionVector } from '../utils/pathPrediction.js'
 
 // Scope geometry constants mirrored from RadarScopePanel.jsx so position
 // assertions do not hardcode magic numbers in every test.
@@ -228,7 +229,7 @@ describe('RadarScopePanel', () => {
   describe('breadcrumb trail (Phase 50)', () => {
     it('renders no trail on first sighting (only the current blip)', () => {
       const adsbAircraft = {
-        ABC123: { icao: 'ABC123', callsign: 'TEST1', bearing_deg: 45, range_nm: 10, timestamp: 1000 },
+        ABC123: { icao: 'ABC123', callsign: 'TEST1', bearing_deg: 45, range_nm: 10, timestamp: '1970-01-01T00:00:01.000Z' },
       }
       const { container } = render(
         <RadarScopePanel adsbAircraft={adsbAircraft} focusedFreq={TUNED_FREQ} />
@@ -239,10 +240,10 @@ describe('RadarScopePanel', () => {
     it('accumulates trail points across successive renders', () => {
       const base = { icao: 'ABC123', callsign: 'TEST1', bearing_deg: 45, range_nm: 10 }
       const { container, rerender } = render(
-        <RadarScopePanel adsbAircraft={{ ABC123: { ...base, timestamp: 1000 } }} focusedFreq={TUNED_FREQ} />
+        <RadarScopePanel adsbAircraft={{ ABC123: { ...base, timestamp: '1970-01-01T00:00:01.000Z' } }} focusedFreq={TUNED_FREQ} />
       )
       rerender(
-        <RadarScopePanel adsbAircraft={{ ABC123: { ...base, bearing_deg: 50, timestamp: 2000 } }} focusedFreq={TUNED_FREQ} />
+        <RadarScopePanel adsbAircraft={{ ABC123: { ...base, bearing_deg: 50, timestamp: '1970-01-01T00:00:02.000Z' } }} focusedFreq={TUNED_FREQ} />
       )
       // One prior point stored -> one trail point rendered (excludes
       // the current position, which renders as the main blip).
@@ -253,7 +254,7 @@ describe('RadarScopePanel', () => {
     it('caps trail history at TRAIL_MAX_POINTS (8), evicting oldest first', () => {
       const base = { icao: 'ABC123', callsign: 'TEST1', range_nm: 10 }
       const { container, rerender } = render(
-        <RadarScopePanel adsbAircraft={{ ABC123: { ...base, bearing_deg: 0, timestamp: 0 } }} focusedFreq={TUNED_FREQ} />
+        <RadarScopePanel adsbAircraft={{ ABC123: { ...base, bearing_deg: 0, timestamp: '1970-01-01T00:00:00.000Z' } }} focusedFreq={TUNED_FREQ} />
       )
       // Push 9 more distinct-timestamp updates (10 total) -> history
       // should cap at 8 stored points, so 7 trail points render
@@ -261,7 +262,7 @@ describe('RadarScopePanel', () => {
       for (let i = 1; i <= 9; i++) {
         rerender(
           <RadarScopePanel
-            adsbAircraft={{ ABC123: { ...base, bearing_deg: i * 5, timestamp: i * 1000 } }}
+            adsbAircraft={{ ABC123: { ...base, bearing_deg: i * 5, timestamp: new Date(i * 1000).toISOString() } }}
             focusedFreq={TUNED_FREQ}
           />
         )
@@ -274,15 +275,15 @@ describe('RadarScopePanel', () => {
     it('clears the trail after a gap exceeding the staleness cutoff', () => {
       const base = { icao: 'ABC123', callsign: 'TEST1', bearing_deg: 45, range_nm: 10 }
       const { container, rerender } = render(
-        <RadarScopePanel adsbAircraft={{ ABC123: { ...base, timestamp: 0 } }} focusedFreq={TUNED_FREQ} />
+        <RadarScopePanel adsbAircraft={{ ABC123: { ...base, timestamp: '1970-01-01T00:00:00.000Z' } }} focusedFreq={TUNED_FREQ} />
       )
       rerender(
-        <RadarScopePanel adsbAircraft={{ ABC123: { ...base, bearing_deg: 50, timestamp: 5000 } }} focusedFreq={TUNED_FREQ} />
+        <RadarScopePanel adsbAircraft={{ ABC123: { ...base, bearing_deg: 50, timestamp: '1970-01-01T00:00:05.000Z' } }} focusedFreq={TUNED_FREQ} />
       )
       expect(container.querySelector('polyline')).not.toBeNull()
       // Gap > TRAIL_STALE_MS (90000ms) -> trail clears, fresh start.
       rerender(
-        <RadarScopePanel adsbAircraft={{ ABC123: { ...base, bearing_deg: 55, timestamp: 200000 } }} focusedFreq={TUNED_FREQ} />
+        <RadarScopePanel adsbAircraft={{ ABC123: { ...base, bearing_deg: 55, timestamp: '1970-01-01T00:03:20.000Z' } }} focusedFreq={TUNED_FREQ} />
       )
       expect(container.querySelector('polyline')).toBeNull()
     })
@@ -290,20 +291,20 @@ describe('RadarScopePanel', () => {
     it('keeps the existing trail when a frame has null bearing_deg (gap-skip, not reset)', () => {
       const base = { icao: 'ABC123', callsign: 'TEST1', range_nm: 10 }
       const { container, rerender } = render(
-        <RadarScopePanel adsbAircraft={{ ABC123: { ...base, bearing_deg: 45, timestamp: 1000 } }} focusedFreq={TUNED_FREQ} />
+        <RadarScopePanel adsbAircraft={{ ABC123: { ...base, bearing_deg: 45, timestamp: '1970-01-01T00:00:01.000Z' } }} focusedFreq={TUNED_FREQ} />
       )
       rerender(
-        <RadarScopePanel adsbAircraft={{ ABC123: { ...base, bearing_deg: 50, timestamp: 2000 } }} focusedFreq={TUNED_FREQ} />
+        <RadarScopePanel adsbAircraft={{ ABC123: { ...base, bearing_deg: 50, timestamp: '1970-01-01T00:00:02.000Z' } }} focusedFreq={TUNED_FREQ} />
       )
       expect(container.querySelector('polyline')).not.toBeNull()
       // Bad frame: null bearing_deg. With the Phase 50 passthrough fix,
       // the aircraft still renders from its last-known position, so this
       // frame produces a blip. Stored history is untouched for next time.
       rerender(
-        <RadarScopePanel adsbAircraft={{ ABC123: { ...base, bearing_deg: null, timestamp: 3000 } }} focusedFreq={TUNED_FREQ} />
+        <RadarScopePanel adsbAircraft={{ ABC123: { ...base, bearing_deg: null, timestamp: '1970-01-01T00:00:03.000Z' } }} focusedFreq={TUNED_FREQ} />
       )
       rerender(
-        <RadarScopePanel adsbAircraft={{ ABC123: { ...base, bearing_deg: 60, timestamp: 4000 } }} focusedFreq={TUNED_FREQ} />
+        <RadarScopePanel adsbAircraft={{ ABC123: { ...base, bearing_deg: 60, timestamp: '1970-01-01T00:00:04.000Z' } }} focusedFreq={TUNED_FREQ} />
       )
       // History survived the gap frame instead of resetting.
       expect(container.querySelector('polyline')).not.toBeNull()
@@ -324,14 +325,14 @@ describe('RadarScopePanel', () => {
       // polyline and the test could not isolate the per-point filter.)
       const { container, rerender } = render(
         <RadarScopePanel
-          adsbAircraft={{ ABC123: { ...base, range_nm: 30, timestamp: 1000 } }}
+          adsbAircraft={{ ABC123: { ...base, range_nm: 30, timestamp: '1970-01-01T00:00:01.000Z' } }}
           focusedFreq={TUNED_FREQ}
           maxRangeNm={40}
         />
       )
       rerender(
         <RadarScopePanel
-          adsbAircraft={{ ABC123: { ...base, range_nm: 35, timestamp: 2000 } }}
+          adsbAircraft={{ ABC123: { ...base, range_nm: 35, timestamp: '1970-01-01T00:00:02.000Z' } }}
           focusedFreq={TUNED_FREQ}
           maxRangeNm={40}
         />
@@ -344,7 +345,7 @@ describe('RadarScopePanel', () => {
       // 30 and 35 are not, and are dropped by the per-point filter.
       rerender(
         <RadarScopePanel
-          adsbAircraft={{ ABC123: { ...base, range_nm: 3, timestamp: 3000 } }}
+          adsbAircraft={{ ABC123: { ...base, range_nm: 3, timestamp: '1970-01-01T00:00:03.000Z' } }}
           focusedFreq={TUNED_FREQ}
           maxRangeNm={5}
         />
@@ -361,11 +362,11 @@ describe('RadarScopePanel', () => {
       // recent last-known position.
       const base = { icao: 'ABC123', callsign: 'TEST1', range_nm: 10 }
       const { container, rerender } = render(
-        <RadarScopePanel adsbAircraft={{ ABC123: { ...base, bearing_deg: 45, timestamp: 1000 } }} focusedFreq={TUNED_FREQ} />
+        <RadarScopePanel adsbAircraft={{ ABC123: { ...base, bearing_deg: 45, timestamp: '1970-01-01T00:00:01.000Z' } }} focusedFreq={TUNED_FREQ} />
       )
       // Bad frame: null bearing_deg, gap well under TRAIL_STALE_MS.
       rerender(
-        <RadarScopePanel adsbAircraft={{ ABC123: { ...base, bearing_deg: null, timestamp: 2000 } }} focusedFreq={TUNED_FREQ} />
+        <RadarScopePanel adsbAircraft={{ ABC123: { ...base, bearing_deg: null, timestamp: '1970-01-01T00:00:02.000Z' } }} focusedFreq={TUNED_FREQ} />
       )
       const blips = container.querySelectorAll('[data-testid="radar-blip"]')
       expect(blips.length).toBe(1)
@@ -387,16 +388,16 @@ describe('RadarScopePanel', () => {
       // clock keeps running from the last good timestamp.
       const base = { icao: 'ABC123', callsign: 'TEST1', range_nm: 10 }
       const { container, rerender } = render(
-        <RadarScopePanel adsbAircraft={{ ABC123: { ...base, bearing_deg: 45, timestamp: 0 } }} focusedFreq={TUNED_FREQ} />
+        <RadarScopePanel adsbAircraft={{ ABC123: { ...base, bearing_deg: 45, timestamp: '1970-01-01T00:00:00.000Z' } }} focusedFreq={TUNED_FREQ} />
       )
       // Gap 60s < 90s from the last good frame -> still passes through.
       rerender(
-        <RadarScopePanel adsbAircraft={{ ABC123: { ...base, bearing_deg: null, timestamp: 60000 } }} focusedFreq={TUNED_FREQ} />
+        <RadarScopePanel adsbAircraft={{ ABC123: { ...base, bearing_deg: null, timestamp: '1970-01-01T00:01:00.000Z' } }} focusedFreq={TUNED_FREQ} />
       )
       expect(container.querySelectorAll('[data-testid="radar-blip"]').length).toBe(1)
       // Gap 95s > 90s from the last good frame (timestamp 0) -> excluded.
       rerender(
-        <RadarScopePanel adsbAircraft={{ ABC123: { ...base, bearing_deg: null, timestamp: 95000 } }} focusedFreq={TUNED_FREQ} />
+        <RadarScopePanel adsbAircraft={{ ABC123: { ...base, bearing_deg: null, timestamp: '1970-01-01T00:01:35.000Z' } }} focusedFreq={TUNED_FREQ} />
       )
       expect(container.querySelectorAll('[data-testid="radar-blip"]').length).toBe(0)
     })
@@ -483,6 +484,88 @@ describe('RadarScopePanel', () => {
       const circles = selectedGroup.querySelectorAll('circle')
       expect(circles[0].getAttribute('filter')).toBe('url(#mimir-radar-glow)')
       expect(circles[1].getAttribute('data-testid')).toBe('radar-blip-highlight')
+    })
+  })
+
+  describe('Phase 53-HOTFIX — ISO timestamp coercion', () => {
+    // Regression seam for the ISO-string wire timestamp bug: the backend
+    // emits `timestamp` as an ISO 8601 string (dashboard/server.py:666,
+    // `msg.timestamp.isoformat()`), and the trail buffer subtracts stored
+    // ts values. String arithmetic yields NaN, so with the raw string the
+    // staleness clear never fired and derivePredictionVector always
+    // returned null against live data. parseFrameTs() now coerces to
+    // epoch ms at the boundary; these tests prove it end to end.
+
+    it('derives a non-null prediction vector from ISO-string frame timestamps', () => {
+      // With the unfixed code the trail stores raw ISO strings, so
+      // derivePredictionVector's `newest.ts - oldest.ts` is NaN and it
+      // returns null. With parseFrameTs coercion the stored ts values
+      // are epoch ms and a vector is derived.
+      //
+      // NOTE on units: the trail stores epoch MILLISECONDS
+      // (TRAIL_STALE_MS arithmetic requires it), so
+      // derivePredictionVector's "per second" rates are numerically
+      // per-millisecond here: 10 deg over 10000 ms = 0.001. That unit
+      // convention lives in pathPrediction.js and is out of scope for
+      // this hotfix; the load-bearing assertion is the non-null vector.
+      const trailsRef = { current: new Map() }
+      const base = { icao: 'ABC123', callsign: 'TEST1', range_nm: 10 }
+      const { rerender } = render(
+        <RadarScopePanel
+          adsbAircraft={{ ABC123: { ...base, bearing_deg: 0, timestamp: '2026-01-15T10:30:00.000Z' } }}
+          focusedFreq={TUNED_FREQ}
+          trailsRef={trailsRef}
+        />
+      )
+      rerender(
+        <RadarScopePanel
+          adsbAircraft={{ ABC123: { ...base, bearing_deg: 5, timestamp: '2026-01-15T10:30:05.000Z' } }}
+          focusedFreq={TUNED_FREQ}
+          trailsRef={trailsRef}
+        />
+      )
+      rerender(
+        <RadarScopePanel
+          adsbAircraft={{ ABC123: { ...base, bearing_deg: 10, timestamp: '2026-01-15T10:30:10.000Z' } }}
+          focusedFreq={TUNED_FREQ}
+          trailsRef={trailsRef}
+        />
+      )
+      const history = trailsRef.current.get('ABC123')
+      expect(history.length).toBeGreaterThanOrEqual(2)
+      const v = derivePredictionVector(history)
+      expect(v).not.toBeNull()
+      expect(v.thetaDegPerSec).toBeCloseTo(0.001, 10)
+      expect(v.deltaRNmPerSec).toBeCloseTo(0, 10)
+    })
+
+    it('clears the trail when an ISO-timestamped gap exceeds TRAIL_STALE_MS', () => {
+      // Explicit regression companion to the existing staleness test:
+      // with ISO string timestamps the > 90000 ms gap must actually
+      // clear the trail rather than bridge it. (The +95 s fix below is
+      // measured from the LAST STORED timestamp, 10:30:05, since the
+      // staleness check compares against the newest trail entry.)
+      const base = { icao: 'ABC123', callsign: 'TEST1', range_nm: 10 }
+      const { container, rerender } = render(
+        <RadarScopePanel
+          adsbAircraft={{ ABC123: { ...base, bearing_deg: 45, timestamp: '2026-01-15T10:30:00.000Z' } }}
+          focusedFreq={TUNED_FREQ}
+        />
+      )
+      rerender(
+        <RadarScopePanel
+          adsbAircraft={{ ABC123: { ...base, bearing_deg: 50, timestamp: '2026-01-15T10:30:05.000Z' } }}
+          focusedFreq={TUNED_FREQ}
+        />
+      )
+      expect(container.querySelector('polyline')).not.toBeNull()
+      rerender(
+        <RadarScopePanel
+          adsbAircraft={{ ABC123: { ...base, bearing_deg: 55, timestamp: '2026-01-15T10:31:40.000Z' } }}
+          focusedFreq={TUNED_FREQ}
+        />
+      )
+      expect(container.querySelector('polyline')).toBeNull()
     })
   })
 })
