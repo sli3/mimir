@@ -205,6 +205,79 @@ describe('AircraftDetailPanel', () => {
     expect(pinned.getAllByText('—').length).toBe(6)
     expect(pinned.getByText('ABC123')).toBeInTheDocument()
   })
+
+  it('renders the squawk value in the pinned detail when present (Phase 54)', () => {
+    const adsbAircraft = {
+      ABC123: makeAircraft({ squawk: '2000' }),
+    }
+    render(
+      <AircraftDetailPanel
+        adsbAircraft={adsbAircraft}
+        maxRangeNm={40}
+        selectedIcao="ABC123"
+      />
+    )
+    const pinned = within(screen.getByTestId('radar-detail-pinned'))
+    expect(pinned.getByText('Squawk')).toBeInTheDocument()
+    expect(pinned.getByText('2000')).toBeInTheDocument()
+  })
+
+  it('renders the em-dash for squawk when null (Phase 54)', () => {
+    const adsbAircraft = {
+      ABC123: makeAircraft({ squawk: null }),
+    }
+    render(
+      <AircraftDetailPanel
+        adsbAircraft={adsbAircraft}
+        maxRangeNm={40}
+        selectedIcao="ABC123"
+      />
+    )
+    const pinned = within(screen.getByTestId('radar-detail-pinned'))
+    // The squawk field specifically: label present, value is the em-dash.
+    const squawkField = pinned.getByText('Squawk').closest('.radar-detail-field')
+    expect(within(squawkField).getByText('—')).toBeInTheDocument()
+  })
+})
+
+describe('AircraftDetailPanel deselect toggle contract (Phase 54)', () => {
+  // The toggle itself lives in RadarPage (the state owner). The panel's
+  // contract is simply: always call onSelectAircraft with the icao of the
+  // clicked row, even when that row is the currently selected one. The
+  // panel never decides to deselect itself.
+  it('calls onSelectAircraft with the icao even for the currently selected row', () => {
+    const onSelectAircraft = vi.fn()
+    const adsbAircraft = { ABC123: makeAircraft() }
+    const { container } = render(
+      <AircraftDetailPanel
+        adsbAircraft={adsbAircraft}
+        maxRangeNm={40}
+        selectedIcao="ABC123"
+        onSelectAircraft={onSelectAircraft}
+      />
+    )
+    fireEvent.click(container.querySelector('[data-icao="ABC123"]'))
+    expect(onSelectAircraft).toHaveBeenCalledTimes(1)
+    expect(onSelectAircraft).toHaveBeenCalledWith('ABC123')
+  })
+
+  it('calls onSelectAircraft with the icao for a non-selected row', () => {
+    const onSelectAircraft = vi.fn()
+    const adsbAircraft = {
+      ABC123: makeAircraft(),
+      DEF456: makeAircraft({ icao: 'DEF456', callsign: 'VOZ2' }),
+    }
+    const { container } = render(
+      <AircraftDetailPanel
+        adsbAircraft={adsbAircraft}
+        maxRangeNm={40}
+        selectedIcao="ABC123"
+        onSelectAircraft={onSelectAircraft}
+      />
+    )
+    fireEvent.click(container.querySelector('[data-icao="DEF456"]'))
+    expect(onSelectAircraft).toHaveBeenCalledWith('DEF456')
+  })
 })
 
 describe('formatVerticalRate', () => {

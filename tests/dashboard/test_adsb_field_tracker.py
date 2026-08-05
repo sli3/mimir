@@ -26,6 +26,7 @@ def make_msg(icao="7C4B4C", ts=None, **overrides):
         groundspeed=None,
         track=None,
         vertical_rate=None,
+        squawk=None,
         raw_hex="8D" + str(icao).upper() + "00000000000000000000",
         timestamp=ts or BASE_TS,
     )
@@ -176,7 +177,7 @@ class TestAdsbFieldTracker:
         assert tracker._state["AC0000"]["_ts"] == later_ts
 
     def test_update_returns_merged_view(self):
-        """update() returns exactly the icao key plus the 5 tracked fields."""
+        """update() returns exactly the icao key plus the 6 tracked fields."""
         tracker = AdsbFieldTracker()
         merged = tracker.update(
             make_msg(callsign="QFA456", altitude_ft=35000, vertical_rate=0)
@@ -188,6 +189,7 @@ class TestAdsbFieldTracker:
             "groundspeed",
             "track",
             "vertical_rate",
+            "squawk",
         }
         assert merged["icao"] == "7C4B4C"
         assert merged["callsign"] == "QFA456"
@@ -195,3 +197,19 @@ class TestAdsbFieldTracker:
         assert merged["groundspeed"] is None
         assert merged["track"] is None
         assert merged["vertical_rate"] == 0
+
+    def test_squawk_merged_and_retained(self):
+        """Squawk from a DF5 frame survives a later frame carrying no squawk."""
+        tracker = AdsbFieldTracker()
+        tracker.update(make_msg(squawk="7500", ts=BASE_TS))
+        merged = tracker.update(
+            make_msg(callsign="QFA456", ts=BASE_TS + timedelta(seconds=5))
+        )
+        assert merged["squawk"] == "7500"
+        assert merged["callsign"] == "QFA456"
+
+    def test_squawk_none_for_never_resolved(self):
+        """squawk is None for an ICAO that has never sent one."""
+        tracker = AdsbFieldTracker()
+        merged = tracker.update(make_msg(callsign="QFA456"))
+        assert merged["squawk"] is None

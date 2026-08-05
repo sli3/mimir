@@ -57,3 +57,38 @@ class TestAdsbMessage:
         )
         assert isinstance(msg.icao, str)
         assert msg.icao == "406B90"
+
+    def test_constructed_without_squawk_defaults_to_none(self):
+        """AdsbMessage constructed without squawk defaults it to None.
+
+        This is the guarantee the 24 existing construction sites rely on:
+        squawk must not be a required field.
+        """
+        msg = AdsbMessage(
+            icao="7C4B4C",
+            callsign=None,
+            altitude_ft=None,
+            latitude=None,
+            longitude=None,
+            groundspeed=None,
+            track=None,
+            vertical_rate=None,
+            raw_hex="8D7C4B4C00000000000000000000",
+        )
+        assert msg.squawk is None
+
+    def test_constructed_with_explicit_squawk(self):
+        """An explicit squawk value is stored unchanged."""
+        msg = AdsbMessage(
+            icao="7C4B4C",
+            callsign=None,
+            altitude_ft=None,
+            latitude=None,
+            longitude=None,
+            groundspeed=None,
+            track=None,
+            vertical_rate=None,
+            raw_hex="8D7C4B4C00000000000000000000",
+            squawk="7500",
+        )
+        assert msg.squawk == "7500"

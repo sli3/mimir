@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent, within } from '@testing-library/react'
 import React from 'react'
 
 vi.mock('../hooks/useSocket.js')
@@ -92,5 +92,29 @@ describe('RadarPage', () => {
     expect(document.body.classList.contains('radar-page')).toBe(true)
     unmount()
     expect(document.body.classList.contains('radar-page')).toBe(false)
+  })
+
+  it('deselects the aircraft when the currently selected row is clicked again (Phase 54)', () => {
+    useSocket.mockReturnValue(makeMock({
+      systemStats: { active_frequency_hz: 1090000000 },
+      adsbAircraft: {
+        ABC123: { icao: 'ABC123', callsign: 'TEST1', bearing_deg: 45, range_nm: 10 },
+      },
+    }))
+    render(<RadarPage />)
+
+    // Initially: no selection, placeholder visible.
+    const pinned = screen.getByTestId('radar-detail-pinned')
+    expect(within(pinned).getByText('No aircraft selected')).toBeInTheDocument()
+
+    // Click the row: aircraft selected, pinned card shows its data.
+    fireEvent.click(screen.getByTestId('radar-detail-row'))
+    expect(within(pinned).getByText('ABC123')).toBeInTheDocument()
+    expect(within(pinned).queryByText('No aircraft selected')).toBeNull()
+
+    // Click the SAME row again: deselected, placeholder returns.
+    fireEvent.click(screen.getByTestId('radar-detail-row'))
+    expect(within(pinned).getByText('No aircraft selected')).toBeInTheDocument()
+    expect(within(pinned).queryByText('ICAO')).toBeNull()
   })
 })

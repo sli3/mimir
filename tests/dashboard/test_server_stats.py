@@ -455,7 +455,15 @@ class TestEmitAdsbScanResult:
             # Speed and track newly resolved by frame 2.
             assert "450.0 kt" in reasoning
             assert "90 deg" in reasoning
-            assert "unknown" not in reasoning
+            # None of the four pre-Phase-54 fields read "unknown". The
+            # blanket '"unknown" not in reasoning' assertion was retired in
+            # Phase 54: the reasoning string now ends with a squawk clause,
+            # and this fixture (DF17-only frames) legitimately has no squawk.
+            assert "callsign unknown" not in reasoning
+            assert "altitude unknown" not in reasoning
+            assert "speed unknown" not in reasoning
+            assert "track unknown" not in reasoning
+            assert "squawk unknown" in reasoning
 
     def test_reasoning_unknown_when_field_never_resolved(self):
         """A field that has never carried a value still shows 'unknown'."""

@@ -10,13 +10,21 @@ Run with:
 
 import sys
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from dashboard.server import emit_acars_message, emit_ais_message
+import dashboard.server as server
+from dashboard.server import (
+    AdsbFieldTracker,
+    emit_acars_message,
+    emit_adsb_aircraft,
+    emit_adsb_scan_result,
+    emit_ais_message,
+)
 from modules.acars.message import AcarsMessage
+from modules.adsb.message import AdsbMessage
 from modules.ais.message import AisMessage
 
 
@@ -69,3 +77,66 @@ class TestEmitAisMessage:
         assert event_name == "ais_message"
         assert payload["raw"] == raw_nmea
         assert payload["mmsi"] == "503000001"
+
+
+def make_adsb_msg(**overrides):
+    """Build an AdsbMessage with all optional fields None unless overridden."""
+    fields = dict(
+        icao="7C4B4C",
+        callsign=None,
+        altitude_ft=None,
+        latitude=None,
+        longitude=None,
+        groundspeed=None,
+        track=None,
+        vertical_rate=None,
+        raw_hex="8D7C4B4C00000000000000000000",
+        timestamp=datetime(2026, 8, 5, 12, 0, 0, tzinfo=timezone.utc),
+    )
+    fields.update(overrides)
+    return AdsbMessage(**fields)
+
+
+class TestEmitAdsbMessage:
+    """Squawk key on the adsb_aircraft payload and scan_result reasoning."""
+
+    def test_emit_adsb_aircraft_payload_contains_squawk(self):
+        """emit_adsb_aircraft() payload carries the message's squawk value."""
+        msg = make_adsb_msg(squawk="7500")
+        with patch("dashboard.server.socketio.emit") as mock_emit:
+            emit_adsb_aircraft(msg)
+
+        mock_emit.assert_called_once()
+        event_name, payload = mock_emit.call_args[0]
+        assert event_name == "adsb_aircraft"
+        assert payload["squawk"] == "7500"
+
+    def test_emit_adsb_scan_result_reasoning_contains_squawk_when_known(self):
+        """Reasoning string includes the squawk once it has been resolved."""
+        msg = make_adsb_msg(icao="A1B2C3", squawk="7500", altitude_ft=35000)
+        with (
+            patch.object(server, "_focused_freq_hz", None),
+            patch.object(server, "_field_tracker", AdsbFieldTracker()),
+            patch("dashboard.server.socketio.emit") as mock_emit,
+        ):
+            emit_adsb_scan_result(msg)
+
+        mock_emit.assert_called_once()
+        event_name, payload = mock_emit.call_args[0]
+        assert event_name == "scan_result"
+        assert "squawk 7500" in payload["reasoning"]
+
+    def test_emit_adsb_scan_result_reasoning_says_unknown_when_never_resolved(self):
+        """Reasoning string says 'unknown' for squawk when never resolved."""
+        msg = make_adsb_msg(icao="D4E5F6", callsign="QFA456")
+        with (
+            patch.object(server, "_focused_freq_hz", None),
+            patch.object(server, "_field_tracker", AdsbFieldTracker()),
+            patch("dashboard.server.socketio.emit") as mock_emit,
+        ):
+            emit_adsb_scan_result(msg)
+
+        mock_emit.assert_called_once()
+        event_name, payload = mock_emit.call_args[0]
+        assert event_name == "scan_result"
+        assert "squawk unknown" in payload["reasoning"]
