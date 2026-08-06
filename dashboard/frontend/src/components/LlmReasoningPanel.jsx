@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react'
-import PredictionGlyph from './PredictionGlyph.jsx'
 
 /**
  * LLM Reasoning column for the /radar Path & Trajectory Prediction
@@ -33,9 +32,11 @@ import PredictionGlyph from './PredictionGlyph.jsx'
  *
  * @param {string} icao - Selected aircraft ICAO address (6 hex chars)
  * @param {string|null} callsign - Last known callsign, or null
- * @param {string|null} squawk - Transponder code, or null. Always null
- *   from real data today (TD-53-A: Mimir's PipeDecoder does not decode
- *   the DF4/DF5 replies that carry squawk) — accepted for future use.
+ * @param {string|null} squawk - Transponder code, or null. Squawk has been
+ *   live since Phase 54: DF5 surveillance replies are decoded and surfaced
+ *   through AdsbDecoder and dashboard/server.py's AdsbFieldTracker. Null
+ *   means this aircraft is not currently sending a DF5 identity reply, not
+ *   that the field is unpopulated.
  * @param {number|null} altitude_ft
  * @param {number|null} track
  * @param {number|null} groundspeed
@@ -301,12 +302,6 @@ export default function LlmReasoningPanel({
       )}
       {state.status === 'result' && (
         <div className="radar-prediction-llm-result">
-          {/* Glyph placed ABOVE the verdict (Phase 55): the directional
-              projection gives context that frames the verdict text, the
-              same way a compass rose precedes a bearing readout. The
-              glyph renders nothing when the vector is absent, so no
-              guard is needed here. */}
-          <PredictionGlyph vector={vector} />
           <div className="radar-prediction-llm-verdict">{state.verdict}</div>
           <div
             className={`radar-prediction-llm-confidence radar-prediction-llm-confidence-${state.confidence}`}

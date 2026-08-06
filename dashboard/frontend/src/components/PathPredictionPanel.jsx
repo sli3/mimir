@@ -1,31 +1,48 @@
 import React, { useMemo } from 'react'
 import { isValidContact } from './radar/projection.js'
-import { formatDeltaR } from '../utils/aircraftFormat.js'
 import {
   PREDICTION_HORIZON_SEC,
   derivePredictionVector,
   projectPosition,
 } from '../utils/pathPrediction.js'
 import LlmReasoningPanel from './LlmReasoningPanel.jsx'
+import PredictionGlyph from './PredictionGlyph.jsx'
+
+// Must mirror llm/path_reasoner.py's _EMERGENCY_SQUAWKS set.
+const EMERGENCY_SQUAWKS = new Set(['7500', '7600', '7700'])
+
+// Squawk is read from the per-frame aircraft object, not motion-derived.
+const RAPID_ALTITUDE_CHANGE_FT_PER_MIN = 3000
+
+// Must stay paired with llm/path_reasoner.py:_HIGH_TURN_RATE_DEG_PER_SEC.
+// Contract test: tests/llm/test_path_reasoner_thresholds.py
+const HIGH_TURN_RATE_DEG_PER_SEC = 3.0
 
 /**
  * Path & Trajectory Prediction strip for the /radar page (Phase 52;
  * right column wired in Phase 53).
  *
- * Sits below the radar-scope-container as a fixed-height, two-column
- * strip. The LEFT column is a physics-only dead-reckoning readout:
- * bearing rate and range rate derived from the selected aircraft's
- * stored trail history, projected PREDICTION_HORIZON_SEC seconds ahead.
- * The RIGHT column is the Phase 53 LlmReasoningPanel child: a manual
- * "ANALYSE PATH WITH LLM" button that POSTs the physics facts to
- * /api/radar/reason and renders the verdict. PathPredictionPanel itself
+ * Sits below the radar-scope-container as a fixed-height strip. The
+ * MAIN (left, wider) column stacks the prediction glyph above the Phase
+ * 53 LlmReasoningPanel child (a manual "ANALYSE PATH WITH LLM" button
+ * that POSTs the physics facts to /api/radar/reason and renders the
+ * verdict). The RIGHT column is the continuous anomaly flag strip,
+ * which fills the freed space alongside the glyph+reasoning block as
+ * one coherent bottom-panel composition. PathPredictionPanel itself
  * still makes NO network, socket, or inference call of any kind — all
  * request state lives inside the child component.
+ *
+ * The θ/Δr physics readout that previously lived here as a third
+ * on-screen copy was removed in Phase 58-FIX: that data now lives in
+ * the floating scope box on the selected aircraft's blip, so rendering
+ * it a third time here was redundant.
  *
  * Three render states, mirroring the AircraftDetailPanel pattern:
  *   1. No selection (or the selected ICAO is gone) — placeholder text.
  *   2. Selection but fewer than 2 trail fixes — "gathering" text.
- *   3. Selection with 2+ trail fixes — physics readout + LlmReasoningPanel.
+ *   3. Selection with 2+ trail fixes — prediction glyph +
+ *      LlmReasoningPanel (plus the anomaly strip, which renders in
+ *      states 2 and 3).
  *
  * Passive receive display only — no TX capability, no inference calls
  * from this component (the LLM column is a separate child).
@@ -117,49 +134,83 @@ export default function PathPredictionPanel({
     )
   }
 
+  const isEmergencySquawk = EMERGENCY_SQUAWKS.has(selected.squawk)
+  const isRapidAltitude = Number.isFinite(selected.vertical_rate)
+    && Math.abs(selected.vertical_rate) > RAPID_ALTITUDE_CHANGE_FT_PER_MIN
+  const isHighTurnRate = Boolean(
+    prediction?.vector
+    && Math.abs(prediction.vector.thetaDegPerSec) > HIGH_TURN_RATE_DEG_PER_SEC,
+  )
+  const anomalyStrip = (
+    <div className="radar-anomaly-strip" data-testid="radar-anomaly-strip">
+      {isEmergencySquawk && (
+        <div data-testid="anomaly-flag-squawk" className="anomaly-flag anomaly-flag-emergency">
+          ⚠ EMERGENCY SQUAWK {selected.squawk}
+        </div>
+      )}
+      {isRapidAltitude && (
+        <div data-testid="anomaly-flag-altitude" className="anomaly-flag anomaly-flag-warn">
+          ▲ RAPID ALTITUDE {selected.vertical_rate > 0 ? 'CLIMB' : 'DESCENT'} {Math.abs(selected.vertical_rate)} ft/min
+        </div>
+      )}
+      {isHighTurnRate && (
+        <div data-testid="anomaly-flag-turn" className="anomaly-flag anomaly-flag-warn">
+          ↻ HIGH TURN RATE {Math.abs(prediction.vector.thetaDegPerSec).toFixed(1)}°/s
+        </div>
+      )}
+      {!isEmergencySquawk && !isRapidAltitude && !isHighTurnRate && (
+        <div data-testid="anomaly-strip-clear" className="anomaly-strip-clear">NO ANOMALIES</div>
+      )}
+    </div>
+  )
+
   // State 2: selected, but not enough history to derive a rate yet.
-  // Normal startup state, not an error.
+  // Normal startup state, not an error. The anomaly strip still
+  // renders (squawk / rapid-altitude flags are vector-independent);
+  // only the high-turn-rate flag is gated on a vector, so it cannot
+  // fire in this state.
   if (!prediction || !prediction.vector) {
     const fixCount = prediction?.history?.length ?? 0
     return (
       <div className="radar-prediction-panel">
-        <div
-          className="radar-prediction-gathering"
-          data-testid="radar-prediction-gathering"
-        >
-          {`${selected.callsign || selected.icao} — gathering position history (${fixCount} fix)`}
+        <div className="radar-prediction-main">
+          <div
+            className="radar-prediction-gathering"
+            data-testid="radar-prediction-gathering"
+          >
+            {`${selected.callsign || selected.icao} — gathering position history (${fixCount} fix)`}
+          </div>
         </div>
+        {anomalyStrip}
       </div>
     )
   }
 
-  // State 3: physics readout (left) + LlmReasoningPanel (right, Phase 53).
-  // deltaR sign is rendered as-is via toFixed: a leading minus already
-  // reads as "closing" and a bare number as "opening", so no explicit
-  // '+' prefix is added (unlike formatDeltaR for theta).
-  const { vector } = prediction
+  // State 3: prediction glyph + LLM reasoning in the main (left)
+  // column, anomaly strip in the right column. The standalone θ/Δr
+  // physics readout that used to live here was removed in Phase 58-FIX
+  // — its data is in the floating scope box on the selected aircraft's
+  // blip, so a third copy here was redundant.
   return (
     <div className="radar-prediction-panel">
-      <div
-        className="radar-prediction-physics"
-        data-testid="radar-prediction-physics"
-      >
-        {`θ: ${formatDeltaR(vector.thetaDegPerSec)}  Δr: ${vector.deltaRNmPerSec.toFixed(1)}nm/s — projecting ${PREDICTION_HORIZON_SEC}s ahead`}
+      <div className="radar-prediction-main">
+        <PredictionGlyph vector={prediction.vector} />
+        <LlmReasoningPanel
+          icao={selectedIcao}
+          callsign={selected.callsign ?? null}
+          squawk={selected.squawk ?? null}
+          altitude_ft={selected.altitude_ft ?? null}
+          track={selected.track ?? null}
+          groundspeed={selected.groundspeed ?? null}
+          vertical_rate={selected.vertical_rate ?? null}
+          bearing_deg={selected.bearing_deg}
+          range_nm={selected.range_nm}
+          vector={prediction.vector}
+          projected={prediction.projected}
+          trailLength={prediction.history?.length ?? 0}
+        />
       </div>
-      <LlmReasoningPanel
-        icao={selectedIcao}
-        callsign={selected.callsign ?? null}
-        squawk={selected.squawk ?? null}
-        altitude_ft={selected.altitude_ft ?? null}
-        track={selected.track ?? null}
-        groundspeed={selected.groundspeed ?? null}
-        vertical_rate={selected.vertical_rate ?? null}
-        bearing_deg={selected.bearing_deg}
-        range_nm={selected.range_nm}
-        vector={prediction.vector}
-        projected={prediction.projected}
-        trailLength={prediction.history?.length ?? 0}
-      />
+      {anomalyStrip}
     </div>
   )
 }

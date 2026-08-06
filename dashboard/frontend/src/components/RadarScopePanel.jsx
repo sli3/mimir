@@ -1,6 +1,7 @@
 import React, { useMemo, useRef } from 'react'
 import { projectToScope, isWithinRange, isValidContact } from './radar/projection.js'
 import { PREDICTION_HORIZON_SEC, derivePredictionVector, projectPosition } from '../utils/pathPrediction.js'
+import { formatDeltaR } from '../utils/aircraftFormat.js'
 
 // The timestamp arriving from the backend is an ISO 8601 string (see server.py:666),
 // and the trail buffer does arithmetic on it, so it must be coerced to numeric ms
@@ -317,10 +318,105 @@ export default function RadarScopePanel({
                       still visually sit on top (consistent with existing z-order). */}
                   {ac.icao === selectedIcao && (() => {
                     const history = trailsRef.current.get(ac.icao)
-                    if (!history || history.length < 2) return null
-                    const v = derivePredictionVector(history)
-                    if (!v) return null
-                    const proj = projectPosition(ac.bearing_deg, ac.range_nm, v.thetaDegPerSec, v.deltaRNmPerSec, PREDICTION_HORIZON_SEC)
+                    // ADV-02 (Phase 58-FIX): a trail can yield a truthy
+                    // but non-finite vector (e.g. a NaN bearing_deg in an
+                    // older fix produces thetaDegPerSec = NaN). Collapse
+                    // any such vector to null so the box falls back to
+                    // the ICAO-only path rather than rendering "θ NaN" on
+                    // a live monitoring display.
+                    const rawV = history && history.length >= 2
+                      ? derivePredictionVector(history)
+                      : null
+                    const v = rawV
+                      && Number.isFinite(rawV.thetaDegPerSec)
+                      && Number.isFinite(rawV.deltaRNmPerSec)
+                      ? rawV
+                      : null
+                    const proj = v
+                      ? projectPosition(ac.bearing_deg, ac.range_nm, v.thetaDegPerSec, v.deltaRNmPerSec, PREDICTION_HORIZON_SEC)
+                      : null
+                    const label = ac.callsign || ac.icao
+                    // Keep the detail box away from the usual direction of the
+                    // ghost line: clockwise bearing sweep uses the left side,
+                    // anticlockwise sweep uses the right side.
+                    const boxOnLeft = !v || v.thetaDegPerSec >= 0
+                    // BOX_PAD_X: horizontal gap (px) between the rect's
+                    // border and the text sitting inside it. Previously
+                    // 0 — boxX (the text's own anchor coordinate) was
+                    // reused as the rect's edge coordinate, so text sat
+                    // flush against the border on the anchor side, with
+                    // no inset (Phase 58-FIX-2, live-verified against
+                    // Prin's screenshot).
+                    const BOX_PAD_X = 6
+                    const boxWidth = 86
+                    // The rect's outer edge is unchanged from before —
+                    // only the text is inset from it by BOX_PAD_X.
+                    const rectEdgeX = r2(ac.x + (boxOnLeft ? -10 - boxWidth : 10))
+                    const rectX = rectEdgeX
+                    const boxX = r2(boxOnLeft ? rectEdgeX + boxWidth - BOX_PAD_X : rectEdgeX + BOX_PAD_X)
+                    const textAnchor = boxOnLeft ? 'end' : 'start'
+                    // Box top stays fixed relative to the blip. The per-line
+                    // baselines are derived FROM rectY below so the box's
+                    // vertical position is decoupled from the line spacing
+                    // (the Phase 58-FIX padding correction increases the
+                    // box height without shifting the box top).
+                    const rectY = r2(ac.y - (v ? 25 : 13))
+                    // Vector box is 43px tall (was 36) to give ~6px of
+                    // internal padding top and bottom around the 3-line
+                    // readout at 9px font. The extra 7px extends the box
+                    // downward (the top stays at ac.y - 25); the box sits
+                    // to the SIDE of the blip (>=10px gap), so the taller
+                    // box does not collide with the blip or selection ring.
+                    const boxHeight = v ? 43 : 14
+                    const box = (
+                      <g data-testid="radar-prediction-box" data-icao={ac.icao}>
+                        <rect
+                          x={rectX}
+                          y={rectY}
+                          width={boxWidth}
+                          height={boxHeight}
+                          fill="var(--bg-header, #050C11)"
+                          stroke="var(--neon-amber)"
+                          strokeWidth={0.6}
+                          opacity={0.92}
+                        />
+                        <text
+                          x={boxX}
+                          y={r2(rectY + (v ? 15 : 10))}
+                          textAnchor={textAnchor}
+                          fontFamily="var(--font-data)"
+                          fontSize={9}
+                          fill="var(--neon-cyan)"
+                        >
+                          {label}
+                        </text>
+                        {v && (
+                          <>
+                            <text
+                              x={boxX}
+                              y={r2(rectY + 26)}
+                              textAnchor={textAnchor}
+                              fontFamily="var(--font-data)"
+                              fontSize={9}
+                              fill="var(--text-primary)"
+                            >
+                              {`θ ${formatDeltaR(v.thetaDegPerSec)}`}
+                            </text>
+                            <text
+                              x={boxX}
+                              y={r2(rectY + 37)}
+                              textAnchor={textAnchor}
+                              fontFamily="var(--font-data)"
+                              fontSize={9}
+                              fill="var(--text-primary)"
+                            >
+                              {`Δr ${v.deltaRNmPerSec.toFixed(2)}nm/s`}
+                            </text>
+                          </>
+                        )}
+                      </g>
+                    )
+                    if (!proj) return box
                     // Clamp the projected range to the outer ring: an aircraft
                     // projecting beyond maxRangeNm still shows a line ending at
                     // the ring edge, rather than vanishing. A fast-departing
@@ -332,18 +428,21 @@ export default function RadarScopePanel({
                     const here = projectToScope(ac.bearing_deg, ac.range_nm, maxRangeNm, SCOPE_CX, SCOPE_CY, SCOPE_MAX_R)
                     const there = projectToScope(proj.bearing_deg, clampedRangeNm, maxRangeNm, SCOPE_CX, SCOPE_CY, SCOPE_MAX_R)
                     return (
-                      <g data-testid="radar-prediction-line" data-icao={ac.icao}>
-                        <line
-                          x1={r2(here.x)}
-                          y1={r2(here.y)}
-                          x2={r2(there.x)}
-                          y2={r2(there.y)}
-                          stroke="var(--neon-amber)"
-                          strokeWidth={1.2}
-                          strokeDasharray="4 3"
-                          opacity={0.7}
-                        />
-                      </g>
+                      <>
+                        <g data-testid="radar-prediction-line" data-icao={ac.icao}>
+                          <line
+                            x1={r2(here.x)}
+                            y1={r2(here.y)}
+                            x2={r2(there.x)}
+                            y2={r2(there.y)}
+                            stroke="var(--neon-amber)"
+                            strokeWidth={1.2}
+                            strokeDasharray="4 3"
+                            opacity={0.7}
+                          />
+                        </g>
+                        {box}
+                      </>
                     )
                   })()}
 
@@ -371,15 +470,17 @@ export default function RadarScopePanel({
                       strokeWidth={1.2}
                     />
                   )}
-                  <text
-                    x={r2(ac.x + 7)}
-                    y={r2(ac.y + 3)}
-                    fontFamily="var(--font-data)"
-                    fontSize={10}
-                    fill="var(--neon-cyan)"
-                  >
-                    {ac.callsign || ac.icao}
-                  </text>
+                  {ac.icao !== selectedIcao && (
+                    <text
+                      x={r2(ac.x + 7)}
+                      y={r2(ac.y + 3)}
+                      fontFamily="var(--font-data)"
+                      fontSize={10}
+                      fill="var(--neon-cyan)"
+                    >
+                      {ac.callsign || ac.icao}
+                    </text>
+                  )}
                 </g>
               )
             })}

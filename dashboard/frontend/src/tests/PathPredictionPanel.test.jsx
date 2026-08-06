@@ -80,9 +80,13 @@ describe('PathPredictionPanel', () => {
   })
 
   describe('physics state (2+ trail points)', () => {
-    it('renders theta, deltaR and the horizon with 2 trail points', () => {
-      // Oldest->newest: bearing 40 -> 60 over 10 s (10000 ms) = +2.0 deg/s;
-      // range 15 -> 10 over 10 s = -0.5 nm/s (closing).
+    it('does not render the orphan physics readout (replaced by scope box for selected aircraft)', () => {
+      // Phase 58-FIX: the standalone θ/Δr readout was removed from this
+      // panel — its data now lives in the floating scope box on the
+      // selected aircraft's blip in RadarScopePanel, so a third on-screen
+      // copy here was redundant. The vector is still derived (used by the
+      // LLM column and the anomaly strip's high-turn-rate flag); only the
+      // orphan readout text is gone.
       render(
         <PathPredictionPanel
           adsbAircraft={{ ABC123: makeAc() }}
@@ -95,14 +99,10 @@ describe('PathPredictionPanel', () => {
           })}
         />
       )
-      const physics = screen.getByTestId('radar-prediction-physics')
-      expect(physics).toBeInTheDocument()
-      expect(physics.textContent).toContain('+2.0°/s')
-      expect(physics.textContent).toContain('-0.5nm/s')
-      expect(physics.textContent).toContain('projecting 45s ahead')
+      expect(screen.queryByTestId('radar-prediction-physics')).toBeNull()
     })
 
-    it('renders the physics state with 3 trail points (extra points do not break it)', () => {
+    it('renders the main column and anomaly strip with 3 trail points', () => {
       render(
         <PathPredictionPanel
           adsbAircraft={{ ABC123: makeAc() }}
@@ -116,14 +116,16 @@ describe('PathPredictionPanel', () => {
           })}
         />
       )
-      expect(screen.getByTestId('radar-prediction-physics')).toBeInTheDocument()
+      expect(screen.getByTestId('radar-prediction-llm')).toBeInTheDocument()
+      expect(screen.getByTestId('radar-anomaly-strip')).toBeInTheDocument()
+      // No orphan physics readout — its content is in the scope box.
+      expect(screen.queryByTestId('radar-prediction-physics')).toBeNull()
     })
 
-    it('renders the LlmReasoningPanel child in the right column', () => {
-      // Phase 53: the static "LLM REASONING — PENDING" placeholder was
-      // replaced by the live LlmReasoningPanel child (idle state = the
-      // manual trigger button). This is the only Phase 52 test whose
-      // testid changed as a result.
+    it('renders the LlmReasoningPanel child and PredictionGlyph sibling in the main column', () => {
+      // Phase 58-FIX: the prediction glyph is now a SIBLING of the
+      // LlmReasoningPanel inside the main column (top-left of the
+      // panel), no longer nested inside the LLM result block.
       render(
         <PathPredictionPanel
           adsbAircraft={{ ABC123: makeAc() }}
@@ -136,11 +138,17 @@ describe('PathPredictionPanel', () => {
           })}
         />
       )
+      // LLM panel is present (idle = the manual trigger button).
       const llm = screen.getByTestId('radar-prediction-llm')
       expect(llm).toBeInTheDocument()
       expect(
         screen.getByRole('button', { name: 'ANALYSE PATH WITH LLM' })
       ).toBeInTheDocument()
+      // Prediction glyph renders as a SIBLING of the LLM panel (top of
+      // the main column), not nested inside it.
+      const glyph = screen.getByTestId('prediction-glyph')
+      expect(glyph).toBeInTheDocument()
+      expect(llm.contains(glyph)).toBe(false)
     })
   })
 
@@ -183,6 +191,79 @@ describe('PathPredictionPanel', () => {
       for (const props of cases) {
         expect(() => render(<PathPredictionPanel {...props} />)).not.toThrow()
       }
+    })
+  })
+
+  describe('continuous anomaly strip (Phase 58)', () => {
+    const twoFixes = [
+      { bearing_deg: 40, range_nm: 15, ts: 0 },
+      { bearing_deg: 80, range_nm: 10, ts: 10000 },
+    ]
+    const renderPanel = (aircraft, history = []) => render(
+      <PathPredictionPanel adsbAircraft={{ ABC123: makeAc(aircraft) }} selectedIcao="ABC123" trailsRef={makeTrailsRef({ ABC123: history })} />
+    )
+
+    it('anomaly strip renders continuously when an aircraft is selected', () => {
+      const first = renderPanel({ squawk: '7700' })
+      expect(screen.getByTestId('radar-anomaly-strip')).toBeInTheDocument()
+      first.unmount()
+      renderPanel({ squawk: '7700' }, twoFixes)
+      expect(screen.getByTestId('radar-anomaly-strip')).toBeInTheDocument()
+    })
+    it('emergency squawk flag renders during history gathering', () => {
+      renderPanel({ squawk: '7700' })
+      expect(screen.getByTestId('anomaly-flag-squawk')).toHaveTextContent('7700')
+    })
+    it('emergency squawk flag does not render for a non-emergency squawk', () => {
+      renderPanel({ squawk: '1200' }, twoFixes)
+      expect(screen.queryByTestId('anomaly-flag-squawk')).toBeNull()
+    })
+    it('emergency squawk flag does not render when squawk is null', () => {
+      renderPanel({ squawk: null }, twoFixes)
+      expect(screen.queryByTestId('anomaly-flag-squawk')).toBeNull()
+    })
+    it('rapid altitude flag renders during history gathering', () => {
+      renderPanel({ vertical_rate: 4000 })
+      expect(screen.getByTestId('anomaly-flag-altitude')).toHaveTextContent('CLIMB')
+    })
+    it('rapid altitude flag does not render at exactly 3000 ft/min', () => {
+      renderPanel({ vertical_rate: 3000 })
+      expect(screen.queryByTestId('anomaly-flag-altitude')).toBeNull()
+    })
+    it('rapid altitude flag does not render below the 3000 ft/min threshold', () => {
+      renderPanel({ vertical_rate: 2000 })
+      expect(screen.queryByTestId('anomaly-flag-altitude')).toBeNull()
+    })
+    it('high turn rate flag renders when a motion vector is available', () => {
+      renderPanel({}, [
+        { bearing_deg: 40, range_nm: 15, ts: 0 },
+        { bearing_deg: 90, range_nm: 10, ts: 10000 },
+      ])
+      expect(screen.getByTestId('anomaly-flag-turn')).toBeInTheDocument()
+    })
+    it('high turn rate flag does not render at exactly 3.0 deg/s', () => {
+      renderPanel({}, [
+        { bearing_deg: 40, range_nm: 10, ts: 0 },
+        { bearing_deg: 70, range_nm: 10, ts: 10000 },
+      ])
+      expect(screen.queryByTestId('anomaly-flag-turn')).toBeNull()
+    })
+    it('high turn rate flag does not render during history gathering', () => {
+      renderPanel({})
+      expect(screen.queryByTestId('anomaly-flag-turn')).toBeNull()
+    })
+    it('all three anomaly flags can render simultaneously', () => {
+      renderPanel({ squawk: '7700', vertical_rate: -4000 }, twoFixes)
+      expect(screen.getByTestId('anomaly-flag-squawk')).toBeInTheDocument()
+      expect(screen.getByTestId('anomaly-flag-altitude')).toHaveTextContent('DESCENT')
+      expect(screen.getByTestId('anomaly-flag-turn')).toBeInTheDocument()
+    })
+    it('clear state renders the no-anomalies message', () => {
+      renderPanel({}, [
+        { bearing_deg: 40, range_nm: 10, ts: 0 },
+        { bearing_deg: 70, range_nm: 10, ts: 10000 },
+      ])
+      expect(screen.getByTestId('anomaly-strip-clear')).toHaveTextContent('NO ANOMALIES')
     })
   })
 })

@@ -568,4 +568,92 @@ describe('RadarScopePanel', () => {
       expect(container.querySelector('polyline')).toBeNull()
     })
   })
+
+  describe('selected prediction box (Phase 58)', () => {
+    const aircraft = {
+      ABC123: { icao: 'ABC123', callsign: 'VOZ123', bearing_deg: 45, range_nm: 10, timestamp: '1970-01-01T00:00:11.000Z' },
+      DEF456: { icao: 'DEF456', callsign: 'QLK456', bearing_deg: 200, range_nm: 25, timestamp: '1970-01-01T00:00:11.000Z' },
+    }
+    const history = (bearing) => [
+      { bearing_deg: bearing, range_nm: 12, ts: 1000 },
+      { bearing_deg: bearing + 20, range_nm: 10, ts: 11000 },
+    ]
+
+    it('test_selected_aircraft_renders_box_not_plain_label', () => {
+      const trailsRef = { current: new Map([['ABC123', history(45)]]) }
+      const { container } = render(<RadarScopePanel adsbAircraft={aircraft} focusedFreq={TUNED_FREQ} selectedIcao="ABC123" trailsRef={trailsRef} />)
+      const box = container.querySelector('[data-testid="radar-prediction-box"]')
+      expect(box).toHaveTextContent('VOZ123')
+      expect(box).toHaveTextContent('θ')
+      expect(box).toHaveTextContent('Δr')
+      expect(container.querySelector('[data-testid="radar-blip"][data-icao="DEF456"] > text')).not.toBeNull()
+    })
+
+    it('test_box_uses_2dp_for_delta_r', () => {
+      const trailsRef = { current: new Map([['ABC123', history(45)]]) }
+      const { container } = render(<RadarScopePanel adsbAircraft={{ ABC123: { ...aircraft.ABC123, timestamp: '1970-01-01T00:00:11.000Z' } }} focusedFreq={TUNED_FREQ} selectedIcao="ABC123" trailsRef={trailsRef} />)
+      expect(container.querySelector('[data-testid="radar-prediction-box"]').textContent).toMatch(/Δr -?0\.20nm\/s/)
+    })
+
+    it('test_box_falls_back_to_icao_only_when_vector_unavailable', () => {
+      const trailsRef = { current: new Map([['ABC123', [{ bearing_deg: 45, range_nm: 10, ts: 1000 }]]]) }
+      const { container } = render(<RadarScopePanel adsbAircraft={{ ABC123: { ...aircraft.ABC123, timestamp: '1970-01-01T00:00:01.000Z' } }} focusedFreq={TUNED_FREQ} selectedIcao="ABC123" trailsRef={trailsRef} />)
+      expect(container.querySelector('[data-testid="radar-prediction-box"]').textContent).toBe('VOZ123')
+    })
+
+    it('test_box_anchor_flips_by_theta_sign', () => {
+      const positiveRef = { current: new Map([['ABC123', history(45)]]) }
+      const negativeRef = { current: new Map([['ABC123', [{ bearing_deg: 65, range_nm: 12, ts: 1000 }, { bearing_deg: 45, range_nm: 10, ts: 11000 }]]]) }
+      const positive = render(<RadarScopePanel adsbAircraft={{ ABC123: aircraft.ABC123 }} focusedFreq={TUNED_FREQ} selectedIcao="ABC123" trailsRef={positiveRef} />)
+      expect(Number(positive.container.querySelector('[data-testid="radar-prediction-box"] text').getAttribute('x'))).toBeLessThan(Number(positive.container.querySelector('[data-testid="radar-blip"] circle[filter]').getAttribute('cx')))
+      positive.unmount()
+      const negative = render(<RadarScopePanel adsbAircraft={{ ABC123: aircraft.ABC123 }} focusedFreq={TUNED_FREQ} selectedIcao="ABC123" trailsRef={negativeRef} />)
+      expect(Number(negative.container.querySelector('[data-testid="radar-prediction-box"] text').getAttribute('x'))).toBeGreaterThan(Number(negative.container.querySelector('[data-testid="radar-blip"] circle[filter]').getAttribute('cx')))
+    })
+
+    it('test_non_selected_aircraft_unchanged', () => {
+      const { container } = render(<RadarScopePanel adsbAircraft={aircraft} focusedFreq={TUNED_FREQ} selectedIcao="ABC123" />)
+      expect(container.querySelector('[data-testid="radar-blip"][data-icao="DEF456"] > text')).not.toBeNull()
+      expect(container.querySelector('[data-testid="radar-blip"][data-icao="DEF456"] [data-testid="radar-prediction-box"]')).toBeNull()
+    })
+
+    it('test_box_falls_back_to_icao_only_when_vector_non_finite', () => {
+      // ADV-02 (Phase 58-FIX): a trail whose newest fix carries a NaN
+      // bearing makes derivePredictionVector return a truthy but
+      // non-finite vector ({ thetaDegPerSec: NaN, ... }). The
+      // Number.isFinite guard in RadarScopePanel must collapse that to
+      // null so the box falls back to ICAO-only, rather than rendering
+      // "θ NaN" on a live monitoring display.
+      //
+      // The NaN is placed in the NEWEST fix deliberately: the trail
+      // polyline renderer projects history.slice(0, -1) (all stored
+      // points EXCEPT the newest), so only the finite oldest fix is
+      // drawn and no NaN leaks into the rendered SVG. The blip itself
+      // uses the aircraft's own bearing_deg (45, valid), so it projects
+      // normally; only the derived vector is poisoned. (Putting the NaN
+      // in the oldest fix would also poison the trail polyline, which
+      // is a separate pre-existing rendering concern, not what this
+      // guard test is about.)
+      const trails = [
+        { bearing_deg: 45, range_nm: 12, ts: 1000 },
+        { bearing_deg: NaN, range_nm: 10, ts: 11000 },
+      ]
+      const tref = { current: new Map([['ABC123', trails]]) }
+      const { container } = render(
+        <RadarScopePanel
+          adsbAircraft={aircraft}
+          focusedFreq={TUNED_FREQ}
+          selectedIcao="ABC123"
+          trailsRef={tref}
+        />
+      )
+      const box = container.querySelector('[data-testid="radar-prediction-box"]')
+      expect(box.textContent).toBe('VOZ123')
+      expect(box.textContent).not.toContain('θ')
+      expect(box.textContent).not.toContain('Δr')
+      // No NaN/Infinity may leak into the serialised SVG markup.
+      expect(container.innerHTML).not.toContain('NaN')
+      expect(container.innerHTML).not.toContain('Infinity')
+    })
+  })
 })

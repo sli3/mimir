@@ -154,7 +154,15 @@ describe('LlmReasoningPanel', () => {
       ).toBeInTheDocument()
     })
 
-    it('renders the prediction glyph above the verdict (Phase 55)', async () => {
+    it('does not render the prediction glyph in the result state (Phase 58-FIX)', async () => {
+      // Phase 58-FIX moved the prediction glyph OUT of LlmReasoningPanel
+      // into PathPredictionPanel's main column as a SIBLING. Rendered in
+      // isolation, LlmReasoningPanel's result state now contains only
+      // the verdict, confidence and notes — the glyph is the parent's
+      // responsibility. The glyph-as-sibling placement contract is now
+      // covered by PathPredictionPanel.test.jsx's "renders the
+      // LlmReasoningPanel child and PredictionGlyph sibling in the main
+      // column" test.
       vi.stubGlobal('fetch', mockFetchOk())
 
       render(<LlmReasoningPanel {...makeProps()} />)
@@ -163,13 +171,7 @@ describe('LlmReasoningPanel', () => {
       await waitFor(() =>
         expect(screen.getByText('Steady cruise on a stable heading')).toBeInTheDocument()
       )
-      const glyph = screen.getByTestId('prediction-glyph')
-      expect(glyph).toBeInTheDocument()
-      // Placement contract: glyph precedes the verdict in the result block.
-      const verdict = screen.getByText('Steady cruise on a stable heading')
-      expect(
-        glyph.compareDocumentPosition(verdict) & Node.DOCUMENT_POSITION_FOLLOWING
-      ).toBeTruthy()
+      expect(screen.queryByTestId('prediction-glyph')).toBeNull()
     })
 
     it('clamps an unexpected confidence tier to the low styling', async () => {

@@ -55,6 +55,7 @@ logger = logging.getLogger(__name__)
 # normal procedural turn and is NOT flagged — flagging the boundary itself
 # would cry wolf on every standard-rate hold. The flag tells the LLM
 # "treat the linear projection with suspicion", not "something is wrong".
+# Frontend pairing is enforced by tests/llm/test_path_reasoner_thresholds.py.
 _HIGH_TURN_RATE_DEG_PER_SEC: float = 3.0
 
 # Emergency squawk codes (Mode A transponder). 7500 = unlawful interference
@@ -304,11 +305,12 @@ class PathReasoner:
     def _emergency_squawk_flagged(self, squawk: str | None) -> bool:
         """True when the squawk is one of the three ICAO emergency codes.
 
-        TD-53-A: AdsbMessage has no `squawk` field (DF4/DF5 surveillance
-        replies, where squawk lives, are not decoded by Mimir's PipeDecoder).
-        The hard-rule emergency flagging is implemented as defensive code for
-        a future where squawk is decoded. Today, squawk is always None from
-        real data; the flag never fires. Documented in Phase 53 build report.
+        Squawk is live since Phase 54, when DF5 surveillance replies began
+        flowing through the decoder. TD-53-A is closed. A missing value simply
+        means this aircraft is not currently sending a DF5 identity reply,
+        not that the field is unpopulated. The behaviour remains deliberately
+        strict: None returns False and the trimmed string must be one of the
+        emergency codes.
         """
         if squawk is None:
             return False
