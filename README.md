@@ -149,8 +149,8 @@ Full phase-by-phase history lives in [`docs/ROADMAP.md`](./docs/ROADMAP.md), whi
 single source of truth for phase status and test counts. This section shows
 only a quick-glance summary — update `docs/ROADMAP.md` first, then sync this block.
 
-**Current phase: 55 — Radar prediction panel bundle (Bearing/Range field, prediction glyph, theta bound widening, 400→rejected mapping, prediction panel sizing)**
-**Total: 1170 passing (823 pytest + 347 Vitest), 0 failures**
+**Current phase: 58 — Floating θ/Δr box + continuous anomaly strip (RadarScopePanel 3-line selected-aircraft box with anchor flip by θ sign; PathPredictionPanel continuous anomaly strip with 3 flags — emergency squawk / rapid altitude / high turn rate; bottom panel redesign — PredictionGlyph moved out of LlmReasoningPanel to sibling column, orphan physics readout removed, anomaly strip restyled as floating box; Python↔JS contract test for HIGH_TURN_RATE; stale squawk comments cleaned in path_reasoner.py and LlmReasoningPanel.jsx; post-build manual corrections by Prin — BOX_PAD_X inset, 400px→300px panel height, font-size trims, anomaly strip align-self fix)**
+**Total: 1189 passing (824 pytest + 365 Vitest), 0 failures**
 
 > **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector
 > store (`data/vectorstore/`) must be re-seeded after deploying this build.
