@@ -149,8 +149,8 @@ Full phase-by-phase history lives in [`docs/ROADMAP.md`](./docs/ROADMAP.md), whi
 single source of truth for phase status and test counts. This section shows
 only a quick-glance summary — update `docs/ROADMAP.md` first, then sync this block.
 
-**Current phase: 52-HOTFIX — corrected the milliseconds/seconds unit error in derivePredictionVector()**
-**Total: 1148 passing (815 pytest + 333 Vitest), 0 failures**
+**Current phase: 55 — Radar prediction panel bundle (Bearing/Range field, prediction glyph, theta bound widening, 400→rejected mapping, prediction panel sizing)**
+**Total: 1170 passing (823 pytest + 347 Vitest), 0 failures**
 
 > **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector
 > store (`data/vectorstore/`) must be re-seeded after deploying this build.

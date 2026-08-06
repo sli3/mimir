@@ -242,9 +242,9 @@ uv run python tools/seed_chromadb.py
 > when a governance step fails. Trimmed 2026-07-21 to a pointer, so there is
 > only one table left to go stale.
 
-**Current phase:** 52-HOTFIX — corrected the milliseconds/seconds unit error in derivePredictionVector() (see docs/ROADMAP.md for full detail).
+**Current phase:** 55 — Radar prediction panel bundle (Bearing/Range field, prediction glyph, theta bound widening, 400→rejected mapping, prediction panel sizing) (see docs/ROADMAP.md for full detail).
 
-**Current total:** 1148 passing (815 pytest + 333 Vitest), 0 failures.
+**Current total:** 1170 passing (823 pytest + 347 Vitest), 0 failures.
 
 **Reserved:** None.
 
@@ -603,6 +603,7 @@ Do not apply this pre-emptively — only if context problems are observed.
 | TD-54-4 (advisory, not actionable) | RadarPage.jsx's handleSelectAircraft is defined inline at the component level, creating a new function reference on every render. Neither RadarScopePanel nor AircraftDetailPanel is wrapped in React.memo, so this has no observable performance impact today. Pure function, no side effects. Noted for completeness only. | None (advisory only) |
 | TD-54-5 | tools/compare_decode_rate.py's module docstring and inline comments describe its frame count as "CRC-valid DF17/18 extended squitter" frames specifically. As of Phase 54, AdsbDecoder.decode() also accepts DF4/DF5, so this tool's valid_frames count now silently includes DF4/DF5 frames without the docstring or output labelling saying so. The tool itself still functions correctly (it calls the real production decode path, which is the whole point of the tool), but its documentation and the "DF17/18" framing in _print_summary()'s output are now inaccurate. Needs either: (a) a docstring/comment update to say "DF4/5/17/18" instead of "DF17/18", or (b) an explicit per-DF breakdown in the summary output so a HackRF-vs-Pluto comparison run isn't silently conflating four different message types under one "valid frames" number. Low-to-medium priority — does not block current use, but the next person to run this tool for a real gain/hardware comparison should not be misled by stale docs. | Future phase (one-line doc fix or per-DF tally, desk-fixable) |
 | ~~TD-54-6~~ | ~~Live testing on the ADALM-PLUTO device immediately following this phase's deployment showed a DF4/DF5 frame volume noticeably higher than DF17 volume...~~ | ~~Future dedicated investigation phase (field/desk hybrid)~~ (RESOLVED — Phase 54-HOTFIX: Trust-gated DF4/DF5 via _trusted_icaos cache (300s TTL, per-ICAO, refreshed on genuine DF17/18). pyModeS pinned to ==3.3.0 because the gate's correctness depends on 3.3.0's specific crc_valid semantics; 3.5+ would silently reject every DF4/DF5 frame. Commits 815f394 + 5b50cce.) |
+| TD-55-1 | `AircraftDetailPanel.jsx`'s local `formatBearingRange` helper does not apply `% 360` the way the shared `formatBearing()` in `utils/aircraftFormat.js` does. A bearing of exactly 360° would render as "360°" instead of "000°". Unreachable from `BearingTracker` today (its `atan2` output is already normalised to [0, 360)), so this is a consistency gap rather than a live bug — but a local helper duplicating a shared formatter is how the two drift apart later. Fix: reuse `formatBearing()` rather than reimplementing it. | Future phase |
 
 ### Accepted / Won't Fix (documented, working as intended — not active work)
 
