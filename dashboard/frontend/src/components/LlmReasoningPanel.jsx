@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
+import PredictionGlyph from './PredictionGlyph.jsx'
 
 /**
  * LLM Reasoning column for the /radar Path & Trajectory Prediction
@@ -59,10 +60,15 @@ const LOADING_BUSY_MESSAGE = 'ANALYSING — SERVER BUSY…'
 // User-facing error text keyed on the structured cause attached by
 // postReasonRequest (or forwarded from the server's unavailable payload).
 // Anything unrecognised falls through to the generic message.
+// "rejected" (Phase 55) covers HTTP 400 validation rejections - see the
+// comment at the !res.ok branch in postReasonRequest for why a 400 must
+// not be disguised as a connectivity failure. The copy is terse with no
+// trailing full stop, matching the existing entries.
 const ERROR_MESSAGES = {
   timeout: 'LLM timed out — server busy, retry shortly',
   network: 'LLM unreachable',
   parse: 'Response unreadable',
+  rejected: 'Invalid request — payload rejected',
 }
 const ERROR_MESSAGE_GENERIC = 'LLM unavailable'
 
@@ -74,7 +80,8 @@ const IDLE_STATE = { status: 'idle' }
  * POST the reasoning request. Isolates all network logic from the React
  * state machine: resolves with the parsed body on success, or rejects
  * with an Error carrying a `.cause` field of "timeout" | "network" |
- * "parse". An AbortError from the caller's own controller propagates
+ * "parse" | "rejected" (400 validation rejection, Phase 55). An
+ * AbortError from the caller's own controller propagates
  * unchanged so the effect can recognise and ignore it.
  *
  * The server never 500s on LLM failure — it returns 200 with
@@ -112,11 +119,18 @@ async function postReasonRequest({ payload, signal }) {
   }
 
   if (!res.ok) {
-    // A 400 here means the panel sent an invalid payload — a programming
-    // error, not an operator condition. Surface as a network-class error
-    // rather than pretending the LLM answered.
+    // 400 is a validation rejection: the panel sent a payload the server
+    // could not accept. This is now an operator-visible condition
+    // (since Phase 55 widened the theta bound, a 400 is no longer
+    // only a Mimir-side programming error) and must not be disguised
+    // as a connectivity failure.
+    //
+    // Every other non-200 status (500, 502, 503, ...) is still a
+    // network-class error: the request reached the server but the
+    // server did not produce a usable answer.
+    const cause = res.status === 400 ? 'rejected' : 'network'
     const wrapped = new Error(body?.error || 'Request rejected by server')
-    wrapped.cause = 'network'
+    wrapped.cause = cause
     throw wrapped
   }
 
@@ -287,6 +301,12 @@ export default function LlmReasoningPanel({
       )}
       {state.status === 'result' && (
         <div className="radar-prediction-llm-result">
+          {/* Glyph placed ABOVE the verdict (Phase 55): the directional
+              projection gives context that frames the verdict text, the
+              same way a compass rose precedes a bearing readout. The
+              glyph renders nothing when the vector is absent, so no
+              guard is needed here. */}
+          <PredictionGlyph vector={vector} />
           <div className="radar-prediction-llm-verdict">{state.verdict}</div>
           <div
             className={`radar-prediction-llm-confidence radar-prediction-llm-confidence-${state.confidence}`}

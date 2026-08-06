@@ -269,7 +269,13 @@ _REASON_ICAO_RE = re.compile(r"^[0-9A-Fa-f]{6}$")
 _REASON_NUMERIC_RANGES = {
     "bearing_deg": (0.0, 360.0),
     "range_nm": (0.0, 1000.0),
-    "theta_deg_per_sec": (-30.0, 30.0),
+    # Widened from ±30 to ±90 in Phase 55: this bound's job is
+    # prompt-injection defence, not physical plausibility filtering —
+    # ±90 discharges that duty identically while removing the
+    # false-positive risk on a legitimate close overhead pass (computed:
+    # >30°/s occurs inside ~0.16 nm at 300kt groundspeed). Do not widen
+    # any other bound without separate review.
+    "theta_deg_per_sec": (-90.0, 90.0),
     "delta_r_nm_per_sec": (-1.0, 1.0),
     "projected_bearing_deg": (0.0, 360.0),
     "projected_range_nm": (0.0, 1000.0),

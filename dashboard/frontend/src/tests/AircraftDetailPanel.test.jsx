@@ -238,6 +238,65 @@ describe('AircraftDetailPanel', () => {
     const squawkField = pinned.getByText('Squawk').closest('.radar-detail-field')
     expect(within(squawkField).getByText('—')).toBeInTheDocument()
   })
+
+  it('renders the combined bearing/range field in the pinned detail grid (Phase 55)', () => {
+    // Default fixture: bearing_deg 45, range_nm 10.
+    const adsbAircraft = { ABC123: makeAircraft() }
+    render(
+      <AircraftDetailPanel
+        adsbAircraft={adsbAircraft}
+        maxRangeNm={40}
+        selectedIcao="ABC123"
+      />
+    )
+    const pinned = within(screen.getByTestId('radar-detail-pinned'))
+    expect(pinned.getByText('Bearing / Range')).toBeInTheDocument()
+    expect(pinned.getByText('045° / 10.0nm')).toBeInTheDocument()
+  })
+
+  it('zero-pads a single-digit bearing to three characters (Phase 55)', () => {
+    const adsbAircraft = { ABC123: makeAircraft({ bearing_deg: 5 }) }
+    render(
+      <AircraftDetailPanel
+        adsbAircraft={adsbAircraft}
+        maxRangeNm={40}
+        selectedIcao="ABC123"
+      />
+    )
+    const pinned = within(screen.getByTestId('radar-detail-pinned'))
+    expect(pinned.getByText('005° / 10.0nm')).toBeInTheDocument()
+  })
+
+  it('renders the em-dash for bearing/range when bearing_deg is null (Phase 55)', () => {
+    const adsbAircraft = { ABC123: makeAircraft({ bearing_deg: null }) }
+    render(
+      <AircraftDetailPanel
+        adsbAircraft={adsbAircraft}
+        maxRangeNm={40}
+        selectedIcao="ABC123"
+      />
+    )
+    const pinned = within(screen.getByTestId('radar-detail-pinned'))
+    const field = pinned.getByText('Bearing / Range').closest('.radar-detail-field')
+    expect(within(field).getByText('—')).toBeInTheDocument()
+    // The whole field is the placeholder - no partial "° / nm" suffix.
+    expect(field.textContent).not.toContain('nm')
+  })
+
+  it('renders the em-dash for bearing/range when range_nm is null (Phase 55)', () => {
+    const adsbAircraft = { ABC123: makeAircraft({ range_nm: null }) }
+    render(
+      <AircraftDetailPanel
+        adsbAircraft={adsbAircraft}
+        maxRangeNm={40}
+        selectedIcao="ABC123"
+      />
+    )
+    const pinned = within(screen.getByTestId('radar-detail-pinned'))
+    const field = pinned.getByText('Bearing / Range').closest('.radar-detail-field')
+    expect(within(field).getByText('—')).toBeInTheDocument()
+    expect(field.textContent).not.toContain('°')
+  })
 })
 
 describe('AircraftDetailPanel deselect toggle contract (Phase 54)', () => {

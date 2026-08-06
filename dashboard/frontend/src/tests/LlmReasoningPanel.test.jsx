@@ -154,6 +154,24 @@ describe('LlmReasoningPanel', () => {
       ).toBeInTheDocument()
     })
 
+    it('renders the prediction glyph above the verdict (Phase 55)', async () => {
+      vi.stubGlobal('fetch', mockFetchOk())
+
+      render(<LlmReasoningPanel {...makeProps()} />)
+      fireEvent.click(screen.getByRole('button'))
+
+      await waitFor(() =>
+        expect(screen.getByText('Steady cruise on a stable heading')).toBeInTheDocument()
+      )
+      const glyph = screen.getByTestId('prediction-glyph')
+      expect(glyph).toBeInTheDocument()
+      // Placement contract: glyph precedes the verdict in the result block.
+      const verdict = screen.getByText('Steady cruise on a stable heading')
+      expect(
+        glyph.compareDocumentPosition(verdict) & Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+    })
+
     it('clamps an unexpected confidence tier to the low styling', async () => {
       vi.stubGlobal(
         'fetch',
@@ -231,6 +249,52 @@ describe('LlmReasoningPanel', () => {
       await waitFor(() =>
         expect(screen.getByText('Response unreadable')).toBeInTheDocument()
       )
+    })
+
+    it('maps a 400 validation rejection to the rejected message, not "LLM unreachable" (Phase 55)', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() =>
+          Promise.resolve({
+            ok: false,
+            status: 400,
+            json: () => Promise.resolve({ error: 'Invalid theta_deg_per_sec' }),
+          })
+        )
+      )
+
+      render(<LlmReasoningPanel {...makeProps()} />)
+      fireEvent.click(screen.getByRole('button'))
+
+      await waitFor(() =>
+        expect(
+          screen.getByText('Invalid request — payload rejected')
+        ).toBeInTheDocument()
+      )
+      expect(screen.queryByText('LLM unreachable')).not.toBeInTheDocument()
+    })
+
+    it('maps a 500 server failure to "LLM unreachable" (Phase 55)', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() =>
+          Promise.resolve({
+            ok: false,
+            status: 500,
+            json: () => Promise.resolve({ error: 'Internal server error' }),
+          })
+        )
+      )
+
+      render(<LlmReasoningPanel {...makeProps()} />)
+      fireEvent.click(screen.getByRole('button'))
+
+      await waitFor(() =>
+        expect(screen.getByText('LLM unreachable')).toBeInTheDocument()
+      )
+      expect(
+        screen.queryByText('Invalid request — payload rejected')
+      ).not.toBeInTheDocument()
     })
   })
 

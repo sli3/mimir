@@ -198,11 +198,13 @@ body.radar-page::before {
 .radar-prediction-panel {
   grid-row: 3;
   /* Fixed height per Phase 52 spec: the strip must never resize
-     between its three states. Single-row layout (not 4-row grid
-     like the pinned detail section), so shorter than the 180px
-     .radar-detail-pinned. 70px comfortably fits the two-column
-     text at 13px with vertical padding. */
-  height: 70px;
+     between its states. Phase 55 raised the height 70px -> 400px so the
+     LLM reasoning output reads as a primary readout rather than a
+     footnote: Mimir is an LLM-powered monitoring tool first, and the
+     verdict, confidence, notes and prediction glyph are headline
+     content, not a status line. The fixed-height rule itself is
+     unchanged - content swap only, never a resize. */
+  height: 400px;
   flex-shrink: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -231,6 +233,10 @@ body.radar-page::before {
 
 .radar-prediction-physics {
   color: var(--text-bright, #aaddff);
+  /* Phase 55: explicit 16px (was default-inherited 13px) so the physics
+     readout stays legible against the enlarged verdict on the other
+     half of the strip. */
+  font-size: 16px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -251,12 +257,14 @@ body.radar-page::before {
   text-align: right;
 }
 
-/* --- LlmReasoningPanel (Phase 53) --- */
+/* --- LlmReasoningPanel (Phase 53; restyled Phase 55) --- */
 /* The .radar-prediction-llm-pending rule above is superseded by these
    styles but kept for one release in case of a rollback. All colours
    reuse the existing cyberpunk custom properties; no new hardcoded
-   palette entries. Everything fits inside the panel's fixed 70px row:
-   result state is three short lines at 12/9/10px (~45px with gaps). */
+   palette entries. Everything fits inside the panel's fixed 400px row
+   (raised from 70px in Phase 55): the result state is the prediction
+   glyph (block, up to 200px wide) plus verdict at 22px, confidence at
+   13px, and notes at 16px line-clamped to 6 lines. */
 
 .radar-prediction-llm {
   min-width: 0;
@@ -318,23 +326,28 @@ body.radar-page::before {
 .radar-prediction-llm-result {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 8px;
   min-width: 0;
   overflow: hidden;
 }
 
 .radar-prediction-llm-verdict {
   /* Amber matches the prediction panel's accent (selection ring,
-     ghost line). */
+     ghost line). Phase 55: 12px -> 22px. The verdict is the headline
+     of the whole strip, so it carries the largest type on the page
+     outside the header. Wraps rather than ellipsing - truncating the
+     headline would reproduce the exact crop bug Phase 55 fixed in the
+     notes line below. */
   color: var(--neon-amber, #FFCC00);
-  font-size: 12px;
-  white-space: nowrap;
+  font-size: 22px;
+  line-height: 1.3;
+  white-space: normal;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .radar-prediction-llm-confidence {
-  font-size: 9px;
+  /* Phase 55: 9px -> 13px. */
+  font-size: 13px;
   letter-spacing: 1px;
   text-transform: uppercase;
 }
@@ -352,11 +365,64 @@ body.radar-page::before {
 }
 
 .radar-prediction-llm-notes {
+  /* Phase 55: 10px -> 16px, and the line clamp raised 3 -> 6. The
+     400px strip has room for the full reasoning, and the original
+     white-space: nowrap was the direct cause of the mid-sentence crop
+     this phase set out to fix. overflow-wrap guards the remaining
+     case: a single unbroken token longer than the column. */
   color: var(--text-dim, #4A7A90);
-  font-size: 10px;
-  white-space: nowrap;
+  font-size: 16px;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: break-word;
+  white-space: normal;
+}
+
+/* --- PredictionGlyph (Phase 55) --- */
+
+.prediction-glyph {
+  display: block;
+  width: 100%;
+  /* Kept tight so the glyph does not fight the result text for
+     vertical space inside the fixed-height strip. */
+  max-width: 200px;
+  margin-bottom: 2px;
+  /* Right-aligned to match the verdict/confidence/notes stack it sits
+     above - .radar-prediction-llm sets text-align: right, but the glyph
+     is a block SVG and does not inherit that. */
+  align-self: flex-end;
+}
+
+.prediction-glyph-pulse {
+  /* CSS-only pulse, Approach A: translate a small inner marker circle
+     along the dot path from the leftmost solid dot (translateX 0) to
+     the rightmost ghost dot (translateX 120 units - the dots sit at
+     x=40..160 inside a viewBox whose units map 1:1 to px here). The
+     marker lives inside the rotated group, so the pulse follows the
+     projected direction. No JS timers involved. */
+  animation: prediction-pulse 2.4s linear infinite;
+}
+
+@keyframes prediction-pulse {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(120px);
+    opacity: 0.2;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .prediction-glyph-pulse {
+    /* Render the glyph statically when the operator prefers reduced
+       motion: the dots and connector still convey the projection. */
+    animation: none;
+  }
 }
 
 .radar-prediction-llm-error {

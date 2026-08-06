@@ -212,6 +212,70 @@ class TestValidationFailures:
         assert response.status_code == 400
 
 
+class TestThetaBoundWidened:
+    """Phase 55: theta_deg_per_sec bound widened from ±30 to ±90.
+
+    The bound's job is prompt-injection defence, not physical
+    plausibility filtering — a legitimate close overhead pass can exceed
+    30°/s, so values up to ±90 must validate.
+    """
+
+    def _post_with_theta(self, client, mock_reasoner, theta):
+        mock_reasoner.reason.return_value = ReasoningResult(
+            status="ok", verdict="v", confidence="low", notes="n",
+            raw_response="", cause=None,
+        )
+        return client.post(
+            "/api/radar/reason",
+            json=_valid_payload(theta_deg_per_sec=theta),
+        )
+
+    def test_theta_60_accepted(self, client, mock_reasoner):
+        """60°/s was rejected under the old ±30 bound; now accepted."""
+        response = self._post_with_theta(client, mock_reasoner, 60.0)
+        assert response.status_code == 200
+
+    def test_theta_45_accepted(self, client, mock_reasoner):
+        response = self._post_with_theta(client, mock_reasoner, 45.0)
+        assert response.status_code == 200
+
+    def test_theta_89_99_accepted(self, client, mock_reasoner):
+        response = self._post_with_theta(client, mock_reasoner, 89.99)
+        assert response.status_code == 200
+
+    def test_theta_90_boundary_accepted(self, client, mock_reasoner):
+        """The boundary value itself is inclusive."""
+        response = self._post_with_theta(client, mock_reasoner, 90.0)
+        assert response.status_code == 200
+
+    def test_theta_90_1_rejected(self, client):
+        response = client.post(
+            "/api/radar/reason",
+            json=_valid_payload(theta_deg_per_sec=90.1),
+        )
+        assert response.status_code == 400
+
+    def test_theta_minus_90_1_rejected(self, client):
+        response = client.post(
+            "/api/radar/reason",
+            json=_valid_payload(theta_deg_per_sec=-90.1),
+        )
+        assert response.status_code == 400
+
+    def test_theta_nan_rejected(self, client):
+        response = client.post(
+            "/api/radar/reason",
+            json=_valid_payload(theta_deg_per_sec=float("nan")),
+        )
+        assert response.status_code == 400
+
+    def test_theta_missing_key_rejected(self, client):
+        payload = _valid_payload()
+        del payload["theta_deg_per_sec"]
+        response = client.post("/api/radar/reason", json=payload)
+        assert response.status_code == 400
+
+
 class TestLlmFailureNever500:
     """Every LLM failure path must surface as 200 + status unavailable."""
 

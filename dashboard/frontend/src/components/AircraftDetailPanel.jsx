@@ -24,9 +24,9 @@ import {
  *      card never resizes: with no selection it renders a placeholder
  *      at the same height, with a selection it swaps in a 2-column
  *      grid - static identity fields on the left (callsign, ICAO hex,
- *      squawk, one intentionally blank slot), dynamic per-frame fields
+ *      squawk, bearing/range - 4 fields), dynamic per-frame fields
  *      on the right (altitude, track, groundspeed, vertical rate
- *      classification).
+ *      classification - 4 fields).
  *
  * Every missing/null field renders the em-dash placeholder (U+2014),
  * matching the AdsbAircraftPanel convention via the shared
@@ -67,6 +67,18 @@ export default function AircraftDetailPanel({
   const speedWithUnit = (value) => {
     const formatted = formatSpeed(value)
     return formatted === '—' ? formatted : `${formatted}kt`
+  }
+
+  // Combined bearing/range readout (Phase 55). Bearing rounds to whole
+  // degrees and zero-pads to three characters ("005°", "045°"); range
+  // renders to one decimal ("12.3nm"). If EITHER input is missing the
+  // whole field falls back to the em-dash placeholder - a partial
+  // readout would imply precision the data does not have.
+  const formatBearingRange = (bearing, range) => {
+    if (bearing === null || bearing === undefined) return '—'
+    if (range === null || range === undefined) return '—'
+    const padded = String(Math.round(bearing)).padStart(3, '0')
+    return `${padded}° / ${range.toFixed(1)}nm`
   }
 
   return (
@@ -121,10 +133,16 @@ export default function AircraftDetailPanel({
                 <span className="radar-detail-label">Squawk</span>
                 <span className="radar-detail-value">{selected.squawk ?? '—'}</span>
               </div>
-              {/* 4th static-column slot intentionally blank: the static
-                  column has 3 identity fields, the dynamic column has 4
-                  per-frame fields. The unevenness is per spec. */}
-              <div className="radar-detail-field" aria-hidden="true" />
+              {/* 4th static-column slot filled in Phase 55 with the
+                  combined bearing/range readout. Both columns now carry
+                  4 fields each; the Phase 51 "unevenness is per spec"
+                  claim is removed. */}
+              <div className="radar-detail-field">
+                <span className="radar-detail-label">Bearing / Range</span>
+                <span className="radar-detail-value">
+                  {formatBearingRange(selected.bearing_deg, selected.range_nm)}
+                </span>
+              </div>
             </div>
             <div className="radar-detail-column">
               <div className="radar-detail-field">
