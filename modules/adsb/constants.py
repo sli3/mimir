@@ -10,13 +10,20 @@ AU_ADSB_FREQUENCY_HZ: int = 1_090_000_000
 # Accept anything within 2 MHz of the ADS-B centre frequency
 FREQ_TOLERANCE_HZ: int = 2_000_000
 
-# Adelaide receiver reference position.
-# NOTE: No longer used for primary position decoding.
-# PipeDecoder (modules/adsb/decoder.py) performs global CPR decoding
-# without a reference point and does not import these constants.
-# Kept here for diagnostic tools and optional fallback use.
-ADELAIDE_LAT: float = -34.93
-ADELAIDE_LON: float = 138.60
+# Receiver reference position.
+#
+# NOT used for primary position decoding — PipeDecoder
+# (modules/adsb/decoder.py) performs global CPR decoding without a
+# reference point and does not import these constants.
+#
+# IS the live receiver reference for every bearing_deg and range_nm
+# shown on the /radar page: BearingTracker (modules/adsb/bearing_tracker.py)
+# uses these as the great-circle reference for bearing and range,
+# AdsbSubscriber (modules/adsb/subscriber.py) attaches them to the
+# SocketIO payload at every broadcast, and the dashboard renders them
+# directly.
+ADELAIDE_LAT: float = -34.92290
+ADELAIDE_LON: float = 138.61047
 
 # Aircraft table retention
 MAX_AIRCRAFT: int = 30
