@@ -154,6 +154,7 @@ body.radar-page::before {
   font-family: var(--font-data, 'Share Tech Mono', 'Courier New', monospace);
   font-size: 12px;
   color: var(--text-dim, #4A7A90);
+  padding: 0 12px;
 }
 
 .radar-detail-grid {
@@ -207,14 +208,20 @@ body.radar-page::before {
      resize. */
   height: 300px;
   flex-shrink: 0;
-  display: grid;
-  /* Phase 58-FIX: main column (glyph + LLM reasoning) is the wider 3fr
-     track; the anomaly flag strip is a 1fr sidebar on the right. The
-     strip fills the freed space alongside the glyph+reasoning block as
-     one coherent composition, not a separate row above or below. */
-  grid-template-columns: minmax(0, 3fr) minmax(0, 1fr);
-  gap: 0 16px;
-  align-items: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  /* Phase 58-FIX-4 (Fix 3): the panel was a 2-column grid (main left,
+     anomaly strip right). Live testing showed the anomaly sidebar read
+     as a disconnected box floating in empty space, because the main
+     column's content (glyph + verdict) rarely fills the full 300px row
+     height, leaving a large dead gap beside the sidebar. The panel is
+     now a single-column flex container so content stacks vertically:
+     in state 3 the anomaly strip sits beside the glyph inside
+     .radar-prediction-glyph-row, with the LLM verdict full-width
+     underneath; in state 2 the strip is a sibling block below the
+     gathering text. align-items defaults to stretch (cross axis =
+     width), so .radar-prediction-main fills the panel width. */
   padding: 0 16px;
   background: var(--bg-header, #050C11);
   border-top: 1px solid var(--border, #1A3040);
@@ -235,6 +242,18 @@ body.radar-page::before {
   min-height: 0;
   padding: 8px 0;
   gap: 8px;
+}
+
+.radar-prediction-glyph-row {
+  /* Phase 58-FIX-4 (Fix 3): holds <PredictionGlyph> and the anomaly
+     strip side-by-side in state 3. align-items: flex-start lets the
+     strip hug its own content height (it also carries align-self:
+     flex-start from its own rule) rather than stretching to the
+     glyph's tall SVG box. The LLM verdict sits full-width underneath
+     this row, still inside .radar-prediction-main. */
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
 }
 
 .radar-anomaly-strip {
@@ -284,7 +303,22 @@ body.radar-page::before {
 
 .radar-prediction-placeholder,
 .radar-prediction-gathering {
-  grid-column: 1 / -1;
+  /* Phase 58-FIX-4 (Fix 3): was `grid-column: 1 / -1` under the old
+     2-column grid parent. The parent is now a single-column flex
+     container, so grid-column is a no-op; width: 100% is the explicit
+     flex-column equivalent (redundant with the default align-items:
+     stretch, but kept for clarity). */
+  width: 100%;
+  /* Phase 58-FIX-4 (padding follow-up): `.radar-prediction-panel` is a
+     flex COLUMN whose default justify-content is flex-start, so a
+     single child (this placeholder, in states 1/2) was pinned flush to
+     the panel's TOP border regardless of padding — padding is
+     horizontal-only spacing, not a fix for a structural top-alignment
+     issue. height: 100% lets this element fill the panel's available
+     vertical space so its own align-items/justify-content: center
+     actually has room to centre within, matching the pattern already
+     used by .radar-detail-pinned-placeholder above. */
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -292,6 +326,7 @@ body.radar-page::before {
   font-size: 12px;
   color: var(--text-dim, #4A7A90);
   letter-spacing: 1px;
+  padding: 0 12px;
 }
 
 .radar-prediction-llm-pending {
@@ -331,7 +366,10 @@ body.radar-page::before {
 
 .radar-prediction-llm-idle {
   display: flex;
-  justify-content: flex-end;
+  /* Phase 58-FIX-4 (Fix 1): flush-left so the "ANALYSE PATH WITH LLM"
+     button reads glyph -> button left-to-right, matching the left-
+     aligned verdict text below it. Was flex-end (flush right). */
+  justify-content: flex-start;
   align-items: center;
 }
 
@@ -443,7 +481,19 @@ body.radar-page::before {
   /* Kept tight so the glyph does not fight the result text for
      vertical space inside the fixed-height strip. */
   max-width: 200px;
-  margin-bottom: 2px;
+  /* Phase 58-FIX-4 (Fix 2): NEGATIVE margin pulls the LLM verdict
+     panel upward, closing the empty vertical gap that the glyph's
+     90-unit-tall viewBox leaves around the dot row (the dots sit at
+     y=45 of 90, so ~45 units of empty SVG sit above and below them
+     at rest or small rotation). -28px is a starting point in the
+     -20px to -30px range; live-tune if the verdict crowds the dots. */
+  margin-bottom: -28px;
+  /* Phase 58-FIX-4 (Fix 2): let the rotated dot row paint outside its
+     own box at large bearing rates. The viewBox is deliberately 90
+     units tall so the +/-45 deg clamp never clips the dot-row endpoints
+     (y ~= 2.6..87.4); without overflow: visible the negative margin
+     above could clip the upper endpoint on a steep positive turn. */
+  overflow: visible;
   /* Top-left of the main column. Phase 58-FIX moved this glyph out of
      LlmReasoningPanel into .radar-prediction-main (a flex COLUMN), so
      the flex shorthand must not pin a height basis on the main axis:

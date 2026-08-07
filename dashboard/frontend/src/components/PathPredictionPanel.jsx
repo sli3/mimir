@@ -20,17 +20,19 @@ const HIGH_TURN_RATE_DEG_PER_SEC = 3.0
 
 /**
  * Path & Trajectory Prediction strip for the /radar page (Phase 52;
- * right column wired in Phase 53).
+ * LLM column wired in Phase 53; restructured Phase 58-FIX-4).
  *
  * Sits below the radar-scope-container as a fixed-height strip. The
- * MAIN (left, wider) column stacks the prediction glyph above the Phase
- * 53 LlmReasoningPanel child (a manual "ANALYSE PATH WITH LLM" button
- * that POSTs the physics facts to /api/radar/reason and renders the
- * verdict). The RIGHT column is the continuous anomaly flag strip,
- * which fills the freed space alongside the glyph+reasoning block as
- * one coherent bottom-panel composition. PathPredictionPanel itself
- * still makes NO network, socket, or inference call of any kind — all
- * request state lives inside the child component.
+ * panel is a single-column flex container (Phase 58-FIX-4 replaced the
+ * old 2-column grid, whose right-hand anomaly sidebar read as a
+ * disconnected floating box). In state 3 the prediction glyph and the
+ * anomaly flag strip sit side-by-side inside .radar-prediction-glyph-
+ * row, with the Phase 53 LlmReasoningPanel (a manual "ANALYSE PATH WITH
+ * LLM" button that POSTs the physics facts to /api/radar/reason and
+ * renders the verdict) full-width underneath. In state 2 the anomaly
+ * strip is a sibling block below the gathering text. PathPredictionPanel
+ * itself still makes NO network, socket, or inference call of any kind
+ * — all request state lives inside the child component.
  *
  * The θ/Δr physics readout that previously lived here as a third
  * on-screen copy was removed in Phase 58-FIX: that data now lives in
@@ -39,10 +41,12 @@ const HIGH_TURN_RATE_DEG_PER_SEC = 3.0
  *
  * Three render states, mirroring the AircraftDetailPanel pattern:
  *   1. No selection (or the selected ICAO is gone) — placeholder text.
- *   2. Selection but fewer than 2 trail fixes — "gathering" text.
- *   3. Selection with 2+ trail fixes — prediction glyph +
- *      LlmReasoningPanel (plus the anomaly strip, which renders in
- *      states 2 and 3).
+ *   2. Selection but fewer than 2 trail fixes — "gathering" text, with
+ *      the anomaly strip as a sibling below .radar-prediction-main.
+ *   3. Selection with 2+ trail fixes — prediction glyph + anomaly strip
+ *      inside .radar-prediction-glyph-row, plus LlmReasoningPanel full-
+ *      width underneath (the anomaly strip renders in states 2 and 3;
+ *      only its position in the tree differs between them).
  *
  * Passive receive display only — no TX capability, no inference calls
  * from this component (the LLM column is a separate child).
@@ -186,15 +190,19 @@ export default function PathPredictionPanel({
     )
   }
 
-  // State 3: prediction glyph + LLM reasoning in the main (left)
-  // column, anomaly strip in the right column. The standalone θ/Δr
-  // physics readout that used to live here was removed in Phase 58-FIX
-  // — its data is in the floating scope box on the selected aircraft's
-  // blip, so a third copy here was redundant.
+  // State 3: prediction glyph + anomaly strip sit side-by-side inside
+  // .radar-prediction-glyph-row (Phase 58-FIX-4), with LlmReasoningPanel
+  // full-width underneath in the same .radar-prediction-main column.
+  // The standalone θ/Δr physics readout that used to live here was
+  // removed in Phase 58-FIX — its data is in the floating scope box on
+  // the selected aircraft's blip, so a third copy here was redundant.
   return (
     <div className="radar-prediction-panel">
       <div className="radar-prediction-main">
-        <PredictionGlyph vector={prediction.vector} />
+        <div className="radar-prediction-glyph-row">
+          <PredictionGlyph vector={prediction.vector} />
+          {anomalyStrip}
+        </div>
         <LlmReasoningPanel
           icao={selectedIcao}
           callsign={selected.callsign ?? null}
@@ -210,7 +218,6 @@ export default function PathPredictionPanel({
           trailLength={prediction.history?.length ?? 0}
         />
       </div>
-      {anomalyStrip}
     </div>
   )
 }
