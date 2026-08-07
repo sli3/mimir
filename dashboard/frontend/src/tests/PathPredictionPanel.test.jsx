@@ -77,6 +77,29 @@ describe('PathPredictionPanel', () => {
       const gathering = screen.getByTestId('radar-prediction-gathering')
       expect(gathering.textContent).toContain('gathering position history (1 fix)')
     })
+
+    it('keeps the anomaly strip as a direct child of the panel, outside .radar-prediction-main (Phase 58-FIX-4)', () => {
+      // Phase 58-FIX-4 (Fix 3): the anomaly strip relocates between
+      // states. In state 2 (no glyph yet) the strip stays a direct
+      // child of .radar-prediction-panel, a sibling below .radar-
+      // prediction-main — it is NOT inside .radar-prediction-glyph-row
+      // (which only exists in state 3).
+      const { container } = render(
+        <PathPredictionPanel
+          adsbAircraft={{ ABC123: makeAc() }}
+          selectedIcao="ABC123"
+          trailsRef={makeTrailsRef()}
+        />
+      )
+      const panel = container.querySelector('.radar-prediction-panel')
+      const main = container.querySelector('.radar-prediction-main')
+      // The strip is a DIRECT child of the panel (not nested in main).
+      const strip = panel.querySelector(':scope > [data-testid="radar-anomaly-strip"]')
+      expect(strip).not.toBeNull()
+      expect(main.contains(strip)).toBe(false)
+      // No glyph-row wrapper exists in state 2.
+      expect(panel.querySelector('.radar-prediction-glyph-row')).toBeNull()
+    })
   })
 
   describe('physics state (2+ trail points)', () => {
@@ -149,6 +172,40 @@ describe('PathPredictionPanel', () => {
       const glyph = screen.getByTestId('prediction-glyph')
       expect(glyph).toBeInTheDocument()
       expect(llm.contains(glyph)).toBe(false)
+    })
+
+    it('wraps the glyph and anomaly strip together in a glyph-row inside the main column (Phase 58-FIX-4)', () => {
+      // Phase 58-FIX-4 (Fix 3): in state 3 the anomaly strip is no
+      // longer a sibling of .radar-prediction-main — it moves INSIDE,
+      // beside the prediction glyph in a new .radar-prediction-glyph-
+      // row wrapper. The LLM verdict sits full-width underneath, still
+      // inside .radar-prediction-main but outside the glyph-row.
+      const { container } = render(
+        <PathPredictionPanel
+          adsbAircraft={{ ABC123: makeAc() }}
+          selectedIcao="ABC123"
+          trailsRef={makeTrailsRef({
+            ABC123: [
+              { bearing_deg: 40, range_nm: 15, ts: 0 },
+              { bearing_deg: 60, range_nm: 10, ts: 10000 },
+            ],
+          })}
+        />
+      )
+      const glyphRow = container.querySelector('.radar-prediction-glyph-row')
+      expect(glyphRow).toBeInTheDocument()
+      const glyphInRow = glyphRow.querySelector('[data-testid="prediction-glyph"]')
+      const stripInRow = glyphRow.querySelector('[data-testid="radar-anomaly-strip"]')
+      expect(glyphInRow).not.toBeNull()
+      expect(stripInRow).not.toBeNull()
+      // The glyph-row is a child of .radar-prediction-main, and the LLM
+      // panel is a sibling of the glyph-row inside main (not nested in
+      // the glyph-row).
+      const main = container.querySelector('.radar-prediction-main')
+      expect(main.contains(glyphRow)).toBe(true)
+      const llm = container.querySelector('[data-testid="radar-prediction-llm"]')
+      expect(glyphRow.contains(llm)).toBe(false)
+      expect(main.contains(llm)).toBe(true)
     })
   })
 
