@@ -10,6 +10,12 @@ describe('PREDICTION_HORIZON_SEC', () => {
   it('is exported and equals 45', () => {
     expect(PREDICTION_HORIZON_SEC).toBe(45)
   })
+
+  // Phase 59 (TD-59-1): the 45s ghost-dot in RadarScopePanel.jsx reuses `there`
+  // (projected at PREDICTION_HORIZON_SEC) with data-horizon="45"; keep in lockstep.
+  it('stays at 45 to match the data-horizon="45" ghost-dot in RadarScopePanel', () => {
+    expect(PREDICTION_HORIZON_SEC).toBe(45)
+  })
 })
 
 describe('derivePredictionVector', () => {

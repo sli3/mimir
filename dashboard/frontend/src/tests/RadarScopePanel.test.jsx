@@ -4,7 +4,7 @@ import React from 'react'
 
 import { projectToScope, isWithinRange, isValidContact } from '../components/radar/projection.js'
 import RadarScopePanel from '../components/RadarScopePanel.jsx'
-import { derivePredictionVector } from '../utils/pathPrediction.js'
+import { derivePredictionVector, projectPosition } from '../utils/pathPrediction.js'
 
 // Scope geometry constants mirrored from RadarScopePanel.jsx so position
 // assertions do not hardcode magic numbers in every test.
@@ -601,14 +601,68 @@ describe('RadarScopePanel', () => {
       expect(container.querySelector('[data-testid="radar-prediction-box"]').textContent).toBe('VOZ123')
     })
 
-    it('test_box_anchor_flips_by_theta_sign', () => {
-      const positiveRef = { current: new Map([['ABC123', history(45)]]) }
-      const negativeRef = { current: new Map([['ABC123', [{ bearing_deg: 65, range_nm: 12, ts: 1000 }, { bearing_deg: 45, range_nm: 10, ts: 11000 }]]]) }
-      const positive = render(<RadarScopePanel adsbAircraft={{ ABC123: aircraft.ABC123 }} focusedFreq={TUNED_FREQ} selectedIcao="ABC123" trailsRef={positiveRef} />)
+    it('flips the box side based on the REAL screen direction, not theta sign alone', () => {
+      // RENAMED and REWRITTEN 2026-08-09 (live traffic: 7C389F, 7C2EB8).
+      // The box's side is now driven by the real (dx, dy) direction —
+      // the same vector driving the line and dots — not by
+      // v.thetaDegPerSec's sign in isolation. The OLD fixtures for this
+      // test (bearing=45, deltaR=-0.2) are NOT usable under the new rule:
+      // deltaR's contribution to dx was strong enough that BOTH the old
+      // "positive theta" and "negative theta" fixtures produced dx < 0,
+      // meaning boxOnLeft was the SAME for both — which is exactly the
+      // bug this fix addresses. This test uses deltaR=0 fixtures instead,
+      // isolating theta's effect on the real direction cleanly, so the
+      // test verifies the intended behaviour without being confounded by
+      // range-rate. See the companion test below for the deltaR-dominant
+      // case that was actually broken on live traffic.
+      const positiveRef = { current: new Map([['ABC123', [{ bearing_deg: 0, range_nm: 10, ts: 1000 }, { bearing_deg: 20, range_nm: 10, ts: 11000 }]]]) }
+      const negativeRef = { current: new Map([['ABC123', [{ bearing_deg: 20, range_nm: 10, ts: 1000 }, { bearing_deg: 0, range_nm: 10, ts: 11000 }]]]) }
+      const acAtNorth = { ...aircraft.ABC123, bearing_deg: 0, range_nm: 10 }
+      const positive = render(<RadarScopePanel adsbAircraft={{ ABC123: acAtNorth }} focusedFreq={TUNED_FREQ} selectedIcao="ABC123" trailsRef={positiveRef} />)
+      // Positive theta (clockwise sweep) at bearing 0 -> real direction
+      // points RIGHT (dx > 0) -> box must sit LEFT of the blip.
       expect(Number(positive.container.querySelector('[data-testid="radar-prediction-box"] text').getAttribute('x'))).toBeLessThan(Number(positive.container.querySelector('[data-testid="radar-blip"] circle[filter]').getAttribute('cx')))
       positive.unmount()
-      const negative = render(<RadarScopePanel adsbAircraft={{ ABC123: aircraft.ABC123 }} focusedFreq={TUNED_FREQ} selectedIcao="ABC123" trailsRef={negativeRef} />)
+      const negative = render(<RadarScopePanel adsbAircraft={{ ABC123: acAtNorth }} focusedFreq={TUNED_FREQ} selectedIcao="ABC123" trailsRef={negativeRef} />)
+      // Negative theta at bearing 0 -> real direction points LEFT
+      // (dx < 0) -> box must sit RIGHT of the blip.
       expect(Number(negative.container.querySelector('[data-testid="radar-prediction-box"] text').getAttribute('x'))).toBeGreaterThan(Number(negative.container.querySelector('[data-testid="radar-blip"] circle[filter]').getAttribute('cx')))
+    })
+
+    it('flips the box side by the real direction even when deltaR dominates and disagrees with theta sign', () => {
+      // The actual regression this fix targets. A trail where theta is
+      // POSITIVE but a strong closing deltaR pulls the real (dx, dy)
+      // direction to the OTHER side than theta's sign alone would
+      // suggest. Under the OLD (theta-only) rule this box would have
+      // landed on the SAME side as the line, overlapping it — which is
+      // exactly what was seen on live traffic (7C389F, 7C2EB8, where
+      // theta and deltaR jointly determine the true direction).
+      // Fixture: aircraft at bearing 45, range 20. theta=+2 deg/s
+      // (positive -> old rule says box LEFT), but deltaR=-0.6 nm/s
+      // (strongly closing) is enough to swing the true direction so
+      // dx < 0 -> the box must sit on the RIGHT, opposite the old rule.
+      const trail = [
+        { bearing_deg: 45, range_nm: 20, ts: 1000 },
+        { bearing_deg: 65, range_nm: 14, ts: 11000 },
+      ]
+      const trailsRef = { current: new Map([['ABC123', trail]]) }
+      const v = derivePredictionVector(trail)
+      expect(v.thetaDegPerSec).toBeGreaterThan(0)
+      const ac = { ...aircraft.ABC123, bearing_deg: 45, range_nm: 20 }
+      const { container } = render(<RadarScopePanel adsbAircraft={{ ABC123: ac }} focusedFreq={TUNED_FREQ} selectedIcao="ABC123" trailsRef={trailsRef} />)
+      const here = projectToScope(ac.bearing_deg, ac.range_nm, 40, SCOPE_CX, SCOPE_CY, SCOPE_MAX_R)
+      const proj = projectPosition(ac.bearing_deg, ac.range_nm, v.thetaDegPerSec, v.deltaRNmPerSec, 45)
+      const there = projectToScope(proj.bearing_deg, Math.min(proj.range_nm, 40), 40, SCOPE_CX, SCOPE_CY, SCOPE_MAX_R)
+      const dx = there.x - here.x
+      // Confirm the fixture actually produces the disagreement being
+      // tested — if this fails, the fixture itself needs adjusting, not
+      // the assertion below.
+      expect(dx).toBeLessThan(0)
+      const boxTextX = Number(container.querySelector('[data-testid="radar-prediction-box"] text').getAttribute('x'))
+      const blipX = Number(container.querySelector('[data-testid="radar-blip"] circle[filter]').getAttribute('cx'))
+      // dx < 0 (real direction points left) -> box must sit on the RIGHT
+      // (boxTextX > blipX), regardless of theta's positive sign.
+      expect(boxTextX).toBeGreaterThan(blipX)
     })
 
     it('test_non_selected_aircraft_unchanged', () => {
@@ -654,6 +708,271 @@ describe('RadarScopePanel', () => {
       // No NaN/Infinity may leak into the serialised SVG markup.
       expect(container.innerHTML).not.toContain('NaN')
       expect(container.innerHTML).not.toContain('Infinity')
+      expect(container.querySelectorAll('[data-testid="radar-prediction-ghost-dot"]').length).toBe(0) // TD-59-3: non-finite vector suppresses ghost dots too
+    })
+  })
+
+  describe('selected prediction direction-indicator dots (Phase 59 rework)', () => {
+    // Fixtures reused from the Phase 58 block's pattern. Each test
+    // injects a pre-seeded trailsRef so the IIFE's derivePredictionVector
+    // has >= 2 fixes to work with. The aircraft record's bearing_deg /
+    // range_nm is the projection ORIGIN (ac.bearing_deg, ac.range_nm),
+    // which is independent of the trail's newest fix — the indicator
+    // starts from the aircraft's real current position.
+    //
+    // GHOST_LINE_LENGTH_PX and RING_CLEARANCE_PX mirror the component
+    // constants. Increased from 0.15 to 0.22 and the ring-clearance
+    // offset added on 2026-08-08 after live traffic (7C6DB4) showed
+    // dot1 landing inside the blip's own selection ring (r=6) with no
+    // offset — the indicator now starts 8px out from `here`, clear of
+    // the ring, before the fixed-length vector is applied.
+    const GHOST_LINE_LENGTH_PX = SCOPE_MAX_R * 0.22
+    const RING_CLEARANCE_PX = 8
+
+    // Compute the expected dot coordinates exactly as the component does:
+    // unit vector of (there - here), start point offset RING_CLEARANCE_PX
+    // out from `here` along that direction, then scaled to
+    // GHOST_LINE_LENGTH_PX from that start, with dots at 1/3, 2/3 and
+    // full length along it.
+    const expectedDots = (ac, v) => {
+      const here = projectToScope(ac.bearing_deg, ac.range_nm, 40, SCOPE_CX, SCOPE_CY, SCOPE_MAX_R)
+      const proj = projectPosition(ac.bearing_deg, ac.range_nm, v.thetaDegPerSec, v.deltaRNmPerSec, 45)
+      const there = projectToScope(proj.bearing_deg, Math.min(proj.range_nm, 40), 40, SCOPE_CX, SCOPE_CY, SCOPE_MAX_R)
+      const dx = there.x - here.x
+      const dy = there.y - here.y
+      const trueLength = Math.sqrt(dx * dx + dy * dy)
+      const ux = dx / trueLength
+      const uy = dy / trueLength
+      const startX = here.x + ux * RING_CLEARANCE_PX
+      const startY = here.y + uy * RING_CLEARANCE_PX
+      const fixedDx = ux * GHOST_LINE_LENGTH_PX
+      const fixedDy = uy * GHOST_LINE_LENGTH_PX
+      return {
+        here,
+        there,
+        start: { x: r2(startX), y: r2(startY) },
+        dot1: { x: r2(startX + fixedDx * (1 / 3)), y: r2(startY + fixedDy * (1 / 3)) },
+        dot2: { x: r2(startX + fixedDx * (2 / 3)), y: r2(startY + fixedDy * (2 / 3)) },
+        dot3: { x: r2(startX + fixedDx), y: r2(startY + fixedDy) },
+      }
+    }
+
+    it('renders three dots at evenly-spaced positions along a fixed-length vector from here', () => {
+      // Aircraft at bearing 0, range 10. Trail produces theta=1.0 deg/s,
+      // deltaR=0 nm/s (10 deg bearing change over 10 s, range unchanged).
+      const ac = { icao: 'ABC123', callsign: 'VOZ123', bearing_deg: 0, range_nm: 10, timestamp: '1970-01-01T00:00:11.000Z' }
+      const trail = [
+        { bearing_deg: 0, range_nm: 10, ts: 1000 },
+        { bearing_deg: 10, range_nm: 10, ts: 11000 },
+      ]
+      const trailsRef = { current: new Map([['ABC123', trail]]) }
+      const { container } = render(
+        <RadarScopePanel adsbAircraft={{ ABC123: ac }} focusedFreq={TUNED_FREQ} selectedIcao="ABC123" trailsRef={trailsRef} />
+      )
+      const v = derivePredictionVector(trail)
+      expect(v.thetaDegPerSec).toBeCloseTo(1.0, 10)
+      expect(v.deltaRNmPerSec).toBeCloseTo(0, 10)
+      const exp = expectedDots(ac, v)
+      const dots = container.querySelectorAll('[data-testid="radar-prediction-ghost-dot"][data-position]')
+      expect(dots.length).toBe(3)
+      for (const [position, expected] of [['1', exp.dot1], ['2', exp.dot2], ['3', exp.dot3]]) {
+        const dot = container.querySelector(`[data-testid="radar-prediction-ghost-dot"][data-position="${position}"]`)
+        expect(dot).not.toBeNull()
+        expect(Number(dot.getAttribute('cx'))).toBeCloseTo(expected.x, 2)
+        expect(Number(dot.getAttribute('cy'))).toBeCloseTo(expected.y, 2)
+      }
+    })
+
+    it('holds the total on-screen indicator length constant regardless of the true-vector length', () => {
+      // Core regression guard for the normalisation. Two clearly different
+      // rate fixtures must produce the SAME here->dot3 distance
+      // (RING_CLEARANCE_PX + GHOST_LINE_LENGTH_PX — the ring-clearance
+      // offset plus the fixed-length vector from that offset start point),
+      // not the underlying true displacement.
+      //
+      // Slow case (original RXA4846-style): theta +0.6 deg/s,
+      // deltaR +0.03 nm/s over 10 s of trail.
+      // Hard-turn case: theta +3.1 deg/s, deltaR 0 nm/s over 10 s of trail.
+      // r2() rounding contributes at most ~0.015 px of error, so precision 1
+      // (tolerance 0.05) is used for the distance assertions.
+      const fixtures = [
+        [
+          { bearing_deg: 0, range_nm: 10, ts: 1000 },
+          { bearing_deg: 6, range_nm: 10.3, ts: 11000 },
+        ],
+        [
+          { bearing_deg: 0, range_nm: 10, ts: 1000 },
+          { bearing_deg: 31, range_nm: 10, ts: 11000 },
+        ],
+      ]
+      for (const trail of fixtures) {
+        const v = derivePredictionVector(trail)
+        expect(v).not.toBeNull()
+        const ac = { icao: 'ABC123', callsign: 'VOZ123', bearing_deg: 0, range_nm: 10, timestamp: '1970-01-01T00:00:11.000Z' }
+        const trailsRef = { current: new Map([['ABC123', trail]]) }
+        const { container, unmount } = render(
+          <RadarScopePanel adsbAircraft={{ ABC123: ac }} focusedFreq={TUNED_FREQ} selectedIcao="ABC123" trailsRef={trailsRef} />
+        )
+        const here = projectToScope(ac.bearing_deg, ac.range_nm, 40, SCOPE_CX, SCOPE_CY, SCOPE_MAX_R)
+        const dot3 = container.querySelector('[data-testid="radar-prediction-ghost-dot"][data-position="3"]')
+        expect(dot3).not.toBeNull()
+        const dist = Math.hypot(
+          Number(dot3.getAttribute('cx')) - here.x,
+          Number(dot3.getAttribute('cy')) - here.y,
+        )
+        expect(dist).toBeCloseTo(RING_CLEARANCE_PX + GHOST_LINE_LENGTH_PX, 1)
+        unmount()
+      }
+    })
+
+    it('renders no dots and no NaN/Infinity attributes for a degenerate near-zero displacement', () => {
+      // A tiny but non-zero rate vector: theta=0.0001 deg/s,
+      // deltaR=0.00001 nm/s. derivePredictionVector returns a non-null
+      // vector, but the 45s on-screen displacement is ~0.003 px, below
+      // the 0.01 px degenerate threshold. The line + box still render
+      // (the box's θ/Δr readouts correctly indicate no meaningful
+      // motion); the ghost-dot group must NOT render, and no NaN or
+      // Infinity may leak into the SVG.
+      const ac = { icao: 'ABC123', callsign: 'VOZ123', bearing_deg: 0, range_nm: 10, timestamp: '1970-01-01T00:00:11.000Z' }
+      const trail = [
+        { bearing_deg: 0, range_nm: 10, ts: 1000 },
+        { bearing_deg: 0.001, range_nm: 10.0001, ts: 11000 },
+      ]
+      const v = derivePredictionVector(trail)
+      expect(v).not.toBeNull()
+      expect(v.thetaDegPerSec).not.toBe(0)
+      expect(v.deltaRNmPerSec).not.toBe(0)
+      const trailsRef = { current: new Map([['ABC123', trail]]) }
+      const { container } = render(
+        <RadarScopePanel adsbAircraft={{ ABC123: ac }} focusedFreq={TUNED_FREQ} selectedIcao="ABC123" trailsRef={trailsRef} />
+      )
+      expect(container.querySelectorAll('[data-testid="radar-prediction-ghost-dot"]').length).toBe(0)
+      expect(container.querySelector('[data-testid="radar-prediction-ghosts"]')).toBeNull()
+      // The box still renders with the (tiny) θ/Δr readouts.
+      expect(container.querySelector('[data-testid="radar-prediction-box"]')).not.toBeNull()
+      expect(container.innerHTML).not.toMatch(/NaN|Infinity/)
+    })
+
+    it('does not render ghost dots for a non-selected aircraft', () => {
+      const ac = { icao: 'ABC123', callsign: 'VOZ123', bearing_deg: 0, range_nm: 10, timestamp: '1970-01-01T00:00:11.000Z' }
+      const trail = [
+        { bearing_deg: 0, range_nm: 10, ts: 1000 },
+        { bearing_deg: 10, range_nm: 10, ts: 11000 },
+      ]
+      const trailsRef = { current: new Map([['ABC123', trail]]) }
+      const { container } = render(
+        <RadarScopePanel adsbAircraft={{ ABC123: ac }} focusedFreq={TUNED_FREQ} selectedIcao="DEF456" trailsRef={trailsRef} />
+      )
+      expect(container.querySelectorAll('[data-testid="radar-prediction-ghost-dot"]').length).toBe(0)
+      expect(container.querySelector('[data-testid="radar-prediction-ghosts"]')).toBeNull()
+    })
+
+    it('does not render ghost dots when the vector is unavailable (< 2 fixes)', () => {
+      // With only one trail fix, derivePredictionVector returns null, v
+      // is null, proj is null, and the !proj guard returns the box
+      // before reaching the ghost-dot block. No dots should render.
+      const ac = { icao: 'ABC123', callsign: 'VOZ123', bearing_deg: 0, range_nm: 10, timestamp: '1970-01-01T00:00:01.000Z' }
+      const trailsRef = { current: new Map([['ABC123', [{ bearing_deg: 0, range_nm: 10, ts: 1000 }]]]) }
+      const { container } = render(
+        <RadarScopePanel adsbAircraft={{ ABC123: ac }} focusedFreq={TUNED_FREQ} selectedIcao="ABC123" trailsRef={trailsRef} />
+      )
+      expect(container.querySelectorAll('[data-testid="radar-prediction-ghost-dot"]').length).toBe(0)
+      expect(container.querySelector('[data-testid="radar-prediction-ghosts"]')).toBeNull()
+    })
+
+    it('keeps the dashed line endpoint identical to dot3 (shared fixed-length endpoint), starting past the selection ring', () => {
+      // Regression guard, covering TWO fixes in sequence:
+      // 1. (2026-08-08, live traffic: 7C7772/VOZ1393) The line and dots
+      //    must always share the SAME endpoint. Previously the line ran
+      //    from `here` to the true-to-scale `there`, while the dots ran
+      //    along a normalised fixed-length vector — two different
+      //    endpoints that only coincided by chance.
+      // 2. (2026-08-08, live traffic: 7C6DB4) The indicator's START point
+      //    must clear the blip's own selection ring (r=6), not begin at
+      //    `here` directly — otherwise dot1 visually overlaps the ring.
+      //    The line's x1/y1 is therefore RING_CLEARANCE_PX out from
+      //    `here`, not `here` itself.
+      //
+      // `there` (the true-to-scale clamped 45s projection) is still used
+      // internally to derive the DIRECTION (dx, dy) — it is not the
+      // line's rendered start or end point in the non-degenerate case.
+      const ac = { icao: 'ABC123', callsign: 'VOZ123', bearing_deg: 0, range_nm: 10, timestamp: '1970-01-01T00:00:11.000Z' }
+      const trail = [
+        { bearing_deg: 0, range_nm: 10, ts: 1000 },
+        { bearing_deg: 10, range_nm: 10, ts: 11000 },
+      ]
+      const trailsRef = { current: new Map([['ABC123', trail]]) }
+      const { container } = render(
+        <RadarScopePanel adsbAircraft={{ ABC123: ac }} focusedFreq={TUNED_FREQ} selectedIcao="ABC123" trailsRef={trailsRef} />
+      )
+      const v = derivePredictionVector(trail)
+      const exp = expectedDots(ac, v)
+      const line = container.querySelector('[data-testid="radar-prediction-line"] line')
+      expect(line).not.toBeNull()
+      // Line starts at the ring-cleared start point, NOT `here` directly.
+      expect(Number(line.getAttribute('x1'))).toBeCloseTo(exp.start.x, 2)
+      expect(Number(line.getAttribute('y1'))).toBeCloseTo(exp.start.y, 2)
+      // Line ends at dot3's exact coordinate — the core alignment guard.
+      expect(Number(line.getAttribute('x2'))).toBeCloseTo(exp.dot3.x, 2)
+      expect(Number(line.getAttribute('y2'))).toBeCloseTo(exp.dot3.y, 2)
+      const dot3 = container.querySelector('[data-testid="radar-prediction-ghost-dot"][data-position="3"]')
+      expect(dot3).not.toBeNull()
+      expect(Number(line.getAttribute('x2'))).toBeCloseTo(Number(dot3.getAttribute('cx')), 2)
+      expect(Number(line.getAttribute('y2'))).toBeCloseTo(Number(dot3.getAttribute('cy')), 2)
+      expect(container.querySelector('[data-testid="radar-prediction-box"]')).not.toBeNull()
+    })
+
+    it('falls back to `here` -> true-to-scale `there` for the line in the degenerate case', () => {
+      // Companion to the degenerate-dots test above: when the on-screen
+      // displacement is too small to normalise (< 0.01 px), no dots
+      // render, and the line falls back to `here` -> the true
+      // (unclamped-endpoint) `there` position, WITHOUT the ring-clearance
+      // offset — there is no direction to offset along in this case.
+      const ac = { icao: 'ABC123', callsign: 'VOZ123', bearing_deg: 0, range_nm: 10, timestamp: '1970-01-01T00:00:11.000Z' }
+      const trail = [
+        { bearing_deg: 0, range_nm: 10, ts: 1000 },
+        { bearing_deg: 0.001, range_nm: 10.0001, ts: 11000 },
+      ]
+      const v = derivePredictionVector(trail)
+      expect(v).not.toBeNull()
+      const trailsRef = { current: new Map([['ABC123', trail]]) }
+      const { container } = render(
+        <RadarScopePanel adsbAircraft={{ ABC123: ac }} focusedFreq={TUNED_FREQ} selectedIcao="ABC123" trailsRef={trailsRef} />
+      )
+      const here = projectToScope(ac.bearing_deg, ac.range_nm, 40, SCOPE_CX, SCOPE_CY, SCOPE_MAX_R)
+      const proj = projectPosition(ac.bearing_deg, ac.range_nm, v.thetaDegPerSec, v.deltaRNmPerSec, 45)
+      const there = projectToScope(proj.bearing_deg, Math.min(proj.range_nm, 40), 40, SCOPE_CX, SCOPE_CY, SCOPE_MAX_R)
+      const line = container.querySelector('[data-testid="radar-prediction-line"] line')
+      expect(line).not.toBeNull()
+      expect(Number(line.getAttribute('x1'))).toBeCloseTo(r2(here.x), 1)
+      expect(Number(line.getAttribute('y1'))).toBeCloseTo(r2(here.y), 1)
+      expect(Number(line.getAttribute('x2'))).toBeCloseTo(r2(there.x), 1)
+      expect(Number(line.getAttribute('y2'))).toBeCloseTo(r2(there.y), 1)
+      expect(container.querySelectorAll('[data-testid="radar-prediction-ghost-dot"]').length).toBe(0)
+    })
+
+    it('sizes and opacities dot1 smaller and dimmer than dot3, in document order', () => {
+      // The visual ramp (nearest dim/small -> furthest bright/large) is
+      // still load-bearing for the direction cue. Assert the three dots
+      // appear in document order 1 -> 2 -> 3 with monotonically
+      // increasing r and opacity.
+      const ac = { icao: 'ABC123', callsign: 'VOZ123', bearing_deg: 0, range_nm: 10, timestamp: '1970-01-01T00:00:11.000Z' }
+      const trail = [
+        { bearing_deg: 0, range_nm: 10, ts: 1000 },
+        { bearing_deg: 10, range_nm: 10, ts: 11000 },
+      ]
+      const trailsRef = { current: new Map([['ABC123', trail]]) }
+      const { container } = render(
+        <RadarScopePanel adsbAircraft={{ ABC123: ac }} focusedFreq={TUNED_FREQ} selectedIcao="ABC123" trailsRef={trailsRef} />
+      )
+      const dots = Array.from(container.querySelectorAll('[data-testid="radar-prediction-ghost-dot"]'))
+      expect(dots.map((d) => d.getAttribute('data-position'))).toEqual(['1', '2', '3'])
+      const radii = dots.map((d) => Number(d.getAttribute('r')))
+      const opacities = dots.map((d) => Number(d.getAttribute('opacity')))
+      expect(radii[0]).toBeLessThan(radii[1])
+      expect(radii[1]).toBeLessThan(radii[2])
+      expect(opacities[0]).toBeLessThan(opacities[1])
+      expect(opacities[1]).toBeLessThan(opacities[2])
     })
   })
 })
