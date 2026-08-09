@@ -1,11 +1,24 @@
 """
 calibrate_thresholds.py — Calibration script for Mimir RF Scanner
 
-This standalone script captures real IQ samples from the HackRF One across
-multiple frequency bands, processes them through the existing pipeline, and
-computes pairwise distance statistics to suggest threshold values for use in
+This standalone script captures real IQ samples across multiple frequency
+bands, processes them through the existing pipeline, and computes pairwise
+distance statistics to suggest threshold values for use in
 llm/classifier.py's _DISTANCE_SCALE_REFERENCE constant and _build_user_prompt()
 threshold block.
+
+Supports TWO devices via --device:
+  hackrf (default) — all 7 CALIBRATION_TARGETS bands, split lna/vga gain.
+  pluto             — ISM_LoRa and ADS_B only (Pluto's stock 325 MHz-3.8 GHz
+                       tuning range), combined gain_db from
+                       PLUTO_BAND_PROFILES. noise_floor (433 MHz) is outside
+                       Pluto's range too, so cross-type/noise stats will have
+                       fewer entries than a HackRF run.
+
+Calibration records are tagged with device in both the record id
+(f"{label}_{device}_{cap_idx}") and metadata, so HackRF and Pluto
+calibration vectors coexist in the same store without overwriting each
+other and can be told apart later.
 
 By default the script loads prior calibration vectors from a separate
 ChromaDB collection at "data/calibration_vectorstore" and merges them with
@@ -17,7 +30,8 @@ fully reset the store and start from empty.
 The operator is prompted to connect the appropriate antenna for each group of
 bands that need calibration. Per-band warnings are shown before the first
 capture of ADS-B, ACARS, and AIS because those bands require live aircraft or
-vessel signals to produce meaningful vectors.
+vessel signals to produce meaningful vectors. ADS-B additionally prompts for
+an antenna-length check on the telescopic whip (~68mm for 1090 MHz).
 
 If the total number of captured entries exceeds 8, the pairwise distance
 matrix is split into two halves so each half fits a normal terminal width.
@@ -25,19 +39,27 @@ matrix is split into two halves so each half fits a normal terminal width.
 The script stores calibration vectors in a SEPARATE ChromaDB collection at
 "data/calibration_vectorstore" — it does NOT touch data/vectorstore/ (production).
 
-Gain and threshold values (lna_gain_db, vga_gain_db, signal_threshold_db) are
-read live from ``dashboard.shared_state.BAND_PROFILES`` so calibration vectors
-always match the live dashboard configuration.
+Gain and threshold values are read live from dashboard.shared_state so
+calibration vectors always match the live dashboard configuration:
+  --device hackrf : lna_gain_db, vga_gain_db, signal_threshold_db from
+                     BAND_PROFILES.
+  --device pluto   : gain_db, signal_threshold_db from PLUTO_BAND_PROFILES,
+                      checked via band_supported_by_device(). If a required
+                      band is missing calibrated gain, the tool exits with a
+                      clear error rather than guessing a gain value — run
+                      tools/diagnose_pluto_gain.py first.
 
 Usage:
     python tools/calibrate_thresholds.py
     python tools/calibrate_thresholds.py --wipe
+    python tools/calibrate_thresholds.py --device pluto
+    python tools/calibrate_thresholds.py --device pluto --wipe
 
 Legal: Receive-only. Radiocommunications Act 1992 (Cth).
        No transmission. Jurisdiction: AU/SA. Authority: ACMA.
 """
 
-from core.pipeline.capture import capture_iq
+from core.pipeline.capture import capture_iq, capture_iq_pluto
 from core.pipeline.fft import compute_psd
 from core.pipeline.features import fingerprint_spectrum
 from dashboard.shared_state import BAND_PROFILES
@@ -88,10 +110,16 @@ STRONG_MATCH_FLOOR = 0.002
 CROSS_TYPE_MIN_FLOOR = 0.005
 
 # Antenna-to-band mappings. Labels must match CALIBRATION_TARGETS exactly.
+#
+# ADS_B on "Telescopic whip": same finding as tools/capture_to_vectorstore.py —
+# retracted to ~68mm (quarter-wave for 1090 MHz), the same physical whip used
+# at longer extensions for the other bands gives noticeably better ADS-B
+# reception than the spiral discone. This is ONE whip at DIFFERENT
+# extensions per band, not a separate antenna.
 ANTENNA_PROFILES: dict[str, dict] = {
     "1": {
         "name": "Telescopic whip",
-        "range": "75 MHz – 700 MHz",
+        "range": "75 MHz – 700 MHz (most bands); ~1090 MHz when retracted to ~68mm for ADS_B",
         "bands": [
             "FM_broadcast",
             "Aviation_VHF",
@@ -99,7 +127,11 @@ ANTENNA_PROFILES: dict[str, dict] = {
             "APRS",
             "AIS",
             "noise_floor",
+            "ADS_B",
         ],
+        "length_reminder": {
+            "ADS_B": "Retract the telescopic whip to ~68mm (quarter-wave for 1090 MHz) before this capture — a much shorter extension than the other bands on this antenna.",
+        },
     },
     "2": {
         "name": "V-dipole 533mm",
@@ -233,7 +265,7 @@ def _print_band_warning(label: str) -> None:
 
 
 def _compute_band_freshness(
-    stored: dict, reference: datetime | None = None
+    stored: dict, device: str | None = None, reference: datetime | None = None
 ) -> dict[str, tuple[bool, float, str]]:
     """Return freshness metadata for each stored band.
 
@@ -241,6 +273,15 @@ def _compute_band_freshness(
     timestamp. Return a mapping from label to ``(is_fresh, age_days,
     newest_timestamp)`` where ``is_fresh`` is True when the newest capture is
     no older than ``STALENESS_DAYS``.
+
+    Args:
+        stored: store.get_all_embeddings() result.
+        device: If given, only records whose metadata "device" matches are
+            considered (records with no "device" key, i.e. captured before
+            Pluto support existed, are treated as "hackrf" for backward
+            compatibility). If None, all records are considered regardless
+            of device — used only where device-blending is intentional.
+        reference: Reference time for age calculation (defaults to now).
 
     Records with missing or malformed timestamps are ignored when searching
     for the newest timestamp; if no valid timestamp exists for a label, that
@@ -251,6 +292,8 @@ def _compute_band_freshness(
     newest_by_label: dict[str, tuple[datetime, str]] = {}
     for meta in (stored.get("metadatas") or []):
         if not meta:
+            continue
+        if device is not None and meta.get("device", "hackrf") != device:
             continue
         label = meta.get("label")
         ts_str = meta.get("timestamp")
@@ -286,8 +329,17 @@ def _print_startup_summary(freshness: dict[str, tuple[bool, float, str]]) -> Non
     print()
 
 
-def _prompt_recapture_fresh_bands(fresh_labels: set[str]) -> set[str]:
+def _prompt_recapture_fresh_bands(
+    fresh_labels: set[str], targets: list[dict]
+) -> set[str]:
     """Ask which fresh bands the operator wants to recapture.
+
+    Args:
+        fresh_labels: Labels considered fresh (not stale).
+        targets: The active target list (CALIBRATION_TARGETS for hackrf, or
+            _build_pluto_calibration_targets() output for pluto) — determines
+            which band names are shown as valid, so a Pluto run does not
+            advertise HackRF-only bands as recapture options.
 
     Returns a set of labels the operator chose to recapture. Empty input or
     Ctrl+C defaults to skipping all fresh bands.
@@ -302,8 +354,8 @@ def _prompt_recapture_fresh_bands(fresh_labels: set[str]) -> set[str]:
         f"{', '.join(sorted(fresh_labels))}"
     )
     print("\nValid band names:")
-    _label_width = max(len(t["label"]) for t in CALIBRATION_TARGETS)
-    for target in CALIBRATION_TARGETS:
+    _label_width = max(len(t["label"]) for t in targets)
+    for target in targets:
         print(
             f"  {target['label']:<{_label_width}}   "
             f"({target['freq_hz'] / 1e6:.3f} MHz)"
@@ -342,17 +394,27 @@ def _merge_stored_entries(
     store: SignalStore,
     freshness: dict[str, tuple[bool, float, str]],
     captured_bands: set[str],
+    device: str | None = None,
 ) -> list[dict]:
     """Append stored non-stale records for bands not captured this run.
 
     Vectors from bands that were captured this run are excluded because their
     fresh vectors are already in ``entries``. Stale stored vectors are excluded
     to prevent outdated calibration data from corrupting the ladder.
+
+    Args:
+        device: If given, only merges records whose metadata "device"
+            matches (missing "device" key treated as "hackrf", same
+            backward-compatibility rule as _compute_band_freshness). Keeps a
+            Pluto run's distance matrix from silently absorbing old HackRF
+            vectors for the same band label, and vice versa.
     """
     all_stored = store.get_all_embeddings()
     all_stored_metas = all_stored.get("metadatas") or []
     for idx, meta in enumerate(all_stored_metas):
         if not meta:
+            continue
+        if device is not None and meta.get("device", "hackrf") != device:
             continue
         lbl = meta.get("label")
         if lbl is None or lbl in captured_bands:
@@ -513,6 +575,89 @@ CALIBRATION_TARGETS: list[dict] = [
     },
 ]
 
+# Pluto's stock tuning range (325 MHz - 3.8 GHz) only covers these two Mimir
+# bands out of the seven in CALIBRATION_TARGETS. noise_floor at 433 MHz is
+# also outside this range, so Pluto calibration runs will have fewer
+# cross-type/noise comparisons than a full HackRF run.
+PLUTO_SUPPORTED_LABELS = ("ISM_LoRa", "ADS_B")
+
+# CALIBRATION_TARGETS label -> BAND_PROFILES/PLUTO_BAND_PROFILES key. Single
+# source of truth for this mapping, matching the pattern already established
+# in tools/capture_to_vectorstore.py and tools/diagnose_threshold.py.
+LABEL_TO_BAND_KEY = {
+    "FM_broadcast": "fm_broadcast",
+    "ADS_B": "adsb",
+    "Aviation_VHF": "aviation",
+    "ACARS": "acars",
+    "APRS": "aprs",
+    "AIS": "ais",
+    "ISM_LoRa": "ism",
+    "noise_floor": "noise_floor",
+}
+
+
+def _build_pluto_calibration_targets() -> list[dict]:
+    """Build Pluto-gain calibration targets, restricted to ISM_LoRa/ADS_B.
+
+    Reuses freq_hz/sample_rate_hz/num_samples/captures/trace_key from the
+    existing CALIBRATION_TARGETS entries — only the gain model changes
+    (combined gain_db instead of split lna/vga). Support and gain values are
+    checked via band_supported_by_device(), the same helper
+    tools/capture_to_vectorstore.py and tools/diagnose_threshold.py use.
+
+    Raises:
+        SystemExit: if PLUTO_BAND_PROFILES is missing, or a supported band
+            is missing gain_db/signal_threshold_db. This tool never guesses
+            a gain value on the operator's behalf.
+    """
+    try:
+        from dashboard.shared_state import (
+            PLUTO_BAND_PROFILES,
+            band_supported_by_device,
+        )
+    except ImportError:
+        print(
+            "\nERROR: dashboard.shared_state.PLUTO_BAND_PROFILES does not exist yet.\n"
+            "Pluto calibration needs calibrated gain values first.\n"
+            "Run tools/diagnose_pluto_gain.py, pick gain_db for ISM and ADS-B,\n"
+            "and add a PLUTO_BAND_PROFILES dict to dashboard/shared_state.py.\n"
+        )
+        raise SystemExit(1)
+
+    pluto_targets = []
+    for base in CALIBRATION_TARGETS:
+        label = base["label"]
+        if label not in PLUTO_SUPPORTED_LABELS:
+            continue
+        key = LABEL_TO_BAND_KEY[label]
+
+        if not band_supported_by_device(key, "plutosdr"):
+            print(
+                f"\nERROR: band_supported_by_device says Pluto does not "
+                f"support '{key}' ({label}).\n"
+                f"Reason: {PLUTO_BAND_PROFILES[key].get('reason', 'unknown')}\n"
+            )
+            raise SystemExit(1)
+
+        profile = PLUTO_BAND_PROFILES[key]
+        if "gain_db" not in profile or "signal_threshold_db" not in profile:
+            print(
+                f"\nERROR: PLUTO_BAND_PROFILES['{key}'] is marked supported "
+                f"but is missing 'gain_db' or 'signal_threshold_db'.\n"
+                f"Run tools/diagnose_pluto_gain.py --band {key} and add the "
+                f"result.\n"
+            )
+            raise SystemExit(1)
+
+        target = dict(base)
+        target["gain_db"] = profile["gain_db"]
+        target["signal_threshold_db"] = profile["signal_threshold_db"]
+        target.pop("lna_gain_db", None)
+        target.pop("vga_gain_db", None)
+        pluto_targets.append(target)
+
+    return pluto_targets
+
 # =============================================================================
 # SECTION 2 — helper functions
 # =============================================================================
@@ -603,15 +748,21 @@ def main() -> None:
 
     1. Load the existing calibration vectorstore (persists across runs unless
        --wipe is supplied).
-    2. Determine which bands are stale or missing and group them by antenna.
-    3. Prompt the operator to connect each antenna and capture the bands it
+    2. --device hackrf (default) uses all 7 CALIBRATION_TARGETS bands.
+       --device pluto restricts to ISM_LoRa/ADS_B via
+       _build_pluto_calibration_targets(), and restricts ANTENNA_PROFILES
+       iteration to whip ("1") and discone ("3") since those are the only
+       antennas Pluto's two bands use.
+    3. Determine which bands are stale or missing and group them by antenna.
+    4. Prompt the operator to connect each antenna and capture the bands it
        covers. Per-band warnings for ADS-B, ACARS, and AIS fire before the
-       first capture of each such band.
-    4. Merge freshly captured vectors with stored non-stale vectors from bands
+       first capture of each such band; ADS-B additionally prompts for an
+       antenna-length check (telescopic whip only).
+    5. Merge freshly captured vectors with stored non-stale vectors from bands
        not captured this run.
-    5. Compute pairwise distance matrix between all merged vectors. Split the
+    6. Compute pairwise distance matrix between all merged vectors. Split the
        matrix into two halves if there are more than 8 capture entries.
-    6. Analyse distances to suggest threshold values for classifier.
+    7. Analyse distances to suggest threshold values for classifier.
 
     All capture and processing is RX-only — no transmit functionality.
     """
@@ -628,7 +779,34 @@ def main() -> None:
         action="store_true",
         help="Wipe the calibration vectorstore before starting (full re-baseline).",
     )
+    parser.add_argument(
+        "--device",
+        choices=["hackrf", "pluto"],
+        default="hackrf",
+        help=(
+            "SDR device to calibrate (default: hackrf). Pluto only "
+            "supports ISM_LoRa and ADS_B (its stock 325 MHz-3.8 GHz tuning "
+            "range excludes the other five bands, including noise_floor "
+            "at 433 MHz)."
+        ),
+    )
     args = parser.parse_args()
+
+    active_targets = (
+        _build_pluto_calibration_targets()
+        if args.device == "pluto"
+        else CALIBRATION_TARGETS
+    )
+    # Pluto's two bands only ever use the whip ("1", for ADS_B retracted to
+    # ~68mm) or the discone ("3", for ISM_LoRa) — the V-dipole ("2") covers
+    # neither. Restricting ANTENNA_PROFILES iteration here means the capture
+    # loop below (unchanged logic, just a filtered ANTENNA_PROFILES view)
+    # never prompts for an antenna Pluto can't use those bands with.
+    active_antenna_profiles = (
+        {"1": ANTENNA_PROFILES["1"], "3": ANTENNA_PROFILES["3"]}
+        if args.device == "pluto"
+        else ANTENNA_PROFILES
+    )
 
     # ─────────────────────────────────────────────────────────────────────────
     # Step B — Store initialisation (persists across runs; --wipe overrides)
@@ -648,17 +826,17 @@ def main() -> None:
     # Step C — Load stored records and decide what needs calibration
     # ─────────────────────────────────────────────────────────────────────────
     stored = store.get_all_embeddings()
-    freshness = _compute_band_freshness(stored)
+    freshness = _compute_band_freshness(stored, device=args.device)
     _print_startup_summary(freshness)
 
-    all_labels = {t["label"] for t in CALIBRATION_TARGETS}
+    all_labels = {t["label"] for t in active_targets}
     stored_labels = set(freshness.keys())
     fresh_labels = {lbl for lbl, (is_fresh, _, _) in freshness.items() if is_fresh}
     stale_labels = {lbl for lbl, (is_fresh, _, _) in freshness.items() if not is_fresh}
     missing_labels = all_labels - stored_labels
 
     labels_to_capture = (missing_labels | stale_labels) & all_labels
-    recapture = _prompt_recapture_fresh_bands(fresh_labels & all_labels)
+    recapture = _prompt_recapture_fresh_bands(fresh_labels & all_labels, active_targets)
     labels_to_capture |= recapture
 
     if not labels_to_capture:
@@ -671,7 +849,7 @@ def main() -> None:
     print("\n" + "=" * 70)
     print("ANTENNA CAPTURE PLAN")
     print("=" * 70)
-    for key, profile in ANTENNA_PROFILES.items():
+    for key, profile in active_antenna_profiles.items():
         bands = active_groups.get(key, [])
         if not bands:
             continue
@@ -685,7 +863,7 @@ def main() -> None:
     captured_bands: set[str] = set()
     entries: list[dict] = []
 
-    for key, profile in ANTENNA_PROFILES.items():
+    for key, profile in active_antenna_profiles.items():
         bands = active_groups.get(key, [])
         if not bands:
             continue
@@ -705,16 +883,33 @@ def main() -> None:
             continue
 
         for label in sorted(bands):
-            target = next(t for t in CALIBRATION_TARGETS if t["label"] == label)
+            target = next(t for t in active_targets if t["label"] == label)
             freq_hz = target["freq_hz"]
             num_samples = target["num_samples"]
             sample_rate_hz = target["sample_rate_hz"]
-            lna_gain_db = target["lna_gain_db"]
-            vga_gain_db = target["vga_gain_db"]
+            if args.device == "pluto":
+                gain_db = target["gain_db"]
+            else:
+                lna_gain_db = target["lna_gain_db"]
+                vga_gain_db = target["vga_gain_db"]
 
-            print(f"\nCapturing: {label}")
+            print(f"\nCapturing: {label} ({args.device})")
             print(f"  Frequency: {freq_hz / 1e6:.3f} MHz")
             print(f"  Samples: {num_samples:,}")
+
+            # Antenna-length check for ADS_B on the telescopic whip only —
+            # same finding as tools/capture_to_vectorstore.py and
+            # tools/diagnose_threshold.py. profile["length_reminder"] is only
+            # present on the whip profile, so this is a no-op on discone.
+            reminder = profile.get("length_reminder", {}).get(label)
+            if reminder:
+                print(f"\n{reminder}\n")
+                try:
+                    input("Press ENTER once antenna is ready, or Ctrl+C to skip this band: ")
+                except KeyboardInterrupt:
+                    logger.info("User skipped %s band at antenna length check", label)
+                    print(f"\n  Skipping {label} — no captures stored for this band.")
+                    continue
 
             # Per-band warning fires once, before the first capture of the band.
             if label in ("ADS_B", "ACARS", "AIS"):
@@ -726,25 +921,51 @@ def main() -> None:
                     print(f"\n  Skipping {label} — no captures stored for this band.")
                     continue
 
-            # Replace any prior vectors for this band before writing new captures.
-            deleted = store.delete_by_label(label)
-            if deleted:
-                print(f"  Replaced {deleted} prior calibration record(s) for {label}")
+            # Replace any prior vectors for THIS band AND THIS device before
+            # writing new captures. delete_by_label() alone would also
+            # delete the other device's calibration for the same label
+            # (e.g. a Pluto ADS_B run wiping HackRF ADS_B calibration) — so
+            # this filters by device in Python and deletes by id directly,
+            # same get-then-delete-by-ids pattern SignalStore.delete_by_label
+            # itself uses internally, matching tools/delete_low_snr.py's
+            # precedent for standalone device-aware deletion.
+            existing = store.get_all_embeddings()
+            existing_metas = existing.get("metadatas") or []
+            ids_to_delete = [
+                existing["ids"][idx]
+                for idx, meta in enumerate(existing_metas)
+                if meta
+                and meta.get("label") == label
+                and meta.get("device", "hackrf") == args.device
+            ]
+            if ids_to_delete:
+                store._collection.delete(ids=ids_to_delete)  # noqa: SLF001
+                print(
+                    f"  Replaced {len(ids_to_delete)} prior {args.device} "
+                    f"calibration record(s) for {label}"
+                )
 
             band_captured = False
             for cap_idx in range(target["captures"]):
-                record_id = f"{label}_{cap_idx}"
+                record_id = f"{label}_{args.device}_{cap_idx}"
                 print(f"  Capture #{cap_idx + 1}/{target['captures']}")
 
                 try:
-                    # Capture IQ samples from HackRF (RX-only)
-                    samples = capture_iq(
-                        freq_hz=freq_hz,
-                        num_samples=num_samples,
-                        sample_rate_hz=sample_rate_hz,
-                        lna_gain_db=lna_gain_db,
-                        vga_gain_db=vga_gain_db,
-                    )
+                    if args.device == "pluto":
+                        samples = capture_iq_pluto(
+                            freq_hz=freq_hz,
+                            num_samples=num_samples,
+                            sample_rate_hz=sample_rate_hz,
+                            gain_db=gain_db,
+                        )
+                    else:
+                        samples = capture_iq(
+                            freq_hz=freq_hz,
+                            num_samples=num_samples,
+                            sample_rate_hz=sample_rate_hz,
+                            lna_gain_db=lna_gain_db,
+                            vga_gain_db=vga_gain_db,
+                        )
 
                     # Run through pipeline: FFT → features → embedding
                     psd_result = compute_psd(
@@ -767,6 +988,7 @@ def main() -> None:
                         "label": label,
                         "metadata": {
                             "label": label,
+                            "device": args.device,
                             "capture_index": cap_idx,
                             "freq_hz": freq_hz,
                             "timestamp": datetime.now().isoformat(),
@@ -797,8 +1019,8 @@ def main() -> None:
                 is_last = (
                     not any(
                         active_groups.get(k)
-                        for k in list(ANTENNA_PROFILES.keys())[
-                            list(ANTENNA_PROFILES.keys()).index(key) + 1:
+                        for k in list(active_antenna_profiles.keys())[
+                            list(active_antenna_profiles.keys()).index(key) + 1:
                         ]
                     )
                     and label == sorted(bands)[-1]
@@ -814,7 +1036,7 @@ def main() -> None:
     # ─────────────────────────────────────────────────────────────────────────
     # Step E — Merge stored non-stale vectors for bands not captured this run
     # ─────────────────────────────────────────────────────────────────────────
-    entries = _merge_stored_entries(entries, store, freshness, captured_bands)
+    entries = _merge_stored_entries(entries, store, freshness, captured_bands, device=args.device)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Step F — Distance matrix computation
