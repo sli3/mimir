@@ -7,7 +7,7 @@ description: >
   the live Vite dev server (read-only) to confirm a change renders correctly.
   Read-only — reports findings to the Project Manager, does not edit code.
 mode: subagent
-model: local-llama/Ornith-1.0-9B
+model: opencode-go/gpt-5.6-luna
 temperature: 0.1
 permission:
   edit: deny
