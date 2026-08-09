@@ -336,10 +336,39 @@ export default function RadarScopePanel({
                       ? projectPosition(ac.bearing_deg, ac.range_nm, v.thetaDegPerSec, v.deltaRNmPerSec, PREDICTION_HORIZON_SEC)
                       : null
                     const label = ac.callsign || ac.icao
-                    // Keep the detail box away from the usual direction of the
-                    // ghost line: clockwise bearing sweep uses the left side,
-                    // anticlockwise sweep uses the right side.
-                    const boxOnLeft = !v || v.thetaDegPerSec >= 0
+                    // Real direction vector, computed EARLY (moved up from
+                    // its previous position after the box) because the box's
+                    // side-placement now depends on it. `there` and `proj`
+                    // are still needed for the dashed line's direction too —
+                    // this is the SAME computation, just no longer
+                    // duplicated or deferred.
+                    //
+                    // Clamp the projected range to the outer ring: an aircraft
+                    // projecting beyond maxRangeNm still shows a line ending at
+                    // the ring edge, rather than vanishing. A fast-departing
+                    // aircraft hitting the ring is genuinely informative, not
+                    // noise (Phase 52 follow-up — originally this branch
+                    // silently hid the line past maxRangeNm; the bearing is
+                    // unaffected by the clamp, only the range component).
+                    const clampedRangeNm = proj ? Math.min(proj.range_nm, maxRangeNm) : null
+                    const here = projectToScope(ac.bearing_deg, ac.range_nm, maxRangeNm, SCOPE_CX, SCOPE_CY, SCOPE_MAX_R)
+                    const there = proj
+                      ? projectToScope(proj.bearing_deg, clampedRangeNm, maxRangeNm, SCOPE_CX, SCOPE_CY, SCOPE_MAX_R)
+                      : null
+                    const dx = there ? there.x - here.x : 0
+                    const dy = there ? there.y - here.y : 0
+                    // Keep the detail box away from the ACTUAL direction the
+                    // line/dots point on screen — not just the sign of
+                    // thetaDegPerSec. Fixed 2026-08-09 (live traffic:
+                    // 7C389F, 7C2EB8): the old theta-only heuristic ignored
+                    // deltaR's contribution to the real (dx, dy) direction,
+                    // so whenever range-rate's effect outweighed bearing-
+                    // rate's, the box landed on the SAME side as the line
+                    // instead of away from it, causing visible overlap. dx
+                    // (horizontal screen direction) is the correct signal:
+                    // if the true direction points right, put the box left,
+                    // and vice versa.
+                    const boxOnLeft = !v || dx >= 0
                     // BOX_PAD_X: horizontal gap (px) between the rect's
                     // border and the text sitting inside it. Previously
                     // 0 — boxX (the text's own anchor coordinate) was
@@ -417,30 +446,131 @@ export default function RadarScopePanel({
                       </g>
                     )
                     if (!proj) return box
-                    // Clamp the projected range to the outer ring: an aircraft
-                    // projecting beyond maxRangeNm still shows a line ending at
-                    // the ring edge, rather than vanishing. A fast-departing
-                    // aircraft hitting the ring is genuinely informative, not
-                    // noise (Phase 52 follow-up — originally this branch
-                    // silently hid the line past maxRangeNm; the bearing is
-                    // unaffected by the clamp, only the range component).
-                    const clampedRangeNm = Math.min(proj.range_nm, maxRangeNm)
-                    const here = projectToScope(ac.bearing_deg, ac.range_nm, maxRangeNm, SCOPE_CX, SCOPE_CY, SCOPE_MAX_R)
-                    const there = projectToScope(proj.bearing_deg, clampedRangeNm, maxRangeNm, SCOPE_CX, SCOPE_CY, SCOPE_MAX_R)
+                    // Direction indicator: a fixed-length on-screen line from a point
+                    // offset 8 px from `here` (the blip centre) toward the same true
+                    // bearing+range direction as the underlying vector (`here` -> `there`),
+                    // with three evenly-spaced marker dots along it. The start offset keeps
+                    // the near end of the line and dot1 clear of the blip's own selection
+                    // ring (r=6). This is NOT a to-scale forecast of where the aircraft
+                    // will physically be at any time horizon — it is a supplementary
+                    // visual cue only, normalised to a constant on-screen length so
+                    // the direction reads at a glance regardless of the true rate's
+                    // magnitude. The dashed line shares the same start/end points as the
+                    // dots (both end at dot3), so only the vector box shows the true
+                    // 45s clamped position (`there`).
+                    //
+                    // Multiplier 0.22 (increased from the original 0.15 spec
+                    // default): live-verified 2026-08-08 against real
+                    // traffic (7C6DB4) that 0.15 with no ring offset put
+                    // dot1 landing inside the blip's own selection ring
+                    // (r=6, see radar-blip-highlight above), visually
+                    // merging the near end of the indicator with the ring
+                    // rather than reading as a separate directional cue.
+                    // 33px on a 150px scope radius gives clearer separation
+                    // between dot1/dot2/dot3 while still staying clear of
+                    // the vector box (>= 10 px to the side of the blip), now
+                    // that the box itself is placed using the real direction.
+                    const trueLength = Math.sqrt(dx * dx + dy * dy)
+                    const GHOST_LINE_LENGTH_PX = SCOPE_MAX_R * 0.22
+                    // RING_CLEARANCE_PX: the indicator's start point is offset
+                    // outward from `here` (the blip centre) by this distance,
+                    // along the same direction, so the near end of the line
+                    // and dot1 sit clear of the blip's own selection ring
+                    // instead of overlapping it. 8px covers the ring's larger
+                    // radius (6px, close-range case) plus a small margin so
+                    // the line's dash pattern and dot1's own radius (1.8px)
+                    // don't touch the ring either.
+                    const RING_CLEARANCE_PX = 8
+                    // Degenerate guard: a non-null vector can still produce a
+                    // sub-pixel on-screen displacement (tiny theta/deltaR). In
+                    // that case render the line + box but NO dots — no NaN or
+                    // zero-length direction may leak into SVG attributes. The
+                    // box's θ/Δr readouts correctly indicate "no meaningful
+                    // motion" for this case, so nothing is lost. In the
+                    // degenerate case the line falls back to the true
+                    // (unclamped-endpoint) `there`, consistent with the box.
+                    const indicator = trueLength >= 0.01 ? (() => {
+                      const ux = dx / trueLength
+                      const uy = dy / trueLength
+                      // Indicator start: `here` pushed out past the selection
+                      // ring, along the same direction as the true vector, so
+                      // the near end of the line and dot1 sit clear of the
+                      // ring instead of overlapping it.
+                      const startX = here.x + ux * RING_CLEARANCE_PX
+                      const startY = here.y + uy * RING_CLEARANCE_PX
+                      const fixedDx = ux * GHOST_LINE_LENGTH_PX
+                      const fixedDy = uy * GHOST_LINE_LENGTH_PX
+                      return {
+                        start: { x: startX, y: startY },
+                        dot1: { x: startX + fixedDx * (1 / 3), y: startY + fixedDy * (1 / 3) },
+                        dot2: { x: startX + fixedDx * (2 / 3), y: startY + fixedDy * (2 / 3) },
+                        dot3: { x: startX + fixedDx, y: startY + fixedDy },
+                      }
+                    })() : null
+                    // Line endpoint: when the indicator renders
+                    // (non-degenerate), the dashed line runs from the SAME
+                    // ring-cleared start point to the SAME dot3 endpoint as
+                    // the ghost dots — never a separate/different endpoint.
+                    // Fixed 2026-08-08 (live traffic: 7C7772) after the line
+                    // and dots previously used two different endpoints and
+                    // visibly diverged. In the degenerate case (no
+                    // indicator), the line falls back to `here` -> `there`,
+                    // consistent with the box's θ/Δr readout.
+                    const lineStart = indicator ? indicator.start : here
+                    const lineEnd = indicator ? indicator.dot3 : there
+                    const ghosts = indicator ? (
+                      // Ghost dots render AFTER the line so they are not
+                      // occluded by the dashed stroke. Size and opacity
+                      // increase along the direction of travel (nearest
+                      // dim/small, furthest bright/large). Colour matches
+                      // the line (neon-amber). Every coordinate passes
+                      // through r2() so no NaN or float noise can reach an
+                      // SVG attribute.
+                      <g data-testid="radar-prediction-ghosts" data-icao={ac.icao}>
+                        <circle
+                          data-testid="radar-prediction-ghost-dot"
+                          data-position="1"
+                          cx={r2(indicator.dot1.x)}
+                          cy={r2(indicator.dot1.y)}
+                          r={1.8}
+                          fill="var(--neon-amber)"
+                          opacity={0.35}
+                        />
+                        <circle
+                          data-testid="radar-prediction-ghost-dot"
+                          data-position="2"
+                          cx={r2(indicator.dot2.x)}
+                          cy={r2(indicator.dot2.y)}
+                          r={2.4}
+                          fill="var(--neon-amber)"
+                          opacity={0.6}
+                        />
+                        <circle
+                          data-testid="radar-prediction-ghost-dot"
+                          data-position="3"
+                          cx={r2(indicator.dot3.x)}
+                          cy={r2(indicator.dot3.y)}
+                          r={3.0}
+                          fill="var(--neon-amber)"
+                          opacity={0.85}
+                        />
+                      </g>
+                    ) : null
                     return (
                       <>
                         <g data-testid="radar-prediction-line" data-icao={ac.icao}>
                           <line
-                            x1={r2(here.x)}
-                            y1={r2(here.y)}
-                            x2={r2(there.x)}
-                            y2={r2(there.y)}
+                            x1={r2(lineStart.x)}
+                            y1={r2(lineStart.y)}
+                            x2={r2(lineEnd.x)}
+                            y2={r2(lineEnd.y)}
                             stroke="var(--neon-amber)"
                             strokeWidth={1.2}
                             strokeDasharray="4 3"
                             opacity={0.7}
                           />
                         </g>
+                        {ghosts}
                         {box}
                       </>
                     )
