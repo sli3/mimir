@@ -154,7 +154,11 @@ def test_wipe_flag_deletes_collection():
         return mock_store
 
     with (
-        patch("tools.capture_to_vectorstore._parse_args", return_value=argparse.Namespace(wipe=True)),
+        # Mirror every attribute main() reads, with the production defaults
+        # from _parse_args(): --band/--freq-mhz/--captures all default None.
+        patch("tools.capture_to_vectorstore._parse_args", return_value=argparse.Namespace(
+            wipe=True, device="hackrf", band=None, freq_mhz=None, captures=None,
+        )),
         patch("tools.capture_to_vectorstore.SignalStore", side_effect=fresh_mock),
         patch("tools.capture_to_vectorstore.SpectrumEmbedder"),
         patch("tools.capture_to_vectorstore._select_antenna", return_value=("1", ANTENNA_PROFILES["1"])),

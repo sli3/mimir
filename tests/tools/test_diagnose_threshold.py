@@ -140,6 +140,9 @@ class TestDiagnoseThreshold:
         monkeypatch.setattr(diagnose_threshold, "capture_iq", mock_capture_iq)
         monkeypatch.setattr(diagnose_threshold, "compute_psd", mock_compute_psd)
         monkeypatch.setattr(diagnose_threshold, "fingerprint_spectrum", trace_checking_fingerprint)
+        # NEW: sweep_band prompts the operator via input() for antenna positioning on ADS-B only.
+        # Mock it so the test does not block on stdin.
+        monkeypatch.setattr("builtins.input", lambda *a: "")
 
         adsb_band = next(b for b in diagnose_threshold.BAND_SWEEP if b["name"] == "ADS-B")
         diagnose_threshold.sweep_band(adsb_band)
