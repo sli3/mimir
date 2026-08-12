@@ -381,6 +381,30 @@ def _parse_args() -> argparse.Namespace:
             "is captured — pick an antenna that actually covers it."
         ),
     )
+    parser.add_argument(
+        "--freq-mhz",
+        type=float,
+        default=None,
+        help=(
+            "Override the capture frequency in MHz for the band selected "
+            "with --band (e.g. --band fm_broadcast --freq-mhz 101.5 to "
+            "capture a different FM station than the hardcoded 98.9 MHz "
+            "default). Requires --band — overriding one frequency across "
+            "multiple bands at once would be ambiguous, so this errors if "
+            "--band is not also given."
+        ),
+    )
+    parser.add_argument(
+        "--captures",
+        type=int,
+        default=None,
+        help=(
+            "Override the number of captures for the band selected with "
+            "--band (default varies per band, e.g. 5 for FM_broadcast). "
+            "Requires --band, same reasoning as --freq-mhz. Must be a "
+            "positive integer."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -656,6 +680,57 @@ def main() -> None:
             ))
             raise SystemExit(1)
         print(f"--band filter applied: only {selected_targets[0]['label']} will be captured.")
+
+    # --freq-mhz and --captures both require --band, since overriding either
+    # one across multiple bands at once would be ambiguous (which band's
+    # frequency? applied to how many of the selected bands?).
+    if (args.freq_mhz is not None or args.captures is not None) and args.band is None:
+        print(_colour(
+            "\nERROR: --freq-mhz and --captures require --band (they "
+            "override a single target's values — pick which band with "
+            "--band first).\n",
+            ANSI_RED,
+        ))
+        raise SystemExit(1)
+
+    if args.freq_mhz is not None:
+        original_freq_hz = selected_targets[0]["freq_hz"]
+        override_freq_hz = int(args.freq_mhz * 1e6)
+        # Copy the target dict rather than mutating CAPTURE_TARGETS/the
+        # Pluto-built list in place — those are shared module-level state
+        # (CAPTURE_TARGETS) or freshly built per-run, but mutating either
+        # unconditionally risks surprising a second call in the same
+        # process (e.g. future test code that imports this module).
+        selected_targets[0] = dict(selected_targets[0])
+        selected_targets[0]["freq_hz"] = override_freq_hz
+        print(
+            f"--freq-mhz override: {selected_targets[0]['label']} will "
+            f"capture at {args.freq_mhz:.3f} MHz instead of the default "
+            f"{original_freq_hz / 1e6:.3f} MHz."
+        )
+        print(
+            "  NOTE: signal_threshold_db and gain are still the values "
+            "calibrated for the default frequency — a different station "
+            "may need different threshold/gain to detect cleanly. Re-run "
+            "diagnose_threshold.py at the new frequency if results look off."
+        )
+
+    if args.captures is not None:
+        if args.captures < 1:
+            print(_colour(
+                f"\nERROR: --captures must be a positive integer, got "
+                f"{args.captures}.\n",
+                ANSI_RED,
+            ))
+            raise SystemExit(1)
+        original_captures = selected_targets[0]["captures"]
+        selected_targets[0] = dict(selected_targets[0])
+        selected_targets[0]["captures"] = args.captures
+        print(
+            f"--captures override: {selected_targets[0]['label']} will run "
+            f"{args.captures} capture(s) instead of the default "
+            f"{original_captures}."
+        )
 
     print()
     print(
