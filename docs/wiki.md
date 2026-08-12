@@ -1,7 +1,7 @@
 ---
 description: "Mimir project wiki — architecture and environment reference for cross-cutting knowledge that has no other home. Phase history lives in docs/ROADMAP.md."
 status: live
-last_updated_phase: "58-FIX-4"
+last_updated_phase: "61"
 ---
 
 # Mimir Wiki

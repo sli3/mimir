@@ -2523,4 +2523,56 @@ No TX surfaces. All changes are display/layout/routing logic on already-decoded 
 
 ---
 
+### Phase 61 - Pluto device support + bandwidth_hz for `capture_and_save()` (Part B) + Track A debt clearance ✅
+
+**Type:** Core pipeline + test fixtures. Backend-only changes to `core/pipeline/capture.py` and test files.
+
+**Goal.** Add ADALM-PLUTO device support to `capture_and_save()` (previously HackRF-only), add a `bandwidth_hz` parameter that is recorded as SigMF metadata only (no software DSP), and clear two pre-existing Track A test-fixture debt items that blocked this finalise-build gate.
+
+**What was built.**
+
+**Core pipeline:**
+
+- `core/pipeline/capture.py` - `capture_and_save()` now accepts a `device: str = "hackrf"` parameter, supporting both `"hackrf"` and `"plutosdr"` values (must match DEVICE_PROFILES driver keys exactly). A new `_CAPTURE_DISPATCH` dict maps device driver keys to their capture functions and validates the device string BEFORE any hardware call; unknown devices raise `ValueError` immediately. Dispatch uses an explicit if/elif for argument shaping because `capture_iq()` (HackRF) takes split `lna_gain_db`/`vga_gain_db` kwargs while `capture_iq_pluto()` (Pluto) takes combined `gain_db` plus `bandwidth_hz`. `bandwidth_hz: float | None = None` parameter added to both `capture_and_save()` and `save_capture()`. This value is recorded as SigMF `core:bandwidth` in the capture record at sample index 0 only - no software DSP, no cropping, no decimation. Pluto passes the value to its analogue RF filter (the device's only bandwidth control); HackRF has no settable RF bandwidth, so the value is NOT passed to `capture_iq()`, but a warning is logged and the value is still recorded in the SigMF metadata as the operator's declared intent. The `_DEVICE_HW_NAMES` dict is deleted; `meta.hw` in `save_capture()` now reads from `DEVICE_PROFILES[device]["display_name"]`, making DEVICE_PROFILES the single source of truth for the human-readable hardware name and eliminating the Phase 35-era drift hazard between `"pluto"` and `"plutosdr"`.
+
+**Tests:**
+
+- `tests/core/test_capture_pipeline.py` - 12 existing tests (pre-Phase 61) unchanged and green. 12 new tests added in the `TestCaptureAndSave` class: `test_dispatches_to_capture_iq_for_hackrf`, `test_dispatches_to_capture_iq_pluto_for_plutosdr`, `test_unknown_device_raises_value_error_before_hardware_call`, `test_sigmf_meta_hw_field_is_adalm_pluto_for_plutosdr`, `test_sigmf_meta_hw_field_uses_device_profiles_display_name_directly`, `test_bandwidth_hz_recorded_as_core_bandwidth_in_capture_record`, `test_bandwidth_hz_none_omits_core_bandwidth_field`, `test_hackrf_bandwidth_hz_logs_warning_and_still_records_metadata`, `test_pluto_bandwidth_hz_passed_through_to_capture_iq_pluto`, `test_no_transmit_methods_called_on_pluto_via_capture_and_save`, `test_no_transmit_methods_called_on_hackrf_via_capture_and_save`, `test_capture_and_save_does_not_call_save_capture_with_unknown_device`. +12 pytest.
+
+- `tests/tools/test_capture_to_vectorstore.py` - Track A BUG 1 clearance: `test_wipe_flag_deletes_collection`'s mock of `_parse_args()` was expanded from 1 attribute (`wipe=True`) to 5 (`device="hackrf"`, `band=None`, `freq_mhz=None`, `captures=None`, `wipe=True`), mirroring every `_parse_args()` default. The original one-line prescription was an under-diagnosis. +3 pytest lines (mock expansion), +2 passing tests (now fully exercises the tool's startup path). +5 net pytest lines.
+
+- `tests/tools/test_diagnose_threshold.py` - Track A BUG 2 clearance: `test_adsb_sweep_uses_max_hold_trace` now mocks `builtins.input` via `monkeypatch.setattr('builtins.input', lambda *a: '')` before calling `sweep_band()`. Previously the test could not exercise past the antenna-positioning prompt line (`sweep_band()` calls `input()` at line 202). +3 pytest lines, test now green. +3 net pytest lines.
+
+**Key design decisions.**
+
+- Dispatch via validation dict + explicit if/elif: `_CAPTURE_DISPATCH` validates the device string and maps it to the capture function, but the actual dispatch uses an explicit if/elif rather than calling the dict result directly. This is because the two capture functions have different kwargs (`lna_gain_db`/`vga_gain_db` vs `gain_db`/`bandwidth_hz`), so the if/elif is required for argument shaping. The dict is validation-only; the unreachable else clause (line 368) is defensive-only because the validation above would have already raised.
+
+- bandwidth_hz as metadata-only: The parameter is recorded as SigMF `core:bandwidth` but no software DSP is applied. On Pluto, the value is passed to the device's analogue RF filter (the only bandwidth control the hardware offers). On HackRF, which has no settable RF bandwidth, the value is logged-and-ignored but still recorded in metadata because it records the operator's intent. `core:sample_rate` is unaffected in both cases. This keeps the function RECEIVE-ONLY and side-effect-free apart from file writes.
+
+- DEVICE_PROFILES as single source of truth: The `_DEVICE_HW_NAMES` dict is deleted. `meta.hw` now reads from `DEVICE_PROFILES[device]["display_name"]`. This eliminates the Phase 35-era drift hazard between the driver key (`"plutosdr"`) and the display name (`"ADALM-PLUTO"`), and ensures a single source of truth for human-readable hardware names. `save_capture()` raises `KeyError` if the device is not a DEVICE_PROFILES key; `capture_and_save()` validates earlier with a clearer `ValueError` to avoid any hardware call on a typo.
+
+- Track A test-fixture clearance: Both fixes are defensive-test-structure work. The original one-line prescriptions were under-diagnoses. The actual fixes ensure tests fully exercise their target code paths and are resilient to future argparse additions (for the Namespace mock) and interactive prompts (for the input() mock). These are working-as-intended corrections, not functional bugs in the tools themselves.
+
+**Resolved tech debt.** Track A BUG 1 (AGENTS.md row 618) RESOLVED: `test_wipe_flag_deletes_collection` now fully exercises the tool's startup path with a complete argparse Namespace mock. Track A BUG 2 (AGENTS.md row 619) RESOLVED: `test_adsb_sweep_uses_max_hold_trace` now mocks `builtins.input` and can exercise past the antenna-positioning prompt.
+
+**New tech debt.** Six advisory items (low priority, desk-fixable in future phases):
+
+1. `save_capture()`'s `bandwidth_hz` docstring says "the operator's declared RF filter width" and "any actual narrowing happened in the device's analogue filter", which accurately describes the intent-to-metadata contract for Pluto but over-states for HackRF (which has no settable RF filter). The docstring could be more precise about the per-device semantics. AGENTS.md: see rows TD-61-1 through TD-61-6.
+
+2. `_CAPTURE_DISPATCH.get(device)` is a dead-variable pattern - the result is assigned to `capture_fn` at line 332 but never called directly; the if/elif dispatch lines call the functions explicitly. This is a minor code smell but does not affect behaviour. AGENTS.md: see rows TD-61-1 through TD-61-6.
+
+3. Tools' `--device` CLI uses `"pluto"` not `"plutosdr"` (confirmed by `tools/diagnose_threshold.py:310` argparse choices). This is a pre-existing latent trap - `capture_and_save()` only accepts `"plutosdr"` and will raise ValueError on `"pluto"`. Future phase should align the CLI to use `"plutosdr"` for consistency. AGENTS.md: see rows TD-61-1 through TD-61-6.
+
+4. The `_CAPTURE_DISPATCH` + if/elif dispatch pattern does not scale cleanly to 3+ devices with divergent kwargs. A future device with different argument shaping would require adding another elif clause. Acceptable for 2 devices; worth reconsidering the design if a third device is added. AGENTS.md: see rows TD-61-1 through TD-61-6.
+
+5. `test_wipe_flag_deletes_collection`'s Namespace mock is fragile against future argparse additions - any new default argument to `_parse_args()` would require updating the mock. A conftest fixture that dynamically mirrors the defaults would be more robust. AGENTS.md: see rows TD-61-1 through TD-61-6 (Track A BUG 1 clearance note).
+
+6. `test_adsb_sweep_uses_max_hold_trace`'s `builtins.input` mock is a candidate for a conftest fixture shared by any test that needs to suppress interactive prompts in CLI tools. AGENTS.md: see rows TD-61-1 through TD-61-6 (Track A BUG 2 clearance note).
+
+**Test counts.** 1214 passing (837 pytest + 377 Vitest), 0 failures. +14 net pytest (+12 new capture.py tests, +2 cleared pre-existing failures from Track A debt). Vitest unchanged. Verified by PM before finalise.
+
+**RF/Legal notes.** No TX surfaces; all changes are RECEIVE-ONLY hardware interaction (open, read_samples, close) and file writing. `bandwidth_hz` is metadata-only on HackRF and drives only the analogue RF filter on Pluto - no software DSP, no digital filtering, no resampling. Jurisdiction: AU/SA, ACMA, Radiocommunications Act 1992 (Cth). No new legal exposure.
+
+---
+
 ## Deferred Items

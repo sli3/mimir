@@ -149,8 +149,8 @@ Full phase-by-phase history lives in [`docs/ROADMAP.md`](./docs/ROADMAP.md), whi
 single source of truth for phase status and test counts. This section shows
 only a quick-glance summary — update `docs/ROADMAP.md` first, then sync this block.
 
-**Current phase: 59 — Ghost-dot direction-indicator rework with fixed-length normalised vector (33 px, 0.22×SCOPE_MAX_R), three evenly-spaced amber dots at data-position="1"|"2"|"3", and degenerate guard (trueLength < 0.01). Line/dot alignment fixed via shared lineStart/lineEnd endpoint (live traffic 7C7772 exposed divergence). Ring-clearance + length fix: length multiplier 0.15→0.22, RING_CLEARANCE_PX = 8 offset from selection ring (live traffic 7C6DB4 exposed dot1 merging with ring). Box-direction fix: boxOnLeft derived from real computed direction (dx, dy) not theta sign alone — `boxOnLeft = !v || dx >= 0` (live traffic 7C389F/7C2EB8 exposed box overlapping line). TD-58-C RESOLVED: frontend-reviewer fixed via opencode.json explicit Playwright verb allows (gitignored) + model swap to opencode-go/gpt-5.6-luna. 2 frontend files touched + 1 test file + agent definition. Dual-reviewed (review-second + deep-analyst, both approved). frontend-reviewer verified working via two-part diagnostic.**
-**Total: 1201 passing (824 pytest + 377 Vitest), 0 failures**
+**Current phase: 61 - Pluto device support + bandwidth_hz for `capture_and_save()` (Part B) + Track A debt clearance. Part B added ADALM-PLUTO device support to `capture_and_save()` in `core/pipeline/capture.py` with device parameter accepting "hackrf" or "plutosdr", dispatch via _CAPTURE_DISPATCH validation dict + if/elif for argument shaping, bandwidth_hz parameter recorded as SigMF metadata only (no software DSP), _DEVICE_HW_NAMES dict deleted (meta.hw now from DEVICE_PROFILES), 12 new tests, Track A debt clearance (two pre-existing test-fixture bugs resolved).**
+**Total: 1214 passing (837 pytest + 377 Vitest), 0 failures**
 
 > **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector
 > store (`data/vectorstore/`) must be re-seeded after deploying this build.
