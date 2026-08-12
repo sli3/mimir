@@ -7,12 +7,16 @@ Tests cover:
 - save_capture filename matches expected SigMF pattern and writes the .sigmf-data sibling
 - saved SigMF recording reloads as complex64 with matching data and metadata
 - SigMF metadata round-trips device identity and legal provenance
+- capture_and_save dispatches to the correct device capture function
+- capture_and_save validates the device string before any hardware call
+- bandwidth_hz is recorded as SigMF core:bandwidth metadata (never as DSP)
 - no TX patterns exist in capture.py
 """
 
 import sys
 import os
 import re
+import logging
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -23,7 +27,22 @@ import sigmf
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from core.legal.compliance_guard import HardwareTransmitError
-from core.pipeline.capture import capture_iq, capture_iq_pluto, save_capture
+from core.pipeline.capture import (
+    capture_and_save,
+    capture_iq,
+    capture_iq_pluto,
+    save_capture,
+)
+
+TX_METHOD_NAMES = [
+    "transmit",
+    "write_samples",
+    "writeStream",
+    "set_tx_gain",
+    "set_tx_frequency",
+    "setupTxStream",
+    "activateTxStream",
+]
 
 
 class TestCaptureIq:
@@ -304,3 +323,264 @@ class TestNoTxPatterns:
                 f"TX pattern '{pattern}' found in capture.py — "
                 "this file must be receive-only."
             )
+
+
+def _mock_sdr_with_samples(num_samples: int = 1024) -> MagicMock:
+    """A mock SDR whose read_samples returns a real complex64 array.
+
+    save_capture() feeds the samples to sigmf.fromarray(), which needs a
+    genuine numpy array - a bare MagicMock return value would fail there.
+    """
+    mock_sdr = MagicMock()
+    mock_sdr.read_samples.return_value = np.zeros(num_samples, dtype=np.complex64)
+    return mock_sdr
+
+
+class TestCaptureAndSave:
+    """Tests for the capture_and_save orchestration function (Phase 61)."""
+
+    def test_dispatches_to_capture_iq_for_hackrf(self, tmp_path):
+        """device="hackrf" constructs HackRFReceiver with wrapper default gains."""
+        with patch("core.pipeline.capture.HackRFReceiver") as mock_hackrf_cls, \
+             patch("core.pipeline.capture.PlutoReceiver") as mock_pluto_cls:
+            mock_sdr = _mock_sdr_with_samples(1024)
+            mock_hackrf_cls.return_value = mock_sdr
+
+            result = capture_and_save(
+                freq_hz=98_000_000,
+                num_samples=1024,
+                sample_rate_hz=2_000_000,
+                output_dir=tmp_path,
+                device="hackrf",
+            )
+
+            mock_hackrf_cls.assert_called_once_with(
+                center_freq_hz=98_000_000,
+                sample_rate_hz=2_000_000,
+                lna_gain_db=mock_hackrf_cls.DEFAULT_LNA_GAIN_DB,
+                vga_gain_db=mock_hackrf_cls.DEFAULT_VGA_GAIN_DB,
+            )
+            mock_pluto_cls.assert_not_called()
+            mock_sdr.read_samples.assert_called_once_with(1024)
+            assert result.name.endswith(".sigmf-meta")
+            assert result.exists()
+
+    def test_dispatches_to_capture_iq_pluto_for_plutosdr(self, tmp_path):
+        """device="plutosdr" constructs PlutoReceiver with default gain + bandwidth."""
+        with patch("core.pipeline.capture.HackRFReceiver") as mock_hackrf_cls, \
+             patch("core.pipeline.capture.PlutoReceiver") as mock_pluto_cls:
+            mock_sdr = _mock_sdr_with_samples(1024)
+            mock_pluto_cls.return_value = mock_sdr
+
+            capture_and_save(
+                freq_hz=1_090_000_000,
+                num_samples=1024,
+                sample_rate_hz=2_000_000,
+                output_dir=tmp_path,
+                device="plutosdr",
+                bandwidth_hz=1_800_000,
+            )
+
+            mock_pluto_cls.assert_called_once_with(
+                center_freq_hz=1_090_000_000,
+                sample_rate_hz=2_000_000,
+                gain_db=mock_pluto_cls.DEFAULT_GAIN_DB,
+                bandwidth_hz=1_800_000,
+            )
+            mock_hackrf_cls.assert_not_called()
+            mock_sdr.read_samples.assert_called_once_with(1024)
+
+    def test_unknown_device_raises_value_error_before_hardware_call(self, tmp_path):
+        """An unknown device key raises ValueError and never touches hardware."""
+        with patch("core.pipeline.capture.HackRFReceiver") as mock_hackrf_cls, \
+             patch("core.pipeline.capture.PlutoReceiver") as mock_pluto_cls:
+            with pytest.raises(ValueError, match="Unknown device 'bogus'"):
+                capture_and_save(
+                    freq_hz=98_000_000,
+                    num_samples=1024,
+                    sample_rate_hz=2_000_000,
+                    output_dir=tmp_path,
+                    device="bogus",
+                )
+
+            mock_hackrf_cls.assert_not_called()
+            mock_pluto_cls.assert_not_called()
+
+    def test_sigmf_meta_hw_field_is_adalm_pluto_for_plutosdr(self, tmp_path):
+        """End-to-end: a Pluto capture records hw as ADALM-PLUTO in SigMF."""
+        with patch("core.pipeline.capture.PlutoReceiver") as mock_pluto_cls:
+            mock_pluto_cls.return_value = _mock_sdr_with_samples(512)
+
+            result = capture_and_save(
+                freq_hz=1_090_000_000,
+                num_samples=512,
+                sample_rate_hz=2_000_000,
+                output_dir=tmp_path,
+                device="plutosdr",
+            )
+
+            meta = sigmf.fromfile(str(result))
+            assert meta.hw == "ADALM-PLUTO", (
+                "core:hw must come from DEVICE_PROFILES['plutosdr'] - "
+                "a wrong driver key would write the wrong hardware name."
+            )
+            assert meta.get_global_field("mimir:device_profile") == "plutosdr"
+
+    def test_sigmf_meta_hw_field_uses_device_profiles_display_name_directly(
+        self, tmp_path
+    ):
+        """save_capture resolves core:hw via DEVICE_PROFILES, not a local dict."""
+        samples = np.zeros(256, dtype=np.complex64)
+        result = save_capture(
+            samples,
+            freq_hz=98_000_000,
+            sample_rate_hz=2_000_000,
+            device="hackrf",
+            output_dir=tmp_path,
+        )
+
+        meta = sigmf.fromfile(str(result))
+        assert meta.hw == "HackRF One"
+
+    def test_bandwidth_hz_recorded_as_core_bandwidth_in_capture_record(
+        self, tmp_path
+    ):
+        """bandwidth_hz lands in the capture record as core:bandwidth."""
+        samples = np.zeros(256, dtype=np.complex64)
+        result = save_capture(
+            samples,
+            freq_hz=1_090_000_000,
+            sample_rate_hz=2_000_000,
+            device="plutosdr",
+            output_dir=tmp_path,
+            bandwidth_hz=1_800_000,
+        )
+
+        meta = sigmf.fromfile(str(result))
+        captures = meta.get_captures()
+        assert len(captures) == 1
+        assert captures[0][sigmf.FREQUENCY_KEY] == 1_090_000_000
+        assert captures[0]["core:bandwidth"] == 1_800_000
+
+    def test_bandwidth_hz_none_omits_core_bandwidth_field(self, tmp_path):
+        """bandwidth_hz=None omits core:bandwidth entirely from the record."""
+        samples = np.zeros(256, dtype=np.complex64)
+        result = save_capture(
+            samples,
+            freq_hz=98_000_000,
+            sample_rate_hz=2_000_000,
+            output_dir=tmp_path,
+        )
+
+        meta = sigmf.fromfile(str(result))
+        captures = meta.get_captures()
+        assert len(captures) == 1
+        assert captures[0][sigmf.FREQUENCY_KEY] == 98_000_000
+        assert "core:bandwidth" not in captures[0]
+
+    def test_hackrf_bandwidth_hz_logs_warning_and_still_records_metadata(
+        self, tmp_path, caplog
+    ):
+        """HackRF + bandwidth_hz: warning logged, value still in SigMF metadata."""
+        with patch("core.pipeline.capture.HackRFReceiver") as mock_hackrf_cls:
+            mock_hackrf_cls.return_value = _mock_sdr_with_samples(256)
+
+            with caplog.at_level(logging.WARNING, logger="core.pipeline.capture"):
+                result = capture_and_save(
+                    freq_hz=98_000_000,
+                    num_samples=256,
+                    sample_rate_hz=2_000_000,
+                    output_dir=tmp_path,
+                    device="hackrf",
+                    bandwidth_hz=1_800_000,
+                )
+
+            warnings = [
+                r for r in caplog.records
+                if r.levelno == logging.WARNING and "bandwidth_hz" in r.getMessage()
+            ]
+            assert warnings, "Expected a warning that bandwidth_hz is ignored on HackRF"
+            assert "bandwidth_hz ignored" in warnings[0].getMessage()
+
+            meta = sigmf.fromfile(str(result))
+            assert meta.get_captures()[0]["core:bandwidth"] == 1_800_000
+
+    def test_pluto_bandwidth_hz_passed_through_to_capture_iq_pluto(self, tmp_path):
+        """Pluto + bandwidth_hz: the value reaches the PlutoReceiver constructor."""
+        with patch("core.pipeline.capture.PlutoReceiver") as mock_pluto_cls:
+            mock_pluto_cls.return_value = _mock_sdr_with_samples(256)
+
+            capture_and_save(
+                freq_hz=915_000_000,
+                num_samples=256,
+                sample_rate_hz=2_000_000,
+                output_dir=tmp_path,
+                device="plutosdr",
+                bandwidth_hz=1_500_000,
+            )
+
+            assert mock_pluto_cls.call_args.kwargs["bandwidth_hz"] == 1_500_000
+
+    def test_no_transmit_methods_called_on_pluto_via_capture_and_save(self, tmp_path):
+        """TX-safety: no transmit-family method is invoked on the Pluto path."""
+        with patch("core.pipeline.capture.PlutoReceiver") as mock_pluto_cls:
+            mock_sdr = _mock_sdr_with_samples(256)
+            mock_pluto_cls.return_value = mock_sdr
+
+            capture_and_save(
+                freq_hz=915_000_000,
+                num_samples=256,
+                sample_rate_hz=2_000_000,
+                output_dir=tmp_path,
+                device="plutosdr",
+            )
+
+            for method_name in TX_METHOD_NAMES:
+                getattr(mock_sdr, method_name).assert_not_called()
+
+            ctor_kwargs = mock_pluto_cls.call_args.kwargs
+            for kwarg_name, kwarg_value in ctor_kwargs.items():
+                assert kwarg_name not in TX_METHOD_NAMES
+                assert kwarg_value not in TX_METHOD_NAMES
+
+    def test_no_transmit_methods_called_on_hackrf_via_capture_and_save(self, tmp_path):
+        """TX-safety: no transmit-family method is invoked on the HackRF path."""
+        with patch("core.pipeline.capture.HackRFReceiver") as mock_hackrf_cls:
+            mock_sdr = _mock_sdr_with_samples(256)
+            mock_hackrf_cls.return_value = mock_sdr
+
+            capture_and_save(
+                freq_hz=98_000_000,
+                num_samples=256,
+                sample_rate_hz=2_000_000,
+                output_dir=tmp_path,
+                device="hackrf",
+            )
+
+            for method_name in TX_METHOD_NAMES:
+                getattr(mock_sdr, method_name).assert_not_called()
+
+            ctor_kwargs = mock_hackrf_cls.call_args.kwargs
+            for kwarg_name, kwarg_value in ctor_kwargs.items():
+                assert kwarg_name not in TX_METHOD_NAMES
+                assert kwarg_value not in TX_METHOD_NAMES
+
+    def test_capture_and_save_does_not_call_save_capture_with_unknown_device(
+        self, tmp_path
+    ):
+        """The unknown-device ValueError fires before save_capture is reached."""
+        with patch("core.pipeline.capture.save_capture") as mock_save, \
+             patch("core.pipeline.capture.HackRFReceiver") as mock_hackrf_cls, \
+             patch("core.pipeline.capture.PlutoReceiver") as mock_pluto_cls:
+            with pytest.raises(ValueError, match="Unknown device 'bogus'"):
+                capture_and_save(
+                    freq_hz=98_000_000,
+                    num_samples=1024,
+                    sample_rate_hz=2_000_000,
+                    output_dir=tmp_path,
+                    device="bogus",
+                )
+
+            mock_save.assert_not_called()
+            mock_hackrf_cls.assert_not_called()
+            mock_pluto_cls.assert_not_called()

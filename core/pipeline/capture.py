@@ -8,22 +8,16 @@ Legal: Receive-only. Radiocommunications Act 1992 (Cth).
 import logging
 from datetime import datetime
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 import sigmf
 
 from core.device.hackrf_rx import HackRFReceiver
 from core.device.pluto_rx import PlutoReceiver
+from core.device.profiles import DEVICE_PROFILES
 
 logger = logging.getLogger(__name__)
-
-# Maps device profile names to human-readable hardware names recorded in
-# the SigMF core:hw field. Phase B will add: "pluto": "ADALM-PLUTO".
-# Unknown device strings fall back to the string itself so callers never
-# silently lose the value.
-_DEVICE_HW_NAMES: dict[str, str] = {
-    "hackrf": "HackRF One",
-}
 
 
 def capture_iq(
@@ -144,12 +138,26 @@ def capture_iq_pluto(
         raise
 
 
+# Maps device driver keys to their capture functions. Used by
+# capture_and_save() to validate the device string BEFORE any hardware
+# call: an unknown key raises ValueError immediately. Keys must match
+# DEVICE_PROFILES exactly ("hackrf" / "plutosdr" - never "pluto").
+# The dict is validation only; the actual dispatch is an explicit
+# if/elif because capture_iq and capture_iq_pluto take different kwargs
+# (split LNA/VGA gain model vs combined gain plus RF bandwidth).
+_CAPTURE_DISPATCH: dict[str, Callable] = {
+    "hackrf": capture_iq,
+    "plutosdr": capture_iq_pluto,
+}
+
+
 def save_capture(
     samples: np.ndarray,
     freq_hz: float,
     sample_rate_hz: float,
     device: str = "hackrf",
     output_dir: Path = Path("data/captures"),
+    bandwidth_hz: float | None = None,
 ) -> Path:
     """
     Save IQ samples as a SigMF recording (.sigmf-data + .sigmf-meta pair).
@@ -164,6 +172,12 @@ def save_capture(
     the filename. The filename stays controlled (numeric frequency plus
     timestamp) so no caller-controlled string can influence the path.
 
+    This function is device-agnostic and RECEIVE-ONLY: it writes files
+    and nothing else. It performs no software DSP - bandwidth_hz is
+    recorded as metadata only (the operator's declared RF filter width);
+    any actual narrowing happened in the device's analogue filter at
+    capture time.
+
     Args:
         samples: numpy array of complex64 IQ samples to save.
         freq_hz: Centre frequency in Hz. Recorded in the filename and in
@@ -171,18 +185,32 @@ def save_capture(
         sample_rate_hz: Samples per second. Required — recorded as the
                         SigMF core:sample_rate global field; without it
                         the capture cannot be interpreted.
-        device: Device profile name (e.g. "hackrf"). Stored in the
-                SigMF metadata under the custom global field
-                "mimir:device_profile" (the mimir: vendor-namespace
-                prefix is the SigMF-spec-compliant way to carry
-                non-core fields). Defaults to "hackrf".
+        device: Device profile name - a DEVICE_PROFILES driver key
+                ("hackrf" / "plutosdr"). Stored in the SigMF metadata
+                under the custom global field "mimir:device_profile"
+                (the mimir: vendor-namespace prefix is the
+                SigMF-spec-compliant way to carry non-core fields), and
+                its DEVICE_PROFILES display_name is recorded in core:hw.
+                Defaults to "hackrf".
         output_dir: Directory to save the files in. Created if it does
                     not exist. Defaults to Path("data/captures").
+        bandwidth_hz: RF filter bandwidth in Hz, if the capture device
+                      applied one. Recorded as core:bandwidth in the
+                      capture record at sample index 0. If None the key
+                      is omitted entirely. Metadata only - no samples
+                      are filtered, cropped, or resampled here.
 
     Returns:
         Path to the .sigmf-meta file. This is the canonical handle for
         the recording; the sibling .sigmf-data file with the same base
         name holds the raw complex64 samples.
+
+    Raises:
+        KeyError: If device is not a DEVICE_PROFILES driver key. This is
+                  deliberate fail-fast behaviour; capture_and_save()
+                  validates the key with a clearer ValueError before any
+                  hardware call, so direct callers of save_capture()
+                  get the KeyError with the bad device key.
 
     Files written:
         {output_dir}/capture_{int(freq_hz)}hz_{YYYYMMDD_HHMMSS}.sigmf-data
@@ -191,9 +219,12 @@ def save_capture(
     Metadata recorded:
         core:datatype    — "cf32_le" (from the complex64 array)
         core:sample_rate — sample_rate_hz
-        core:hw          — human-readable hardware name ("HackRF One")
+        core:hw          — DEVICE_PROFILES display_name (e.g. "HackRF One",
+                           "ADALM-PLUTO")
         core:description — passive-receive legal provenance note
         core:frequency   — freq_hz (capture record at sample index 0)
+        core:bandwidth   — bandwidth_hz (same capture record; only when
+                           bandwidth_hz is not None)
         mimir:device_profile — device profile name (custom global field)
     """
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -204,7 +235,9 @@ def save_capture(
 
     meta = sigmf.fromarray(samples)
     meta.sample_rate = sample_rate_hz
-    meta.hw = _DEVICE_HW_NAMES.get(device, device)
+    # DEVICE_PROFILES is the single source of truth for the human-readable
+    # hardware name; an unknown device key fails fast here with a KeyError.
+    meta.hw = DEVICE_PROFILES[device]["display_name"]
     # Legal provenance travels with every capture as a free-text global field.
     meta.description = (
         "Mimir RF Scanner — passive receive only. "
@@ -222,8 +255,14 @@ def save_capture(
     # mimir: vendor-namespace custom field for programmatic device identity.
     meta.set_global_field("mimir:device_profile", device)
     # Note: fromarray() pre-creates a bare capture at start_index=0; this
-    # call merges our frequency metadata into it rather than appending.
-    meta.add_capture(start_index=0, metadata={sigmf.FREQUENCY_KEY: freq_hz})
+    # call merges our metadata into it rather than appending. bandwidth_hz
+    # is metadata only (core:bandwidth) - no software DSP is applied here;
+    # on Pluto the analogue RF filter does the actual narrowing, and
+    # HackRF has no settable bandwidth at all.
+    capture_meta = {sigmf.FREQUENCY_KEY: freq_hz}
+    if bandwidth_hz is not None:
+        capture_meta["core:bandwidth"] = bandwidth_hz
+    meta.add_capture(start_index=0, metadata=capture_meta)
 
     meta.tofile(base_path)
     meta_path = Path(str(base_path) + ".sigmf-meta")
@@ -236,20 +275,39 @@ def capture_and_save(
     num_samples: int,
     sample_rate_hz: float,
     output_dir: Path = Path("data/captures"),
+    device: str = "hackrf",
+    bandwidth_hz: float | None = None,
 ) -> Path:
     """
     Capture IQ samples and save them as a SigMF recording in one call.
 
-    HackRF-only: this function captures via capture_iq (HackRFReceiver).
-    Pluto support and a bandwidth_hz override are a separate Phase B
-    change; do not add them here.
+    Supports both the HackRF One (device="hackrf") and the ADALM-PLUTO
+    (device="plutosdr"). The device string is validated against
+    _CAPTURE_DISPATCH BEFORE any hardware call - an unknown key raises
+    ValueError immediately, so a typo can never open the wrong device
+    or silently fall through.
 
-    Uses default safe gain settings (LNA 24 dB, VGA 26 dB).
-    These defaults are calibrated for the telescopic whip SMA antenna
-    (~1 GHz optimised). Poor coupling at FM wavelengths requires gain
-    to compensate. Confirmed safe on live hardware with Adelaide FM
-    signals (no ADC saturation). Adjust only if capturing weak signals
-    on bands other than FM.
+    The whole call chain is RECEIVE-ONLY. Both device wrappers guard
+    every transmit-capable entry point at the wrapper level, and this
+    function only ever drives the RX path (open, read_samples, close).
+
+    Gain handling per device:
+      - HackRF uses its split gain model with the wrapper defaults
+        (LNA 24 dB, VGA 26 dB), calibrated for the telescopic whip SMA
+        antenna and confirmed safe on live Adelaide FM signals.
+      - Pluto uses its single combined gain stage at
+        PlutoReceiver.DEFAULT_GAIN_DB (30.0 dB). That figure is
+        PROVISIONAL - chosen from spur observation, NOT from a
+        calibration session. See the pluto_rx.py module docstring and
+        the PLUTO_BAND_PROFILES comments in dashboard/shared_state.py.
+
+    bandwidth_hz handling per device:
+      - Pluto: passed through to capture_iq_pluto, where PlutoReceiver
+        applies it to the analogue RF filter.
+      - HackRF: the HackRF has no settable RF bandwidth, so the value
+        is NOT passed to capture_iq. A warning is logged, but the value
+        is still recorded in the SigMF metadata (core:bandwidth) because
+        it records the operator's intent.
 
     Args:
         freq_hz: Centre frequency to tune to in Hz.
@@ -257,22 +315,63 @@ def capture_and_save(
         sample_rate_hz: Samples per second.
         output_dir: Directory to save the files in. Defaults to
                     Path("data/captures").
+        device: DEVICE_PROFILES driver key - "hackrf" or "plutosdr".
+                Defaults to "hackrf".
+        bandwidth_hz: RF filter bandwidth in Hz. Applied only on Pluto;
+                      logged-and-ignored (but still recorded in metadata)
+                      on HackRF. Defaults to None.
 
     Returns:
         Path to the saved .sigmf-meta file (the canonical SigMF handle;
         the sibling .sigmf-data file holds the raw samples).
+
+    Raises:
+        ValueError: If device is not a key of _CAPTURE_DISPATCH. Raised
+                    BEFORE any hardware call.
     """
-    samples = capture_iq(
-        freq_hz=freq_hz,
-        num_samples=num_samples,
-        sample_rate_hz=sample_rate_hz,
-        lna_gain_db=HackRFReceiver.DEFAULT_LNA_GAIN_DB,
-        vga_gain_db=HackRFReceiver.DEFAULT_VGA_GAIN_DB,
-    )
+    capture_fn = _CAPTURE_DISPATCH.get(device)
+    if capture_fn is None:
+        raise ValueError(
+            f"Unknown device {device!r} — valid devices: "
+            f"{', '.join(sorted(_CAPTURE_DISPATCH.keys()))}"
+        )
+
+    if device == "hackrf":
+        if bandwidth_hz is not None:
+            logger.warning(
+                "bandwidth_hz ignored (HackRF has no settable RF filter): "
+                "%s Hz requested; metadata will still record the value",
+                bandwidth_hz,
+            )
+        samples = capture_iq(
+            freq_hz=freq_hz,
+            num_samples=num_samples,
+            sample_rate_hz=sample_rate_hz,
+            lna_gain_db=HackRFReceiver.DEFAULT_LNA_GAIN_DB,
+            vga_gain_db=HackRFReceiver.DEFAULT_VGA_GAIN_DB,
+        )
+    elif device == "plutosdr":
+        # PlutoReceiver.DEFAULT_GAIN_DB (30.0) is provisional - chosen
+        # from spur observation, NOT from a calibration session.
+        # See the pluto_rx.py module docstring and the PLUTO_BAND_PROFILES
+        # comments in dashboard/shared_state.py.
+        samples = capture_iq_pluto(
+            freq_hz=freq_hz,
+            num_samples=num_samples,
+            sample_rate_hz=sample_rate_hz,
+            gain_db=PlutoReceiver.DEFAULT_GAIN_DB,
+            bandwidth_hz=bandwidth_hz,
+        )
+    else:
+        # Unreachable - _CAPTURE_DISPATCH validation above would have
+        # raised already. Defensive only.
+        raise ValueError(f"Unknown device {device!r}")  # pragma: no cover
+
     return save_capture(
         samples,
         freq_hz=freq_hz,
         sample_rate_hz=sample_rate_hz,
-        device="hackrf",
+        device=device,
         output_dir=output_dir,
+        bandwidth_hz=bandwidth_hz,
     )
