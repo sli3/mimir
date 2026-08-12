@@ -16,6 +16,10 @@ dependencies = [
     "python-socketio[client]>=5.11.0",
     "huggingface-hub>=0.24.0",
     "scipy>=1.12.0",
+    # SigMF recording format for IQ captures. fromarray() requires >= 1.10.0;
+    # module-level key constants (sigmf.FREQUENCY_KEY) require >= 1.11.0.
+    # LGPL v3 — compatible with the existing SoapySDR LGPL dependency.
+    "sigmf>=1.11.0",
     "pyais>=3.0.0",
     # TD-54-6: pin exactly — the DF4/DF5 trust gate's correctness depends on
     # pyModeS 3.3.0's specific crc_valid semantics for these formats. Upgrading

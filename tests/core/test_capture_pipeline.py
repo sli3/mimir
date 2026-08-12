@@ -4,8 +4,9 @@ tests/core/test_capture_pipeline.py — Tests for the IQ capture pipeline
 Tests cover:
 - capture_iq raises RuntimeError (not HardwareTransmitError) without hardware
 - save_capture creates output_dir if missing
-- save_capture filename matches expected pattern
-- saved file reloads as complex64
+- save_capture filename matches expected SigMF pattern and writes the .sigmf-data sibling
+- saved SigMF recording reloads as complex64 with matching data and metadata
+- SigMF metadata round-trips device identity and legal provenance
 - no TX patterns exist in capture.py
 """
 
@@ -17,6 +18,7 @@ from unittest.mock import patch, MagicMock
 
 import numpy as np
 import pytest
+import sigmf
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -190,7 +192,7 @@ class TestCaptureIqUnchanged:
 
 
 class TestSaveCapture:
-    """Tests for the save_capture function."""
+    """Tests for the save_capture function (SigMF format)."""
 
     def test_creates_output_dir_if_missing(self, tmp_path):
         """save_capture creates the output directory if it does not exist."""
@@ -198,34 +200,83 @@ class TestSaveCapture:
         assert not output_dir.exists()
 
         samples = np.zeros(1024, dtype=np.complex64)
-        save_capture(samples, freq_hz=98_000_000, output_dir=output_dir)
+        save_capture(
+            samples,
+            freq_hz=98_000_000,
+            sample_rate_hz=2_000_000,
+            output_dir=output_dir,
+        )
 
         assert output_dir.exists()
         assert output_dir.is_dir()
 
     def test_filename_matches_pattern(self, tmp_path):
-        """save_capture filename matches capture_{freq}hz_YYYYMMDD_HHMMSS.npy."""
+        """save_capture returns capture_{freq}hz_YYYYMMDD_HHMMSS.sigmf-meta."""
         samples = np.zeros(1024, dtype=np.complex64)
-        result_path = save_capture(samples, freq_hz=98_000_000, output_dir=tmp_path)
+        result_path = save_capture(
+            samples,
+            freq_hz=98_000_000,
+            sample_rate_hz=2_000_000,
+            output_dir=tmp_path,
+        )
 
-        pattern = r"capture_98000000hz_\d{8}_\d{6}\.npy"
+        pattern = r"capture_98000000hz_\d{8}_\d{6}\.sigmf-meta"
         assert re.match(pattern, result_path.name), (
             f"Filename '{result_path.name}' does not match expected pattern."
         )
 
+        # The sibling .sigmf-data file must exist with the same base name.
+        data_path = Path(str(result_path)[: -len(".sigmf-meta")] + ".sigmf-data")
+        assert data_path.exists(), (
+            f"Expected sibling .sigmf-data file at {data_path}, not found."
+        )
+
     def test_saved_file_reloads_as_complex64(self, tmp_path):
-        """Saved .npy file reloads with dtype complex64 and matching data."""
+        """SigMF recording reloads with dtype complex64, matching data and metadata."""
         original = np.random.randn(512).astype(np.float32) + \
                    1j * np.random.randn(512).astype(np.float32)
         original = original.astype(np.complex64)
 
-        result_path = save_capture(original, freq_hz=145_175_000, output_dir=tmp_path)
-        reloaded = np.load(result_path)
-
-        assert reloaded.dtype == np.complex64, (
-            f"Expected dtype complex64, got {reloaded.dtype}."
+        freq_hz = 145_175_000
+        sample_rate_hz = 2_000_000
+        result_path = save_capture(
+            original,
+            freq_hz=freq_hz,
+            sample_rate_hz=sample_rate_hz,
+            output_dir=tmp_path,
         )
-        np.testing.assert_array_equal(original, reloaded)
+
+        read_back = sigmf.fromfile(str(result_path))
+
+        assert read_back.sample_rate == sample_rate_hz
+        assert read_back.get_captures()[0][sigmf.FREQUENCY_KEY] == freq_hz
+        assert len(read_back.get_captures()) == 1, (
+            "Expected exactly one capture record (fromarray pre-creates one, "
+            "our add_capture merges into it rather than appending)."
+        )
+
+        read_data = read_back[: len(original)]
+        assert read_data.dtype == np.complex64, (
+            f"Expected dtype complex64, got {read_data.dtype}."
+        )
+        np.testing.assert_array_equal(original, read_data)
+
+    def test_metadata_round_trips_device_and_legal_provenance(self, tmp_path):
+        """SigMF metadata carries device identity and the passive-RX legal note."""
+        samples = np.zeros(256, dtype=np.complex64)
+        result_path = save_capture(
+            samples,
+            freq_hz=98_000_000,
+            sample_rate_hz=2_000_000,
+            output_dir=tmp_path,
+        )
+
+        meta = sigmf.fromfile(str(result_path))
+
+        assert meta.hw == "HackRF One"
+        assert meta.get_global_field("mimir:device_profile") == "hackrf"
+        assert "Radiocommunications Act" in meta.description
+        assert "ACMA" in meta.description
 
 
 class TestNoTxPatterns:

@@ -10,11 +10,20 @@ from datetime import datetime
 from pathlib import Path
 
 import numpy as np
+import sigmf
 
 from core.device.hackrf_rx import HackRFReceiver
 from core.device.pluto_rx import PlutoReceiver
 
 logger = logging.getLogger(__name__)
+
+# Maps device profile names to human-readable hardware names recorded in
+# the SigMF core:hw field. Phase B will add: "pluto": "ADALM-PLUTO".
+# Unknown device strings fall back to the string itself so callers never
+# silently lose the value.
+_DEVICE_HW_NAMES: dict[str, str] = {
+    "hackrf": "HackRF One",
+}
 
 
 def capture_iq(
@@ -138,29 +147,88 @@ def capture_iq_pluto(
 def save_capture(
     samples: np.ndarray,
     freq_hz: float,
+    sample_rate_hz: float,
+    device: str = "hackrf",
     output_dir: Path = Path("data/captures"),
 ) -> Path:
     """
-    Save IQ samples to a .npy file with a timestamped filename.
+    Save IQ samples as a SigMF recording (.sigmf-data + .sigmf-meta pair).
+
+    SigMF (Signal Metadata Format) makes captures self-describing: the
+    sample rate, centre frequency, hardware and datatype travel with the
+    raw samples, so the recording is readable by any SigMF-compatible
+    tool (GNU Radio, inspectrum, iqengine) without external knowledge of
+    how it was captured.
+
+    The device identity is stored in the JSON metadata only, never in
+    the filename. The filename stays controlled (numeric frequency plus
+    timestamp) so no caller-controlled string can influence the path.
 
     Args:
         samples: numpy array of complex64 IQ samples to save.
-        freq_hz: Centre frequency in Hz, included in the filename.
-        output_dir: Directory to save the file in. Created if it does not exist.
-                    Defaults to Path("data/captures").
+        freq_hz: Centre frequency in Hz. Recorded in the filename and in
+                 the SigMF capture record (core:frequency).
+        sample_rate_hz: Samples per second. Required — recorded as the
+                        SigMF core:sample_rate global field; without it
+                        the capture cannot be interpreted.
+        device: Device profile name (e.g. "hackrf"). Stored in the
+                SigMF metadata under the custom global field
+                "mimir:device_profile" (the mimir: vendor-namespace
+                prefix is the SigMF-spec-compliant way to carry
+                non-core fields). Defaults to "hackrf".
+        output_dir: Directory to save the files in. Created if it does
+                    not exist. Defaults to Path("data/captures").
 
     Returns:
-        Path to the saved .npy file.
+        Path to the .sigmf-meta file. This is the canonical handle for
+        the recording; the sibling .sigmf-data file with the same base
+        name holds the raw complex64 samples.
+
+    Files written:
+        {output_dir}/capture_{int(freq_hz)}hz_{YYYYMMDD_HHMMSS}.sigmf-data
+        {output_dir}/capture_{int(freq_hz)}hz_{YYYYMMDD_HHMMSS}.sigmf-meta
+
+    Metadata recorded:
+        core:datatype    — "cf32_le" (from the complex64 array)
+        core:sample_rate — sample_rate_hz
+        core:hw          — human-readable hardware name ("HackRF One")
+        core:description — passive-receive legal provenance note
+        core:frequency   — freq_hz (capture record at sample index 0)
+        mimir:device_profile — device profile name (custom global field)
     """
     output_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"capture_{int(freq_hz)}hz_{timestamp}.npy"
-    filepath = output_dir / filename
+    base_name = f"capture_{int(freq_hz)}hz_{timestamp}"
+    base_path = output_dir / base_name
 
-    np.save(filepath, samples)
-    logger.info("Saved capture to %s", filepath)
-    return filepath
+    meta = sigmf.fromarray(samples)
+    meta.sample_rate = sample_rate_hz
+    meta.hw = _DEVICE_HW_NAMES.get(device, device)
+    # Legal provenance travels with every capture as a free-text global field.
+    meta.description = (
+        "Mimir RF Scanner — passive receive only. "
+        "Radiocommunications Act 1992 (Cth). ACMA jurisdiction. "
+        "No transmission."
+    )
+    # Declare the mimir: extension namespace (SigMF spec requires custom
+    # namespaces to be declared; an undeclared one is a DeprecationWarning
+    # today and a ValidationError in future versions). The plain
+    # name/version/optional keys match the sigmf 1.11.x schema.
+    meta.set_global_field(
+        sigmf.EXTENSIONS_KEY,
+        [{"name": "mimir", "version": "1.0.0", "optional": True}],
+    )
+    # mimir: vendor-namespace custom field for programmatic device identity.
+    meta.set_global_field("mimir:device_profile", device)
+    # Note: fromarray() pre-creates a bare capture at start_index=0; this
+    # call merges our frequency metadata into it rather than appending.
+    meta.add_capture(start_index=0, metadata={sigmf.FREQUENCY_KEY: freq_hz})
+
+    meta.tofile(base_path)
+    meta_path = Path(str(base_path) + ".sigmf-meta")
+    logger.info("Saved SigMF capture to %s", meta_path)
+    return meta_path
 
 
 def capture_and_save(
@@ -170,7 +238,11 @@ def capture_and_save(
     output_dir: Path = Path("data/captures"),
 ) -> Path:
     """
-    Capture IQ samples and save them to a .npy file in one call.
+    Capture IQ samples and save them as a SigMF recording in one call.
+
+    HackRF-only: this function captures via capture_iq (HackRFReceiver).
+    Pluto support and a bandwidth_hz override are a separate Phase B
+    change; do not add them here.
 
     Uses default safe gain settings (LNA 24 dB, VGA 26 dB).
     These defaults are calibrated for the telescopic whip SMA antenna
@@ -183,10 +255,12 @@ def capture_and_save(
         freq_hz: Centre frequency to tune to in Hz.
         num_samples: Number of IQ samples to capture.
         sample_rate_hz: Samples per second.
-        output_dir: Directory to save the file in. Defaults to Path("data/captures").
+        output_dir: Directory to save the files in. Defaults to
+                    Path("data/captures").
 
     Returns:
-        Path to the saved .npy file.
+        Path to the saved .sigmf-meta file (the canonical SigMF handle;
+        the sibling .sigmf-data file holds the raw samples).
     """
     samples = capture_iq(
         freq_hz=freq_hz,
@@ -195,4 +269,10 @@ def capture_and_save(
         lna_gain_db=HackRFReceiver.DEFAULT_LNA_GAIN_DB,
         vga_gain_db=HackRFReceiver.DEFAULT_VGA_GAIN_DB,
     )
-    return save_capture(samples, freq_hz, output_dir)
+    return save_capture(
+        samples,
+        freq_hz=freq_hz,
+        sample_rate_hz=sample_rate_hz,
+        device="hackrf",
+        output_dir=output_dir,
+    )
