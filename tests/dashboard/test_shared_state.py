@@ -17,6 +17,7 @@ from dashboard.shared_state import (
     BAND_PROFILES,
     TRIGGER_ARMABLE_BANDS,
     band_key_for_freq,
+    check_and_update_trigger_state,
     get_band_for_freq,
     get_last_trigger_snr,
     is_trigger_armed,
@@ -245,3 +246,95 @@ class TestCaptureTriggerState:
         set_last_trigger_snr("aprs", 9.0)
         set_last_trigger_snr("aprs", None)
         assert get_last_trigger_snr("aprs") is None
+
+    def test_set_trigger_armed_false_clears_last_snr(self):
+        """Disarming a band clears its stored last-SNR reading.
+
+        LIFE-01: without the clear, a re-armed band would compare its
+        first new SNR reading against a stale pre-disarm value, letting
+        the edge detector fire (or stay suppressed) off a baseline that
+        no longer reflects the current spectrum.
+        """
+        set_trigger_armed("ism", True)
+        set_last_trigger_snr("ism", 15.0)
+        assert get_last_trigger_snr("ism") == 15.0
+        set_trigger_armed("ism", False)
+        assert get_last_trigger_snr("ism") is None
+
+    def test_set_trigger_armed_true_does_not_clear_last_snr(self):
+        """Arming a band must NOT clear its stored last-SNR reading -
+        only the disarm transition resets the edge baseline."""
+        set_trigger_armed("adsb", True)
+        # Disarm first so any leftover state from a prior session is
+        # cleared by the disarm path under test above.
+        set_trigger_armed("adsb", False)
+        set_last_trigger_snr("adsb", 8.0)
+        set_trigger_armed("adsb", True)
+        assert get_last_trigger_snr("adsb") == 8.0
+
+    def test_check_and_update_trigger_state_unarmed_band_does_not_write(self):
+        """An unarmed band's last-SNR entry is left untouched regardless
+        of current_snr (Phase 64b Path B: the write is gated on
+        was_armed, preserving Phase 64's invariant that
+        _trigger_last_snr only reflects activity for armed bands)."""
+        was_armed, prev_snr = check_and_update_trigger_state("ism", 12.5)
+        assert (was_armed, prev_snr) == (False, None)
+        assert get_last_trigger_snr("ism") is None
+        was_armed, prev_snr = check_and_update_trigger_state("ism", None)
+        assert (was_armed, prev_snr) == (False, None)
+        assert get_last_trigger_snr("ism") is None
+
+    def test_check_and_update_trigger_state_armed_band_returns_prev_and_writes(
+        self,
+    ):
+        """An armed band returns the state observed at lock acquisition
+        and records the new reading for the next cycle."""
+        set_trigger_armed("aprs", True)
+        was_armed, prev_snr = check_and_update_trigger_state("aprs", 18.0)
+        # prev_snr is None: just armed, no prior cycle has run.
+        assert (was_armed, prev_snr) == (True, None)
+        assert get_last_trigger_snr("aprs") == 18.0
+        was_armed, prev_snr = check_and_update_trigger_state("aprs", 22.0)
+        # prev_snr is the 18.0 written by the previous call.
+        assert (was_armed, prev_snr) == (True, 18.0)
+        assert get_last_trigger_snr("aprs") == 22.0
+
+    def test_check_and_update_trigger_state_disarm_clears_baseline_survives_next_cycle(
+        self,
+    ):
+        """Direct TOCTOU-HELPER regression test: a disarm's clear must survive
+        the scan loop's next cycle.
+
+        With the atomic helper, a call for a disarmed band cannot
+        resurrect the baseline the disarm just cleared - the was_armed
+        gate means no write happens, and the read-and-check happen in
+        the same critical section so no interleaved disarm can slip
+        between them.
+        """
+        set_trigger_armed("adsb", True)
+        check_and_update_trigger_state("adsb", 15.0)
+        assert get_last_trigger_snr("adsb") == 15.0
+        # Disarm clears the reading per LIFE-01.
+        set_trigger_armed("adsb", False)
+        assert get_last_trigger_snr("adsb") is None
+        # Simulate the scan loop's next cycle after disarm: fingerprint
+        # produced no SNR (None) and the band is disarmed.
+        was_armed, prev_snr = check_and_update_trigger_state("adsb", None)
+        assert (was_armed, prev_snr) == (False, None)
+        # The disarm-clear survived: no baseline was resurrected.
+        assert get_last_trigger_snr("adsb") is None
+
+    def test_check_and_update_trigger_state_armed_band_none_does_not_clobber(
+        self,
+    ):
+        """Path B None-safety: a None reading on an armed band must not
+        overwrite a real prior value."""
+        set_trigger_armed("fm_broadcast", True)
+        check_and_update_trigger_state("fm_broadcast", 12.0)
+        assert get_last_trigger_snr("fm_broadcast") == 12.0
+        # Armed band, but the fingerprint produced no SNR this cycle.
+        was_armed, prev_snr = check_and_update_trigger_state(
+            "fm_broadcast", None
+        )
+        assert (was_armed, prev_snr) == (True, 12.0)
+        assert get_last_trigger_snr("fm_broadcast") == 12.0

@@ -15,6 +15,7 @@ import dashboard.shared_state as shared_state
 from dashboard.shared_state import (
     TRIGGER_ARMABLE_BANDS,
     band_key_for_freq,
+    check_and_update_trigger_state,
     get_last_trigger_snr,
     is_trigger_armed,
     set_last_trigger_snr,
@@ -54,6 +55,13 @@ def _should_fire_trigger(
     reading, and threshold is None when the band profile lacks
     signal_threshold_db. Also returns False, defensively, when threshold
     is not a real number.
+
+    Note: after Phase 64's EDGE-03 fix, the live scan loop no longer
+    passes threshold=None to this function - it reuses the `threshold`
+    local computed earlier with a fallback to features.SIGNAL_THRESHOLD_DB,
+    so the threshold-is-None branch is unreachable from the production
+    call site today. The guard remains for direct/test callers and for
+    any future caller that does not provide a fallback.
 
     Args:
         prev_snr: SNR (dB) recorded on the previous scan cycle, or None.
@@ -347,17 +355,27 @@ class ScanRunner:
                 # omitted: HackRF has no settable RF filter, and on Pluto a
                 # live-loop capture inherits whatever the stream already has,
                 # so there is no operator-declared width to record.
+                # The armed-check, previous-SNR read, and current-SNR write
+                # go through the atomic check_and_update_trigger_state()
+                # helper (Phase 64b) rather than separate is_trigger_armed() /
+                # get_last_trigger_snr() / set_last_trigger_snr() calls: one
+                # lock acquisition replaces three, closing the TOCTOU gap
+                # flagged in review where a concurrent disarm could clear the
+                # baseline (LIFE-01) and the scan loop then repopulate it
+                # between the armed-check and the write. The helper also
+                # owns the None-safety and armed-only-write gating
+                # internally, so current_snr is passed through as-is.
                 trigger_band_key = band_key_for_freq(freq_hz)
                 if (
                     trigger_band_key is not None
                     and trigger_band_key in TRIGGER_ARMABLE_BANDS
-                    and is_trigger_armed(trigger_band_key)
                 ):
                     current_snr = fingerprint.get("snr_db")
-                    trigger_threshold_db = band.get("signal_threshold_db")
-                    prev_snr = get_last_trigger_snr(trigger_band_key)
-                    if _should_fire_trigger(
-                        prev_snr, current_snr, trigger_threshold_db
+                    was_armed, prev_snr = check_and_update_trigger_state(
+                        trigger_band_key, current_snr
+                    )
+                    if was_armed and _should_fire_trigger(
+                        prev_snr, current_snr, threshold
                     ):
                         logger.info(
                             "Auto-capture trigger fired: band=%s "
@@ -365,8 +383,8 @@ class ScanRunner:
                             trigger_band_key,
                             current_snr if current_snr is not None else float("nan"),
                             (
-                                trigger_threshold_db
-                                if trigger_threshold_db is not None
+                                threshold
+                                if threshold is not None
                                 else float("nan")
                             ),
                         )
@@ -384,8 +402,6 @@ class ScanRunner:
                                 trigger_band_key,
                                 freq_hz / 1e6,
                             )
-                    if current_snr is not None:
-                        set_last_trigger_snr(trigger_band_key, current_snr)
                 vector = embedder.embed(fingerprint)
                 # "Latest wins" — drain stale items before inserting so the AI loop
                 # always classifies the freshest scan, not a backlog seconds old.

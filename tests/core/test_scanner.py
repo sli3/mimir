@@ -18,6 +18,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from core.config.loader import MimirConfig
+from core.pipeline import features
 from core.pipeline.scan_result import ScanResult
 from core.pipeline.scanner import ScanRunner, _should_fire_trigger
 import dashboard.shared_state as shared_state
@@ -1122,3 +1123,51 @@ class TestScanLoopCaptureTrigger:
         with patch("core.pipeline.scanner.save_capture"):
             self._drive_scan_loop(scanner, low_snr=10.0, high_snr=25.0)
         assert shared_state.get_last_trigger_snr("fm_broadcast") == 25.0
+
+    def test_missing_threshold_key_uses_shared_fallback_on_both_paths(
+        self, scanner
+    ):
+        """EDGE-03: a current_band dict missing signal_threshold_db must
+        resolve to features.SIGNAL_THRESHOLD_DB on BOTH the fingerprinting
+        path and the trigger-check path. The scan loop computes one
+        `threshold` local with the fallback and reuses it for both, so
+        the two paths can never diverge on a band dict lacking the key.
+        """
+        with shared_state.current_band_lock:
+            shared_state.current_band.clear()
+            band = dict(shared_state.BAND_PROFILES["fm_broadcast"])
+            band.pop("signal_threshold_db")
+            shared_state.current_band.update(band)
+        shared_state.set_trigger_armed("fm_broadcast", True)
+        captured = {}
+
+        def fake_fingerprint(psd, **kwargs):
+            captured.setdefault(
+                "fingerprint_threshold", kwargs.get("signal_threshold_db")
+            )
+            return self._fingerprint(10.0)
+
+        def fake_should_fire(prev_snr, current_snr, threshold_db):
+            captured.setdefault("trigger_threshold", threshold_db)
+            return False
+
+        with patch(
+            "core.pipeline.scanner.features.fingerprint_spectrum",
+            side_effect=fake_fingerprint,
+        ), patch(
+            "core.pipeline.scanner._should_fire_trigger",
+            side_effect=fake_should_fire,
+        ), patch("core.pipeline.scanner.save_capture"):
+            scanner._running = True
+            t = threading.Thread(target=scanner._scan_loop, daemon=True)
+            t.start()
+            time.sleep(0.4)
+            scanner.stop()
+            t.join(timeout=3)
+
+        # Both paths ran (armed fm_broadcast at 98 MHz) and both saw the
+        # module-level fallback, not a divergent None from a bare .get().
+        assert captured["fingerprint_threshold"] == (
+            features.SIGNAL_THRESHOLD_DB
+        )
+        assert captured["trigger_threshold"] == features.SIGNAL_THRESHOLD_DB

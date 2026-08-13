@@ -423,6 +423,13 @@ def set_trigger_armed(band: str, armed: bool) -> None:
     unverified estimate, so an edge crossing there could be a false or
     meaningless trigger that writes a capture file for pure noise.
 
+    Disarming also clears the band's stored last-SNR reading. Without
+    this, a band re-armed later would compare its first new SNR reading
+    against a stale pre-disarm value, so the edge detector could fire -
+    or stay suppressed - off a baseline that no longer reflects the
+    current spectrum. Arming deliberately leaves any stored reading
+    untouched: only the disarm transition resets the edge baseline.
+
     Args:
         band: A TRIGGER_ARMABLE_BANDS key (e.g. "adsb").
         armed: True to arm, False to disarm.
@@ -441,6 +448,8 @@ def set_trigger_armed(band: str, armed: bool) -> None:
         )
     with trigger_state_lock:
         trigger_armed[band] = bool(armed)
+        if not trigger_armed[band]:
+            _trigger_last_snr[band] = None
 
 
 def is_trigger_armed(band: str) -> bool:
@@ -497,6 +506,58 @@ def set_last_trigger_snr(band: str, snr_db: float | None) -> None:
     """
     with trigger_state_lock:
         _trigger_last_snr[band] = snr_db
+
+
+def check_and_update_trigger_state(
+    band: str,
+    current_snr: float | None,
+) -> tuple[bool, float | None]:
+    """Atomically check trigger state and, if armed, record this
+    cycle's SNR.
+
+    Combines what were three separate lock acquisitions
+    (is_trigger_armed, get_last_trigger_snr, set_last_trigger_snr)
+    into one critical section, closing a TOCTOU gap: previously, a
+    concurrent set_trigger_armed(band, False) could land between the
+    armed-check and the SNR write, silently repopulating a baseline
+    that disarm had just cleared. With a single lock acquisition
+    this interleaving cannot happen: either the disarm's write
+    happens fully before this call takes the lock, or fully after
+    it releases the lock.
+
+    Returns (was_armed, prev_snr) as the state observed at the
+    moment the lock was acquired:
+      - was_armed: whether the band was armed.
+      - prev_snr: the SNR recorded on the previous cycle, or None.
+
+    The write is conditional on was_armed AND current_snr being not
+    None, matching the pre-existing contract: only armed bands ever
+    have their last-SNR reading updated, and a None reading (where
+    the fingerprint produced no SNR) never clobbers a real prior
+    value. An unarmed band's entry is left untouched regardless of
+    current_snr - this preserves the invariant that _trigger_last_snr
+    only reflects activity for bands the operator has actually armed,
+    which several tests (e.g. TestScanLoopDeviceGuard, which runs the
+    real scan loop on TRIGGER_ARMABLE_BANDS frequencies without arming
+    anything) rely on implicitly.
+
+    Args:
+        band: A TRIGGER_ARMABLE_BANDS key. Unknown keys behave
+            defensively like is_trigger_armed()/get_last_trigger_snr()
+            (read as not-armed / None) rather than raising, since this
+            is called from the hot scan loop.
+        current_snr: This cycle's measured SNR (dB), or None.
+
+    Returns:
+        (was_armed, prev_snr) tuple describing state observed before
+        any write this call makes.
+    """
+    with trigger_state_lock:
+        was_armed = trigger_armed.get(band, False)
+        prev_snr = _trigger_last_snr.get(band)
+        if was_armed and current_snr is not None:
+            _trigger_last_snr[band] = current_snr
+        return was_armed, prev_snr
 
 
 # =============================================================================
