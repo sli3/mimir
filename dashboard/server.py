@@ -412,6 +412,57 @@ def handle_set_focus(data):
         _scanner_ref.set_focus_frequency(freq_hz)
 
 
+@socketio.on("set_capture_trigger")
+def handle_set_capture_trigger(data):
+    """Arm or disarm the SNR-edge auto-capture trigger for a band.
+
+    Independent of set_focus_frequency: this handler does NOT touch
+    shared_state.current_band, band_change_event, or the scanner focus.
+    It only flips the per-band armed flag in shared_state. The scan loop
+    (core/pipeline/scanner.py) consults that flag on every cycle and,
+    when the band's measured SNR crosses its calibrated
+    signal_threshold_db from below, saves a SigMF capture of the raw IQ
+    samples.
+
+    Defensive by design, mirroring handle_set_focus: a malformed browser
+    message must never crash the socket thread. An unknown or
+    non-armable band logs a warning and returns without raising. Only an
+    explicit bool is honoured for "armed"; any other type (string, int,
+    list, None, missing key) coerces to False, because disarm is the
+    safe direction for a malformed message.
+
+    Args:
+        data: Dict from the browser with keys "band" (a
+              TRIGGER_ARMABLE_BANDS key, e.g. "adsb") and "armed"
+              (bool). Non-dict payloads and missing keys are tolerated.
+    """
+    try:
+        band = data.get("band")
+    except AttributeError:
+        # Non-dict payload (e.g. a bare string) - nothing to parse.
+        logger.warning(
+            "Ignoring malformed set_capture_trigger payload: %r", data
+        )
+        return
+    # isinstance guard first: `in` on a frozenset raises TypeError for
+    # unhashable types (e.g. a list), and this handler must never raise.
+    if not isinstance(band, str) or band not in shared_state.TRIGGER_ARMABLE_BANDS:
+        logger.warning(
+            "Ignoring set_capture_trigger for unknown or non-armable band %r",
+            band,
+        )
+        return
+    raw = data.get("armed")
+    try:
+        # Strict coercion: only an explicit bool passes through. Any
+        # other type coerces to False (disarm) rather than raising -
+        # mirroring handle_set_focus's "unparseable clears" style.
+        armed = raw if isinstance(raw, bool) else False
+    except (TypeError, ValueError):
+        armed = False
+    shared_state.set_trigger_armed(band, armed)
+
+
 def record_hw_error() -> None:
     global _last_hw_error_time
     _last_hw_error_time = time.time()

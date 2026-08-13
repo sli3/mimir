@@ -19,7 +19,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from core.config.loader import MimirConfig
 from core.pipeline.scan_result import ScanResult
-from core.pipeline.scanner import ScanRunner
+from core.pipeline.scanner import ScanRunner, _should_fire_trigger
+import dashboard.shared_state as shared_state
 from llm.classifier import ClassificationResult
 
 
@@ -936,3 +937,188 @@ class TestEmitResultThrottle:
             clock[0] += interval / 2
             scanner._emit_result(self._make_result(98_000_000.0, "fm_broadcast"))
             assert capsys.readouterr().out == ""
+
+
+class TestShouldFireTrigger:
+    """Unit tests for the _should_fire_trigger edge-detector (Phase 63).
+
+    The fire condition is prev_snr < threshold <= current_snr: a rising
+    edge across the band's signal threshold. The asymmetry (strict on
+    the previous side, inclusive on the current side) is the re-arm
+    contract: once a reading at or above threshold is recorded as
+    prev_snr, the trigger cannot fire again until SNR drops below
+    threshold and rises back.
+    """
+
+    def test_prev_none_never_fires(self):
+        """First cycle after startup has no previous reading - no edge."""
+        assert _should_fire_trigger(None, 5.0, 3.0) is False
+
+    def test_crossing_fires(self):
+        assert _should_fire_trigger(2.0, 4.0, 3.0) is True
+
+    def test_exact_threshold_counts_as_fire(self):
+        """Less-than-or-equal on the current side: landing exactly on the
+        threshold counts as a crossing."""
+        assert _should_fire_trigger(2.999, 3.0, 3.0) is True
+
+    def test_staying_above_does_not_fire(self):
+        """A continuous strong signal produces one capture at the rising
+        edge, not one per cycle."""
+        assert _should_fire_trigger(4.0, 5.0, 3.0) is False
+
+    def test_rearm_after_drop_below_threshold(self):
+        """Dropping below and crossing again re-arms and fires."""
+        # Still above threshold on the way: no fire while above.
+        assert _should_fire_trigger(4.0, 2.0, 3.0) is False
+        # Now prev is below threshold; rising back across fires.
+        assert _should_fire_trigger(2.0, 3.5, 3.0) is True
+
+    def test_current_none_never_fires(self):
+        """A fingerprint that produced no SNR reading cannot fire."""
+        assert _should_fire_trigger(2.0, None, 3.0) is False
+
+    def test_threshold_none_never_fires(self):
+        """A band profile missing signal_threshold_db cannot fire
+        (defensive - all current profiles define it)."""
+        assert _should_fire_trigger(2.0, 5.0, None) is False
+
+    def test_threshold_not_a_number_never_fires(self):
+        """Defensive: a non-numeric threshold is not a usable edge."""
+        assert _should_fire_trigger(2.0, 5.0, "3.0") is False
+
+    def test_staying_below_does_not_fire(self):
+        assert _should_fire_trigger(1.0, 2.0, 3.0) is False
+
+    def test_dropping_from_above_to_below_does_not_fire(self):
+        assert _should_fire_trigger(5.0, 1.0, 3.0) is False
+
+
+class TestScanLoopCaptureTrigger:
+    """Integration tests for the SNR-edge auto-capture trigger inside
+    _scan_loop() (Phase 63).
+
+    Drives the real scan loop with a mocked device and a patched
+    fingerprint_spectrum that returns a controlled SNR sequence (first
+    cycle below the fm_broadcast threshold of 21.0 dB, all subsequent
+    cycles above it), with save_capture patched out. Asserts the
+    crossing fires exactly one save, and only when the band is armed.
+
+    The trigger state and current_band are module-level in
+    dashboard.shared_state, so the autouse fixture snapshots and
+    restores them around every test.
+    """
+
+    @pytest.fixture(autouse=True)
+    def reset_shared_state(self):
+        with shared_state.trigger_state_lock:
+            saved_armed = dict(shared_state.trigger_armed)
+            saved_snr = dict(shared_state._trigger_last_snr)
+        with shared_state.current_band_lock:
+            saved_band = dict(shared_state.current_band)
+            shared_state.current_band.clear()
+            shared_state.current_band.update(
+                shared_state.BAND_PROFILES["fm_broadcast"]
+            )
+        yield
+        with shared_state.trigger_state_lock:
+            shared_state.trigger_armed.clear()
+            shared_state.trigger_armed.update(saved_armed)
+            shared_state._trigger_last_snr.clear()
+            shared_state._trigger_last_snr.update(saved_snr)
+        with shared_state.current_band_lock:
+            shared_state.current_band.clear()
+            shared_state.current_band.update(saved_band)
+
+    @staticmethod
+    def _fingerprint(snr_db):
+        """Minimal fingerprint dict carrying a controlled snr_db."""
+        return {
+            "center_freq_hz": 98_000_000,
+            "peak_freq_hz": 98_000_000,
+            "peak_power_db": -10.0,
+            "noise_floor_db": -80.0,
+            "snr_db": snr_db,
+            "bandwidth_hz": 200_000,
+            "occupied_bins": 200,
+            "spectral_flatness": 0.5,
+        }
+
+    def _drive_scan_loop(self, scanner, low_snr, high_snr, seconds=0.4):
+        """Run _scan_loop briefly: first cycle returns low_snr, every
+        later cycle returns high_snr (fm_broadcast threshold is 21.0 dB,
+        so low=10.0 / high=25.0 describes a single rising edge)."""
+        low = self._fingerprint(low_snr)
+        high = self._fingerprint(high_snr)
+        calls = {"n": 0}
+
+        def fake_fingerprint(psd, **kwargs):
+            calls["n"] += 1
+            return low if calls["n"] == 1 else high
+
+        with patch(
+            "core.pipeline.scanner.features.fingerprint_spectrum",
+            side_effect=fake_fingerprint,
+        ):
+            scanner._running = True
+            t = threading.Thread(target=scanner._scan_loop, daemon=True)
+            t.start()
+            time.sleep(seconds)
+            scanner.stop()
+            t.join(timeout=3)
+        assert calls["n"] >= 2, "scan loop did not complete enough cycles"
+
+    def test_armed_band_saves_once_on_snr_crossing(self, scanner):
+        """Armed band, SNR crossing 10 -> 25 dB against the 21 dB
+        fm_broadcast threshold: save_capture fires exactly once (rising
+        edge only, not once per cycle above threshold)."""
+        shared_state.set_trigger_armed("fm_broadcast", True)
+        with patch("core.pipeline.scanner.save_capture") as mock_save:
+            self._drive_scan_loop(scanner, low_snr=10.0, high_snr=25.0)
+        assert mock_save.call_count == 1
+        args, kwargs = mock_save.call_args
+        # Raw samples passed positionally; everything else by keyword.
+        assert len(args) == 1
+        assert kwargs["freq_hz"] == 98_000_000.0
+        assert kwargs["sample_rate_hz"] == 2_000_000
+        assert kwargs["device"] == "hackrf"
+        assert kwargs["fingerprint"]["snr_db"] == 25.0
+        # bandwidth_hz deliberately omitted: HackRF has no settable RF
+        # filter and a live-loop capture has no declared width.
+        assert "bandwidth_hz" not in kwargs
+
+    def test_unarmed_band_never_saves(self, scanner):
+        """Same SNR crossing, trigger not armed: save_capture must not
+        be called."""
+        with patch("core.pipeline.scanner.save_capture") as mock_save:
+            self._drive_scan_loop(scanner, low_snr=10.0, high_snr=25.0)
+        mock_save.assert_not_called()
+
+    def test_other_armed_band_does_not_fire_for_this_freq(self, scanner):
+        """Arming adsb must not cause a save while scanning 98 MHz
+        (fm_broadcast): the armed check is per-band."""
+        shared_state.set_trigger_armed("adsb", True)
+        with patch("core.pipeline.scanner.save_capture") as mock_save:
+            self._drive_scan_loop(scanner, low_snr=10.0, high_snr=25.0)
+        mock_save.assert_not_called()
+
+    def test_save_failure_does_not_kill_scan_loop(self, scanner):
+        """A disk-full / SigMF write failure is logged and swallowed;
+        the scan loop keeps cycling afterwards."""
+        shared_state.set_trigger_armed("fm_broadcast", True)
+        with patch(
+            "core.pipeline.scanner.save_capture",
+            side_effect=OSError("disk full"),
+        ) as mock_save:
+            self._drive_scan_loop(scanner, low_snr=10.0, high_snr=25.0)
+        assert mock_save.call_count == 1
+        # The loop survived the failure and kept scanning.
+        assert scanner._scan_count >= 1
+
+    def test_last_snr_recorded_each_cycle(self, scanner):
+        """The per-band last-SNR state tracks the latest reading, which
+        is what re-arms the edge detector after the signal drops."""
+        shared_state.set_trigger_armed("fm_broadcast", True)
+        with patch("core.pipeline.scanner.save_capture"):
+            self._drive_scan_loop(scanner, low_snr=10.0, high_snr=25.0)
+        assert shared_state.get_last_trigger_snr("fm_broadcast") == 25.0

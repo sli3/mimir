@@ -8,9 +8,21 @@ Tests for dashboard/shared_state.py constants.
 import sys
 import os
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from dashboard.shared_state import BAND_PROFILES, band_key_for_freq, get_band_for_freq
+import dashboard.shared_state as shared_state
+from dashboard.shared_state import (
+    BAND_PROFILES,
+    TRIGGER_ARMABLE_BANDS,
+    band_key_for_freq,
+    get_band_for_freq,
+    get_last_trigger_snr,
+    is_trigger_armed,
+    set_last_trigger_snr,
+    set_trigger_armed,
+)
 
 
 class TestBandProfiles:
@@ -145,3 +157,91 @@ class TestBandKeyForFreq:
     def test_ais_off_centre_returns_ais(self):
         """161.5 MHz is nearer to AIS (162 MHz) than APRS (145.175 MHz)."""
         assert band_key_for_freq(161_500_000) == "ais"
+
+
+class TestCaptureTriggerState:
+    """Tests for the Phase 63 SNR-edge auto-capture trigger state.
+
+    The armed flags and last-SNR readings are module-level dicts shared
+    across the whole test session, so every test snapshots and restores
+    them via the autouse fixture below.
+    """
+
+    @pytest.fixture(autouse=True)
+    def reset_trigger_state(self):
+        """Snapshot and restore module-level trigger state around each test."""
+        with shared_state.trigger_state_lock:
+            saved_armed = dict(shared_state.trigger_armed)
+            saved_snr = dict(shared_state._trigger_last_snr)
+        yield
+        with shared_state.trigger_state_lock:
+            shared_state.trigger_armed.clear()
+            shared_state.trigger_armed.update(saved_armed)
+            shared_state._trigger_last_snr.clear()
+            shared_state._trigger_last_snr.update(saved_snr)
+
+    def test_armable_bands_are_exactly_the_four_calibrated_bands(self):
+        """TRIGGER_ARMABLE_BANDS must match the four BAND_PROFILES entries
+        whose signal_threshold_db carries a real "# Calibrated:" comment."""
+        assert TRIGGER_ARMABLE_BANDS == frozenset(
+            {"fm_broadcast", "aprs", "ism", "adsb"}
+        )
+
+    def test_default_state_is_disarmed_with_no_snr(self):
+        """Every armable band starts disarmed with no previous SNR reading."""
+        for band in TRIGGER_ARMABLE_BANDS:
+            assert is_trigger_armed(band) is False
+            assert get_last_trigger_snr(band) is None
+
+    def test_set_trigger_armed_rejects_non_armable_band(self):
+        """A band outside TRIGGER_ARMABLE_BANDS raises ValueError, and the
+        message must name the valid bands (mirroring capture.py's style)."""
+        with pytest.raises(ValueError) as excinfo:
+            set_trigger_armed("aviation", True)
+        message = str(excinfo.value)
+        assert "aviation" in message
+        for valid in ("fm_broadcast", "aprs", "ism", "adsb"):
+            assert valid in message
+
+    def test_set_trigger_armed_rejects_noise_floor(self):
+        """noise_floor is a baseline reference, not a signal band - it must
+        be rejected even though it is a valid BAND_PROFILES key."""
+        assert "noise_floor" in BAND_PROFILES
+        with pytest.raises(ValueError):
+            set_trigger_armed("noise_floor", True)
+
+    def test_arm_bands_independently(self):
+        """Arming one band must not arm any other."""
+        set_trigger_armed("ism", True)
+        assert is_trigger_armed("ism") is True
+        for band in ("fm_broadcast", "aprs", "adsb"):
+            assert is_trigger_armed(band) is False
+
+    def test_disarm_after_arm(self):
+        """Arming then disarming returns the band to not-armed."""
+        set_trigger_armed("adsb", True)
+        assert is_trigger_armed("adsb") is True
+        set_trigger_armed("adsb", False)
+        assert is_trigger_armed("adsb") is False
+
+    def test_is_trigger_armed_unknown_band_returns_false_no_raise(self):
+        """An unknown band key reads as not-armed; the hot scan loop must
+        never see an exception from this getter."""
+        assert is_trigger_armed("not_a_band") is False
+
+    def test_last_trigger_snr_round_trip_per_band(self):
+        """Setting the last SNR for one band must not affect any other."""
+        set_last_trigger_snr("ism", 12.5)
+        assert get_last_trigger_snr("ism") == 12.5
+        assert get_last_trigger_snr("adsb") is None
+        assert get_last_trigger_snr("fm_broadcast") is None
+
+    def test_last_trigger_snr_getter_unknown_band_returns_none(self):
+        """The getter is defensive: unknown keys read as None, no raise."""
+        assert get_last_trigger_snr("not_a_band") is None
+
+    def test_set_last_trigger_snr_accepts_none(self):
+        """None is a valid stored value (fingerprint produced no SNR)."""
+        set_last_trigger_snr("aprs", 9.0)
+        set_last_trigger_snr("aprs", None)
+        assert get_last_trigger_snr("aprs") is None

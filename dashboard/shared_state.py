@@ -356,6 +356,150 @@ def band_key_for_freq(freq_hz: float | None) -> str | None:
 
 
 # =============================================================================
+# SNR-EDGE AUTO-CAPTURE TRIGGER STATE (Phase 63)
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# TRIGGER_ARMABLE_BANDS
+# -----------------------------------------------------------------------------
+# Type: frozenset[str]
+# Purpose: The complete set of band keys on which the SNR-edge
+#          auto-capture trigger may be armed.
+# How it works: set_trigger_armed() validates its band argument against
+#               this set and raises ValueError for anything outside it;
+#               the scan loop also checks membership before consulting
+#               the armed flag, so an out-of-set band can never fire.
+# Why this set: These are exactly the four BAND_PROFILES entries whose
+#               signal_threshold_db carries a real "# Calibrated:"
+#               comment above (fm_broadcast, aprs, ism, adsb) - that is,
+#               thresholds measured against live Adelaide signals with
+#               the telescopic whip antenna. aviation, acars and ais are
+#               deliberately excluded: their thresholds are estimates
+#               that have never been field-verified, so an SNR edge
+#               against them could be a false or meaningless crossing
+#               that writes a capture file for pure noise. noise_floor
+#               is excluded for a different reason: it is a zero-gain
+#               noise baseline reference, not a signal band, so "signal
+#               crosses threshold" has no meaning there.
+TRIGGER_ARMABLE_BANDS: frozenset[str] = frozenset(
+    {"fm_broadcast", "aprs", "ism", "adsb"}
+)
+
+# -----------------------------------------------------------------------------
+# trigger_armed / _trigger_last_snr / trigger_state_lock
+# -----------------------------------------------------------------------------
+# Type: dict[str, bool] / dict[str, float | None] / threading.Lock
+# Purpose: trigger_armed holds the per-band armed flag the operator sets
+#          via the set_capture_trigger SocketIO event. _trigger_last_snr
+#          holds the SNR (dB) measured on the previous scan cycle for
+#          each band; the edge detector compares it against the current
+#          SNR to decide whether the threshold has just been crossed.
+# How it works: Both dicts carry one entry per TRIGGER_ARMABLE_BANDS key,
+#               armed=False / snr=None initially. They are always read and
+#               written under trigger_state_lock (one lock is sufficient
+#               because the two dicts are updated together in practice),
+#               mirroring the existing annotation_lock pattern above.
+# Why the leading underscore on _trigger_last_snr: external callers
+#               should only touch it through get_last_trigger_snr() and
+#               set_last_trigger_snr() below, which take the lock.
+#               Direct dict access would bypass the lock.
+trigger_armed: dict[str, bool] = {band: False for band in TRIGGER_ARMABLE_BANDS}
+
+_trigger_last_snr: dict[str, float | None] = {
+    band: None for band in TRIGGER_ARMABLE_BANDS
+}
+
+trigger_state_lock = threading.Lock()
+
+
+def set_trigger_armed(band: str, armed: bool) -> None:
+    """Arm or disarm the SNR-edge auto-capture trigger for a band.
+
+    Only bands in TRIGGER_ARMABLE_BANDS may be armed. The restriction
+    exists because the trigger fires when the measured SNR crosses the
+    band's signal_threshold_db, and that threshold is only meaningful on
+    the four field-calibrated bands (fm_broadcast, aprs, ism, adsb). On
+    the uncalibrated bands (aviation, acars, ais) the threshold is an
+    unverified estimate, so an edge crossing there could be a false or
+    meaningless trigger that writes a capture file for pure noise.
+
+    Args:
+        band: A TRIGGER_ARMABLE_BANDS key (e.g. "adsb").
+        armed: True to arm, False to disarm.
+
+    Raises:
+        ValueError: If band is not in TRIGGER_ARMABLE_BANDS. The
+            SocketIO handler validates band membership before calling
+            this, so a malformed browser message can never raise here
+            in production; the raise is a fail-fast guard for direct
+            programmatic callers.
+    """
+    if band not in TRIGGER_ARMABLE_BANDS:
+        raise ValueError(
+            f"Unknown trigger band {band!r} - valid trigger bands: "
+            f"{', '.join(sorted(TRIGGER_ARMABLE_BANDS))}"
+        )
+    with trigger_state_lock:
+        trigger_armed[band] = bool(armed)
+
+
+def is_trigger_armed(band: str) -> bool:
+    """Return True if the SNR-edge auto-capture trigger is armed for band.
+
+    Never raises: an unknown band key simply reads as not-armed, via a
+    defensive .get() with a False default instead of indexing. This is
+    deliberate - the function is called from the hot scan loop on every
+    cycle (~4 Hz), and a raised exception there would kill capture.
+
+    Args:
+        band: Any band key string, known or unknown.
+
+    Returns:
+        True if the trigger is armed for band, False otherwise.
+    """
+    with trigger_state_lock:
+        return trigger_armed.get(band, False)
+
+
+def get_last_trigger_snr(band: str) -> float | None:
+    """Return the SNR (dB) recorded for band on the previous scan cycle.
+
+    None means no reading has been recorded yet (first cycle after
+    startup), which the edge detector treats as "cannot fire" - a
+    crossing requires both a previous and a current reading. Uses the
+    same defensive .get()-with-default style as is_trigger_armed() so
+    an unknown band key reads as None rather than raising.
+
+    Args:
+        band: Any band key string, known or unknown.
+
+    Returns:
+        The previous cycle's SNR in dB, or None if none recorded.
+    """
+    with trigger_state_lock:
+        return _trigger_last_snr.get(band)
+
+
+def set_last_trigger_snr(band: str, snr_db: float | None) -> None:
+    """Record the SNR (dB) measured for band on the current scan cycle.
+
+    Called by the scan loop once per cycle for armed bands, after the
+    edge-detection check, so the next cycle's check sees this reading
+    as its "previous" value. This is what makes the trigger a rising
+    edge detector with re-arm: once a reading at or above the threshold
+    is stored, the trigger cannot fire again until a below-threshold
+    reading is stored first.
+
+    Args:
+        band: A band key string.
+        snr_db: The measured SNR in dB, or None if the fingerprint
+                produced no SNR reading this cycle.
+    """
+    with trigger_state_lock:
+        _trigger_last_snr[band] = snr_db
+
+
+# =============================================================================
 # PLUTO BAND SUPPORT — Phase 36 additive override layer
 # =============================================================================
 

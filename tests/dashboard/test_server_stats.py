@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 import dashboard.server as server
 from dashboard.server import (
     _compute_hackrf_status,
+    handle_set_capture_trigger,
     handle_set_focus,
     start_server,
 )
@@ -350,6 +351,85 @@ class TestFocusFrequencyFilter:
                     futs.append(ex.submit(broadcast, self._make_scan_result(float(i * 10e6))))
                 for f in concurrent.futures.as_completed(futs):
                     f.result(timeout=5.0)
+
+
+class TestSetCaptureTrigger:
+    """Tests for the set_capture_trigger SocketIO handler (Phase 63).
+
+    The handler is deliberately defensive: a malformed browser message
+    must never crash the socket thread. shared_state.set_trigger_armed
+    is patched so these tests assert the call-through contract without
+    mutating module-level trigger state.
+    """
+
+    def test_valid_band_armed_true_calls_through(self):
+        with patch("dashboard.shared_state.set_trigger_armed") as mock_set:
+            handle_set_capture_trigger({"band": "ism", "armed": True})
+        mock_set.assert_called_once_with("ism", True)
+
+    def test_valid_band_armed_false_calls_through(self):
+        with patch("dashboard.shared_state.set_trigger_armed") as mock_set:
+            handle_set_capture_trigger({"band": "adsb", "armed": False})
+        mock_set.assert_called_once_with("adsb", False)
+
+    def test_invalid_band_does_not_call_and_does_not_raise(self):
+        """aviation is a valid BAND_PROFILES key but not armable - the
+        handler must log and return without calling set_trigger_armed."""
+        with patch("dashboard.shared_state.set_trigger_armed") as mock_set:
+            handle_set_capture_trigger({"band": "aviation", "armed": True})
+        mock_set.assert_not_called()
+
+    def test_unknown_band_does_not_call_and_does_not_raise(self):
+        with patch("dashboard.shared_state.set_trigger_armed") as mock_set:
+            handle_set_capture_trigger({"band": "not_a_band", "armed": True})
+        mock_set.assert_not_called()
+
+    @pytest.mark.parametrize("bad_armed", ["yes", 42, ["foo"], None])
+    def test_malformed_armed_coerces_to_false(self, bad_armed):
+        """Non-bool armed values coerce to False (disarm is the safe
+        direction) rather than raising."""
+        with patch("dashboard.shared_state.set_trigger_armed") as mock_set:
+            handle_set_capture_trigger({"band": "adsb", "armed": bad_armed})
+        mock_set.assert_called_once_with("adsb", False)
+
+    def test_missing_armed_key_coerces_to_false(self):
+        with patch("dashboard.shared_state.set_trigger_armed") as mock_set:
+            handle_set_capture_trigger({"band": "aprs"})
+        mock_set.assert_called_once_with("aprs", False)
+
+    def test_missing_band_key_does_not_raise(self):
+        with patch("dashboard.shared_state.set_trigger_armed") as mock_set:
+            handle_set_capture_trigger({"armed": True})
+        mock_set.assert_not_called()
+
+    def test_non_dict_payload_does_not_raise(self):
+        with patch("dashboard.shared_state.set_trigger_armed") as mock_set:
+            handle_set_capture_trigger("not a dict")
+        mock_set.assert_not_called()
+
+    def test_unhashable_band_value_does_not_raise(self):
+        """A list band would raise TypeError on the frozenset membership
+        test without the isinstance guard - the handler must not."""
+        with patch("dashboard.shared_state.set_trigger_armed") as mock_set:
+            handle_set_capture_trigger({"band": ["adsb"], "armed": True})
+        mock_set.assert_not_called()
+
+    def test_handler_does_not_touch_focus_or_current_band(self):
+        """set_capture_trigger is independent of set_focus_frequency: it
+        must not change the focused frequency, current_band, or call the
+        scanner focus method."""
+        saved_focus = server._focused_freq_hz
+        saved_band = dict(ss.current_band)
+        try:
+            with patch("dashboard.shared_state.set_trigger_armed"):
+                handle_set_capture_trigger({"band": "adsb", "armed": True})
+            assert server._focused_freq_hz == saved_focus
+            with ss.current_band_lock:
+                assert ss.current_band == saved_band
+        finally:
+            server._focused_freq_hz = saved_focus
+            with ss.current_band_lock:
+                ss.current_band = saved_band
 
 
 class TestEmitAdsbScanResult:

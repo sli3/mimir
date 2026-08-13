@@ -7,15 +7,67 @@ from datetime import datetime
 from core.config.loader import MimirConfig
 from core.device.profiles import DEVICE_PROFILES
 import core.pipeline.features as features
+from core.pipeline.capture import save_capture
 from core.pipeline.fft import compute_psd
 from core.pipeline.scan_result import ScanResult
 from dashboard.server import record_hw_error
 import dashboard.shared_state as shared_state
+from dashboard.shared_state import (
+    TRIGGER_ARMABLE_BANDS,
+    band_key_for_freq,
+    get_last_trigger_snr,
+    is_trigger_armed,
+    set_last_trigger_snr,
+)
 from llm.acma_reference import AcmaReference
 
 logger = logging.getLogger(__name__)
 
 _SAMPLE_RATE_HZ = 2_000_000
+
+
+def _should_fire_trigger(
+    prev_snr: float | None,
+    current_snr: float | None,
+    threshold: float | None,
+) -> bool:
+    """Edge-detect helper for the SNR auto-capture trigger (Phase 63).
+
+    Returns True exactly when the measured SNR has crossed the band's
+    signal threshold from below to at-or-above between two consecutive
+    scan cycles::
+
+        prev_snr < threshold <= current_snr
+
+    The strict less-than on the previous side and less-than-or-equal on
+    the current side means crossing the exact threshold counts as a
+    fire. This asymmetry is also the re-arm contract: once a reading at
+    or above the threshold has been recorded as the previous value, the
+    trigger cannot fire again until SNR first drops below the threshold
+    and then rises back to or above it. A continuous strong signal
+    therefore produces one capture at the rising edge, not one capture
+    per scan cycle.
+
+    Returns False whenever any input is None: prev_snr is None on the
+    first cycle after startup (no previous reading, so no edge can be
+    detected), current_snr is None when the fingerprint produced no SNR
+    reading, and threshold is None when the band profile lacks
+    signal_threshold_db. Also returns False, defensively, when threshold
+    is not a real number.
+
+    Args:
+        prev_snr: SNR (dB) recorded on the previous scan cycle, or None.
+        current_snr: SNR (dB) measured on the current scan cycle, or None.
+        threshold: The band's signal_threshold_db, or None.
+
+    Returns:
+        True iff the SNR has just crossed the threshold from below.
+    """
+    if prev_snr is None or current_snr is None:
+        return False
+    if not isinstance(threshold, (int, float)) or isinstance(threshold, bool):
+        return False
+    return bool(prev_snr < threshold <= current_snr)
 
 
 class ScanRunner:
@@ -163,6 +215,12 @@ class ScanRunner:
              ``fingerprint_spectrum()`` so each band uses its own detection
              threshold (Phase 11) and spectral crop window (Phase 30). Computes
              a fingerprint vector and queues it for the AI loop.
+          7. Checks the SNR-edge auto-capture trigger (Phase 63): if the
+             current band is in TRIGGER_ARMABLE_BANDS and armed, and the
+             fingerprint SNR has crossed the band's signal_threshold_db from
+             below since the previous cycle, saves the raw IQ samples via
+             save_capture(). A save failure is logged and swallowed so it can
+             never kill the scan loop.
 
         Frequency cache:
         A method-local ``_last_tuned_hz`` tracks the most recently tuned frequency.
@@ -277,6 +335,57 @@ class ScanRunner:
                     crop_half_width_hz=crop_half_width_hz,
                     burst_use_wide_window=burst_use_wide_window,
                 )
+                # SNR-edge auto-capture trigger (Phase 63). If the current
+                # band is armable and armed, compare this cycle's SNR against
+                # last cycle's: a rising edge across the band's calibrated
+                # signal_threshold_db saves the raw IQ samples just captured
+                # (the `samples` local from the read above) as a SigMF
+                # recording. save_capture() writes files only - no hardware
+                # access, no DSP - so it is safe in the hot loop. The
+                # try/except ensures a disk-full or SigMF write failure
+                # never kills the scan loop. bandwidth_hz is deliberately
+                # omitted: HackRF has no settable RF filter, and on Pluto a
+                # live-loop capture inherits whatever the stream already has,
+                # so there is no operator-declared width to record.
+                trigger_band_key = band_key_for_freq(freq_hz)
+                if (
+                    trigger_band_key is not None
+                    and trigger_band_key in TRIGGER_ARMABLE_BANDS
+                    and is_trigger_armed(trigger_band_key)
+                ):
+                    current_snr = fingerprint.get("snr_db")
+                    trigger_threshold_db = band.get("signal_threshold_db")
+                    prev_snr = get_last_trigger_snr(trigger_band_key)
+                    if _should_fire_trigger(
+                        prev_snr, current_snr, trigger_threshold_db
+                    ):
+                        logger.info(
+                            "Auto-capture trigger fired: band=%s "
+                            "snr_db=%.1f threshold_db=%.1f",
+                            trigger_band_key,
+                            current_snr if current_snr is not None else float("nan"),
+                            (
+                                trigger_threshold_db
+                                if trigger_threshold_db is not None
+                                else float("nan")
+                            ),
+                        )
+                        try:
+                            save_capture(
+                                samples,
+                                freq_hz=freq_hz,
+                                sample_rate_hz=_SAMPLE_RATE_HZ,
+                                device=self._device_driver,
+                                fingerprint=fingerprint,
+                            )
+                        except Exception:
+                            logger.exception(
+                                "Auto-capture save failed for band=%s at %.3f MHz",
+                                trigger_band_key,
+                                freq_hz / 1e6,
+                            )
+                    if current_snr is not None:
+                        set_last_trigger_snr(trigger_band_key, current_snr)
                 vector = embedder.embed(fingerprint)
                 # "Latest wins" — drain stale items before inserting so the AI loop
                 # always classifies the freshest scan, not a backlog seconds old.
