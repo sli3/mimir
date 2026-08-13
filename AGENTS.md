@@ -242,9 +242,9 @@ uv run python tools/seed_chromadb.py
 > when a governance step fails. Trimmed 2026-07-21 to a pointer, so there is
 > only one table left to go stale.
 
-**Current phase:** 63 - SNR-edge auto-capture trigger (armable, per-band). New `_should_fire_trigger()` pure helper in `core/pipeline/scanner.py`; new trigger check block inside `ScanRunner._scan_loop()` between `fingerprint_spectrum()` and `embed()` step; uses `save_capture(samples, freq_hz, sample_rate_hz, device=self._device_driver, fingerprint=fingerprint)` with no `bandwidth_hz`; wrapped in `try/except Exception`. `_scan_loop` docstring gained step 7. `dashboard/server.py` gained new `handle_set_capture_trigger` SocketIO handler below `handle_set_focus`. Defensive non-raising: AttributeError for non-dict, isinstance(str) + frozenset check, strict bool coercion for `armed`. Does NOT touch focus or current_band. `dashboard/shared_state.py` gained new `TRIGGER_ARMABLE_BANDS` frozenset (fm_broadcast, aprs, ism, adsb); new `trigger_armed` dict, `_trigger_last_snr` dict, `trigger_state_lock`, four helper functions. Tests: `tests/core/test_scanner.py` (+188) with new `TestShouldFireTrigger` (10 unit) + `TestScanLoopCaptureTrigger` (5 integration); `tests/dashboard/test_server_stats.py` (+80) with new `TestSetCaptureTrigger` (13 handler tests); `tests/dashboard/test_shared_state.py` (+102) with new `TestCaptureTriggerState` (10 state helper tests). +38 pytest (+0 Vitest).
+**Current phase:** 64b - TOCTOU-HELPER (atomic check-and-update) + LOW-02 (_should_fire_trigger docstring); LOGGER-NONE-ARM (defensive logger ternary) explicitly not touched.
 
-**Current total:** 1256 passing (879 pytest + 377 Vitest), 0 failures.
+**Current total:** 1263 passing (886 pytest + 377 Vitest), 0 failures.
 
 **Reserved:** None.
 
@@ -624,8 +624,6 @@ Do not apply this pre-emptively — only if context problems are observed.
 | TD-61-4 | The `_CAPTURE_DISPATCH` dict + if/elif dispatch pattern works cleanly for 2 devices; for 3+ devices a dispatch table with per-device kwarg builder functions would scale better - revisit if a third SDR is ever added. | Future phase - scalability pattern consideration |
 | TD-61-5 | `test_wipe_flag_deletes_collection`'s explicit-attributes Namespace mock is fragile against future `_parse_args()` additions - a new argument `main()` reads will silently re-break the test. More robust pattern: mock `sys.argv` and call the real `_parse_args()` to construct the Namespace, rather than hand-listing attributes. Not needed today; revisit if argparse additions become frequent. | Future phase - test fixture robustness |
 | TD-61-6 | The `monkeypatch.setattr("builtins.input", lambda *a: "")` pattern in `test_adsb_sweep_uses_max_hold_trace` is a candidate for extraction into `tests/tools/conftest.py` if a second ADS-B sweep test is ever added. Not needed today; one occurrence only. | Future phase - test helper extraction if duplicate arises |
-| LIFE-01 | `_trigger_last_snr` is not cleared on disarm, so re-arming a band can compare against a stale pre-disarm SNR reading for one cycle. Low severity. Fix direction: clear the per-band entry in `set_trigger_armed()` on the transition to armed=False. | Future phase |
-| EDGE-03 | The trigger's threshold read (`band.get('signal_threshold_db')`) does not reuse the fingerprint pipeline's already-computed threshold value (which carries a fallback default). Currently harmless — every band in `TRIGGER_ARMABLE_BANDS` always has a real `signal_threshold_db` — but the asymmetry is undocumented in code comments. | Future phase |
 | SEC-63-1 | No disk-fill cap on bursty auto-capture bands (ism/adsb at low thresholds could produce frequent captures). Pre-existing risk; storage/retention policy remains explicitly deferred. | Future phase |
 | SEC-63-2 | `save_capture()`'s filename timestamp is second-resolution; sub-second collisions overwrite silently. Pre-existing in `save_capture()`, NOT introduced by Phase 63. | Future phase |
 
