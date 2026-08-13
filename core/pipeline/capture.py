@@ -16,8 +16,28 @@ import sigmf
 from core.device.hackrf_rx import HackRFReceiver
 from core.device.pluto_rx import PlutoReceiver
 from core.device.profiles import DEVICE_PROFILES
+from core.pipeline.fft import compute_psd
+from core.pipeline.features import fingerprint_spectrum
+from dashboard.shared_state import BAND_PROFILES
 
 logger = logging.getLogger(__name__)
+
+# The seven measurement keys from fingerprint_spectrum() written into
+# SigMF metadata under the nested "mimir:fingerprint" global field.
+# fingerprint_spectrum() returns 14 keys; the remaining seven are
+# threshold/diagnostic internals (signal_threshold_db, snr_margin_db,
+# peak_bin_power_db, burst_ratio_db, expected_noise_ratio_db,
+# burst_excess_db, is_burst) that describe the detection pipeline rather
+# than the captured spectrum, so they stay out of the recording.
+_FINGERPRINT_METADATA_KEYS = (
+    "peak_freq_hz",
+    "peak_power_db",
+    "noise_floor_db",
+    "snr_db",
+    "bandwidth_hz",
+    "occupied_bins",
+    "spectral_flatness",
+)
 
 
 def capture_iq(
@@ -158,6 +178,7 @@ def save_capture(
     device: str = "hackrf",
     output_dir: Path = Path("data/captures"),
     bandwidth_hz: float | None = None,
+    fingerprint: dict | None = None,
 ) -> Path:
     """
     Save IQ samples as a SigMF recording (.sigmf-data + .sigmf-meta pair).
@@ -199,6 +220,13 @@ def save_capture(
                       capture record at sample index 0. If None the key
                       is omitted entirely. Metadata only - no samples
                       are filtered, cropped, or resampled here.
+        fingerprint: Spectral fingerprint dict as returned by
+                     fingerprint_spectrum(). When provided, the seven
+                     measurement keys in _FINGERPRINT_METADATA_KEYS are
+                     written as a single nested global field,
+                     "mimir:fingerprint". When None (default) the field
+                     is omitted entirely. Metadata only - the samples
+                     on disk are never touched by the measurement.
 
     Returns:
         Path to the .sigmf-meta file. This is the canonical handle for
@@ -226,6 +254,9 @@ def save_capture(
         core:bandwidth   — bandwidth_hz (same capture record; only when
                            bandwidth_hz is not None)
         mimir:device_profile — device profile name (custom global field)
+        mimir:fingerprint  - nested dict of the seven spectral
+                             measurement keys (only when fingerprint
+                             is not None)
     """
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -254,6 +285,16 @@ def save_capture(
     )
     # mimir: vendor-namespace custom field for programmatic device identity.
     meta.set_global_field("mimir:device_profile", device)
+    # mimir:fingerprint carries the spectral measurement taken from these
+    # samples at capture time. Kept as one nested field (never flattened
+    # to the top level) so the seven measurement keys travel as a unit.
+    # The samples themselves are untouched - this is a measurement
+    # recorded alongside the data, not signal processing applied to it.
+    if fingerprint is not None:
+        meta.set_global_field(
+            "mimir:fingerprint",
+            {k: fingerprint[k] for k in _FINGERPRINT_METADATA_KEYS},
+        )
     # Note: fromarray() pre-creates a bare capture at start_index=0; this
     # call merges our metadata into it rather than appending. bandwidth_hz
     # is metadata only (core:bandwidth) - no software DSP is applied here;
@@ -274,6 +315,7 @@ def capture_and_save(
     freq_hz: float,
     num_samples: int,
     sample_rate_hz: float,
+    band: str,
     output_dir: Path = Path("data/captures"),
     device: str = "hackrf",
     bandwidth_hz: float | None = None,
@@ -282,14 +324,24 @@ def capture_and_save(
     Capture IQ samples and save them as a SigMF recording in one call.
 
     Supports both the HackRF One (device="hackrf") and the ADALM-PLUTO
-    (device="plutosdr"). The device string is validated against
-    _CAPTURE_DISPATCH BEFORE any hardware call - an unknown key raises
-    ValueError immediately, so a typo can never open the wrong device
-    or silently fall through.
+    (device="plutosdr"). Both the band string and the device string are
+    validated BEFORE any hardware call - an unrecognised band raises
+    ValueError against BAND_PROFILES and an unknown device raises
+    ValueError against _CAPTURE_DISPATCH, so a typo can never open the
+    wrong device or silently fall through. The band is never guessed
+    from freq_hz; the caller must state it explicitly.
 
     The whole call chain is RECEIVE-ONLY. Both device wrappers guard
     every transmit-capable entry point at the wrapper level, and this
     function only ever drives the RX path (open, read_samples, close).
+
+    After the samples come back, a spectral fingerprint is measured
+    from them (compute_psd then fingerprint_spectrum, parameterised by
+    the band's BAND_PROFILES entry) and recorded in the SigMF metadata
+    as the nested "mimir:fingerprint" global field. This is a
+    measurement only: the samples written to .sigmf-data are unchanged
+    and unfiltered, and no software DSP, cropping, or decimation is
+    applied to them.
 
     Gain handling per device:
       - HackRF uses its split gain model with the wrapper defaults
@@ -313,6 +365,11 @@ def capture_and_save(
         freq_hz: Centre frequency to tune to in Hz.
         num_samples: Number of IQ samples to capture.
         sample_rate_hz: Samples per second.
+        band: BAND_PROFILES key (e.g. "fm_broadcast", "adsb"). Required.
+              Selects the per-band signal_threshold_db,
+              crop_half_width_hz, and burst_use_wide_window used for the
+              fingerprint measurement. Any key not defined by the band's
+              profile falls back to fingerprint_spectrum()'s own default.
         output_dir: Directory to save the files in. Defaults to
                     Path("data/captures").
         device: DEVICE_PROFILES driver key - "hackrf" or "plutosdr".
@@ -326,9 +383,16 @@ def capture_and_save(
         the sibling .sigmf-data file holds the raw samples).
 
     Raises:
-        ValueError: If device is not a key of _CAPTURE_DISPATCH. Raised
+        ValueError: If band is not a key of BAND_PROFILES, or device is
+                    not a key of _CAPTURE_DISPATCH. Both are raised
                     BEFORE any hardware call.
     """
+    if band not in BAND_PROFILES:
+        raise ValueError(
+            f"Unknown band {band!r} - valid bands: "
+            f"{', '.join(sorted(BAND_PROFILES.keys()))}"
+        )
+
     capture_fn = _CAPTURE_DISPATCH.get(device)
     if capture_fn is None:
         raise ValueError(
@@ -367,6 +431,22 @@ def capture_and_save(
         # raised already. Defensive only.
         raise ValueError(f"Unknown device {device!r}")  # pragma: no cover
 
+    # Measure the spectral fingerprint from the captured samples. The
+    # band profile supplies the per-band measurement parameters; any key
+    # a profile does not define falls back to fingerprint_spectrum()'s
+    # own default via .get() (signal_threshold_db=None,
+    # crop_half_width_hz=None, burst_use_wide_window=False). This is a
+    # measurement recorded as metadata - the samples passed to
+    # save_capture below are the raw captures, unmodified.
+    profile = BAND_PROFILES[band]
+    psd_result = compute_psd(samples, sample_rate_hz, freq_hz)
+    fingerprint = fingerprint_spectrum(
+        psd_result,
+        signal_threshold_db=profile.get("signal_threshold_db"),
+        crop_half_width_hz=profile.get("crop_half_width_hz"),
+        burst_use_wide_window=profile.get("burst_use_wide_window", False),
+    )
+
     return save_capture(
         samples,
         freq_hz=freq_hz,
@@ -374,4 +454,5 @@ def capture_and_save(
         device=device,
         output_dir=output_dir,
         bandwidth_hz=bandwidth_hz,
+        fingerprint=fingerprint,
     )

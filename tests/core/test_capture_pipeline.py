@@ -9,6 +9,11 @@ Tests cover:
 - SigMF metadata round-trips device identity and legal provenance
 - capture_and_save dispatches to the correct device capture function
 - capture_and_save validates the device string before any hardware call
+- capture_and_save validates the band string before any hardware call
+- capture_and_save measures a spectral fingerprint from the captured samples
+  and passes it through to save_capture
+- save_capture records the fingerprint as a nested mimir:fingerprint field
+  (and omits it entirely when fingerprint is None)
 - bandwidth_hz is recorded as SigMF core:bandwidth metadata (never as DSP)
 - no TX patterns exist in capture.py
 """
@@ -33,6 +38,9 @@ from core.pipeline.capture import (
     capture_iq_pluto,
     save_capture,
 )
+from core.pipeline.fft import compute_psd
+from core.pipeline.features import fingerprint_spectrum
+from dashboard.shared_state import BAND_PROFILES
 
 TX_METHOD_NAMES = [
     "transmit",
@@ -297,6 +305,58 @@ class TestSaveCapture:
         assert "Radiocommunications Act" in meta.description
         assert "ACMA" in meta.description
 
+    def test_save_capture_with_fingerprint_none_omits_mimir_fingerprint_field(
+        self, tmp_path
+    ):
+        """fingerprint=None omits mimir:fingerprint from the SigMF metadata."""
+        samples = np.zeros(256, dtype=np.complex64)
+        result = save_capture(
+            samples,
+            freq_hz=98_000_000,
+            sample_rate_hz=2_000_000,
+            output_dir=tmp_path,
+            fingerprint=None,
+        )
+
+        meta = sigmf.fromfile(str(result))
+        assert meta.get_global_field("mimir:fingerprint") is None, (
+            "fingerprint=None must omit mimir:fingerprint entirely, not "
+            "write an empty or null field."
+        )
+
+    def test_save_capture_with_fingerprint_writes_nested_mimir_fingerprint(
+        self, tmp_path
+    ):
+        """A fingerprint dict lands as one nested mimir:fingerprint field."""
+        fingerprint = {
+            "peak_freq_hz": 98_000_500.0,
+            "peak_power_db": -25.0,
+            "noise_floor_db": -90.0,
+            "snr_db": 65.0,
+            "bandwidth_hz": 200_000.0,
+            "occupied_bins": 100,
+            "spectral_flatness": 0.1,
+        }
+        samples = np.zeros(256, dtype=np.complex64)
+        result = save_capture(
+            samples,
+            freq_hz=98_000_000,
+            sample_rate_hz=2_000_000,
+            output_dir=tmp_path,
+            fingerprint=fingerprint,
+        )
+
+        meta = sigmf.fromfile(str(result))
+        stored = meta.get_global_field("mimir:fingerprint")
+        assert stored == fingerprint, (
+            "mimir:fingerprint must round-trip exactly the seven "
+            "measurement keys with their values."
+        )
+        # The measurement keys must stay nested, never flattened to the
+        # top level of the global fields.
+        assert meta.get_global_field("peak_freq_hz") is None
+        assert stored["peak_freq_hz"] == 98_000_500.0
+
 
 class TestNoTxPatterns:
     """Verify that capture.py contains no transmit-related code."""
@@ -350,6 +410,7 @@ class TestCaptureAndSave:
                 freq_hz=98_000_000,
                 num_samples=1024,
                 sample_rate_hz=2_000_000,
+                band="fm_broadcast",
                 output_dir=tmp_path,
                 device="hackrf",
             )
@@ -376,6 +437,7 @@ class TestCaptureAndSave:
                 freq_hz=1_090_000_000,
                 num_samples=1024,
                 sample_rate_hz=2_000_000,
+                band="adsb",
                 output_dir=tmp_path,
                 device="plutosdr",
                 bandwidth_hz=1_800_000,
@@ -399,6 +461,7 @@ class TestCaptureAndSave:
                     freq_hz=98_000_000,
                     num_samples=1024,
                     sample_rate_hz=2_000_000,
+                    band="fm_broadcast",
                     output_dir=tmp_path,
                     device="bogus",
                 )
@@ -415,6 +478,7 @@ class TestCaptureAndSave:
                 freq_hz=1_090_000_000,
                 num_samples=512,
                 sample_rate_hz=2_000_000,
+                band="adsb",
                 output_dir=tmp_path,
                 device="plutosdr",
             )
@@ -490,6 +554,7 @@ class TestCaptureAndSave:
                     freq_hz=98_000_000,
                     num_samples=256,
                     sample_rate_hz=2_000_000,
+                    band="fm_broadcast",
                     output_dir=tmp_path,
                     device="hackrf",
                     bandwidth_hz=1_800_000,
@@ -514,6 +579,7 @@ class TestCaptureAndSave:
                 freq_hz=915_000_000,
                 num_samples=256,
                 sample_rate_hz=2_000_000,
+                band="adsb",
                 output_dir=tmp_path,
                 device="plutosdr",
                 bandwidth_hz=1_500_000,
@@ -531,6 +597,7 @@ class TestCaptureAndSave:
                 freq_hz=915_000_000,
                 num_samples=256,
                 sample_rate_hz=2_000_000,
+                band="adsb",
                 output_dir=tmp_path,
                 device="plutosdr",
             )
@@ -553,6 +620,7 @@ class TestCaptureAndSave:
                 freq_hz=98_000_000,
                 num_samples=256,
                 sample_rate_hz=2_000_000,
+                band="fm_broadcast",
                 output_dir=tmp_path,
                 device="hackrf",
             )
@@ -577,6 +645,7 @@ class TestCaptureAndSave:
                     freq_hz=98_000_000,
                     num_samples=1024,
                     sample_rate_hz=2_000_000,
+                    band="fm_broadcast",
                     output_dir=tmp_path,
                     device="bogus",
                 )
@@ -584,3 +653,81 @@ class TestCaptureAndSave:
             mock_save.assert_not_called()
             mock_hackrf_cls.assert_not_called()
             mock_pluto_cls.assert_not_called()
+
+    def test_unknown_band_raises_value_error_before_hardware_call(self, tmp_path):
+        """An unrecognised band raises ValueError and never touches hardware."""
+        with patch("core.pipeline.capture.HackRFReceiver") as mock_hackrf_cls, \
+             patch("core.pipeline.capture.PlutoReceiver") as mock_pluto_cls, \
+             patch("core.pipeline.capture.save_capture") as mock_save, \
+             patch("core.pipeline.capture.compute_psd") as mock_psd, \
+             patch("core.pipeline.capture.fingerprint_spectrum") as mock_fp:
+            with pytest.raises(ValueError, match="Unknown band 'bogus_band'"):
+                capture_and_save(
+                    freq_hz=98_000_000,
+                    num_samples=1024,
+                    sample_rate_hz=2_000_000,
+                    band="bogus_band",
+                    output_dir=tmp_path,
+                    device="hackrf",
+                )
+
+            mock_hackrf_cls.assert_not_called()
+            mock_pluto_cls.assert_not_called()
+            mock_psd.assert_not_called()
+            mock_fp.assert_not_called()
+            mock_save.assert_not_called()
+
+    def test_valid_band_produces_fingerprint_and_passes_to_save_capture(
+        self, tmp_path
+    ):
+        """A valid band yields a measured fingerprint passed to save_capture.
+
+        compute_psd and fingerprint_spectrum run for real (via wraps spies)
+        on a genuine numpy capture; only save_capture is mocked, to capture
+        the fingerprint kwarg it receives.
+        """
+        with patch("core.pipeline.capture.HackRFReceiver") as mock_hackrf_cls, \
+             patch("core.pipeline.capture.compute_psd", wraps=compute_psd) as spy_psd, \
+             patch(
+                 "core.pipeline.capture.fingerprint_spectrum",
+                 wraps=fingerprint_spectrum,
+             ) as spy_fp, \
+             patch("core.pipeline.capture.save_capture") as mock_save:
+            mock_hackrf_cls.return_value = _mock_sdr_with_samples(2048)
+
+            capture_and_save(
+                freq_hz=98_000_000,
+                num_samples=2048,
+                sample_rate_hz=2_000_000,
+                band="fm_broadcast",
+                output_dir=tmp_path,
+                device="hackrf",
+            )
+
+            spy_psd.assert_called_once()
+            spy_fp.assert_called_once()
+
+            # The band profile supplies the per-band measurement parameters.
+            profile = BAND_PROFILES["fm_broadcast"]
+            fp_kwargs = spy_fp.call_args.kwargs
+            assert fp_kwargs["signal_threshold_db"] == profile["signal_threshold_db"]
+            assert fp_kwargs["crop_half_width_hz"] == profile["crop_half_width_hz"]
+            assert fp_kwargs["burst_use_wide_window"] == profile.get(
+                "burst_use_wide_window", False
+            )
+
+            mock_save.assert_called_once()
+            fingerprint = mock_save.call_args.kwargs["fingerprint"]
+            expected_keys = {
+                "peak_freq_hz",
+                "peak_power_db",
+                "noise_floor_db",
+                "snr_db",
+                "bandwidth_hz",
+                "occupied_bins",
+                "spectral_flatness",
+            }
+            for key in expected_keys:
+                assert key in fingerprint, (
+                    f"Fingerprint passed to save_capture is missing {key!r}."
+                )
