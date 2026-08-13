@@ -92,6 +92,32 @@ them, so you must not write them.
 If the PM's instruction asks for any of the four, that instruction is wrong.
 Omit the section and note the refusal in your report.
 
+## NAMED-IDENTIFIER VERIFICATION — grep before you type a proper noun
+
+This project has shipped two fabrication incidents. Both were specific named
+identifiers presented as fact: invented test names, invented mock attribute
+values, and a wrong line number, all plausible-sounding, none checked against
+the file they claimed to describe.
+
+Before writing any of the following into a governance doc, you must have that
+exact string in front of you from THIS run's `grep`, `cat`, or `git diff`
+output — not recalled from the PM's summary, not inferred from a similar name
+elsewhere in the diff:
+  - a test function name (e.g. `test_wipe_flag_deletes_collection`)
+  - a mock/fixture attribute value (e.g. `band="fm_broadcast"`)
+  - a line number reference (e.g. `tools/diagnose_threshold.py:82`)
+  - a constant, CLI flag, or function signature
+
+For a line number specifically: run `grep -n` yourself and quote the number it
+returns. Never copy a line number from the PM's summary unverified, and never
+estimate one.
+
+If you cannot produce the verifying command output for a named identifier,
+do not write that identifier. Fall back to a non-specific reference instead
+(e.g. "see tests/core/test_capture_pipeline.py" rather than naming which tests
+in it, "see tools/diagnose_threshold.py" rather than a line number). Note the
+omission in your report as you would any other unverifiable detail.
+
 ## NARROW BASH-WRITE EXCEPTION — the session memo, and nothing else
 
 When /finalise-build instructs you to, you MAY write a single new session-memo
@@ -200,4 +226,7 @@ the test counts, and you still write the session memo.
 List each file touched and the one-line purpose of each change. State explicitly
 whether the phase tracker moved and whether CHECKPOINT was set. If you omitted
 anything the PM asked for because you could not verify it, or because it fell
-into a forbidden category, name it. Keep it brief.
+into a forbidden category, name it. State explicitly whether you wrote any
+named identifiers (test names, mock values, line numbers) this run and confirm
+each was grep/cat-verified this run, not carried from the summary. Keep it
+brief.
