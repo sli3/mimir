@@ -584,12 +584,26 @@ from core.device.profiles import DEVICE_PROFILES
 #   28–40 dB sweet spot, clear of both the 32 dB dip and the 65 dB spur
 #   wall, on both bands. This validates gain/noise/spurs ONLY.
 #
-# signal_threshold_db (ism, adsb): 3.0 — PROVISIONAL, still uncalibrated
-#   for Pluto. Neither Phase 39 sweep caught a real in-band target (no
-#   LoRa burst, no aircraft), so SNR-above-noise was never measured on
-#   Pluto. This value is inherited from the HackRF BAND_PROFILES entries
-#   and kept as a placeholder until a live capture with a real signal is
-#   available. Do not treat as calibrated.
+# signal_threshold_db (ism): 3.0 — PROVISIONAL, still uncalibrated for
+#   Pluto. Neither Phase 39 sweep caught a real in-band target (no LoRa
+#   burst), so SNR-above-noise was never measured on Pluto. This value
+#   is inherited from the HackRF BAND_PROFILES entry and kept as a
+#   placeholder until a live capture with a real signal is available.
+#   Do not treat as calibrated.
+#
+# signal_threshold_db (adsb): 8.0 — CALIBRATED live 2026-08-14, real
+#   aircraft traffic over Adelaide, PlutoSDR, tools/diagnose_threshold.py
+#   --band adsb --device pluto. Two independent runs against live ADS-B
+#   traffic both recommended 8 dB (bandwidth=1053711 Hz and 835938 Hz
+#   respectively, vs. 1000000 Hz target) — consistent result across
+#   separate captures. Supersedes the prior 3.0 dB HackRF-inherited
+#   placeholder. NOTE: as of this same session, current_band (the dict
+#   the live scan loop and trigger logic actually read
+#   signal_threshold_db from) was found to only ever be populated from
+#   BAND_PROFILES, never PLUTO_BAND_PROFILES — see
+#   finding-pluto-threshold-mismatch.md. This 8.0 dB value is correctly
+#   calibrated but is NOT YET being read by the live trigger on Pluto
+#   sessions until that separate code-path bug is fixed.
 #
 # The six unsupported bands are all below Pluto's 325 MHz tuning floor
 # (stock AD9363 firmware); the reason string on each entry states the
@@ -623,7 +637,7 @@ PLUTO_BAND_PROFILES: dict = {
     "adsb": {
         "supported": True,
         "gain_db": 30.0,
-        "signal_threshold_db": 3.0,
+        "signal_threshold_db": 8.0,
     },
     "noise_floor": {
         "supported": False,
