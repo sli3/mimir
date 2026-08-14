@@ -198,8 +198,11 @@ def main() -> None:
         focus_freq_hz, focus_band_key = pluto_focus
         scanner.set_focus_frequency(focus_freq_hz)
         with shared_state.current_band_lock:
-            shared_state.current_band = dict(
-                shared_state.BAND_PROFILES[focus_band_key]
+            # Resolve via the device-aware helper (Phase 65, Finding A) so
+            # Pluto's calibrated signal_threshold_db/gain_db overlay is
+            # applied from the first scan cycle, not the HackRF values.
+            shared_state.current_band = shared_state.resolve_band_profile(
+                focus_band_key, driver
             )
         logger.info(
             "Pluto startup focus: %.3f MHz (%s)",

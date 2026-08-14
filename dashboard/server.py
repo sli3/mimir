@@ -384,9 +384,11 @@ def handle_set_focus(data):
     reference is available, also calls scanner.set_focus_frequency() to
     retune the HackRF and flush any queued results.
 
-    Also updates shared_state.current_band to the matching BAND_PROFILES entry
-    when freq_hz corresponds to a known band centre frequency, so the scan loop
-    applies the correct per-band signal_threshold_db without a restart.
+    Also updates shared_state.current_band to the matching band profile
+    resolved for the active device (via shared_state.resolve_band_profile)
+    when freq_hz corresponds to a known band, so the scan loop applies the
+    correct per-band signal_threshold_db without a restart. When freq_hz
+    is None, current_band is left untouched.
 
     Args:
         data: Dict from the browser with key "freq_hz". Values accepted:
@@ -401,11 +403,18 @@ def handle_set_focus(data):
         freq_hz = None
     with _focused_freq_lock:
         _focused_freq_hz = freq_hz
-    band_profile = (
-        shared_state.get_band_for_freq(freq_hz)
-        or shared_state.get_nearest_band_for_freq(freq_hz)
-    )
-    if band_profile is not None:
+    band_key = shared_state.band_key_for_freq(freq_hz)
+    if band_key is not None:
+        # Resolve the band profile for the ACTIVE device (Phase 65,
+        # Finding A): on Pluto sessions this overlays Pluto's calibrated
+        # signal_threshold_db/gain_db onto the BAND_PROFILES base; on
+        # HackRF it returns the BAND_PROFILES copy unchanged. Device read
+        # under current_device_lock, mirroring emit_stats below.
+        with shared_state.current_device_lock:
+            active_device = shared_state.current_device
+        band_profile = shared_state.resolve_band_profile(
+            band_key, active_device
+        )
         with shared_state.current_band_lock:
             shared_state.current_band = band_profile
     if _scanner_ref is not None:

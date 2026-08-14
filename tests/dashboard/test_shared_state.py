@@ -7,6 +7,7 @@ Tests for dashboard/shared_state.py constants.
 
 import sys
 import os
+import logging
 
 import pytest
 
@@ -15,12 +16,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 import dashboard.shared_state as shared_state
 from dashboard.shared_state import (
     BAND_PROFILES,
+    PLUTO_BAND_PROFILES,
     TRIGGER_ARMABLE_BANDS,
     band_key_for_freq,
     check_and_update_trigger_state,
     get_band_for_freq,
     get_last_trigger_snr,
     is_trigger_armed,
+    resolve_band_profile,
     set_last_trigger_snr,
     set_trigger_armed,
 )
@@ -338,3 +341,95 @@ class TestCaptureTriggerState:
         )
         assert (was_armed, prev_snr) == (True, 12.0)
         assert get_last_trigger_snr("fm_broadcast") == 12.0
+
+
+class TestResolveBandProfile:
+    """Tests for resolve_band_profile() (Phase 65, Finding A).
+
+    The helper merges BAND_PROFILES with the PLUTO_BAND_PROFILES additive
+    override so the live scan loop sees Pluto's calibrated per-band values
+    on Pluto sessions, while HackRF sessions keep the BAND_PROFILES values
+    byte-identically.
+    """
+
+    def test_resolve_band_profile_plutosdr_overlays_threshold_and_gain(self):
+        """On Pluto, adsb resolves with the Pluto-calibrated 8.0 dB
+        threshold and 30.0 combined gain, inheriting everything else from
+        BAND_PROFILES."""
+        resolved = resolve_band_profile("adsb", "plutosdr")
+        # Overlaid from PLUTO_BAND_PROFILES — NOT the 3.0 dB HackRF value.
+        assert resolved["signal_threshold_db"] == 8.0
+        assert resolved["gain_db"] == 30.0
+        # Inherited from the BAND_PROFILES base.
+        assert resolved["crop_half_width_hz"] == 900_000
+        assert resolved["center_freq_hz"] == 1_090_000_000
+        # BAND_PROFILES["adsb"] has no burst_use_wide_window key, so the
+        # resolved dict must not sprout one.
+        assert "burst_use_wide_window" not in resolved
+        # The split-gain keys survive so existing readers keep working.
+        assert resolved["lna_gain_db"] == BAND_PROFILES["adsb"]["lna_gain_db"]
+        assert resolved["vga_gain_db"] == BAND_PROFILES["adsb"]["vga_gain_db"]
+        # supported/reason are not current_band fields and must not leak.
+        assert "supported" not in resolved
+        assert "reason" not in resolved
+        # Phase 65 Fix B: fingerprint_trace_key lives on BAND_PROFILES
+        # only; the Pluto overlay must inherit it via the base.copy() so
+        # Pluto ADS-B can pick up psd_max_hold_db from a device-aware
+        # resolved profile.
+        assert resolved["fingerprint_trace_key"] == "psd_max_hold_db"
+
+    def test_resolve_band_profile_hackrf_is_byte_identical_to_band_profiles(
+        self,
+    ):
+        """On HackRF the resolved profile is the BAND_PROFILES entry
+        unchanged (returned as a copy, not the canonical dict)."""
+        resolved_adsb = resolve_band_profile("adsb", "hackrf")
+        assert resolved_adsb == BAND_PROFILES["adsb"]
+        assert resolved_adsb is not BAND_PROFILES["adsb"]
+        # Regression guard on a second band.
+        resolved_fm = resolve_band_profile("fm_broadcast", "hackrf")
+        assert resolved_fm == BAND_PROFILES["fm_broadcast"]
+
+    def test_resolve_band_profile_plutosdr_for_ism_overlays_threshold_and_gain(
+        self,
+    ):
+        """Same merge behaviour for ism: Pluto's 3.0 dB threshold wins,
+        BAND_PROFILES crop width is inherited."""
+        resolved = resolve_band_profile("ism", "plutosdr")
+        assert resolved["signal_threshold_db"] == (
+            PLUTO_BAND_PROFILES["ism"]["signal_threshold_db"]
+        )
+        assert resolved["gain_db"] == PLUTO_BAND_PROFILES["ism"]["gain_db"]
+        assert resolved["crop_half_width_hz"] == 250_000
+        assert resolved["center_freq_hz"] == 915_000_000
+
+    def test_resolve_band_profile_missing_pluto_keys_logs_warning_and_falls_back(
+        self, monkeypatch, caplog
+    ):
+        """A Pluto-supported band missing an overlay key is a configuration
+        error: the helper logs a warning and falls back to BAND_PROFILES
+        rather than raising on the live hot path."""
+        monkeypatch.delitem(PLUTO_BAND_PROFILES["ism"], "gain_db")
+        with caplog.at_level(logging.WARNING, logger="dashboard.shared_state"):
+            resolved = resolve_band_profile("ism", "plutosdr")
+        assert any(
+            "gain_db" in record.message and "ism" in record.message
+            for record in caplog.records
+        )
+        # gain_db has no BAND_PROFILES counterpart, so the fallback is
+        # absence; signal_threshold_db still overlays (it was present).
+        assert "gain_db" not in resolved
+        assert resolved["signal_threshold_db"] == (
+            PLUTO_BAND_PROFILES["ism"]["signal_threshold_db"]
+        )
+        # And the crop width still comes from the BAND_PROFILES base.
+        assert resolved["crop_half_width_hz"] == (
+            BAND_PROFILES["ism"]["crop_half_width_hz"]
+        )
+
+    def test_resolve_band_profile_plutosdr_unsupported_band_returns_base(self):
+        """A band Pluto cannot receive resolves to the BAND_PROFILES base
+        unchanged, with no warning — the overlay keys are legitimately
+        absent on unsupported entries."""
+        resolved = resolve_band_profile("acars", "plutosdr")
+        assert resolved == BAND_PROFILES["acars"]

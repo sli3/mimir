@@ -18,8 +18,11 @@ we need a way for them to communicate. We use:
 No classes here - everything is at module level for simplicity.
 """
 
+import logging
 import threading
 from queue import Queue
+
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -353,6 +356,84 @@ def band_key_for_freq(freq_hz: float | None) -> str | None:
         candidates,
         key=lambda k: abs(candidates[k]["center_freq_hz"] - freq_hz)
     )
+
+
+def resolve_band_profile(band_key: str, device: str) -> dict:
+    """Resolve the effective live band profile for a band on a device.
+
+    Merges BAND_PROFILES (the canonical, device-independent profile) with
+    the PLUTO_BAND_PROFILES additive override when the active device is
+    Pluto, producing the dict the live scan loop and trigger logic
+    actually read from ``current_band``.
+
+    Why this exists (Phase 65, Finding A): the three sites that assign
+    ``current_band`` previously read BAND_PROFILES only, regardless of
+    the active device, so Pluto's calibrated per-band values (e.g. the
+    8.0 dB ADS-B threshold committed 2026-08-14) never reached the live
+    scan loop. This helper is the single resolution point all three
+    sites now call.
+
+    Merge semantics:
+
+    - The base is a copy of ``BAND_PROFILES[band_key]``, which supplies
+      center_freq_hz, crop_half_width_hz, burst_use_wide_window,
+      lna_gain_db, vga_gain_db and any other band keys Pluto's dict
+      deliberately lacks.
+    - For ``device == "plutosdr"`` on a Pluto-supported band, ONLY
+      ``gain_db`` and ``signal_threshold_db`` are overlaid from
+      PLUTO_BAND_PROFILES. ``supported`` and ``reason`` are never
+      copied across (they are not current_band fields). The
+      BAND_PROFILES split-gain keys lna_gain_db/vga_gain_db are left
+      untouched: Pluto uses a combined gain_db, which the live path
+      does not currently consume, and existing readers of the split
+      keys must keep working.
+    - For ``device == "hackrf"`` (or any other/unknown device), the
+      BAND_PROFILES copy is returned unchanged — byte-identical to the
+      behaviour before this helper existed.
+    - For a band Pluto does not support, the base is returned
+      unchanged: the scan loop's own device guard prevents tuning
+      there, so the threshold is never consulted and warning about
+      legitimately absent overlay keys would be noise.
+
+    Fail-loud decision (hot path): a Pluto-supported band missing
+    ``gain_db`` or ``signal_threshold_db`` is a configuration error,
+    but this function runs on the live scan path where raising would
+    kill capture. It therefore logs a warning (naming the band and the
+    missing key) and falls back to the BAND_PROFILES value for that
+    key — or to absence for gain_db, which has no BAND_PROFILES
+    counterpart. The alternative — raise / SystemExit, as the offline
+    tools do — is recorded here for future maintainers; revisit if the
+    hot path ever gains a supervised restart mechanism.
+
+    Returns a dict copy so callers cannot mutate the canonical profile.
+
+    Args:
+        band_key: A BAND_PROFILES key (e.g. "adsb").
+        device: A device driver key ("hackrf" / "plutosdr").
+
+    Returns:
+        The merged band profile dict.
+
+    Raises:
+        KeyError: If band_key is not a known BAND_PROFILES key.
+    """
+    base = dict(BAND_PROFILES[band_key])
+    if device != "plutosdr":
+        return base
+    pluto_entry = PLUTO_BAND_PROFILES.get(band_key, {})
+    if not pluto_entry.get("supported", False):
+        return base
+    for key in ("gain_db", "signal_threshold_db"):
+        if key in pluto_entry:
+            base[key] = pluto_entry[key]
+        else:
+            logger.warning(
+                "PLUTO_BAND_PROFILES[%r] is missing %r on a supported "
+                "band — falling back to the BAND_PROFILES value",
+                band_key,
+                key,
+            )
+    return base
 
 
 # =============================================================================
