@@ -2616,4 +2616,33 @@ Pytest baseline was 841 → 879 (+38 net, all from Phase 63's new tests). Vitest
 
 ---
 
+### Phase 65 — Pluto trigger-path fixes (Findings A + B) ✅
+
+**Type:** Backend fixes. Device-aware `current_band` resolution (Finding A) plus `fingerprint_trace_key` forwarding for ADS-B burst-type bands (Finding B). Both fixes target live scan trigger paths that were incorrectly using HackRF-only values on Pluto sessions.
+
+**What.** Finding A adds `resolve_band_profile(band_key, device)` to `dashboard/shared_state.py`, which overlays `PLUTO_BAND_PROFILES`'s `signal_threshold_db` and `gain_db` values onto the `BAND_PROFILES` base when the device is Pluto. For HackRF, the function returns the base profile unchanged. This new helper is called at all three `current_band` assignment sites: (1) scan.py during Pluto startup-focus, (2) dashboard/server.py's `handle_set_focus` handler, and (3) the module-level default. Finding B adds a new `fingerprint_trace_key: "psd_max_hold_db"` field to `BAND_PROFILES["adsb"]`, mirroring the existing `burst_use_wide_window` pattern. The live `fingerprint_spectrum()` call in `core/pipeline/scanner.py` now reads and forwards this key. Every other band is unaffected — explicitly verified for `fm_broadcast` and `ism` (both Pluto-supported) in the new regression test.
+
+**Why.** Pluto sessions were using HackRF-only threshold and gain values for trigger decisions and SNR computation. The codebase already maintained separate `PLUTO_BAND_PROFILES` with Pluto-tuned values (signal_threshold_db 8.0 dB for ADS-B vs HackRF 3.0 dB, gain_db 30.0 dB vs HackRF 24/24), but those values were never read by the live scanner. Finding A plumbs the device-aware path through `current_band` so Pluto sessions actually use Pluto's calibration. Finding B extends max-hold trace usage to the live ADS-B trigger path — prior to this phase, max-hold was only used in the offline `capture_to_vectorstore.py` tool, while the live scanner still used the averaged `psd_db` trace. Max-hold is systematically higher than the averaged floor, so the old 3.0 dB / 8.0 dB thresholds are now stale; a future live re-calibration against max-hold is required (tracked in AGENTS.md HIGH-01).
+
+**Files changed.**
+Finding A:
+- `dashboard/server.py` (+25/-10) — `handle_set_focus` now calls `resolve_band_profile()` to set device-aware `current_band`.
+- `dashboard/shared_state.py` (+81/0) — added `resolve_band_profile()` function and `DEVICE_PROFILES` helper.
+- `scan.py` (+7/-3) — Pluto startup-focus now uses `resolve_band_profile()`.
+- `tests/dashboard/test_shared_state.py` (+95) — new `TestResolveBandProfile` with full coverage of HackRF identity, Pluto overlay, and unknown-device edge case.
+
+Finding B:
+- `core/pipeline/scanner.py` (+16/0) — live `fingerprint_spectrum()` call now reads and forwards `fingerprint_trace_key` from band profile.
+- `dashboard/shared_state.py` (+9/0) — `BAND_PROFILES["adsb"]` gained `fingerprint_trace_key: "psd_max_hold_db"`.
+- `tests/core/test_scanner.py` (+83) — regression tests confirming ADS-B forwards max-hold while fm_broadcast/ism do not.
+- `tests/dashboard/test_server_stats.py` (+10) — new `TestSetFocusFingerprintTraceKey` covering the SocketIO path.
+
+**Tests.** +7 net new tests, 0 regressions. Full pytest and Vitest suites green at finalise time.
+
+**Deferred / still blocked.** Live hardware re-verification of the SNR-edge auto-capture trigger remains blocked on `tools/diagnose_threshold.py` gaining `trace_key` plumbing first (see AGENTS.md HIGH-01). Once that tool can sweep against max-hold, a live re-sweep against confirmed ADS-B traffic on both HackRF and Pluto is required to re-calibrate both devices' `signal_threshold_db` values to their correct max-hold numbers. The Phase 65 code changes deliver the path but do not unblock the field work.
+
+**Notes.** This investigation started as a separate session and ran a prior `deep-bug-hunter` pass before the code work. The pre-Phase-65 commit `fe85d6c` (Recalibrate Pluto ADS-B signal_threshold_db to 8.0 dB) was land-prep for Fix A — it set the correct value in `PLUTO_BAND_PROFILES` but explicitly noted the value would not be read live until Finding A's code-path fix landed. Both findings surfaced important architectural insights: (1) the distinction between `BAND_PROFILES` (base, HackRF-default) and `PLUTO_BAND_PROFILES` (overlay, Pluto-tuned) is the correct pattern, and (2) `trace_key` is a per-band concern that follows the same `burst_use_wide_window` precedent.
+
+---
+
 ## Deferred Items
