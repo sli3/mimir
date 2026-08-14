@@ -337,9 +337,25 @@ class ScanRunner:
                 )
                 crop_half_width_hz = band.get("crop_half_width_hz")
                 burst_use_wide_window = band.get("burst_use_wide_window", False)
+                # Burst-type bands (currently only ADS-B) fingerprint the
+                # max-hold trace so pulsed energy is not averaged away
+                # (Phase 65, Finding B). Bands without the key default to
+                # the averaged 'psd_db' trace — byte-identical to the
+                # previous behaviour. fingerprint_trace_key lives on
+                # BAND_PROFILES["adsb"]; it is inherited by the HackRF
+                # path via a direct copy and by the Pluto path via
+                # resolve_band_profile's base.copy(). The Pluto overlay
+                # only copies gain_db and signal_threshold_db, so any
+                # future BAND_PROFILES-only key (like this one) is
+                # automatically inherited. Keeping this key on
+                # BAND_PROFILES (not on PLUTO_BAND_PROFILES) avoids the
+                # per-device duplication burden for keys whose value is
+                # identical across devices.
+                trace_key = band.get("fingerprint_trace_key", "psd_db")
                 fingerprint = features.fingerprint_spectrum(
                     psd,
                     signal_threshold_db=threshold,
+                    trace_key=trace_key,
                     crop_half_width_hz=crop_half_width_hz,
                     burst_use_wide_window=burst_use_wide_window,
                 )

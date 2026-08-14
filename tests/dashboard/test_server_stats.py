@@ -320,7 +320,15 @@ class TestFocusFrequencyFilter:
     def test_handle_set_focus_updates_current_band_for_known_freq(self):
         """handle_set_focus updates current_band when freq matches a BAND_PROFILES entry."""
         saved = dict(ss.current_band)
+        with ss.current_device_lock:
+            saved_device = ss.current_device
         try:
+            # Phase 65 (Finding A) made current_band resolution device-aware.
+            # This test asserts the HackRF behaviour — ACARS's threshold comes
+            # through unchanged from BAND_PROFILES — so pin the device under
+            # test explicitly rather than relying on the module default.
+            with ss.current_device_lock:
+                ss.current_device = "hackrf"
             handle_set_focus({"freq_hz": 129_125_000})
             with ss.current_band_lock:
                 assert ss.current_band["center_freq_hz"] == 129_125_000
@@ -328,6 +336,8 @@ class TestFocusFrequencyFilter:
         finally:
             with ss.current_band_lock:
                 ss.current_band = saved
+            with ss.current_device_lock:
+                ss.current_device = saved_device
 
     def test_handle_set_focus_does_not_update_current_band_for_unknown_freq(self):
         """handle_set_focus leaves current_band unchanged for a non-BAND_PROFILES frequency."""

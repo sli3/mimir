@@ -193,6 +193,15 @@ BAND_PROFILES: dict = {
         "vga_gain_db":         24,
         "signal_threshold_db": 3.0,    # Calibrated live ADS-B 1090 MHz, diagnose_threshold.py x3 runs
         "crop_half_width_hz":  900_000,
+        # ADS-B is the only burst-flagged band: squitters are ~120 us
+        # pulses at roughly 1% duty cycle, so the averaged trace
+        # (psd_db) averages the pulse energy away (measured ~+9.6 dB
+        # average SNR delta on real hardware, Phase 65 Finding B). The
+        # max-hold trace retains peak pulse energy, so fingerprinting
+        # must run against psd_max_hold_db here. No other band gets
+        # this key — the continuous-signal bands (FM, ACARS, AIS, APRS,
+        # ISM) keep the default averaged trace.
+        "fingerprint_trace_key": "psd_max_hold_db",
         # PLACEHOLDER — NOT field-verified, deliberately conservative/wide.
         # Sources disagree on ADS-B/Mode S occupied bandwidth (~1 MHz vs ~2 MHz)
         # and the full capture window is only 2 MHz — an aggressive crop risks

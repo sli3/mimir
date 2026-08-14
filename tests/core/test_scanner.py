@@ -511,6 +511,89 @@ class TestScanRunner:
                 shared_state.current_band.update(original_band)
 
 
+class TestScanLoopTraceKey:
+    """_scan_loop must forward the band's fingerprint_trace_key to
+    fingerprint_spectrum() (Phase 65, Finding B).
+
+    ADS-B is a pulsed/bursty signal (~120 us squitters at ~1% duty
+    cycle); fingerprinting the averaged trace loses ~9.6 dB of measured
+    SNR, so the adsb band profile carries
+    fingerprint_trace_key="psd_max_hold_db". Continuous-signal bands
+    must keep the 'psd_db' default.
+    """
+
+    def _run_loop_and_capture_trace_key(self, scanner, band_key, freq_hz):
+        """Drive the scan loop briefly on freq_hz with current_band set to
+        BAND_PROFILES[band_key] and return the trace_key kwarg that was
+        forwarded to fingerprint_spectrum()."""
+        with shared_state.current_band_lock:
+            original_band = dict(shared_state.current_band)
+            shared_state.current_band.clear()
+            shared_state.current_band.update(shared_state.BAND_PROFILES[band_key])
+
+        captured = {}
+
+        def capture_fn(psd_result, **kwargs):
+            captured["trace_key"] = kwargs.get("trace_key")
+            # Minimal valid fingerprint so the embedder does not choke.
+            return {
+                "center_freq_hz": freq_hz,
+                "peak_freq_hz": freq_hz,
+                "peak_power_db": -10.0,
+                "noise_floor_db": -80.0,
+                "snr_db": 70.0,
+                "bandwidth_hz": 200_000,
+                "occupied_bins": 200,
+                "spectral_flatness": 0.5,
+                "signal_threshold_db": 3.0,
+                "snr_margin_db": 46.0,
+                "peak_bin_power_db": -10.0,
+            }
+
+        try:
+            scanner.set_focus_frequency(freq_hz)
+            with patch(
+                "core.pipeline.scanner.features.fingerprint_spectrum",
+                side_effect=capture_fn,
+            ):
+                scanner._running = True
+                t = threading.Thread(target=scanner._scan_loop, daemon=True)
+                t.start()
+                time.sleep(0.3)
+                scanner.stop()
+                t.join(timeout=3)
+            return captured.get("trace_key")
+        finally:
+            with shared_state.current_band_lock:
+                shared_state.current_band.clear()
+                shared_state.current_band.update(original_band)
+
+    def test_adsb_band_passes_psd_max_hold_trace_key(self, scanner):
+        """On the adsb band the scan loop must fingerprint the max-hold
+        trace, using the real BAND_PROFILES entry so the test tracks the
+        configured value rather than a hardcoded string."""
+        expected = shared_state.BAND_PROFILES["adsb"]["fingerprint_trace_key"]
+        assert expected == "psd_max_hold_db"  # sanity: the key exists
+        trace_key = self._run_loop_and_capture_trace_key(
+            scanner, "adsb", 1_090_000_000.0
+        )
+        assert trace_key == expected
+
+    def test_non_adsb_band_passes_default_psd_db_trace_key(self, scanner):
+        """Bands without fingerprint_trace_key must keep the 'psd_db'
+        default — no silent spread of max-hold to continuous-signal
+        bands. fm_broadcast covers the HackRF path; ism covers a
+        Pluto-supported band."""
+        assert "fingerprint_trace_key" not in shared_state.BAND_PROFILES["fm_broadcast"]
+        assert "fingerprint_trace_key" not in shared_state.BAND_PROFILES["ism"]
+        assert self._run_loop_and_capture_trace_key(
+            scanner, "fm_broadcast", 98_000_000.0
+        ) == "psd_db"
+        assert self._run_loop_and_capture_trace_key(
+            scanner, "ism", 915_000_000.0
+        ) == "psd_db"
+
+
 class TestAiLoopNoiseGate:
     """Tests for the pre-LLM deterministic noise gate in _ai_loop (Phase 41).
 
