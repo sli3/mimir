@@ -116,6 +116,12 @@ Before calling @plan-reviewer, establish prior session context:
      does NOT contain session-memo prose; that lives only in .session-memos/).
   3. Extract and note: last recorded phase state, any open deferred items,
      open bugs, and any architectural decisions flagged last session.
+  3a. Use the wiki-search tool to check whether mimir-wiki already documents
+      a relevant gotcha, design decision, or hardware finding for this task's
+      area (e.g. search "Pluto gain calibration" before touching gain-related
+      code). This is a different source from the session memo — the wiki holds
+      durable knowledge, the memo holds what happened last session. Note any
+      relevant hits in the "Prior session context" block.
   4. Carry a brief "Prior session context" block into every subsequent agent
      delegation in this build. No agent should plan, research, or review
      without knowing what state the project was left in.
