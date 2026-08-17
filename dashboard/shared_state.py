@@ -681,19 +681,31 @@ from core.device.profiles import DEVICE_PROFILES
 #   placeholder until a live capture with a real signal is available.
 #   Do not treat as calibrated.
 #
-# signal_threshold_db (adsb): 8.0 — CALIBRATED live 2026-08-14, real
+# signal_threshold_db (adsb): 10.0 — CALIBRATED live 2026-08-17, real
 #   aircraft traffic over Adelaide, PlutoSDR, tools/diagnose_threshold.py
-#   --band adsb --device pluto. Two independent runs against live ADS-B
-#   traffic both recommended 8 dB (bandwidth=1053711 Hz and 835938 Hz
-#   respectively, vs. 1000000 Hz target) — consistent result across
-#   separate captures. Supersedes the prior 3.0 dB HackRF-inherited
-#   placeholder. NOTE: as of this same session, current_band (the dict
-#   the live scan loop and trigger logic actually read
+#   --band adsb --device pluto. Superseded the 2026-08-14 8.0 dB value
+#   because that figure was calibrated on the AVERAGED (psd_db) trace,
+#   before Phase 65 Fix B switched the live trigger to the max-hold
+#   trace (psd_max_hold_db) — see HIGH-01 in AGENTS.md. This 10.0 dB
+#   figure is the first calibration run against the correct trace.
+#   Session included ~12 total sweep runs across two aircraft passes;
+#   most early runs showed weak/inconsistent bandwidth (a Pluto cold
+#   USB-enumeration settle-time artefact, confirmed via journalctl
+#   correlation — sweeps run within ~1-2 minutes of a fresh USB
+#   enumeration under-read badly). After allowing proper settle time,
+#   the strongest, cleanest run (closest aircraft pass, smooth
+#   monotonic decay from 1,594,727 Hz at 3 dB down to 0 Hz at 27 dB)
+#   put the closest-to-1,000,000 Hz-target bandwidth at 10 dB
+#   (901,367 Hz) — chosen over weaker/more-distant-pass runs in the
+#   same session, which skewed toward lower thresholds only because
+#   they were catching partial/marginal signal, not because 10 dB is
+#   too conservative. NOTE: as of the 2026-08-14 session, current_band
+#   (the dict the live scan loop and trigger logic actually read
 #   signal_threshold_db from) was found to only ever be populated from
 #   BAND_PROFILES, never PLUTO_BAND_PROFILES — see
-#   finding-pluto-threshold-mismatch.md. This 8.0 dB value is correctly
-#   calibrated but is NOT YET being read by the live trigger on Pluto
-#   sessions until that separate code-path bug is fixed.
+#   finding-pluto-threshold-mismatch.md. That code-path bug was fixed
+#   in Phase 65 Fix A (resolve_band_profile()), so this 10.0 dB value
+#   IS now correctly read by the live trigger on Pluto sessions.
 #
 # The six unsupported bands are all below Pluto's 325 MHz tuning floor
 # (stock AD9363 firmware); the reason string on each entry states the
@@ -727,7 +739,7 @@ PLUTO_BAND_PROFILES: dict = {
     "adsb": {
         "supported": True,
         "gain_db": 30.0,
-        "signal_threshold_db": 8.0,
+        "signal_threshold_db": 10.0,
     },
     "noise_floor": {
         "supported": False,
