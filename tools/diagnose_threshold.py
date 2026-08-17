@@ -40,6 +40,7 @@ THRESHOLD_CANDIDATES = [3, 5, 8, 10, 12, 15, 18, 21, 24, 27]
 BAND_SWEEP = [
     {
         "name": "FM Broadcast",
+        "band_key": "fm_broadcast",
         "freq_hz": 98_900_000,
         "lna_gain_db": BAND_PROFILES["fm_broadcast"]["lna_gain_db"],
         "vga_gain_db": BAND_PROFILES["fm_broadcast"]["vga_gain_db"],
@@ -49,6 +50,7 @@ BAND_SWEEP = [
     },
     {
         "name": "Aviation VHF",
+        "band_key": "aviation",
         "freq_hz": 127_000_000,
         "lna_gain_db": BAND_PROFILES["aviation"]["lna_gain_db"],
         "vga_gain_db": BAND_PROFILES["aviation"]["vga_gain_db"],
@@ -58,6 +60,7 @@ BAND_SWEEP = [
     },
     {
         "name": "ACARS",
+        "band_key": "acars",
         "freq_hz": 129_125_000,
         "lna_gain_db": BAND_PROFILES["acars"]["lna_gain_db"],
         "vga_gain_db": BAND_PROFILES["acars"]["vga_gain_db"],
@@ -67,6 +70,7 @@ BAND_SWEEP = [
     },
     {
         "name": "APRS",
+        "band_key": "aprs",
         "freq_hz": 145_175_000,
         "lna_gain_db": BAND_PROFILES["aprs"]["lna_gain_db"],
         "vga_gain_db": BAND_PROFILES["aprs"]["vga_gain_db"],
@@ -76,6 +80,7 @@ BAND_SWEEP = [
     },
     {
         "name": "ISM / LoRa",
+        "band_key": "ism",
         "freq_hz": 915_000_000,
         "lna_gain_db": BAND_PROFILES["ism"]["lna_gain_db"],
         "vga_gain_db": BAND_PROFILES["ism"]["vga_gain_db"],
@@ -85,6 +90,7 @@ BAND_SWEEP = [
     },
     {
         "name": "ADS-B",
+        "band_key": "adsb",
         "freq_hz": 1_090_000_000,
         "lna_gain_db": BAND_PROFILES["adsb"]["lna_gain_db"],
         "vga_gain_db": BAND_PROFILES["adsb"]["vga_gain_db"],
@@ -98,9 +104,15 @@ BAND_SWEEP = [
 # NOTE: BAND_SWEEP has no AIS entry (pre-existing). Future enhancement:
 # add AIS to BAND_SWEEP if threshold-sweeping AIS is desired.
 
-# ADS-B is the only hyphenated band; strip the hyphen (not sub with "_") so the
-# CLI key is "adsb", matching both the docstring example and BAND_PROFILES["adsb"].
-BAND_KEYS = {b["name"].lower().replace(" / ", "_").replace("-", "").replace(" ", "_"): b for b in BAND_SWEEP}
+# Each BAND_SWEEP entry carries an explicit "band_key" matching the real
+# BAND_PROFILES / PLUTO_BAND_PROFILES dict keys exactly. This replaces a
+# prior string-derivation approach (.lower().replace(...) on "name") that
+# silently diverged for "ISM / LoRa" -> "ism_lora" instead of "ism", causing
+# --band ism --device pluto to always fail even though PLUTO_BAND_PROFILES
+# ["ism"] was correctly configured and supported. Confirmed live 2026-08-17.
+# A single source of truth (this field) avoids the whole class of bug for
+# any future band name containing a space, slash, or hyphen.
+BAND_KEYS = {b["band_key"]: b for b in BAND_SWEEP}
 
 # Pluto's stock tuning range (325 MHz - 3.8 GHz) only covers these two bands
 # out of BAND_SWEEP's six. Same scope as capture_to_vectorstore.py
@@ -139,7 +151,7 @@ def _build_pluto_band_sweep() -> list[dict]:
 
     pluto_sweep = []
     for base in BAND_SWEEP:
-        key = base["name"].lower().replace(" / ", "_").replace("-", "").replace(" ", "_")
+        key = base["band_key"]
         if key not in PLUTO_SUPPORTED_KEYS:
             continue
 
@@ -319,10 +331,7 @@ def main() -> None:
 
     if args.device == "pluto":
         sweep_source = _build_pluto_band_sweep()
-        band_keys = {
-            b["name"].lower().replace(" / ", "_").replace("-", "").replace(" ", "_"): b
-            for b in sweep_source
-        }
+        band_keys = {b["band_key"]: b for b in sweep_source}
     else:
         sweep_source = BAND_SWEEP
         band_keys = BAND_KEYS
