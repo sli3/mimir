@@ -16,3 +16,4 @@ dashboard/static/
 node_modules/
 embeddings/chroma_store/
 .playwright-mcp/
+.wiki-drafts/
