@@ -6,9 +6,12 @@ description: >
   drives documentation and governance records: @doc-writer (docstrings, wiki,
   README prose), @memo-writer (AGENTS.md, docs/ROADMAP.md, README summary
   lines), and a timestamped session memo written by @memo-writer to
-  .session-memos/. It never writes code
-  and never runs any git operation. Usage: /finalise-build "<one-line build
-  summary>" [CHECKPOINT] OR embed CHECKPOINT_MODE: ON anywhere in the summary.
+  .session-memos/. Optionally, if Prin supplies a wiki-handoff-format
+  summary, also drafts staged mimir-wiki note files via @wiki-drafter (testing
+  stage — staged locally in .wiki-drafts/, never auto-uploaded to the real
+  vault). It never writes code and never runs any git operation. Usage:
+  /finalise-build "<one-line build summary>" [CHECKPOINT] OR embed
+  CHECKPOINT_MODE: ON anywhere in the summary.
 subtask: false
 ---
 
@@ -37,7 +40,7 @@ defined in its own file: `.opencode/agents/doc-writer.md` and
 Restating an agent rule here creates a second copy that drifts from the first,
 and a drifted duplicate is how these agents came to receive contradictory
 instructions. If you believe an agent needs a rule it does not have, say so in
-the Step 6 report so Prin can change the agent file. Never inject a behavioural
+the Step 7 report so Prin can change the agent file. Never inject a behavioural
 rule into a delegation that contradicts, extends, or reinterprets the agent's
 own file.
 
@@ -90,6 +93,7 @@ gate in the memo step below.
 | You (main) | Project Manager | Re-verify tests, delegate, disk-gate, report |
 | @doc-writer | Documentation | Docstrings, wiki, README prose (outside Phase Tracker) |
 | @memo-writer | Project Records | AGENTS.md, docs/ROADMAP.md, README Phase Tracker summary lines, session memo |
+| @wiki-drafter | Wiki Drafting (optional, testing stage) | Converts a wiki-handoff summary into staged mimir-wiki note files in `.wiki-drafts/` — invoked ONLY if Prin explicitly asks for it in this run, never automatically |
 
 @senior-dev, the reviewers, and the QA agents are NOT invoked here — this
 command runs after code is final. If you find yourself wanting to change code,
@@ -144,7 +148,7 @@ Evaluate the result:
 MISMATCH HANDLING (green tree only): if the live total differs from what the
 build summary or Prin expected, that is NOT an error — the live count is the
 truth by definition. Proceed with the live count, and note the discrepancy
-explicitly in the Step 6 report so Prin sees that a hand-fix moved the number.
+explicitly in the Step 7 report so Prin sees that a hand-fix moved the number.
 
 ### STEP 2 — ESTABLISH GROUND-TRUTH DIFF
 
@@ -168,14 +172,14 @@ more:
   - The list of changed files and functions (from the summary AND your Step 2
     diff — the diff wins on any disagreement)
   - Any technical debt or deferred items surfaced during the build
-  - The current phase number (so it can update docs/wiki.md correctly)
+  - The current phase number
   - Any design rationale Prin supplied in the summary, quoted as Prin wrote it
 
 State once, explicitly: the file list is a pointer to which files to open, not
 its source of truth, and the FILE wins on any disagreement.
 
 Do not restate @doc-writer's scope, boundaries, or wiki rules — they are in its
-agent file. If it needs a rule it does not have, report that in Step 6.
+agent file. If it needs a rule it does not have, report that in Step 7.
 
 ### STEP 4 — PROJECT RECORDS (@memo-writer)
 
@@ -221,7 +225,7 @@ history of reporting success while writing fabricated or empty content. Before
 declaring their steps done, YOU (PM) verify against disk, not against their
 reports:
   1. Run `git --no-pager diff --stat` on the governance docs they claimed to
-     touch (AGENTS.md, docs/ROADMAP.md, docs/wiki.md, README.md). If an agent
+     touch (AGENTS.md, docs/ROADMAP.md, README.md). If an agent
      claimed a write but the file shows no diff → report it as FAILED, not done.
      A non-empty diff alone is NOT sufficient — proceed to step 2.
   2. Read the actual new governance prose and cross-check its key specifics
@@ -250,7 +254,40 @@ The stat-only check has proven insufficient on its own — the read-back is what
 catches coherent fabrication. This is the whole reason this command exists as a
 separate, post-freeze step; do not shortcut it.
 
-### STEP 6 — REPORT
+### STEP 6 — WIKI DRAFTING (@wiki-drafter, OPTIONAL, testing stage)
+
+Run this step ONLY if Prin explicitly asks for a wiki draft in this
+/finalise-build invocation (e.g. includes a wiki-handoff-format summary, or
+says something like "also draft this for the wiki"). Never run it by
+default, and never run it before Step 5's governance verification has
+passed — a wiki draft should only be built from settled, verified facts,
+same principle as every other step in this command.
+
+@wiki-drafter is a SEPARATE agent from @memo-writer, on purpose — it is
+allowed to write rationale and flowing prose (the entire point of a wiki
+note), which @memo-writer is deliberately built to refuse. Do not ask
+@memo-writer to do this step; its forbidden-content rules are incompatible
+with wiki-note prose, and asking it to break its own rules for this one
+task is not going to make this correctness effort more effective.
+
+Hand @wiki-drafter the wiki-handoff-format document Prin supplied, verbatim.
+Do not summarise or reformat it first — @wiki-drafter consumes the raw
+DECISION/REASON/LIKELY AREA/TITLE/SUMMARY/BODY/CONFLICTS WITH structure
+directly.
+
+@wiki-drafter writes staged draft files to `.wiki-drafts/` in the current
+working directory. This is a LOCAL, UNTRACKED staging folder — it is not
+the mimir-wiki repo, and nothing written here reaches the real vault
+automatically. `.wiki-drafts/` should be added to `.gitignore` if it is not
+already, since it must never be committed to the mimir repo.
+
+This step does not participate in the COMMIT HANDOFF block in the report
+below — staged wiki drafts are not part of any mimir repo commit. Carry its
+results into Step 7's report as its own item, and remind Prin that
+reviewing and uploading them to mimir-wiki is a manual step, same as it
+has been throughout this testing stage.
+
+### STEP 7 — REPORT
 
 Produce a structured summary to chat containing:
   - Verified test counts from Step 1 (pytest / Vitest / total), and whether they
@@ -265,6 +302,10 @@ Produce a structured summary to chat containing:
   - Any agent rule you wanted to inject but did not, because agent behaviour
     belongs in the agent file. Name it so Prin can decide whether to add it.
   - Any tech debt or follow-up items.
+  - If Step 6 (@wiki-drafter) ran this invocation: the list of staged file
+    paths under `.wiki-drafts/`, which candidate items were skipped and why,
+    and a reminder that these are drafts requiring manual review and upload
+    to mimir-wiki — not yet part of the real vault.
 
 Do NOT write this report to a file. Output to chat only. No FINAL_REPORT.md or
 similar artefact.
@@ -288,8 +329,8 @@ template. It must contain:
     list the code/test files that still need a first `feat:`/`fix:`/`test:`
     commit as a SEPARATE concern before the governance commit.
   - **Pending (governance):** the exact list of governance doc files that Step 5
-    verified against disk (from AGENTS.md / README.md / docs/ROADMAP.md /
-    docs/wiki.md — only the ones that actually changed this run). These are the
+    verified against disk (from AGENTS.md / README.md / docs/ROADMAP.md —
+    only the ones that actually changed this run). These are the
     files for the governance commit.
   - **Never staged:** restate that `.session-memos/*.md` (this run's memo, by
     name) and opencode.json are gitignored and must NOT appear in the staged set.
