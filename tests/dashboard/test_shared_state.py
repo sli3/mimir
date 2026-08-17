@@ -358,7 +358,7 @@ class TestResolveBandProfile:
         BAND_PROFILES."""
         resolved = resolve_band_profile("adsb", "plutosdr")
         # Overlaid from PLUTO_BAND_PROFILES — NOT the 3.0 dB HackRF value.
-        assert resolved["signal_threshold_db"] == 8.0
+        assert resolved["signal_threshold_db"] == 10.0
         assert resolved["gain_db"] == 30.0
         # Inherited from the BAND_PROFILES base.
         assert resolved["crop_half_width_hz"] == 900_000
