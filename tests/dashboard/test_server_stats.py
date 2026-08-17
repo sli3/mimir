@@ -442,6 +442,81 @@ class TestSetCaptureTrigger:
                 ss.current_band = saved_band
 
 
+class TestApiCapture:
+    """Tests for the /api/capture POST route (manual capture build).
+
+    The route mirrors /api/radar/reason's "never 500 the user"
+    convention: every outcome is a structured HTTP 200 body with a
+    status field, and the ScanRunner result dict is passed through
+    verbatim. The Flask test client pattern matches
+    tests/dashboard/test_radar_reason_endpoint.py; the module-level
+    _scanner_ref global is saved and restored around each test.
+    """
+
+    @pytest.fixture
+    def client(self):
+        server.app.config["TESTING"] = True
+        with server.app.test_client() as c:
+            yield c
+
+    @pytest.fixture
+    def scanner_ref(self):
+        """Save and restore the module-level _scanner_ref global."""
+        saved = server._scanner_ref
+        try:
+            yield server
+        finally:
+            server._scanner_ref = saved
+
+    def test_api_capture_scanner_unavailable_returns_structured_200(
+        self, client, scanner_ref
+    ):
+        server._scanner_ref = None
+        response = client.post("/api/capture")
+        assert response.status_code == 200
+        assert response.get_json() == {"status": "scanner_unavailable"}
+
+    def test_api_capture_ok_passthrough(self, client, scanner_ref):
+        payload = {
+            "status": "ok",
+            "file": "/tmp/cap.sigmf-meta",
+            "fingerprint": {
+                "peak_freq_hz": 98_100_000,
+                "peak_power_db": -12.5,
+                "noise_floor_db": -78.0,
+                "snr_db": 65.5,
+                "bandwidth_hz": 200_000,
+                "occupied_bins": 205,
+                "spectral_flatness": 0.42,
+            },
+            # Phase 67: `is_burst` rides as a top-level sibling of
+            # `fingerprint` on the /api/capture ok response. The route
+            # is a passthrough, so whatever the ScanRunner returns
+            # arrives at the client verbatim.
+            "is_burst": True,
+        }
+        mock_scanner = MagicMock()
+        mock_scanner.capture_now.return_value = payload
+        server._scanner_ref = mock_scanner
+
+        response = client.post("/api/capture")
+
+        assert response.status_code == 200
+        assert response.get_json() == payload
+        mock_scanner.capture_now.assert_called_once_with()
+
+    def test_api_capture_error_passthrough(self, client, scanner_ref):
+        payload = {"status": "error", "cause": "disk full"}
+        mock_scanner = MagicMock()
+        mock_scanner.capture_now.return_value = payload
+        server._scanner_ref = mock_scanner
+
+        response = client.post("/api/capture")
+
+        assert response.status_code == 200
+        assert response.get_json() == payload
+
+
 class TestEmitAdsbScanResult:
     """Tests for emit_adsb_scan_result — decoder-driven scan_result emission."""
 

@@ -7,7 +7,7 @@ from datetime import datetime
 from core.config.loader import MimirConfig
 from core.device.profiles import DEVICE_PROFILES
 import core.pipeline.features as features
-from core.pipeline.capture import save_capture
+from core.pipeline.capture import _FINGERPRINT_METADATA_KEYS, save_capture
 from core.pipeline.fft import compute_psd
 from core.pipeline.scan_result import ScanResult
 from dashboard.server import record_hw_error
@@ -90,6 +90,13 @@ class ScanRunner:
     Stats counters:
     _scan_count_since_llm — increments once per scan cycle; snapshot
     into _last_backlog when the AI loop picks up an item, then reset.
+
+    Manual capture:
+    capture_now() requests a one-shot capture of the next scan cycle's
+    live samples. Independent of the queue and the stats counters — it
+    reuses samples already read by the scan loop rather than opening a
+    second device connection. See capture_now()'s docstring for the
+    cross-thread handoff contract.
     """
     def __init__(self, device, embedder, store, classifier, config: MimirConfig,
                  device_driver: str = "hackrf") -> None:
@@ -157,6 +164,22 @@ class ScanRunner:
         # warning was logged for, so a device dwelling on an unsupported
         # band logs once per focus change rather than once per iteration.
         self._last_unsupported_log_hz: float | None = None
+        # Cross-thread capture request handoff (manual capture button, this
+        # build). The Flask request handler thread sets
+        # _capture_request_event, the scan loop checks it once per cycle,
+        # services the request using the in-flight samples already read
+        # this cycle (no second device open — see capture_now()'s
+        # docstring and the [62] timing-integrity rationale), and posts
+        # the result back via _capture_result_event. Single-producer
+        # (scan loop) / single-consumer (capture_now caller) per request,
+        # but the events are reusable across calls — _capture_result and
+        # _capture_result_event are cleared at the top of capture_now()
+        # so a stale set from a prior abandoned call cannot be misread as
+        # a fresh response.
+        self._capture_request_event: threading.Event = threading.Event()
+        self._capture_result_event: threading.Event = threading.Event()
+        self._capture_result_lock: threading.Lock = threading.Lock()
+        self._capture_result: dict | None = None
 
     def run(self) -> None:
         self._running = True
@@ -201,6 +224,63 @@ class ScanRunner:
                 except queue.Empty:
                     break
         logger.info("Focus changed to %.3f MHz — queue flushed", freq_hz / 1e6)
+
+    def capture_now(self, timeout_sec: float = 5.0) -> dict:
+        """Request a manual capture using the next scan cycle's live samples.
+
+        Signals the scan loop to save the samples it is about to read on its
+        next iteration — the same samples already feeding the waterfall and
+        classifier, not a fresh independent capture (a second device open is
+        not supported; see also the [62] session's timing-integrity rationale
+        for reusing in-flight samples rather than a separately-timed grab).
+
+        Blocks the calling thread (the Flask request handler) until the scan
+        loop has serviced the request or ``timeout_sec`` elapses. Safe to call
+        repeatedly across operators — the events and result slot are cleared
+        at the top of every call, so a stale state from a prior abandoned
+        call cannot be misread as a fresh response. Single-flight semantics:
+        if a request is already pending, the next call will overwrite the
+        pending flag rather than queue a second one — appropriate for an
+        operator tool.
+
+        Returns:
+            dict with key ``"status"`` and one of:
+            - ``"ok"``    — save succeeded; also has ``"file"`` (str path) and
+              ``"fingerprint"`` (the seven ``_FINGERPRINT_METADATA_KEYS``
+              measurement fields).
+            - ``"error"`` — save raised; also has ``"cause"`` (str, the
+              exception message). The scan loop survives the failure and keeps
+              cycling.
+            - ``"timeout"`` — the scan loop did not service the request
+              within ``timeout_sec`` (e.g. the loop has stopped, is wedged,
+              or is dwelling on an unsupported band). No extra keys; the
+              caller can present a distinct "no response from scanner"
+              message rather than swallowing it as a save failure.
+        """
+        # Defensive clear BEFORE setting the request event (security-analyst
+        # Q4(a) finding): Event.wait() does not consume the flag, so a stale
+        # set result-event from a prior call that the caller never read
+        # would make this call return instantly with the stale result. Clear
+        # both the result-event AND the result slot itself — the scan loop's
+        # service path always overwrites _capture_result before setting the
+        # event, so this is belt-and-braces, but cheap and explicit.
+        self._capture_result_event.clear()
+        with self._capture_result_lock:
+            self._capture_result = None
+        self._capture_request_event.set()
+        if not self._capture_result_event.wait(timeout=timeout_sec):
+            # Late-arriving scan cycle must NOT service a request the caller
+            # has already given up on — clear the request flag. The scan
+            # loop's check is `if event.is_set()`, so a clear here means the
+            # late-arriving cycle sees no pending request and skips the
+            # block. At worst one save_capture() call is wasted; never a
+            # stale data leak.
+            self._capture_request_event.clear()
+            return {"status": "timeout"}
+        with self._capture_result_lock:
+            result = self._capture_result
+            self._capture_result = None
+        return result
 
     def register_iq_subscriber(self, subscriber) -> None:
         """Register an IQ subscriber that receives raw samples before FFT."""
@@ -418,6 +498,62 @@ class ScanRunner:
                                 trigger_band_key,
                                 freq_hz / 1e6,
                             )
+                # Manual capture request (this build). Independent of the
+                # SNR-edge auto-trigger above — always available regardless
+                # of trigger arm state, since a manual press is an explicit
+                # operator action, not an edge-detected event. Uses the
+                # same save_capture() call shape as the auto-trigger:
+                # samples already read this cycle, no second device open,
+                # same timing-integrity rationale as [62]. The fingerprint
+                # is the one already measured by fingerprint_spectrum()
+                # this cycle, so the result file's mimir:fingerprint
+                # matches the PSD the operator is currently seeing on the
+                # waterfall. bandwidth_hz is deliberately omitted:
+                # HackRF has no settable RF filter, and on Pluto a
+                # live-loop capture inherits whatever the stream already
+                # has, so there is no operator-declared width to record.
+                if self._capture_request_event.is_set():
+                    self._capture_request_event.clear()
+                    try:
+                        saved_path = save_capture(
+                            samples,
+                            freq_hz=freq_hz,
+                            sample_rate_hz=_SAMPLE_RATE_HZ,
+                            device=self._device_driver,
+                            fingerprint=fingerprint,
+                        )
+                        result = {
+                            "status": "ok",
+                            "file": str(saved_path),
+                            "fingerprint": {
+                                k: fingerprint[k]
+                                for k in _FINGERPRINT_METADATA_KEYS
+                            },
+                            # Deliberate separation from the fingerprint
+                            # sub-dict: `is_burst` describes the burst
+                            # detection pipeline (Phase 45 family), not
+                            # the captured spectrum, so it is NOT in
+                            # _FINGERPRINT_METADATA_KEYS and therefore
+                            # NOT persisted in the SigMF metadata. It is
+                            # exposed here as a top-level sibling so the
+                            # dashboard verdict (Phase 67
+                            # CaptureResultPanel) can override the
+                            # occupied_bins fallback for narrow bursts
+                            # without re-including a transient detection
+                            # state on every saved recording.
+                            "is_burst": bool(
+                                fingerprint.get("is_burst", False)
+                            ),
+                        }
+                    except Exception as exc:
+                        logger.exception(
+                            "Manual capture save failed at %.3f MHz",
+                            freq_hz / 1e6,
+                        )
+                        result = {"status": "error", "cause": str(exc)}
+                    with self._capture_result_lock:
+                        self._capture_result = result
+                    self._capture_result_event.set()
                 vector = embedder.embed(fingerprint)
                 # "Latest wins" — drain stale items before inserting so the AI loop
                 # always classifies the freshest scan, not a backlog seconds old.

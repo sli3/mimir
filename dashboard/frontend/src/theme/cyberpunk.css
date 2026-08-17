@@ -76,3 +76,96 @@ body::before {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }
 }
+
+/* ------------------------------------------------------------------ */
+/* Manual capture button (manual capture build)                        */
+/* Sits directly under the spectrum view it captures from.             */
+/* ------------------------------------------------------------------ */
+
+.manual-capture {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 6px 10px;
+  background: var(--bg-header);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.manual-capture-button {
+  font-family: var(--font-display);
+  font-size: 12px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--neon-cyan);
+  background: rgba(0, 255, 255, 0.08);
+  border: 1px solid var(--neon-cyan);
+  padding: 5px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.manual-capture-button:hover:not(:disabled) {
+  background: rgba(0, 255, 255, 0.18);
+}
+
+.manual-capture-button:disabled {
+  color: var(--text-dim);
+  border-color: var(--text-dim);
+  background: transparent;
+  cursor: default;
+  animation: blink 1.2s infinite;
+}
+
+.manual-capture-result {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-family: var(--font-data);
+}
+
+.manual-capture-verdict {
+  font-size: 12px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.manual-capture-verdict-wide {
+  color: var(--neon-green);
+}
+
+.manual-capture-verdict-burst {
+  color: var(--neon-amber);
+}
+
+.manual-capture-verdict-narrow {
+  color: var(--neon-magenta);
+}
+
+.manual-capture-verdict-fallback {
+  color: var(--text-bright);
+}
+
+.manual-capture-numbers {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.manual-capture-file {
+  font-size: 10px;
+  color: var(--text-dim);
+  word-break: break-all;
+}
+
+.manual-capture-result-error {
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: var(--neon-red);
+}

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useSocket } from './hooks/useSocket.js'
+import useCapture from './hooks/useCapture.js'
 import WaterfallPanel from './components/WaterfallPanel.jsx'
 import SpectrometerBar from './components/SpectrometerBar.jsx'
 import AcarsMessagePanel from './components/AcarsMessagePanel.jsx'
@@ -9,6 +10,8 @@ import RawDecodePanel from './components/RawDecodePanel.jsx'
 import FrameInspectorPanel from './components/FrameInspectorPanel.jsx'
 import SignalHistoryLog from './components/SignalHistoryLog.jsx'
 import AIReasoningPanel from './components/AIReasoningPanel.jsx'
+import CaptureButton from './components/CaptureButton.jsx'
+import CaptureResultPanel from './components/CaptureResultPanel.jsx'
 
 const INITIAL_AI_REASONING = {
   freq_hz: null,
@@ -291,6 +294,8 @@ export default function App() {
     }
   }, [handleTune])
 
+  const { state: captureState, pending: capturePending, handleClick: handleCaptureClick } = useCapture()
+
   const adsbAircraftList = Object.values(adsbAircraft || {})
   const anyDecoderTuned = isAdsbTuned(focusedFreq)
     || isAcarsTuned(focusedFreq)
@@ -538,6 +543,7 @@ export default function App() {
                 >
                   TUNE ▶
                 </button>
+                <CaptureButton onClick={handleCaptureClick} pending={capturePending} />
               </div>
             </div>
 
@@ -1163,6 +1169,15 @@ export default function App() {
               </div>
             </div>
           </div>
+
+          {/* Section 1b — Capture Result (Phase 67). Header mirrors the
+              SIGNAL DETAILS header above (height 28px, var(--bg-header)
+              bg, border-bottom 1px solid var(--border), var(--neon-cyan)
+              title). Body hosts the manual-capture state machine's render
+              — idle → "NO CAPTURE YET", pending → "CAPTURING…", ok →
+              verdict + numbers + file path with role="status", failure →
+              message with role="alert". */}
+          <CaptureResultPanel state={captureState} />
 
           {/* Section 2 — System Status */}
           <div style={{ flexShrink: 0 }}>

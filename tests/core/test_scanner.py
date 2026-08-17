@@ -1254,3 +1254,232 @@ class TestScanLoopCaptureTrigger:
             features.SIGNAL_THRESHOLD_DB
         )
         assert captured["trigger_threshold"] == features.SIGNAL_THRESHOLD_DB
+
+
+class TestCaptureNow:
+    """Tests for the manual capture cross-thread handoff (this build).
+
+    capture_now() is called from the Flask request handler thread; the
+    scan loop services the request on its next cycle using the samples
+    it has already read (no second device open). These tests drive the
+    real scan loop with a mocked device and a patched save_capture /
+    fingerprint_spectrum, mirroring the TestScanLoopCaptureTrigger
+    pattern above.
+
+    The trigger state and current_band are module-level in
+    dashboard.shared_state, so the autouse fixture snapshots and
+    restores them around every test, and explicitly disarms every band
+    so the Phase 63 auto-trigger can never add a stray save_capture
+    call to the assertions.
+    """
+
+    @pytest.fixture(autouse=True)
+    def reset_shared_state(self):
+        with shared_state.trigger_state_lock:
+            saved_armed = dict(shared_state.trigger_armed)
+            saved_snr = dict(shared_state._trigger_last_snr)
+            shared_state.trigger_armed.clear()
+            shared_state._trigger_last_snr.clear()
+        with shared_state.current_band_lock:
+            saved_band = dict(shared_state.current_band)
+            shared_state.current_band.clear()
+            shared_state.current_band.update(
+                shared_state.BAND_PROFILES["fm_broadcast"]
+            )
+        yield
+        with shared_state.trigger_state_lock:
+            shared_state.trigger_armed.clear()
+            shared_state.trigger_armed.update(saved_armed)
+            shared_state._trigger_last_snr.clear()
+            shared_state._trigger_last_snr.update(saved_snr)
+        with shared_state.current_band_lock:
+            shared_state.current_band.clear()
+            shared_state.current_band.update(saved_band)
+
+    @staticmethod
+    def _fingerprint():
+        """Fingerprint dict carrying all seven _FINGERPRINT_METADATA_KEYS
+        measurement fields (plus one extra internal key, to prove the
+        result dict is filtered to the allowlist). Phase 67 adds
+        `is_burst` to the same dict so the manual-capture ok response
+        can thread the burst detection flag through as a top-level
+        sibling of the fingerprint sub-dict."""
+        return {
+            "center_freq_hz": 98_000_000,
+            "peak_freq_hz": 98_100_000,
+            "peak_power_db": -12.5,
+            "noise_floor_db": -78.0,
+            "snr_db": 65.5,
+            "bandwidth_hz": 200_000,
+            "occupied_bins": 205,
+            "spectral_flatness": 0.42,
+            "snr_margin_db": 44.5,
+            "is_burst": False,
+        }
+
+    def test_capture_now_timeout_when_loop_not_running(self, scanner):
+        """With the scan loop stopped, capture_now must return a
+        structured timeout promptly (not hang), must not call
+        save_capture, and must clear the request flag so a late-starting
+        cycle cannot service an abandoned request."""
+        with patch("core.pipeline.scanner.save_capture") as mock_save:
+            start = time.monotonic()
+            result = scanner.capture_now(timeout_sec=0.05)
+            elapsed = time.monotonic() - start
+        assert result == {"status": "timeout"}
+        assert elapsed < 1.0
+        mock_save.assert_not_called()
+        assert not scanner._capture_request_event.is_set()
+
+    def test_capture_now_success_returns_expected_keys(self, scanner):
+        """A serviced request returns status ok, the saved file path as a
+        string, and a fingerprint filtered to exactly the seven
+        _FINGERPRINT_METADATA_KEYS fields with the loop's values."""
+        from core.pipeline.capture import _FINGERPRINT_METADATA_KEYS
+        from pathlib import Path
+
+        fingerprint = self._fingerprint()
+        sentinel = Path("/tmp/sentinel.sigmf-meta")
+        with patch(
+            "core.pipeline.scanner.features.fingerprint_spectrum",
+            return_value=fingerprint,
+        ), patch(
+            "core.pipeline.scanner.save_capture", return_value=sentinel
+        ) as mock_save:
+            scanner._running = True
+            t = threading.Thread(target=scanner._scan_loop, daemon=True)
+            t.start()
+            result = scanner.capture_now(timeout_sec=2.0)
+            scanner.stop()
+            t.join(timeout=3)
+
+        assert mock_save.call_count == 1
+        assert result["status"] == "ok"
+        assert result["file"] == str(sentinel)
+        assert isinstance(result["file"], str)
+        assert set(result["fingerprint"].keys()) == set(
+            _FINGERPRINT_METADATA_KEYS
+        )
+        for key in _FINGERPRINT_METADATA_KEYS:
+            assert result["fingerprint"][key] == fingerprint[key]
+        # Phase 67: `is_burst` is a top-level sibling of `fingerprint`,
+        # NOT inside the filtered sub-dict. _FINGERPRINT_METADATA_KEYS
+        # deliberately excludes it so it is never persisted to SigMF.
+        assert result["is_burst"] is False
+        assert "is_burst" not in result["fingerprint"]
+
+    def test_capture_now_error_surfaces_cause(self, scanner):
+        """A save_capture failure (e.g. disk full) surfaces as
+        status error with the exception message as cause, and the scan
+        loop survives and keeps cycling."""
+        with patch(
+            "core.pipeline.scanner.features.fingerprint_spectrum",
+            return_value=self._fingerprint(),
+        ), patch(
+            "core.pipeline.scanner.save_capture",
+            side_effect=OSError("disk full"),
+        ) as mock_save:
+            scanner._running = True
+            t = threading.Thread(target=scanner._scan_loop, daemon=True)
+            t.start()
+            result = scanner.capture_now(timeout_sec=2.0)
+            scanner.stop()
+            t.join(timeout=3)
+
+        assert mock_save.call_count == 1
+        assert result == {"status": "error", "cause": "disk full"}
+        # The loop survived the failure and kept scanning.
+        assert scanner._scan_count >= 1
+
+    def test_scan_loop_services_manual_request_flag(self, scanner, mock_device):
+        """Integration: setting the request event from the caller thread
+        is serviced inside the scan loop with the in-flight samples,
+        the focus frequency, the device driver key, and this cycle's
+        fingerprint; the result slot carries the ok structure."""
+        from pathlib import Path
+
+        fingerprint = self._fingerprint()
+        with patch(
+            "core.pipeline.scanner.features.fingerprint_spectrum",
+            return_value=fingerprint,
+        ), patch(
+            "core.pipeline.scanner.save_capture",
+            return_value=Path("/tmp/integration.sigmf-meta"),
+        ) as mock_save:
+            scanner._running = True
+            t = threading.Thread(target=scanner._scan_loop, daemon=True)
+            t.start()
+            scanner._capture_request_event.set()
+            serviced = scanner._capture_result_event.wait(timeout=2.0)
+            scanner.stop()
+            t.join(timeout=3)
+
+        assert serviced, "scan loop did not service the manual capture request"
+        mock_save.assert_called_once()
+        args, kwargs = mock_save.call_args
+        # Raw in-flight samples passed positionally; the rest by keyword.
+        assert len(args) == 1
+        assert args[0] is mock_device.read_samples.return_value
+        assert kwargs["freq_hz"] == 98_000_000.0
+        assert kwargs["sample_rate_hz"] == 2_000_000
+        assert kwargs["device"] == "hackrf"
+        assert kwargs["fingerprint"] is fingerprint
+        assert "bandwidth_hz" not in kwargs
+        with scanner._capture_result_lock:
+            result = scanner._capture_result
+        assert result is not None
+        assert result["status"] == "ok"
+        assert result["file"] == "/tmp/integration.sigmf-meta"
+        assert result["fingerprint"]["occupied_bins"] == 205
+        # Phase 67: `is_burst` rides on top-level, separate from the
+        # fingerprint sub-dict.
+        assert result["is_burst"] is False
+        assert "is_burst" not in result["fingerprint"]
+
+    def test_capture_now_ok_response_is_burst_is_sibling_of_fingerprint(
+        self, scanner
+    ):
+        """Phase 67 contract: when the fingerprint carries
+        `is_burst=True`, the manual-capture ok response surfaces it as a
+        top-level sibling of `fingerprint` (NOT inside the fingerprint
+        sub-dict). The fingerprint sub-dict shape stays exactly the
+        seven _FINGERPRINT_METADATA_KEYS fields, so the saved SigMF
+        metadata is unaffected by the new top-level key.
+
+        Uses a 5-bin / `is_burst=True` fingerprint — a deliberately
+        narrow reading that the dashboard verdict would label as burst
+        instead of narrow — so the test confirms the full thread: the
+        scan loop reads the burst flag from fingerprint_spectrum(), the
+        ok response carries it on top-level, and the filtered fingerprint
+        sub-dict still has the original occupied_bins value.
+        """
+        from pathlib import Path
+
+        fingerprint = self._fingerprint()
+        fingerprint["occupied_bins"] = 5
+        fingerprint["is_burst"] = True
+        with patch(
+            "core.pipeline.scanner.features.fingerprint_spectrum",
+            return_value=fingerprint,
+        ), patch(
+            "core.pipeline.scanner.save_capture",
+            return_value=Path("/tmp/burst.sigmf-meta"),
+        ) as mock_save:
+            scanner._running = True
+            t = threading.Thread(target=scanner._scan_loop, daemon=True)
+            t.start()
+            result = scanner.capture_now(timeout_sec=2.0)
+            scanner.stop()
+            t.join(timeout=3)
+
+        assert mock_save.call_count == 1
+        assert result["status"] == "ok"
+        # The burst flag rides on top-level.
+        assert result["is_burst"] is True
+        # It is NOT inside the fingerprint sub-dict — that key list is
+        # the seven _FINGERPRINT_METADATA_KEYS, which deliberately
+        # excludes detection-pipeline state.
+        assert "is_burst" not in result["fingerprint"]
+        # And the original occupied_bins value still rides through the
+        # fingerprint sub-dict unchanged.
+        assert result["fingerprint"]["occupied_bins"] == 5

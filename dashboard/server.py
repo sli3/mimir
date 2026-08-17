@@ -1103,6 +1103,59 @@ def api_radar_reason():
     }), 200
 
 
+@app.route("/api/capture", methods=["POST"])
+def api_capture():
+    """Manual capture button. Fires a SigMF save of the samples the scan
+    loop is already reading this cycle (no second device open — see
+    ScanRunner.capture_now()'s docstring and the [62] session's
+    timing-integrity rationale for reusing in-flight samples rather than
+    a separately-timed grab). Always returns HTTP 200 with a structured
+    status field, mirroring /api/radar/reason's "never 500 the user"
+    convention — capture failures are expected/handleable, not server
+    errors.
+
+    Output format:
+    {
+        "status": "ok" | "error" | "timeout" | "scanner_unavailable",
+        "file": str,           — present only on "ok"
+        "fingerprint": dict,   — present only on "ok" (the seven
+                                  _FINGERPRINT_METADATA_KEYS fields)
+        "is_burst": bool,      — present only on "ok". Top-level sibling
+                                  of `fingerprint`. Deliberately NOT
+                                  persisted in the SigMF metadata
+                                  because _FINGERPRINT_METADATA_KEYS
+                                  excludes it (it describes the burst
+                                  detection pipeline, not the captured
+                                  spectrum). The dashboard verdict uses
+                                  this key to override the
+                                  occupied_bins fallback for narrow
+                                  bursts; the saved file's mimir:fingerprint
+                                  stays at the seven measurement fields.
+        "cause": str,          — present only on "error"
+    }
+
+    Response / file asymmetry: the `is_burst` key appears in this HTTP
+    response but is NEVER written to the saved .sigmf-meta file. The
+    asymmetry is intentional — the seven-key tuple in core/pipeline/
+    capture.py is the source of truth for what survives on disk, and
+    expanding it would re-flow Phase 45-46 burst metric decisions onto
+    every offline replay path. The response shape is the right place
+    for a transient detection flag consumed only by the live UI.
+
+    Implementation notes:
+    - RECEIVE-ONLY. No RF transmission or hardware control. The endpoint
+      signals the existing scan loop to file-write samples it is already
+      reading.
+    - Legal constraint: Radiocommunications Act 1992 (Cth), AU/SA
+      jurisdiction, ACMA authority. Every recording carries the
+      legal provenance note baked into save_capture()'s SigMF metadata.
+    """
+    if _scanner_ref is None:
+        return jsonify({"status": "scanner_unavailable"}), 200
+    result = _scanner_ref.capture_now()
+    return jsonify(result), 200
+
+
 @app.route("/vectordb")
 def vector_space_page():
     """Serve the React app for the isolated vector-space visualisation page.
