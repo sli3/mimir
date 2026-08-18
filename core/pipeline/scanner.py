@@ -4,10 +4,16 @@ import threading
 import time
 from datetime import datetime
 
+import numpy as np
+
 from core.config.loader import MimirConfig
 from core.device.profiles import DEVICE_PROFILES
 import core.pipeline.features as features
-from core.pipeline.capture import _FINGERPRINT_METADATA_KEYS, save_capture
+from core.pipeline.capture import (
+    _FINGERPRINT_METADATA_KEYS,
+    save_capture,
+    save_recording,
+)
 from core.pipeline.fft import compute_psd
 from core.pipeline.scan_result import ScanResult
 from dashboard.server import record_hw_error
@@ -180,6 +186,26 @@ class ScanRunner:
         self._capture_result_event: threading.Event = threading.Event()
         self._capture_result_lock: threading.Lock = threading.Lock()
         self._capture_result: dict | None = None
+        # Operator-controlled "Record" capture state (Phase 68). Fully
+        # separate mechanism from capture_now() above: separate fields,
+        # separate scan-loop code path, separate Flask routes. While
+        # _recording is True, each scan cycle appends its already-read
+        # samples to _record_buffer (in-memory accumulation only — no
+        # disk streaming, no file handle held open across cycles) and
+        # one per-cycle fingerprint entry to _record_fingerprints.
+        # stop_recording() concatenates the buffer and writes ONE SigMF
+        # file via save_recording(). _record_sample_offset is the
+        # cumulative sample count into the final concatenated buffer —
+        # the ground truth for replay slicing (each per-cycle entry's
+        # sample_start). _record_freq_hz pins the start frequency so the
+        # saved file's single core:frequency field is honest, and so a
+        # mid-recording focus change can be detected and logged.
+        self._recording: bool = False
+        self._record_buffer: list = []              # np.ndarray chunks
+        self._record_fingerprints: list = []        # per-cycle dicts
+        self._record_sample_offset: int = 0
+        self._record_freq_hz: float | None = None
+        self._record_lock: threading.Lock = threading.Lock()
 
     def run(self) -> None:
         self._running = True
@@ -281,6 +307,121 @@ class ScanRunner:
             result = self._capture_result
             self._capture_result = None
         return result
+
+    def start_recording(self) -> dict:
+        """Begin accumulating scan-cycle samples into an in-memory recording.
+
+        Called from the Flask request handler thread (POST /api/record/
+        start). From the next scan cycle onwards, each cycle's already-
+        read samples are appended to an in-memory buffer until
+        stop_recording() is called. Nothing touches disk here — the
+        buffer lives in RAM for the whole recording.
+
+        Idempotent-safe: calling while already recording returns an
+        error status rather than silently resetting an in-progress
+        recording (a silent reset would throw away samples the operator
+        believes are still being captured).
+
+        Returns:
+            dict with key ``"status"`` and one of:
+            - ``"ok"``                — recording has begun; state reset.
+            - ``"already_recording"`` — a recording is in progress and
+              was left untouched.
+        """
+        with self._record_lock:
+            if self._recording:
+                return {"status": "already_recording"}
+            self._record_buffer = []
+            self._record_fingerprints = []
+            self._record_sample_offset = 0
+            self._record_freq_hz = self._focus_freq_hz
+            self._recording = True
+            return {"status": "ok"}
+
+    def stop_recording(self) -> dict:
+        """Stop accumulating, concatenate the buffer, write one SigMF file.
+
+        Called from the Flask request handler thread (POST /api/record/
+        stop). Blocks briefly for the concatenate plus file write — this
+        is bounded and fast (np.concatenate of the accumulated chunks
+        plus a single save_recording() call), so it runs under
+        _record_lock to keep the state transition atomic against the
+        scan loop.
+
+        ``_recording`` is cleared FIRST, before any heavy work, so the
+        scan loop's re-check inside its own lock acquisition cannot add
+        an orphan cycle after the buffer has been detached. The shared
+        accumulator state is also reset under the lock regardless of
+        save outcome, so a failed save (e.g. disk full) can never leave
+        a stale half-recording behind for the next start_recording().
+
+        Returns:
+            dict with key ``"status"`` and one of:
+            - ``"ok"``            — save succeeded; also has ``"file"``
+              (str path), ``"duration_sec"`` (float, total samples /
+              sample rate) and ``"cycle_count"`` (int, number of scan
+              cycles captured).
+            - ``"error"``         — concatenate or save raised
+              (including MemoryError); also has ``"cause"`` (str, the
+              exception message). State is still fully reset.
+            - ``"not_recording"`` — no recording was in progress.
+        """
+        with self._record_lock:
+            if not self._recording:
+                return {"status": "not_recording"}
+            # Clear the flag FIRST so the scan loop's re-check under its
+            # own lock acquisition cannot append an orphan cycle while
+            # we work below.
+            self._recording = False
+            freq_hz = self._record_freq_hz
+            fingerprints = self._record_fingerprints
+            cycle_count = len(fingerprints)
+            total_samples = self._record_sample_offset
+            buffer = self._record_buffer
+            # Reset shared state under the lock, whatever happens next,
+            # so the scan loop sees an empty accumulator on its next
+            # cycle and a later start_recording() begins clean.
+            self._record_buffer = []
+            self._record_fingerprints = []
+            self._record_sample_offset = 0
+            try:
+                samples = np.concatenate(buffer)
+                saved_path = save_recording(
+                    samples,
+                    freq_hz=freq_hz,
+                    sample_rate_hz=_SAMPLE_RATE_HZ,
+                    device=self._device_driver,
+                    fingerprint_sequence=fingerprints,
+                )
+            except Exception as exc:
+                logger.exception(
+                    "Recording save failed at %.3f MHz",
+                    (freq_hz or 0.0) / 1e6,
+                )
+                return {"status": "error", "cause": str(exc)}
+            return {
+                "status": "ok",
+                "file": str(saved_path),
+                "duration_sec": total_samples / _SAMPLE_RATE_HZ,
+                "cycle_count": cycle_count,
+            }
+
+    def get_recording_status(self) -> dict:
+        """Lightweight recording status poll.
+
+        Reads the two fields directly without taking _record_lock: both
+        are single-word reads (a bool and a len()) with no cross-field
+        consistency requirement, so there is no lock-contention risk.
+
+        Returns:
+            dict with keys ``"recording"`` (bool) and
+            ``"elapsed_cycles"`` (int, scan cycles accumulated so far).
+        """
+        return {
+            "recording": self._recording,
+            "elapsed_cycles": len(self._record_fingerprints),
+        }
+
 
     def register_iq_subscriber(self, subscriber) -> None:
         """Register an IQ subscriber that receives raw samples before FFT."""
@@ -470,8 +611,22 @@ class ScanRunner:
                     was_armed, prev_snr = check_and_update_trigger_state(
                         trigger_band_key, current_snr
                     )
-                    if was_armed and _should_fire_trigger(
-                        prev_snr, current_snr, threshold
+                    # Phase 68: the auto-trigger is suppressed while an
+                    # operator "Record" capture is in progress — the
+                    # samples are already being accumulated into the
+                    # recording, so a duplicate one-shot save_capture()
+                    # would only waste disk. This is a single added
+                    # boolean on the fire condition ONLY:
+                    # check_and_update_trigger_state() above must keep
+                    # running every cycle so prev_snr stays current (a
+                    # stale prev_snr after recording stops would cause
+                    # spurious fires per LIFE-01/EDGE-03).
+                    if (
+                        was_armed
+                        and _should_fire_trigger(
+                            prev_snr, current_snr, threshold
+                        )
+                        and not self._recording
                     ):
                         logger.info(
                             "Auto-capture trigger fired: band=%s "
@@ -554,6 +709,50 @@ class ScanRunner:
                     with self._capture_result_lock:
                         self._capture_result = result
                     self._capture_result_event.set()
+                # Continuous "Record" capture (Phase 68). Independent of
+                # both the SNR-edge auto-trigger above and the one-shot
+                # manual capture_now() block. Appends this cycle's
+                # already-read samples to an in-memory accumulator until
+                # stop_recording() is called from the Flask request
+                # thread. Frequency-change guard: if the operator
+                # changes the focus frequency mid-recording, the
+                # recording continues but a log warning is emitted,
+                # since a recording spanning two different frequencies
+                # would have a legal/RF-meaning inconsistency (the SigMF
+                # file only has one core:frequency field). Do NOT stop
+                # the recording automatically on frequency change —
+                # that is a silent data-loss surprise for an operator
+                # who didn't ask for it.
+                if self._recording:
+                    with self._record_lock:
+                        if self._recording:  # re-check under lock; may
+                                             # have been stopped between
+                                             # the outer check and
+                                             # acquiring the lock
+                            if freq_hz != self._record_freq_hz:
+                                logger.warning(
+                                    "Recording frequency mismatch: "
+                                    "started at %.3f MHz, now at %.3f "
+                                    "MHz — recording continues, saved "
+                                    "file will use the START frequency",
+                                    self._record_freq_hz / 1e6,
+                                    freq_hz / 1e6,
+                                )
+                            self._record_buffer.append(samples)
+                            cycle_fp = {
+                                "sample_start": self._record_sample_offset,
+                                "sample_count": len(samples),
+                                "timestamp_sec": (
+                                    self._record_sample_offset
+                                    / _SAMPLE_RATE_HZ
+                                ),
+                                **{
+                                    k: fingerprint[k]
+                                    for k in _FINGERPRINT_METADATA_KEYS
+                                },
+                            }
+                            self._record_fingerprints.append(cycle_fp)
+                            self._record_sample_offset += len(samples)
                 vector = embedder.embed(fingerprint)
                 # "Latest wins" — drain stale items before inserting so the AI loop
                 # always classifies the freshest scan, not a backlog seconds old.

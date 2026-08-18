@@ -33,10 +33,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from core.legal.compliance_guard import HardwareTransmitError
 from core.pipeline.capture import (
+    _FINGERPRINT_METADATA_KEYS,
     capture_and_save,
     capture_iq,
     capture_iq_pluto,
     save_capture,
+    save_recording,
 )
 from core.pipeline.fft import compute_psd
 from core.pipeline.features import fingerprint_spectrum
@@ -731,3 +733,193 @@ class TestCaptureAndSave:
                 assert key in fingerprint, (
                     f"Fingerprint passed to save_capture is missing {key!r}."
                 )
+
+
+def _make_sequence_entry(sample_start, sample_count, **overrides):
+    """A per-cycle fingerprint_sequence entry as the scan loop builds it:
+    the seven _FINGERPRINT_METADATA_KEYS measurement fields plus the
+    three replay-slicing fields (sample_start / sample_count /
+    timestamp_sec)."""
+    entry = {
+        "peak_freq_hz": 98_000_500.0,
+        "peak_power_db": -25.0,
+        "noise_floor_db": -90.0,
+        "snr_db": 65.0,
+        "bandwidth_hz": 200_000.0,
+        "occupied_bins": 100,
+        "spectral_flatness": 0.1,
+        "sample_start": sample_start,
+        "sample_count": sample_count,
+        "timestamp_sec": sample_start / 2_000_000,
+    }
+    entry.update(overrides)
+    return entry
+
+
+class TestSaveRecording:
+    """Tests for the save_recording function (Phase 68 SigMF format).
+
+    save_recording() sits alongside save_capture(): same filename
+    convention, same legal provenance, same mimir: namespace, but it
+    writes a per-cycle "mimir:fingerprint_sequence" JSON list instead of
+    the singular "mimir:fingerprint" field. The two fields are mutually
+    exclusive by construction.
+    """
+
+    def test_filename_matches_save_capture_pattern(self, tmp_path):
+        """save_recording returns capture_{freq}hz_YYYYMMDD_HHMMSS.sigmf-meta
+        plus a sibling .sigmf-data file, exactly as save_capture does."""
+        samples = np.zeros(2048, dtype=np.complex64)
+        result_path = save_recording(
+            samples,
+            freq_hz=98_000_000,
+            sample_rate_hz=2_000_000,
+            device="hackrf",
+            fingerprint_sequence=[],
+            output_dir=tmp_path,
+        )
+
+        pattern = r"capture_98000000hz_\d{8}_\d{6}\.sigmf-meta"
+        assert re.match(pattern, result_path.name), (
+            f"Filename '{result_path.name}' does not match expected pattern."
+        )
+        data_path = Path(str(result_path)[: -len(".sigmf-meta")] + ".sigmf-data")
+        assert data_path.exists(), (
+            f"Expected sibling .sigmf-data file at {data_path}, not found."
+        )
+
+    def test_metadata_round_trips_device_and_legal_provenance(self, tmp_path):
+        """SigMF metadata carries device identity and the passive-RX note."""
+        samples = np.zeros(256, dtype=np.complex64)
+        result_path = save_recording(
+            samples,
+            freq_hz=98_000_000,
+            sample_rate_hz=2_000_000,
+            device="hackrf",
+            fingerprint_sequence=[],
+            output_dir=tmp_path,
+        )
+
+        meta = sigmf.fromfile(str(result_path))
+
+        assert meta.hw == "HackRF One"
+        assert meta.get_global_field("mimir:device_profile") == "hackrf"
+        assert "Radiocommunications Act" in meta.description
+        assert "ACMA" in meta.description
+
+    def test_legal_description_byte_identical_to_save_capture(self, tmp_path):
+        """The passive-RX legal provenance text must be byte-identical
+        between save_capture() and save_recording(). A future edit to one
+        that diverges from the other would silently split the legal
+        contract across the two recording paths — this test fails first."""
+        samples = np.zeros(256, dtype=np.complex64)
+        capture_path = save_capture(
+            samples,
+            freq_hz=98_000_000,
+            sample_rate_hz=2_000_000,
+            output_dir=tmp_path,
+        )
+        recording_path = save_recording(
+            samples,
+            freq_hz=145_175_000,
+            sample_rate_hz=2_000_000,
+            device="hackrf",
+            fingerprint_sequence=[],
+            output_dir=tmp_path,
+        )
+
+        capture_meta = sigmf.fromfile(str(capture_path))
+        recording_meta = sigmf.fromfile(str(recording_path))
+        assert recording_meta.description == capture_meta.description
+
+    def test_fingerprint_sequence_round_trips_as_json_list(self, tmp_path):
+        """A 2-entry fingerprint_sequence lands under
+        mimir:fingerprint_sequence as a list of dicts, each carrying
+        exactly the seven measurement keys plus the three slicing fields."""
+        sequence = [
+            _make_sequence_entry(0, 2048),
+            _make_sequence_entry(2048, 1024),
+        ]
+        samples = np.zeros(3072, dtype=np.complex64)
+        result_path = save_recording(
+            samples,
+            freq_hz=98_000_000,
+            sample_rate_hz=2_000_000,
+            device="hackrf",
+            fingerprint_sequence=sequence,
+            output_dir=tmp_path,
+        )
+
+        meta = sigmf.fromfile(str(result_path))
+        stored = meta.get_global_field("mimir:fingerprint_sequence")
+        assert isinstance(stored, list)
+        assert len(stored) == 2
+        expected_keys = set(_FINGERPRINT_METADATA_KEYS) | {
+            "sample_start",
+            "sample_count",
+            "timestamp_sec",
+        }
+        for entry in stored:
+            assert set(entry.keys()) == expected_keys
+        assert stored[0]["sample_start"] == 0
+        assert stored[0]["sample_count"] == 2048
+        assert stored[0]["timestamp_sec"] == 0.0
+        assert stored[1]["sample_start"] == 2048
+        assert stored[1]["sample_count"] == 1024
+        assert stored[1]["timestamp_sec"] == 2048 / 2_000_000
+
+    def test_singular_mimir_fingerprint_field_is_absent(self, tmp_path):
+        """The recording path must NEVER write the singular
+        mimir:fingerprint field — the two fields are mutually exclusive
+        by construction, so no downstream reader faces an either/or."""
+        samples = np.zeros(256, dtype=np.complex64)
+        result_path = save_recording(
+            samples,
+            freq_hz=98_000_000,
+            sample_rate_hz=2_000_000,
+            device="hackrf",
+            fingerprint_sequence=[_make_sequence_entry(0, 256)],
+            output_dir=tmp_path,
+        )
+
+        meta = sigmf.fromfile(str(result_path))
+        assert meta.get_global_field("mimir:fingerprint") is None, (
+            "save_recording must omit mimir:fingerprint entirely, not "
+            "write an empty or null field."
+        )
+
+    def test_internal_keys_filtered_per_entry(self, tmp_path):
+        """Internal-only detection-pipeline keys (signal_threshold_db,
+        snr_margin_db, is_burst, etc.) are stripped from every per-cycle
+        entry even when the caller passes them — save_recording has the
+        same defensive filtering property as save_capture regardless of
+        what the caller hands over."""
+        dirty = _make_sequence_entry(
+            0,
+            256,
+            signal_threshold_db=21.0,
+            snr_margin_db=44.0,
+            is_burst=True,
+        )
+        samples = np.zeros(256, dtype=np.complex64)
+        result_path = save_recording(
+            samples,
+            freq_hz=98_000_000,
+            sample_rate_hz=2_000_000,
+            device="hackrf",
+            fingerprint_sequence=[dirty],
+            output_dir=tmp_path,
+        )
+
+        meta = sigmf.fromfile(str(result_path))
+        stored = meta.get_global_field("mimir:fingerprint_sequence")
+        assert len(stored) == 1
+        expected_keys = set(_FINGERPRINT_METADATA_KEYS) | {
+            "sample_start",
+            "sample_count",
+            "timestamp_sec",
+        }
+        assert set(stored[0].keys()) == expected_keys
+        assert "signal_threshold_db" not in stored[0]
+        assert "snr_margin_db" not in stored[0]
+        assert "is_burst" not in stored[0]

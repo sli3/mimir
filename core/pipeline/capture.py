@@ -311,6 +311,166 @@ def save_capture(
     return meta_path
 
 
+def save_recording(
+    samples: np.ndarray,
+    freq_hz: float,
+    sample_rate_hz: float,
+    device: str,
+    fingerprint_sequence: list[dict],
+    output_dir: Path = Path("data/captures"),
+) -> Path:
+    """
+    Save an operator-controlled "Record" capture (Phase 68) as a SigMF
+    recording (.sigmf-data + .sigmf-meta pair).
+
+    Unlike save_capture() (a single scan cycle's samples with one
+    spectral fingerprint), this saves a longer, operator-bounded
+    recording: the concatenated samples of every scan cycle captured
+    between the operator's start and stop actions, with ONE fingerprint
+    entry PER CYCLE so any slice of the recording can be located and
+    replayed later.
+
+    The per-cycle entries are written as a JSON list under the
+    "mimir:fingerprint_sequence" global field. Each entry carries the
+    seven _FINGERPRINT_METADATA_KEYS measurement fields plus:
+
+        sample_start   — int, cumulative sample offset of this cycle
+                         into the concatenated buffer. Ground truth for
+                         replay slicing: cycle N's samples occupy
+                         [sample_start, sample_start + sample_count).
+        sample_count   — int, number of samples this cycle contributed.
+        timestamp_sec  — float, sample_start / sample_rate_hz. A
+                         display convenience derived from sample_start;
+                         sample_start remains the authoritative value.
+
+    MUTUAL EXCLUSION CONTRACT: this function writes
+    "mimir:fingerprint_sequence" and NEVER the singular
+    "mimir:fingerprint" field; save_capture() does the reverse. A
+    recorded file therefore always has exactly one of the two, by
+    construction, with no either/or ambiguity for downstream readers.
+
+    Defensive re-filtering: each caller-supplied entry is re-filtered
+    through the SAME _FINGERPRINT_METADATA_KEYS allowlist used by
+    save_capture(). Internal-only keys (signal_threshold_db,
+    snr_margin_db, is_burst, etc.) are stripped even if the caller
+    passes them, so this function has the same safety property as
+    save_capture() regardless of what the caller hands over.
+
+    DRIFT RISK: save_capture() must remain byte-for-byte stable for
+    existing consumers, so the SigMF boilerplate below is DUPLICATED
+    rather than shared through a helper. Any future SigMF metadata
+    change (namespace declaration, description text, capture-record
+    shape) must be applied to BOTH functions in lockstep.
+
+    This function is device-agnostic and RECEIVE-ONLY: it writes files
+    and nothing else. No hardware access, no DSP.
+
+    Args:
+        samples: numpy array of complex64 IQ samples - the concatenation
+                 of every scan cycle captured during the recording.
+        freq_hz: Centre frequency in Hz. The frequency at record START;
+                 if the operator changed the focus frequency mid-
+                 recording the recording continues but the file records
+                 the start frequency (see ScanRunner's frequency-change
+                 guard). Recorded in the filename and in the SigMF
+                 capture record (core:frequency).
+        sample_rate_hz: Samples per second. Recorded as the SigMF
+                        core:sample_rate global field and used by the
+                        scan loop to derive each entry's timestamp_sec.
+        device: Device profile name - a DEVICE_PROFILES driver key
+                ("hackrf" / "plutosdr"). Stored under
+                "mimir:device_profile" and its DEVICE_PROFILES
+                display_name is recorded in core:hw.
+        fingerprint_sequence: Per-cycle fingerprint dicts, one per scan
+                cycle, in capture order. Each must already carry
+                sample_start / sample_count / timestamp_sec; the seven
+                measurement keys are re-filtered through
+                _FINGERPRINT_METADATA_KEYS here regardless of what else
+                the caller included.
+        output_dir: Directory to save the files in. Created if it does
+                    not exist. Defaults to Path("data/captures").
+
+    Returns:
+        Path to the .sigmf-meta file. This is the canonical handle for
+        the recording; the sibling .sigmf-data file with the same base
+        name holds the raw complex64 samples.
+
+    Raises:
+        KeyError: If device is not a DEVICE_PROFILES driver key (same
+                  fail-fast behaviour as save_capture()).
+
+    Files written:
+        {output_dir}/capture_{int(freq_hz)}hz_{YYYYMMDD_HHMMSS}.sigmf-data
+        {output_dir}/capture_{int(freq_hz)}hz_{YYYYMMDD_HHMMSS}.sigmf-meta
+
+    Metadata recorded:
+        core:datatype    — "cf32_le" (from the complex64 array)
+        core:sample_rate — sample_rate_hz
+        core:hw          — DEVICE_PROFILES display_name (e.g. "HackRF One",
+                           "ADALM-PLUTO")
+        core:description — passive-receive legal provenance note
+        core:frequency   — freq_hz (capture record at sample index 0)
+        mimir:device_profile — device profile name (custom global field)
+        mimir:fingerprint_sequence — JSON list of per-cycle entries,
+                           each the seven measurement keys plus
+                           sample_start / sample_count / timestamp_sec
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base_name = f"capture_{int(freq_hz)}hz_{timestamp}"
+    base_path = output_dir / base_name
+
+    meta = sigmf.fromarray(samples)
+    meta.sample_rate = sample_rate_hz
+    # DEVICE_PROFILES is the single source of truth for the human-readable
+    # hardware name; an unknown device key fails fast here with a KeyError.
+    meta.hw = DEVICE_PROFILES[device]["display_name"]
+    # Legal provenance travels with every capture as a free-text global field.
+    meta.description = (
+        "Mimir RF Scanner — passive receive only. "
+        "Radiocommunications Act 1992 (Cth). ACMA jurisdiction. "
+        "No transmission."
+    )
+    # Declare the mimir: extension namespace (SigMF spec requires custom
+    # namespaces to be declared; an undeclared one is a DeprecationWarning
+    # today and a ValidationError in future versions). The plain
+    # name/version/optional keys match the sigmf 1.11.x schema.
+    meta.set_global_field(
+        sigmf.EXTENSIONS_KEY,
+        [{"name": "mimir", "version": "1.0.0", "optional": True}],
+    )
+    # mimir: vendor-namespace custom field for programmatic device identity.
+    meta.set_global_field("mimir:device_profile", device)
+    # Per-cycle fingerprint sequence. Each entry is re-filtered through
+    # the same _FINGERPRINT_METADATA_KEYS allowlist save_capture() uses,
+    # then extended with the three replay-slicing fields. Internal-only
+    # keys are stripped here even if the caller passed them. The singular
+    # "mimir:fingerprint" field is deliberately NEVER set by this
+    # function - the two fields are mutually exclusive by construction.
+    meta.set_global_field(
+        "mimir:fingerprint_sequence",
+        [
+            {
+                **{k: entry[k] for k in _FINGERPRINT_METADATA_KEYS},
+                "sample_start": int(entry["sample_start"]),
+                "sample_count": int(entry["sample_count"]),
+                "timestamp_sec": float(entry["timestamp_sec"]),
+            }
+            for entry in fingerprint_sequence
+        ],
+    )
+    # Note: fromarray() pre-creates a bare capture at start_index=0; this
+    # call merges our metadata into it rather than appending.
+    capture_meta = {sigmf.FREQUENCY_KEY: freq_hz}
+    meta.add_capture(start_index=0, metadata=capture_meta)
+
+    meta.tofile(base_path)
+    meta_path = Path(str(base_path) + ".sigmf-meta")
+    logger.info("Saved SigMF recording to %s", meta_path)
+    return meta_path
+
+
 def capture_and_save(
     freq_hz: float,
     num_samples: int,

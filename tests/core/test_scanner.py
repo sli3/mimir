@@ -1483,3 +1483,267 @@ class TestCaptureNow:
         # And the original occupied_bins value still rides through the
         # fingerprint sub-dict unchanged.
         assert result["fingerprint"]["occupied_bins"] == 5
+
+
+class TestRecording:
+    """Tests for the operator-controlled "Record" capture (Phase 68).
+
+    start_recording() / stop_recording() are called from the Flask
+    request handler thread; the scan loop appends each cycle's
+    already-read samples to an in-memory accumulator while
+    _recording is True. stop_recording() concatenates the buffer and
+    writes ONE SigMF file via save_recording().
+
+    The trigger state and current_band are module-level in
+    dashboard.shared_state, so the autouse fixture snapshots and
+    restores them around every test, and explicitly disarms every band
+    so the Phase 63 auto-trigger can never add a stray save_capture
+    call to the assertions (the trigger-suppression test re-arms
+    fm_broadcast explicitly).
+    """
+
+    @pytest.fixture(autouse=True)
+    def reset_shared_state(self):
+        with shared_state.trigger_state_lock:
+            saved_armed = dict(shared_state.trigger_armed)
+            saved_snr = dict(shared_state._trigger_last_snr)
+            shared_state.trigger_armed.clear()
+            shared_state._trigger_last_snr.clear()
+        with shared_state.current_band_lock:
+            saved_band = dict(shared_state.current_band)
+            shared_state.current_band.clear()
+            shared_state.current_band.update(
+                shared_state.BAND_PROFILES["fm_broadcast"]
+            )
+        yield
+        with shared_state.trigger_state_lock:
+            shared_state.trigger_armed.clear()
+            shared_state.trigger_armed.update(saved_armed)
+            shared_state._trigger_last_snr.clear()
+            shared_state._trigger_last_snr.update(saved_snr)
+        with shared_state.current_band_lock:
+            shared_state.current_band.clear()
+            shared_state.current_band.update(saved_band)
+
+    @staticmethod
+    def _fingerprint(snr_db=10.0):
+        """Fingerprint dict carrying all seven _FINGERPRINT_METADATA_KEYS
+        measurement fields (the scan loop's recording block reads exactly
+        these) plus two internal-only keys to mirror the real
+        fingerprint_spectrum() output shape."""
+        return {
+            "center_freq_hz": 98_000_000,
+            "peak_freq_hz": 98_100_000,
+            "peak_power_db": -12.5,
+            "noise_floor_db": -78.0,
+            "snr_db": snr_db,
+            "bandwidth_hz": 200_000,
+            "occupied_bins": 205,
+            "spectral_flatness": 0.42,
+            "snr_margin_db": 44.5,
+            "is_burst": False,
+        }
+
+    def test_start_recording_resets_state_and_returns_ok(self, scanner):
+        """start_recording() returns ok, sets _recording, resets the
+        accumulator state, and pins the current focus frequency."""
+        result = scanner.start_recording()
+        assert result == {"status": "ok"}
+        assert scanner._recording is True
+        assert scanner._record_buffer == []
+        assert scanner._record_fingerprints == []
+        assert scanner._record_sample_offset == 0
+        assert scanner._record_freq_hz == scanner._focus_freq_hz
+
+    def test_start_recording_while_already_recording_returns_already_recording_without_reset(
+        self, scanner
+    ):
+        """A second start_recording() while one is in progress returns
+        already_recording and must NOT reset the in-progress accumulator —
+        a silent reset would throw away samples the operator believes are
+        still being captured."""
+        import numpy as np
+
+        assert scanner.start_recording() == {"status": "ok"}
+        with scanner._record_lock:
+            scanner._record_buffer.append(np.zeros(8, dtype=np.complex64))
+            scanner._record_sample_offset = 8
+        result = scanner.start_recording()
+        assert result == {"status": "already_recording"}
+        assert len(scanner._record_buffer) == 1
+        assert scanner._record_sample_offset == 8
+
+    def test_stop_recording_while_not_recording_returns_not_recording(
+        self, scanner
+    ):
+        """stop_recording() with no recording in progress returns a
+        structured not_recording status and touches nothing."""
+        with patch("core.pipeline.scanner.save_recording") as mock_save:
+            result = scanner.stop_recording()
+        assert result == {"status": "not_recording"}
+        mock_save.assert_not_called()
+
+    def test_recording_accumulates_samples_and_fingerprints_across_cycles(
+        self, scanner, mock_device
+    ):
+        """Integration: with recording active, the scan loop appends each
+        cycle's samples to the buffer and one per-cycle fingerprint entry;
+        stop_recording() calls save_recording exactly ONCE with the
+        concatenated samples and a sequence whose sample_start offsets are
+        cumulative.
+
+        The mocked device returns alternating 1024/2048-sample constant-
+        filled arrays (fill value = read index), so the concatenation
+        order is verifiable against the recorded chunk boundaries.
+        """
+        import numpy as np
+        from core.pipeline.capture import _FINGERPRINT_METADATA_KEYS
+
+        lengths = (1024, 2048)
+        counter = {"n": 0}
+
+        def fake_read(num_samples):
+            n = counter["n"]
+            counter["n"] += 1
+            return np.full(lengths[n % 2], complex(n, 0), dtype=np.complex64)
+
+        mock_device.read_samples.side_effect = fake_read
+
+        with patch(
+            "core.pipeline.scanner.features.fingerprint_spectrum",
+            return_value=self._fingerprint(),
+        ), patch(
+            "core.pipeline.scanner.save_recording"
+        ) as mock_save_rec, patch(
+            "core.pipeline.scanner.save_capture"
+        ) as mock_save_cap:
+            scanner._running = True
+            t = threading.Thread(target=scanner._scan_loop, daemon=True)
+            t.start()
+            assert scanner.start_recording() == {"status": "ok"}
+            time.sleep(0.4)
+            result = scanner.stop_recording()
+            scanner.stop()
+            t.join(timeout=3)
+
+        assert result["status"] == "ok"
+        mock_save_rec.assert_called_once()
+        # All bands are disarmed by the fixture, and a recording cycle
+        # must never produce a one-shot save_capture() call.
+        mock_save_cap.assert_not_called()
+
+        args, kwargs = mock_save_rec.call_args
+        samples = args[0]
+        assert kwargs["freq_hz"] == 98_000_000.0
+        assert kwargs["sample_rate_hz"] == 2_000_000
+        assert kwargs["device"] == "hackrf"
+        sequence = kwargs["fingerprint_sequence"]
+
+        assert len(sequence) >= 2, "scan loop did not record enough cycles"
+        # The saved sample count equals the sum of per-cycle counts.
+        total = sum(entry["sample_count"] for entry in sequence)
+        assert len(samples) == total
+        assert result["cycle_count"] == len(sequence)
+        assert result["duration_sec"] == pytest.approx(total / 2_000_000)
+
+        expected_keys = set(_FINGERPRINT_METADATA_KEYS) | {
+            "sample_start",
+            "sample_count",
+            "timestamp_sec",
+        }
+        offset = 0
+        prev_read_index = None
+        for entry in sequence:
+            assert set(entry.keys()) == expected_keys
+            # sample_start is the cumulative offset of this cycle.
+            assert entry["sample_start"] == offset
+            assert entry["timestamp_sec"] == pytest.approx(
+                offset / 2_000_000
+            )
+            # The chunk at this offset really is the array the device
+            # returned for that read: fill value = read index, and read
+            # indices must be consecutive (concatenation order).
+            read_index = int(samples[offset].real)
+            assert entry["sample_count"] == lengths[read_index % 2]
+            if prev_read_index is not None:
+                assert read_index == prev_read_index + 1
+            prev_read_index = read_index
+            offset += entry["sample_count"]
+
+    def test_trigger_suppressed_during_recording(self, scanner):
+        """With fm_broadcast armed, an SNR crossing that would normally
+        fire the auto-trigger must NOT call save_capture while a recording
+        is active (the samples are already being accumulated). After the
+        recording stops, a fresh crossing fires normally — proving
+        check_and_update_trigger_state() kept prev_snr current throughout
+        (no spurious fire on the first cycle after the stop)."""
+        shared_state.set_trigger_armed("fm_broadcast", True)
+        low = self._fingerprint(10.0)
+        high = self._fingerprint(25.0)
+        calls = {"n": 0}
+
+        def fake_fingerprint(psd, **kwargs):
+            calls["n"] += 1
+            return low if calls["n"] == 1 else high
+
+        with patch(
+            "core.pipeline.scanner.features.fingerprint_spectrum",
+            side_effect=fake_fingerprint,
+        ), patch(
+            "core.pipeline.scanner.save_capture"
+        ) as mock_save_cap, patch(
+            "core.pipeline.scanner.save_recording"
+        ) as mock_save_rec:
+            # Phase 1: recording active — the 10 -> 25 dB crossing must
+            # not fire the trigger.
+            assert scanner.start_recording() == {"status": "ok"}
+            scanner._running = True
+            t = threading.Thread(target=scanner._scan_loop, daemon=True)
+            t.start()
+            time.sleep(0.4)
+            assert scanner._recording is True
+            assert len(scanner._record_fingerprints) >= 2
+            mock_save_cap.assert_not_called()
+
+            # Stop the recording; the mocked save_recording means no
+            # disk write happens.
+            result = scanner.stop_recording()
+            assert result["status"] == "ok"
+            mock_save_rec.assert_called_once()
+
+            # Phase 2: recording over — a fresh crossing fires normally.
+            # prev_snr is 25 from phase 1 (kept current throughout the
+            # recording); the reset sequence starts low again, so the
+            # trigger sees 25 -> 10 (no fire, falling) then 10 -> 25
+            # (fires exactly once).
+            calls["n"] = 0
+            time.sleep(0.4)
+            scanner.stop()
+            t.join(timeout=3)
+
+        assert mock_save_cap.call_count == 1
+
+    def test_concurrent_stop_resets_state_even_on_save_failure(self, scanner):
+        """A save_recording failure (e.g. disk full) surfaces as
+        status error with the cause, and the accumulator state is still
+        fully reset — a subsequent start_recording() begins clean rather
+        than inheriting a stale half-recording."""
+        import numpy as np
+
+        assert scanner.start_recording() == {"status": "ok"}
+        with scanner._record_lock:
+            scanner._record_buffer.append(np.zeros(64, dtype=np.complex64))
+            scanner._record_fingerprints.append({"sample_start": 0})
+            scanner._record_sample_offset = 64
+        with patch(
+            "core.pipeline.scanner.save_recording",
+            side_effect=OSError("disk full"),
+        ):
+            result = scanner.stop_recording()
+        assert result == {"status": "error", "cause": "disk full"}
+        assert scanner._recording is False
+        assert scanner._record_buffer == []
+        assert scanner._record_fingerprints == []
+        assert scanner._record_sample_offset == 0
+        # A subsequent recording begins clean.
+        assert scanner.start_recording() == {"status": "ok"}
