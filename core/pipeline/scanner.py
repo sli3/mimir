@@ -103,6 +103,21 @@ class ScanRunner:
     reuses samples already read by the scan loop rather than opening a
     second device connection. See capture_now()'s docstring for the
     cross-thread handoff contract.
+
+    Operator-controlled recording (Phase 68):
+    start_recording() / stop_recording() / get_recording_status() manage a
+    long-lived, operator-controlled "Record" mode that accumulates scan-cycle
+    samples in memory between start and stop, then writes a single SigMF
+    file on stop. Fully separate mechanism from capture_now() above —
+    separate state, separate code path, separate endpoint. The class
+    methods only manage state and chunk accumulation; the actual SigMF
+    metadata writing happens in save_recording() in core/pipeline/capture.py,
+    which both methods call into. get_recording_status() is exposed for
+    the frontend to adopt in-progress recording state on remount (page
+    refresh during an active recording); as shipped it has zero call
+    sites (a related gap is tracked as tech debt). No client-side
+    auto-stop and no backend cap — the recording runs until the
+    operator stops it (a 60-second soft warning is displayed client-side).
     """
     def __init__(self, device, embedder, store, classifier, config: MimirConfig,
                  device_driver: str = "hackrf") -> None:
