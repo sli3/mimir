@@ -7,6 +7,59 @@ export const WATERFALL_LABEL_WIDTH = 0
 
 const SAMPLE_RATE_HZ = 2_000_000
 
+// Phase 69 — waterfall event markers.
+const MARKER_STROKE_COLOURS = {
+  capture: 'rgba(0, 217, 255, 0.85)',     // cyan, matches CaptureButton / crosshair
+  record_start: 'rgba(0, 255, 136, 0.85)', // green, matches APRS band colour
+  record_stop: 'rgba(255, 68, 68, 0.85)',  // red, matches AIS band colour
+}
+const MARKER_LABEL_PREFIXES = {
+  capture: 'CAPTURE',
+  record_start: 'REC START',
+  record_stop: 'REC STOP',
+}
+
+/** Format a marker label timestamp. Matches the frontend convention in
+ *  SignalHistoryLog.jsx (toLocaleTimeString en-AU, hour12 false) so the
+ *  operator sees the same time format everywhere. Takes the marker's
+ *  createdAt (Date.now() at add time) so the label shows WHEN the event
+ *  happened, not the wall-clock time at redraw. */
+function formatMarkerTime(createdAt) {
+  return new Date(createdAt).toLocaleTimeString('en-AU', { hour12: false })
+}
+
+/** Draw a single waterfall event marker onto a 2D canvas context.
+ *  No-ops for off-canvas markers (rowOffset < 0 or >= canvasHeight).
+ *  Uses ctx.save()/restore() to leave the caller's canvas state untouched. */
+function drawMarker(ctx, marker, canvasWidth, canvasHeight) {
+  const y = marker.rowOffset
+  if (y < 0 || y >= canvasHeight) return
+  ctx.save()
+  ctx.strokeStyle = MARKER_STROKE_COLOURS[marker.type]
+  ctx.lineWidth = 1
+  if (marker.type === 'capture') {
+    ctx.setLineDash([])
+  } else {
+    ctx.setLineDash([6, 4])
+  }
+  ctx.beginPath()
+  ctx.moveTo(0, y + 0.5)
+  ctx.lineTo(canvasWidth, y + 0.5)
+  ctx.stroke()
+  ctx.setLineDash([])
+
+  const label = `${MARKER_LABEL_PREFIXES[marker.type]} ${formatMarkerTime(marker.createdAt)}`
+  ctx.font = '11px monospace'
+  const textWidth = ctx.measureText(label).width
+  const textX = 4
+  const textY = Math.min(y + 14, canvasHeight - 2)
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.6)'
+  ctx.fillRect(textX - 2, textY - 11, textWidth + 4, 13)
+  ctx.fillStyle = MARKER_STROKE_COLOURS[marker.type]
+  ctx.fillText(label, textX, textY)
+  ctx.restore()
+}
+
 /** Waterfall strip configuration for each monitored band.
  *  Seven AU-legal frequencies, each with a display label, name,
  *  and CSS colour variable.  Used by WaterfallStrip to render
@@ -27,7 +80,7 @@ export const STRIP_CONFIGS = [
   { freq_hz: 1090000000, label: '1090.0 MHz',   name: 'ADS-B',        colourVar: '--neon-magenta'},
 ]
 
-function WaterfallStrip({ config, latestPsd, focusedFreq, focusFrequency, singleBand, hideSidebar, device }) {
+function WaterfallStrip({ config, latestPsd, focusedFreq, focusFrequency, singleBand, hideSidebar, device, markers, onStripScroll }) {
   const canvasRef = useRef(null)
   const crosshairRef = useRef(null)
   const canvasSize = useCanvasSize(canvasRef)
@@ -38,6 +91,20 @@ function WaterfallStrip({ config, latestPsd, focusedFreq, focusFrequency, single
     psdDb: latestPsd,
     device,
   })
+
+  // Phase 69: per-strip marker view. Mirrors the spectrumUpdates
+  // filtering pattern (line 214-216 below) — each strip only sees
+  // markers belonging to its own frequency.
+  const stripMarkers = markers.filter((m) => m.freqHz === config.freq_hz)
+
+  // Phase 69: marker rowOffset increment must fire on the SAME trigger
+  // useWaterfall uses (a new PSD row arriving = one scroll tick), so
+  // markers scroll at exactly the same rate as the underlying signal
+  // data. A separate setInterval would drift out of sync — do NOT use one.
+  useEffect(() => {
+    if (!latestPsd) return
+    onStripScroll(config.freq_hz, canvasSize.height)
+  }, [latestPsd])
 
   /**
    * Handle a click on the waterfall canvas.
@@ -81,6 +148,12 @@ function WaterfallStrip({ config, latestPsd, focusedFreq, focusFrequency, single
 
     ctx.clearRect(0, 0, canvas.width, canvas.height)
 
+    // Phase 69: draw markers FIRST so the crosshair (drawn next)
+    // renders on top. The drawMarker helper no-ops off-canvas rows.
+    for (const marker of stripMarkers) {
+      drawMarker(ctx, marker, canvas.width, canvas.height)
+    }
+
     if (crosshairX !== null) {
       ctx.strokeStyle = 'rgba(0,255,255,0.75)'
       ctx.lineWidth = 1
@@ -103,7 +176,7 @@ function WaterfallStrip({ config, latestPsd, focusedFreq, focusFrequency, single
       ctx.fillStyle = 'rgba(0,255,255,0.9)'
       ctx.fillText(label, labelX, 24)
     }
-  }, [crosshairX, canvasSize])
+  }, [crosshairX, canvasSize, stripMarkers])
 
   const isActive = config.freq_hz === focusedFreq
 
@@ -176,7 +249,7 @@ function WaterfallStrip({ config, latestPsd, focusedFreq, focusFrequency, single
   )
 }
 
-export default function WaterfallPanel({ focusedFreq, focusFrequency, singleBand = false }) {
+export default function WaterfallPanel({ focusedFreq, focusFrequency, singleBand = false, markers = [], onStripScroll = () => {} }) {
   // device is the raw SoapySDR driver string ("hackrf" / "plutosdr") from
   // system_stats — threaded into useWaterfall for per-device colour scaling
   // (Phase 42). null until the first system_stats arrives, which selects
@@ -224,6 +297,8 @@ export default function WaterfallPanel({ focusedFreq, focusFrequency, singleBand
             singleBand={singleBand}
             hideSidebar={singleBand}
             device={device}
+            markers={markers}
+            onStripScroll={onStripScroll}
           />
         )
       })}

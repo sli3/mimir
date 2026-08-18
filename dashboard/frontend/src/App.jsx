@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useSocket } from './hooks/useSocket.js'
 import useCapture from './hooks/useCapture.js'
 import useRecording from './hooks/useRecording.js'
+import useWaterfallMarkers from './hooks/useWaterfallMarkers.js'
 import WaterfallPanel from './components/WaterfallPanel.jsx'
 import SpectrometerBar from './components/SpectrometerBar.jsx'
 import AcarsMessagePanel from './components/AcarsMessagePanel.jsx'
@@ -296,7 +297,7 @@ export default function App() {
     }
   }, [handleTune])
 
-  const { state: captureState, pending: capturePending, handleClick: handleCaptureClick } = useCapture()
+  const { state: captureState, pending: capturePending, handleClick: rawHandleCaptureClick } = useCapture()
 
   // Phase 68 "Record": long-lived operator-controlled capture. Fully
   // separate mechanism from the single-shot capture above — separate
@@ -311,13 +312,55 @@ export default function App() {
     stopRecording,
   } = useRecording()
 
+  // Phase 69: waterfall event markers
+  const {
+    markers,
+    addCaptureMarker,
+    addRecordStartMarker,
+    addRecordStopMarker,
+    tickAndPrune,
+  } = useWaterfallMarkers()
+
+  // Phase 69: capture the freq at click time so a fast band-switch
+  // between click and async response does not misattribute the marker.
+  const pendingCaptureFreqRef = useRef(null)
+  const pendingRecordFreqRef = useRef(null)
+
+  const handleCaptureClick = useCallback(() => {
+    pendingCaptureFreqRef.current = focusedFreq
+    rawHandleCaptureClick()
+  }, [focusedFreq, rawHandleCaptureClick])
+
   const handleRecordClick = useCallback(() => {
     if (recording) {
       stopRecording()
     } else {
+      pendingRecordFreqRef.current = focusedFreq
       startRecording()
     }
-  }, [recording, startRecording, stopRecording])
+  }, [recording, focusedFreq, startRecording, stopRecording])
+
+  // Phase 69: fire markers on capture/record state transitions.
+  useEffect(() => {
+    if (captureState.status === 'ok') {
+      addCaptureMarker(pendingCaptureFreqRef.current ?? focusedFreq)
+      pendingCaptureFreqRef.current = null
+    }
+  }, [captureState.status])
+
+  useEffect(() => {
+    if (recording) {
+      addRecordStartMarker(pendingRecordFreqRef.current ?? focusedFreq)
+      // Do NOT clear the ref — the upcoming stop uses the same freq.
+    }
+  }, [recording])
+
+  useEffect(() => {
+    if (recordResult?.status === 'ok') {
+      addRecordStopMarker(pendingRecordFreqRef.current ?? focusedFreq)
+      pendingRecordFreqRef.current = null
+    }
+  }, [recordResult])
 
   const adsbAircraftList = Object.values(adsbAircraft || {})
   const anyDecoderTuned = isAdsbTuned(focusedFreq)
@@ -600,6 +643,8 @@ export default function App() {
                 focusedFreq={focusedFreq}
                 focusFrequency={focusFrequency}
                 singleBand={true}
+                markers={markers}
+                onStripScroll={tickAndPrune}
               />
             </div>
 
