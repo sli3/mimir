@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useSocket } from './hooks/useSocket.js'
 import useCapture from './hooks/useCapture.js'
+import useRecording from './hooks/useRecording.js'
 import WaterfallPanel from './components/WaterfallPanel.jsx'
 import SpectrometerBar from './components/SpectrometerBar.jsx'
 import AcarsMessagePanel from './components/AcarsMessagePanel.jsx'
@@ -11,6 +12,7 @@ import FrameInspectorPanel from './components/FrameInspectorPanel.jsx'
 import SignalHistoryLog from './components/SignalHistoryLog.jsx'
 import AIReasoningPanel from './components/AIReasoningPanel.jsx'
 import CaptureButton from './components/CaptureButton.jsx'
+import RecordButton from './components/RecordButton.jsx'
 import CaptureResultPanel from './components/CaptureResultPanel.jsx'
 
 const INITIAL_AI_REASONING = {
@@ -296,6 +298,27 @@ export default function App() {
 
   const { state: captureState, pending: capturePending, handleClick: handleCaptureClick } = useCapture()
 
+  // Phase 68 "Record": long-lived operator-controlled capture. Fully
+  // separate mechanism from the single-shot capture above — separate
+  // hook, separate endpoints, separate button. The click handler
+  // decides start vs stop from the recording state.
+  const {
+    recording,
+    elapsedSec: recordElapsedSec,
+    warning: recordWarning,
+    recordResult,
+    startRecording,
+    stopRecording,
+  } = useRecording()
+
+  const handleRecordClick = useCallback(() => {
+    if (recording) {
+      stopRecording()
+    } else {
+      startRecording()
+    }
+  }, [recording, startRecording, stopRecording])
+
   const adsbAircraftList = Object.values(adsbAircraft || {})
   const anyDecoderTuned = isAdsbTuned(focusedFreq)
     || isAcarsTuned(focusedFreq)
@@ -544,6 +567,30 @@ export default function App() {
                   TUNE ▶
                 </button>
                 <CaptureButton onClick={handleCaptureClick} pending={capturePending} />
+                <RecordButton
+                  recording={recording}
+                  onClick={handleRecordClick}
+                  elapsedSec={recordElapsedSec}
+                  warning={recordWarning}
+                />
+                {recordResult && !recording && (
+                  <span
+                    data-testid="record-result"
+                    style={{
+                      fontFamily: 'var(--font-data)',
+                      fontSize: '11px',
+                      letterSpacing: '1px',
+                      color: recordResult.status === 'ok'
+                        ? 'var(--neon-cyan)'
+                        : 'var(--neon-red)',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {recordResult.status === 'ok'
+                      ? `Recorded ${recordResult.duration_sec.toFixed(1)}s / ${recordResult.cycle_count} cycles`
+                      : `Recording failed: ${recordResult.cause}`}
+                  </span>
+                )}
               </div>
             </div>
 
