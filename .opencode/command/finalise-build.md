@@ -275,6 +275,37 @@ Do not summarise or reformat it first — @wiki-drafter consumes the raw
 DECISION/REASON/LIKELY AREA/TITLE/SUMMARY/BODY/CONFLICTS WITH structure
 directly.
 
+BEFORE handing off, check the real vault for each DRAFT candidate item.
+@wiki-drafter has no read access to mimir-wiki (by design — see its own
+permission block) and can only echo the LIKELY AREA field it was given
+verbatim. You (main) DO have read-only wiki-search access to the real
+vault via the wiki-search MCP tool. Use it here:
+
+  - For each item with DECISION: DRAFT, run wiki-search against its TITLE
+    and a few keywords from its BODY to find the actual folder(s) similar
+    existing notes live in, and check whether a closely related note
+    already exists (which would matter for CONFLICTS WITH, if not already
+    flagged upstream).
+  - Append a FOLDER SUGGESTION line to each candidate item before handing
+    the document to @wiki-drafter — a real folder path from the vault's
+    existing structure (e.g. "01 - Features/Radar", "04 - Environment/
+    External Tools"), based on what wiki-search actually returned, not a
+    guess. If wiki-search returns nothing relevant, say so explicitly
+    rather than inventing a folder ("no close match found via wiki-search;
+    LIKELY AREA suggests <X> but this is unconfirmed against the vault").
+  - This is genuine vault-informed guidance, not a repeat of LIKELY AREA
+    — LIKELY AREA came from a session that could not see the vault at all;
+    your FOLDER SUGGESTION is grounded in an actual search against it.
+  - Do not let this become a full vault reorganisation exercise — one
+    search per candidate item is enough. If wiki-search is unavailable or
+    errors, note that in the report and fall back to LIKELY AREA as-is,
+    do not block the step.
+
+@wiki-drafter still does not receive or need vault write access for this —
+it only needs your FOLDER SUGGESTION lines added to the document so its
+own report can surface them to Prin alongside the drafted note, per its
+existing report format.
+
 @wiki-drafter writes staged draft files to `.wiki-drafts/` in the current
 working directory. This is a LOCAL, UNTRACKED staging folder — it is not
 the mimir-wiki repo, and nothing written here reaches the real vault

@@ -40,6 +40,14 @@ separate Claude session, and handed to you verbatim by the PM) containing:
   - One or more Candidate Items, each with DECISION, REASON, LIKELY AREA,
     TITLE, SUMMARY, BODY, and optionally CONFLICTS WITH fields
 
+Some candidate items may also carry a FOLDER SUGGESTION field, appended by
+the PM before handoff (per /finalise-build Step 6) using its own
+wiki-search access to the real vault, which you do not have. Treat this
+field the same way you treat everything else here: report it verbatim,
+never invent or adjust it, and never treat its absence as an error — it is
+optional and only present when the PM's wiki-search check found something.
+This does NOT change your own vault access, which remains none.
+
 ## What you do
 
 For every candidate item where `DECISION: DRAFT`, assemble one real note
@@ -129,6 +137,10 @@ after the file is written here.
 ## How you report
 
 List every file you wrote, with its title and target `.wiki-drafts/` path.
+If the candidate item carried a FOLDER SUGGESTION field, include it right
+next to the file listing so Prin sees the suggested real-vault destination
+alongside the staged draft, e.g.:
+  "hardware-pluto-gain-quirk.md -> suggested vault folder: 01 - Features/Hardware"
 List every SKIP item you did not write, with its title and reason. Flag any
 candidate item that was missing required fields (DECISION, TITLE, BODY) and
 state that you skipped it rather than guessing. Remind Prin these are drafts
