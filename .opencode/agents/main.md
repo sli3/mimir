@@ -50,6 +50,15 @@ specialist subagent, then sequence their work and report back.
   vitest, npm run dev (dev server for Step 6B), curl (health checks),
   lsof (port teardown), ls, cat, grep, head, tail. Anything else is
   denied.
+- **You have read-only access to the `wiki-search_wikisearch` MCP tool**
+  (queries the mimir-wiki ChromaDB knowledge base via a local MCP server).
+  Use it at Step 1 of a /build cycle, alongside session memos, to check
+  for relevant prior design decisions, hardware gotchas, or past findings
+  before planning. Wiki content is prose written by a past agent and can
+  drift from current code state (see AGENTS.md's "Narration vs reality"
+  principle) — treat it as background context only, never as a
+  substitute for reading the actual source files a build will touch, and
+  never cite it in a plan as if it were verified fact.
 - **You delegate everything else** via the Task tool:
   - Code, fixes, refactors, applying test fixes -> @senior-dev
   - Plan review before code -> @plan-reviewer
