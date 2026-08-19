@@ -1,0 +1,237 @@
+/* ReplayPage.css: isolated cyberpunk styling for the /replay page. */
+
+/* Suppress the global scanline overlay while this page is mounted. */
+body.replay-page::before {
+  display: none;
+}
+
+.replay-shell {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-root);
+  color: var(--text-primary);
+  font-family: var(--font-data);
+  overflow: hidden;
+}
+
+.replay-header {
+  height: 28px;
+  flex-shrink: 0;
+  background: var(--bg-header);
+  border-bottom: 1px solid var(--border);
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+}
+
+.replay-header-title {
+  font-size: 11px;
+  color: var(--neon-cyan);
+  letter-spacing: 2px;
+  font-family: var(--font-data);
+}
+
+.replay-body {
+  flex: 1;
+  overflow: auto;
+  padding: 10px;
+}
+
+.replay-state-message {
+  font-size: 11px;
+  font-family: var(--font-data);
+  letter-spacing: 1px;
+  padding: 8px 0;
+}
+
+.replay-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.replay-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 10px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-family: var(--font-data);
+  font-size: 11px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.replay-row:hover:not(:disabled) {
+  background: rgba(0, 255, 255, 0.08);
+  border-color: var(--neon-cyan);
+}
+
+.replay-row:disabled {
+  cursor: default;
+  opacity: 0.5;
+  color: var(--text-dim);
+}
+
+.replay-row-unknown {
+  color: var(--text-dim);
+}
+
+.replay-row-freq {
+  min-width: 80px;
+  color: var(--neon-cyan);
+}
+
+.replay-row-device {
+  min-width: 70px;
+  text-transform: uppercase;
+}
+
+.replay-row-time {
+  min-width: 170px;
+  color: var(--text-bright);
+}
+
+.replay-row-chunks {
+  min-width: 90px;
+}
+
+.replay-row-mode {
+  margin-left: auto;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+}
+
+.replay-results {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.replay-back-link {
+  align-self: flex-start;
+  background: transparent;
+  border: 1px solid var(--neon-cyan);
+  color: var(--neon-cyan);
+  font-family: var(--font-data);
+  font-size: 11px;
+  letter-spacing: 1px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+.replay-back-link:hover {
+  background: rgba(0, 255, 255, 0.08);
+}
+
+.replay-info-line {
+  font-size: 13px;
+  color: var(--neon-cyan);
+  letter-spacing: 1px;
+  padding: 4px 0;
+}
+
+.replay-result-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.replay-summary-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+}
+
+.replay-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.replay-status-label {
+  font-size: 12px;
+  letter-spacing: 1px;
+}
+
+.replay-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.replay-field-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 10px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  font-size: 11px;
+  font-family: var(--font-data);
+}
+
+.replay-field-name {
+  min-width: 140px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.replay-field-values {
+  color: var(--text-primary);
+}
+
+.replay-summary-line {
+  font-size: 11px;
+  color: var(--text-bright);
+  letter-spacing: 1px;
+}
+
+.replay-chunk-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+  gap: 6px;
+}
+
+.replay-chunk-cell {
+  width: 40px;
+  height: 40px;
+  border: none;
+  color: var(--bg-root);
+  font-family: var(--font-data);
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0.85;
+}
+
+.replay-chunk-cell:hover {
+  opacity: 1;
+}
+
+.replay-chunk-cell-selected {
+  outline: 2px solid var(--neon-cyan);
+  opacity: 1;
+}
+
+.replay-chunk-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+}
+
+.replay-chunk-detail-title {
+  font-size: 11px;
+  color: var(--neon-amber);
+  letter-spacing: 1px;
+}

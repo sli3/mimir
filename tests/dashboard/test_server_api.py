@@ -385,6 +385,214 @@ class TestApiVectorstorePoints:
             assert fake_store.get_all_embeddings_call_count == 1
 
 
+class TestApiCaptures:
+    """Tests for GET /api/captures (Phase 71).
+
+    Each test builds a real SigMF capture in tmp_path via save_capture()
+    or save_recording() and monkeypatches dashboard.server._REPLAY_CAPTURES_DIR
+    to point at it, so the route's directory listing resolves inside the temp
+    directory. The paired .sigmf-data files are never read.
+    """
+
+    _FREQ_HZ = 98_000_000
+    _SAMPLE_RATE_HZ = 2_000_000
+
+    def _build_capture(self, tmp_path, snr_bump_db=0.0):
+        """Write a real one-shot capture; optionally skew saved snr_db."""
+        import numpy as np
+        from core.pipeline.capture import save_capture
+        from core.pipeline.fft import compute_psd
+        from core.pipeline.features import fingerprint_spectrum
+        from dashboard.shared_state import BAND_PROFILES
+
+        rng = np.random.default_rng(42)
+        samples = (
+            rng.standard_normal(16_384) + 1j * rng.standard_normal(16_384)
+        ).astype(np.complex64)
+        profile = BAND_PROFILES["fm_broadcast"]
+        psd_result = compute_psd(samples, self._SAMPLE_RATE_HZ, self._FREQ_HZ)
+        fingerprint = fingerprint_spectrum(
+            psd_result,
+            signal_threshold_db=profile.get("signal_threshold_db"),
+            crop_half_width_hz=profile.get("crop_half_width_hz"),
+            burst_use_wide_window=profile.get("burst_use_wide_window", False),
+            trace_key=profile.get("fingerprint_trace_key", "psd_db"),
+        )
+        if snr_bump_db:
+            fingerprint["snr_db"] = float(fingerprint["snr_db"]) + snr_bump_db
+        return save_capture(
+            samples,
+            freq_hz=self._FREQ_HZ,
+            sample_rate_hz=self._SAMPLE_RATE_HZ,
+            output_dir=tmp_path,
+            fingerprint=fingerprint,
+        )
+
+    def _build_recording(self, tmp_path, entries=2):
+        """Write a real Record-mode capture with N per-cycle entries."""
+        import numpy as np
+        from core.pipeline.capture import save_recording
+        from core.pipeline.fft import compute_psd
+        from core.pipeline.features import fingerprint_spectrum
+        from dashboard.shared_state import BAND_PROFILES
+
+        samples_per_cycle = 16_384
+        rng = np.random.default_rng(43)
+        samples = (
+            rng.standard_normal(samples_per_cycle * entries)
+            + 1j * rng.standard_normal(samples_per_cycle * entries)
+        ).astype(np.complex64)
+        profile = BAND_PROFILES["fm_broadcast"]
+        sequence = []
+        for idx in range(entries):
+            cycle = samples[
+                idx * samples_per_cycle : (idx + 1) * samples_per_cycle
+            ]
+            psd_result = compute_psd(cycle, self._SAMPLE_RATE_HZ, self._FREQ_HZ)
+            fingerprint = fingerprint_spectrum(
+                psd_result,
+                signal_threshold_db=profile.get("signal_threshold_db"),
+                crop_half_width_hz=profile.get("crop_half_width_hz"),
+                burst_use_wide_window=profile.get("burst_use_wide_window", False),
+                trace_key=profile.get("fingerprint_trace_key", "psd_db"),
+            )
+            sequence.append({
+                **{k: fingerprint[k] for k in fingerprint if k in (
+                    "peak_freq_hz", "peak_power_db", "noise_floor_db",
+                    "snr_db", "bandwidth_hz", "occupied_bins",
+                    "spectral_flatness"
+                )},
+                "sample_start": idx * samples_per_cycle,
+                "sample_count": samples_per_cycle,
+                "timestamp_sec": float(idx),
+            })
+        return save_recording(
+            samples,
+            freq_hz=self._FREQ_HZ,
+            sample_rate_hz=self._SAMPLE_RATE_HZ,
+            device="hackrf",
+            fingerprint_sequence=sequence,
+            output_dir=tmp_path,
+        )
+
+    @pytest.fixture
+    def captures_dir(self, tmp_path, monkeypatch):
+        """Point the route's captures-dir anchor at tmp_path."""
+        monkeypatch.setattr(
+            "dashboard.server._REPLAY_CAPTURES_DIR", tmp_path.resolve()
+        )
+        return tmp_path
+
+    def test_empty_dir_returns_200_with_empty_list(self, client, captures_dir):
+        """An empty captures directory returns 200 with captures=[]."""
+        response = client.get("/api/captures")
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data == {"captures": []}
+
+    def test_missing_dir_returns_200_with_empty_list(self, client, captures_dir):
+        """A missing captures directory returns 200 with captures=[]."""
+        captures_dir.rmdir()
+        response = client.get("/api/captures")
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data == {"captures": []}
+
+    def test_oneshot_capture_lists_with_mode_oneshot(self, client, captures_dir):
+        """A one-shot capture is listed with mode 'oneshot' and chunk_count 1."""
+        meta_path = self._build_capture(captures_dir)
+        response = client.get("/api/captures")
+        assert response.status_code == 200
+        data = response.get_json()
+        assert len(data["captures"]) == 1
+        entry = data["captures"][0]
+        assert entry["filename"] == meta_path.name
+        assert entry["mode"] == "oneshot"
+        assert entry["chunk_count"] == 1
+        assert entry["core_frequency_hz"] == self._FREQ_HZ
+        assert entry["device"] == "hackrf"
+        assert entry["timestamp"] is not None
+        assert "error" not in entry
+
+    def test_record_capture_lists_with_mode_record(self, client, captures_dir):
+        """A Record-mode capture is listed with mode 'record' and the right chunk count."""
+        meta_path = self._build_recording(captures_dir, entries=2)
+        response = client.get("/api/captures")
+        assert response.status_code == 200
+        data = response.get_json()
+        assert len(data["captures"]) == 1
+        entry = data["captures"][0]
+        assert entry["filename"] == meta_path.name
+        assert entry["mode"] == "record"
+        assert entry["chunk_count"] == 2
+        assert entry["core_frequency_hz"] == self._FREQ_HZ
+        assert entry["device"] == "hackrf"
+
+    def test_malformed_file_appears_as_unknown_not_500(self, client, captures_dir):
+        """A corrupt .sigmf-meta is listed as mode 'unknown' and does not abort the listing."""
+        self._build_capture(captures_dir)
+        bad = captures_dir / "capture_98000000hz_20260819_000000.sigmf-meta"
+        bad.write_text("not sigmf {{")
+        response = client.get("/api/captures")
+        assert response.status_code == 200
+        data = response.get_json()
+        assert len(data["captures"]) == 2
+        bad_entry = next(e for e in data["captures"] if e["filename"] == bad.name)
+        assert bad_entry["mode"] == "unknown"
+        assert bad_entry["chunk_count"] == 0
+        assert "error" in bad_entry
+        good_entry = next(e for e in data["captures"] if e["filename"] != bad.name)
+        assert good_entry["mode"] == "oneshot"
+
+    def test_non_sigmf_files_excluded(self, client, captures_dir):
+        """Plain text and .npy files in the captures dir are ignored."""
+        self._build_capture(captures_dir)
+        (captures_dir / "notes.txt").write_text("hello")
+        (captures_dir / "backup.npy").write_text("not really numpy")
+        response = client.get("/api/captures")
+        assert response.status_code == 200
+        data = response.get_json()
+        assert len(data["captures"]) == 1
+        assert data["captures"][0]["mode"] == "oneshot"
+
+    def test_sort_order_descending_by_timestamp(self, client, captures_dir):
+        """Captures are returned newest-first by parsed filename timestamp."""
+        names = [
+            "capture_98000000hz_20260819_120000.sigmf-meta",
+            "capture_98000000hz_20260819_130000.sigmf-meta",
+            "capture_98000000hz_20260819_110000.sigmf-meta",
+        ]
+        for name in names:
+            (captures_dir / name).write_text(json.dumps({
+                "global": {"mimir:device_profile": "hackrf"},
+                "captures": [{"core:frequency": self._FREQ_HZ}],
+            }))
+        response = client.get("/api/captures")
+        assert response.status_code == 200
+        data = response.get_json()
+        assert [e["filename"] for e in data["captures"]] == [
+            "capture_98000000hz_20260819_130000.sigmf-meta",
+            "capture_98000000hz_20260819_120000.sigmf-meta",
+            "capture_98000000hz_20260819_110000.sigmf-meta",
+        ]
+
+    def test_subdirectory_files_excluded(self, client, captures_dir):
+        """Files inside subdirectories are not listed; search is non-recursive."""
+        self._build_capture(captures_dir)
+        sub = captures_dir / "subdir"
+        sub.mkdir()
+        (sub / "capture_98000000hz_20260819_140000.sigmf-meta").write_text(
+            json.dumps({
+                "global": {"mimir:device_profile": "hackrf"},
+                "captures": [{"core:frequency": self._FREQ_HZ}],
+            })
+        )
+        response = client.get("/api/captures")
+        assert response.status_code == 200
+        data = response.get_json()
+        assert len(data["captures"]) == 1
+
+
 class TestApiReplay:
     """Tests for POST /api/replay (Phase 70).
 

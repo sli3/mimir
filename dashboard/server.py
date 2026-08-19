@@ -1418,6 +1418,183 @@ def api_replay():
     return jsonify(result), 200
 
 
+# Timestamp used to age-sort captures; group matches YYYYMMDD_HHMMSS in
+# capture_<freq>hz_YYYYMMDD_HHMMSS.sigmf-meta filenames.
+_CAPTURE_FILENAME_RE = re.compile(
+    r"capture_(\d+)hz_(\d{8})_(\d{6})\.sigmf-meta$"
+)
+
+
+@app.route("/api/captures", methods=["GET"])
+def api_captures():
+    """List saved SigMF captures in data/captures/.
+
+    Purpose: read-only directory peek for the /replay page picker.
+    Returns a lightweight list of every .sigmf-meta file in the
+    captures directory, with just enough metadata to let the operator
+    choose one. The paired .sigmf-data files are NEVER opened or read.
+
+    Per-file metadata is parsed with stdlib json.load() rather than
+    sigmf.fromfile() because SigMFFile may eagerly inspect the sibling
+    .sigmf-data file (size, checksum), and this endpoint is intended to
+    be a fast peek-only listing.
+
+    Output format on success: HTTP 200 with
+    {
+        "captures": [
+            {
+                "filename": str,
+                "mode": "oneshot" | "record" | "unknown",
+                "chunk_count": int,
+                "core_frequency_hz": float | null,
+                "device": str | null,
+                "timestamp": "YYYY-MM-DDTHH:MM:SS" | null
+            },
+            ...
+        ]
+    }
+
+    Mode detection:
+        - "oneshot": file contains "mimir:fingerprint" global field
+                     (single scan cycle). chunk_count = 1.
+        - "record": file contains "mimir:fingerprint_sequence" global
+                    field (per-cycle fingerprints). chunk_count =
+                    len(sequence).
+        - "unknown": neither field present, or file is malformed.
+                     chunk_count = 0.
+
+    Malformed files are surfaced as "unknown" entries with an extra
+    "error" key; they do NOT abort the whole listing.
+
+    Sort order: descending by parsed timestamp; entries without a
+    parseable timestamp sort after all dated entries. Filename provides
+    a stable secondary sort.
+
+    Error format: non-2xx with the same stable shape as /api/replay:
+        {"error": "internal_error", "detail": "..."}
+
+    Path containment: the search is confined to _REPLAY_CAPTURES_DIR.
+    Although no caller-supplied path is used here, is_relative_to()
+    is still applied as defence-in-depth in case the constant is ever
+    pointed at a symlinked location.
+
+    Implementation notes:
+    - RECEIVE-ONLY. No RF hardware, no scanner interaction, no sample
+      data access.
+    - json.load() keeps the operation on the metadata file only; the
+      .sigmf-data sibling is never touched.
+    - read_samples() is the hardware SDR method and is NOT called here.
+    - core.device.* is not imported by this route.
+    - Missing directory returns 200 with an empty captures list.
+    """
+    captures = []
+    try:
+        if not _REPLAY_CAPTURES_DIR.exists():
+            return jsonify({"captures": captures}), 200
+
+        for entry in _REPLAY_CAPTURES_DIR.iterdir():
+            if not entry.is_file() or entry.suffix != ".sigmf-meta":
+                continue
+            # Defence-in-depth: skip anything that resolves outside the
+            # captures dir even though we built the path ourselves.
+            try:
+                resolved = entry.resolve()
+                if not resolved.is_relative_to(_REPLAY_CAPTURES_DIR):
+                    continue
+            except (OSError, RuntimeError):
+                continue
+
+            parsed = _parse_capture_meta_entry(entry)
+            captures.append(parsed)
+
+        captures.sort(key=_capture_sort_key, reverse=True)
+    except Exception as exc:  # pragma: no cover - defensive top-level guard
+        logger.exception("Unexpected error listing captures in %s", _REPLAY_CAPTURES_DIR)
+        return jsonify({"error": "internal_error", "detail": str(exc)}), 500
+
+    return jsonify({"captures": captures}), 200
+
+
+def _parse_capture_meta_entry(path):
+    """Parse a single .sigmf-meta file into the api_captures entry dict.
+
+    Uses json.load() so the .sigmf-data sibling is never touched.
+    Any failure produces an "unknown" entry with an "error" key.
+    """
+    entry = {
+        "filename": path.name,
+        "mode": "unknown",
+        "chunk_count": 0,
+        "core_frequency_hz": None,
+        "device": None,
+        "timestamp": _parse_capture_timestamp(path.name),
+    }
+
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            meta = json.load(fh)
+    except Exception as exc:  # broad, per spec: JSON, Unicode, OSError...
+        entry["error"] = f"could not read metadata: {exc}"
+        logger.warning("Capture metadata unreadable: %s — %s", path.name, exc)
+        return entry
+
+    try:
+        global_fields = meta.get("global", {}) if isinstance(meta, dict) else {}
+        captures = meta.get("captures", []) if isinstance(meta, dict) else []
+        capture_record = captures[0] if captures else {}
+        if not isinstance(capture_record, dict):
+            capture_record = {}
+
+        if "mimir:fingerprint_sequence" in global_fields:
+            sequence = global_fields["mimir:fingerprint_sequence"]
+            if isinstance(sequence, list):
+                entry["mode"] = "record"
+                entry["chunk_count"] = len(sequence)
+            else:
+                entry["error"] = "mimir:fingerprint_sequence is not a list"
+        elif "mimir:fingerprint" in global_fields:
+            entry["mode"] = "oneshot"
+            entry["chunk_count"] = 1
+
+        core_freq = capture_record.get("core:frequency")
+        if core_freq is not None:
+            try:
+                entry["core_frequency_hz"] = float(core_freq)
+            except (TypeError, ValueError):
+                entry["core_frequency_hz"] = None
+
+        device = global_fields.get("mimir:device_profile")
+        if device is not None:
+            entry["device"] = str(device)
+    except Exception as exc:
+        entry["error"] = f"metadata parse error: {exc}"
+        logger.warning("Capture metadata parse error: %s — %s", path.name, exc)
+
+    return entry
+
+
+def _parse_capture_timestamp(filename):
+    """Return an ISO timestamp string from a capture filename, or None."""
+    match = _CAPTURE_FILENAME_RE.search(filename)
+    if not match:
+        return None
+    date_part, time_part = match.group(2), match.group(3)
+    return (
+        f"{date_part[:4]}-{date_part[4:6]}-{date_part[6:8]}"
+        f"T{time_part[:2]}:{time_part[2:4]}:{time_part[4:6]}"
+    )
+
+
+def _capture_sort_key(entry):
+    """Sort key for api_captures: timestamp desc with filename fallback.
+
+    Entries without a timestamp are pushed to the end by using an
+    empty string for the primary key. Filename provides a stable
+    secondary sort.
+    """
+    return (entry.get("timestamp") or "", entry.get("filename") or "")
+
+
 @app.route("/vectordb")
 def vector_space_page():
     """Serve the React app for the isolated vector-space visualisation page.
@@ -1446,6 +1623,24 @@ def radar_page():
 
     Returns:
         Flask response: The index.html file for the RadarPage React app.
+    """
+    from flask import send_from_directory
+    return send_from_directory(
+        os.path.join(os.path.dirname(__file__), "static"),
+        "index.html"
+    )
+
+
+@app.route("/replay")
+def replay_page():
+    """Serve the React app for the replay page.
+
+    The /replay route is reached directly; the React entry point
+    then inspects window.location.pathname and renders ReplayPage
+    instead of the main dashboard App.
+
+    Returns:
+        Flask response: The index.html file for the ReplayPage React app.
     """
     from flask import send_from_directory
     return send_from_directory(

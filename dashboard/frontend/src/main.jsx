@@ -3,12 +3,15 @@ import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import VectorSpacePage from './pages/VectorSpacePage.jsx'
 import RadarPage from './pages/RadarPage.jsx'
+import ReplayPage from './pages/ReplayPage.jsx'
 import './theme/cyberpunk.css'
 
 const root = document.getElementById('root')
-const isVectorSpaceRoute = window.location.pathname === '/vectordb'
-const isRadarRoute = window.location.pathname === '/radar'
+const route = window.location.pathname
 
 ReactDOM.createRoot(root).render(
-  isVectorSpaceRoute ? <VectorSpacePage /> : isRadarRoute ? <RadarPage /> : <App />,
+  route === '/vectordb' ? <VectorSpacePage />
+    : route === '/radar' ? <RadarPage />
+    : route === '/replay' ? <ReplayPage />
+    : <App />
 )
