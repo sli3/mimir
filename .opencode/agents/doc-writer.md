@@ -17,9 +17,8 @@ permission:
     "ROADMAP.md": deny
     "docs/ROADMAP.md": deny
     "**/ROADMAP.md": deny
-    "**/*.py": deny
-    "tests/**": deny
-    ".opencode/**": deny
+    ".opencode/agents/**": deny
+    ".opencode/command/**": deny
     "opencode.json": deny
   bash: deny
   external_directory: deny
