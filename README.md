@@ -149,8 +149,8 @@ Full phase-by-phase history lives in [`docs/ROADMAP.md`](./docs/ROADMAP.md), whi
 single source of truth for phase status and test counts. This section shows
 only a quick-glance summary — update `docs/ROADMAP.md` first, then sync this block.
 
-**Current phase: 65 - Device-aware `current_band` resolution (Finding A) + `fingerprint_trace_key` forwarding for ADS-B burst-type bands (Finding B). `resolve_band_profile(band_key, device)` overlays `PLUTO_BAND_PROFILES` `signal_threshold_db`/`gain_db` onto `BAND_PROFILES` base; used at all three assignment sites in `scan.py`, `dashboard/server.py` `handle_set_focus`, and the module-level default. HackRF path byte-identical. `BAND_PROFILES["adsb"]` gained `fingerprint_trace_key: "psd_max_hold_db"`; `core/pipeline/scanner.py` `fingerprint_spectrum()` call now reads + forwards it. +7 tests, 0 regressions.**
-**Total: 1270 passing (893 pytest + 377 Vitest), 0 failures**
+**Current phase: 71 — "Raw Capture & Replay UI". Phase 71 ships `GET /api/captures` (new read-only listing endpoint in `dashboard/server.py`, peek-only over `.sigmf-meta` files, no `.sigmf-data` reads, malformed-file-tolerant), `useCaptures.js` + `useReplay.js` hooks, and `/replay` page (picker + results views over the existing Phase 70 `/api/replay` POST endpoint). Every record-mode chunk cell is clickable (matched AND mismatched — explicit design call, twice-corrected during planning). Frontend iterates `Object.entries(comparison.field_results)` rather than hardcoding the seven-field list.**
+**Total: 1387 passing (962 pytest + 425 Vitest), 0 failures**
 
 > **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector
 > store (`data/vectorstore/`) must be re-seeded after deploying this build.
