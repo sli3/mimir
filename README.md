@@ -271,8 +271,31 @@ PYTHONPATH=. python tools/capture_to_vectorstore.py --wipe
 > **Important:** Stop `scan.py` before running this tool. Both processes write to
 > `data/vectorstore/` and concurrent access may cause SQLite lock errors.
 
-Output: antenna selection prompt, per-band captures with progress and SNR margin
+ Output: antenna selection prompt, per-band captures with progress and SNR margin
 readings, summary of records stored, and a reminder to run `calibrate_thresholds.py`.
+
+---
+
+### `tools/replay_capture.py`
+
+**What it does:** Replays a saved SigMF capture (one-shot from the manual capture button or Record-mode from a recording session) through the fingerprint pipeline and compares the replayed measurements against the fingerprint saved at capture time. This is an offline calibration/diagnostic tool that answers "would this capture measure the same under the current band configuration?" without touching any hardware.
+
+**When to use it:** After changing BAND_PROFILES thresholds or gain settings, to verify whether previously-captured files still match. Also useful for diagnosing why a capture no longer classifies correctly after a configuration change.
+
+```bash
+# Replay a capture with default tolerance (0.1 dB)
+PYTHONPATH=. python tools/replay_capture.py data/captures/capture_98000000hz_20260819_120000.sigmf-meta
+
+# Replay with a different tolerance
+PYTHONPATH=. python tools/replay_capture.py path/to/capture.sigmf-data --tolerance-db 0.25
+
+# Save the structured result to JSON
+PYTHONPATH=. python tools/replay_capture.py path/to/capture.sigmf-meta --json result.json
+```
+
+Output: file metadata (frequency, sample rate, device profile), band resolution (which band profile matched, whether exact or nearest), per-chunk comparison (saved vs replayed fingerprint values with per-field match/mismatch), and a summary of matched/mismatched chunks.
+
+**Note:** The capture's mimir:device_profile field determines which band profile is used for replay. A Pluto ADS-B capture replays against PLUTO_BAND_PROFILES (e.g. 10.0 dB signal_threshold_db), while HackRF captures use the BAND_PROFILES base. The output shows band_resolution.profile_source to indicate which was applied.
 
 ---
 

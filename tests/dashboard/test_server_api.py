@@ -384,3 +384,159 @@ class TestApiVectorstorePoints:
             assert response1.status_code == response2.status_code == 200
             assert fake_store.get_all_embeddings_call_count == 1
 
+
+class TestApiReplay:
+    """Tests for POST /api/replay (Phase 70).
+
+    Each test builds a REAL SigMF capture in tmp_path via save_capture()
+    and monkeypatches dashboard.server._REPLAY_CAPTURES_DIR at it, so the
+    route's path containment resolves inside the temp directory.
+    """
+
+    _FREQ_HZ = 98_000_000
+    _SAMPLE_RATE_HZ = 2_000_000
+
+    def _build_capture(self, tmp_path, snr_bump_db=0.0):
+        """Write a real one-shot capture; optionally skew saved snr_db."""
+        import numpy as np
+        from core.pipeline.capture import save_capture
+        from core.pipeline.fft import compute_psd
+        from core.pipeline.features import fingerprint_spectrum
+        from dashboard.shared_state import BAND_PROFILES
+
+        rng = np.random.default_rng(42)
+        samples = (
+            rng.standard_normal(16_384) + 1j * rng.standard_normal(16_384)
+        ).astype(np.complex64)
+        profile = BAND_PROFILES["fm_broadcast"]
+        psd_result = compute_psd(samples, self._SAMPLE_RATE_HZ, self._FREQ_HZ)
+        fingerprint = fingerprint_spectrum(
+            psd_result,
+            signal_threshold_db=profile.get("signal_threshold_db"),
+            crop_half_width_hz=profile.get("crop_half_width_hz"),
+            burst_use_wide_window=profile.get("burst_use_wide_window", False),
+            trace_key=profile.get("fingerprint_trace_key", "psd_db"),
+        )
+        if snr_bump_db:
+            fingerprint["snr_db"] = float(fingerprint["snr_db"]) + snr_bump_db
+        return save_capture(
+            samples,
+            freq_hz=self._FREQ_HZ,
+            sample_rate_hz=self._SAMPLE_RATE_HZ,
+            output_dir=tmp_path,
+            fingerprint=fingerprint,
+        )
+
+    @pytest.fixture
+    def captures_dir(self, tmp_path, monkeypatch):
+        """Point the route's captures-dir anchor at tmp_path."""
+        monkeypatch.setattr(
+            "dashboard.server._REPLAY_CAPTURES_DIR", tmp_path.resolve()
+        )
+        return tmp_path
+
+    def test_success_with_matches(self, client, captures_dir):
+        """A capture saved with its true fingerprint replays to a 200
+        with the full structured result."""
+        meta_path = self._build_capture(captures_dir)
+        response = client.post("/api/replay", json={"path": meta_path.name})
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data["summary"] == {
+            "total_chunks": 1,
+            "matched_chunks": 1,
+            "mismatched_chunks": 0,
+        }
+        assert data["band_resolution"]["band_key"] == "fm_broadcast"
+        assert data["band_resolution"]["match"] == "exact"
+        assert data["file_metadata"]["fingerprint_field"] == "mimir:fingerprint"
+        chunk = data["per_chunk_results"][0]
+        assert chunk["comparison"]["all_match"] is True
+        assert "replayed_fingerprint" in chunk
+        assert "saved_fingerprint" in chunk
+
+    def test_success_with_mismatches_still_200(self, client, captures_dir):
+        """A 5 dB-skewed saved fingerprint is a finding, not a failure:
+        200 with mismatched_chunks == 1."""
+        meta_path = self._build_capture(captures_dir, snr_bump_db=5.0)
+        response = client.post("/api/replay", json={"path": meta_path.name})
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data["summary"]["mismatched_chunks"] == 1
+        chunk = data["per_chunk_results"][0]
+        assert chunk["comparison"]["all_match"] is False
+        assert chunk["comparison"]["field_results"]["snr_db"]["match"] is False
+
+    def test_malformed_file_returns_replay_failed(self, client, captures_dir):
+        """A corrupt .sigmf-meta returns 400 with error 'replay_failed'."""
+        bad = captures_dir / "capture_98000000hz_20260819_000000.sigmf-meta"
+        bad.write_text("not sigmf {{")
+        response = client.post("/api/replay", json={"path": bad.name})
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data["error"] == "replay_failed"
+        assert "detail" in data
+
+    def test_path_traversal_rejected(self, client, captures_dir):
+        """../ traversal escapes the captures dir and returns 400."""
+        response = client.post(
+            "/api/replay", json={"path": "../../etc/passwd"}
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data["error"] == "path_outside_captures_dir"
+
+    def test_absolute_path_outside_captures_rejected(self, client, captures_dir):
+        """An absolute path outside data/captures/ is rejected the same way."""
+        response = client.post("/api/replay", json={"path": "/etc/passwd"})
+        assert response.status_code == 400
+        assert response.get_json()["error"] == "path_outside_captures_dir"
+
+    def test_non_sigmf_suffix_rejected(self, client, captures_dir):
+        """A file inside the captures dir without the .sigmf-meta suffix
+        returns 400 with error 'not_a_sigmf_meta_file'."""
+        (captures_dir / "notes.txt").write_text("hello")
+        response = client.post("/api/replay", json={"path": "notes.txt"})
+        assert response.status_code == 400
+        assert response.get_json()["error"] == "not_a_sigmf_meta_file"
+
+    def test_missing_path_key_rejected(self, client, captures_dir):
+        """A body without 'path' returns 400 with error 'invalid_path'."""
+        response = client.post("/api/replay", json={})
+        assert response.status_code == 400
+        assert response.get_json()["error"] == "invalid_path"
+
+    def test_non_object_body_rejected(self, client, captures_dir):
+        """A non-JSON-object body returns 400 with error 'invalid_body'."""
+        response = client.post(
+            "/api/replay",
+            data="not json at all",
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        assert response.get_json()["error"] == "invalid_body"
+
+    def test_missing_file_returns_404(self, client, captures_dir):
+        """A well-formed path naming a nonexistent file returns 404."""
+        response = client.post(
+            "/api/replay", json={"path": "nope.sigmf-meta"}
+        )
+        assert response.status_code == 404
+        assert response.get_json()["error"] == "file_not_found"
+
+    def test_concurrent_replay_returns_503(self, client, captures_dir):
+        """While the replay lock is held, a second caller gets a
+        structured 503 rather than queuing behind the first replay."""
+        from core.pipeline.replay import REPLAY_LOCK
+
+        meta_path = self._build_capture(captures_dir)
+        assert REPLAY_LOCK.acquire(blocking=False)
+        try:
+            response = client.post("/api/replay", json={"path": meta_path.name})
+        finally:
+            REPLAY_LOCK.release()
+        assert response.status_code == 503
+        data = response.get_json()
+        assert data["error"] == "busy"
+        assert "detail" in data
+
