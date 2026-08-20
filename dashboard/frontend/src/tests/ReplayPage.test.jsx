@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import React from 'react'
 
-import ReplayPage from '../pages/ReplayPage.jsx'
+import ReplayPage, { burstIntensity } from '../pages/ReplayPage.jsx'
 
 const BASE_REPLAY_RESULT = {
   file_metadata: {
@@ -39,13 +39,13 @@ function buildFieldResults(overrides = {}) {
   }
 }
 
-function buildOneShotResult(overrides = {}) {
+function buildOneShotResult(overrides = {}, replayedFingerprint = {}) {
   return {
     ...BASE_REPLAY_RESULT,
     summary: { total_chunks: 1, matched_chunks: 1, mismatched_chunks: 0 },
     per_chunk_results: [
       {
-        replayed_fingerprint: {},
+        replayed_fingerprint: replayedFingerprint,
         saved_fingerprint: {},
         comparison: {
           tolerance_db: 0.1,
@@ -58,11 +58,12 @@ function buildOneShotResult(overrides = {}) {
   }
 }
 
-function buildRecordResult(chunks = 5, mismatchIndex = -1) {
+function buildRecordResult(chunks = 5, mismatchIndex = -1, burstOverrides = {}) {
   const perChunkResults = Array.from({ length: chunks }, (_, idx) => {
     const allMatch = idx !== mismatchIndex
+    const burst = burstOverrides[idx] ?? {}
     return {
-      replayed_fingerprint: {},
+      replayed_fingerprint: burst,
       saved_fingerprint: {},
       sample_start: idx * 16384,
       sample_count: 16384,
@@ -104,14 +105,20 @@ function mockFetchCaptures(captures = []) {
   )
 }
 
-function mockFetchReplay(result, status = 200) {
-  return vi.fn((_, opts) =>
-    Promise.resolve({
-      ok: status >= 200 && status < 300,
-      status,
-      json: () => Promise.resolve(result),
+function mockFetchForCaptureAndReplay(captureEntry, replayResult) {
+  return vi.fn((url) => {
+    if (url === '/api/captures') {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ captures: [captureEntry] }),
+      })
+    }
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(replayResult),
     })
-  )
+  })
 }
 
 async function selectFirstCapture() {
@@ -602,5 +609,162 @@ describe('ReplayPage back navigation and failures', () => {
     expect(screen.getByTestId('replay-failure')).toHaveTextContent(
       'Could not reach replay server'
     )
+  })
+})
+
+describe('ReplayPage burst fade overlay', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    document.body.className = ''
+  })
+
+  const RECORD_CAPTURE_ENTRY = {
+    filename: 'capture_98000000hz_20260819_120000.sigmf-meta',
+    mode: 'record',
+    chunk_count: 1,
+    core_frequency_hz: 98_000_000,
+    device: 'hackrf',
+    timestamp: '2026-08-19T12:00:00',
+  }
+
+  const ONESHOT_CAPTURE_ENTRY = {
+    filename: 'capture_98000000hz_20260819_120000.sigmf-meta',
+    mode: 'oneshot',
+    chunk_count: 1,
+    core_frequency_hz: 98_000_000,
+    device: 'hackrf',
+    timestamp: '2026-08-19T12:00:00',
+  }
+
+  describe('burstIntensity()', () => {
+    it('returns 0 at or below the 6.0 dB threshold', () => {
+      expect(burstIntensity(6.0)).toBe(0)
+      expect(burstIntensity(0.0)).toBe(0)
+      expect(burstIntensity(-5.0)).toBe(0)
+    })
+
+    it('returns 1 at or above the 11.27 dB empirical ceiling', () => {
+      expect(burstIntensity(11.27)).toBe(1)
+      expect(burstIntensity(15.0)).toBe(1)
+      expect(burstIntensity(20.0)).toBe(1)
+    })
+
+    it('returns the linear midpoint at 8.635 dB', () => {
+      expect(burstIntensity(8.635)).toBeCloseTo(0.5, 9)
+    })
+
+    it('returns 0 for non-finite or negative inputs', () => {
+      expect(burstIntensity(undefined)).toBe(0)
+      expect(burstIntensity(null)).toBe(0)
+      expect(burstIntensity(NaN)).toBe(0)
+      expect(burstIntensity(Infinity)).toBe(0)
+      expect(burstIntensity(-Infinity)).toBe(0)
+      expect(burstIntensity(-2.6)).toBe(0)
+    })
+  })
+
+  it('RecordResult matched chunk with no burst renders pure green background', async () => {
+    const result = buildRecordResult(1)
+    vi.stubGlobal('fetch', mockFetchForCaptureAndReplay(RECORD_CAPTURE_ENTRY, result))
+    render(<ReplayPage />)
+    await waitFor(() => expect(screen.getByTestId('captures-list')).toBeInTheDocument())
+    await selectFirstCapture()
+    await waitFor(() => expect(screen.getByTestId('replay-record-result')).toBeInTheDocument())
+    const cell = screen.getByTestId('replay-chunk-cell-0')
+    expect(cell.style.backgroundColor).toBe('var(--neon-green)')
+    expect(cell.style.boxShadow).toBeFalsy()
+  })
+
+  it('RecordResult matched chunk with high burst renders an amber-tinged background', async () => {
+    const result = buildRecordResult(1, -1, { 0: { is_burst: true, burst_excess_db: 11.27 } })
+    vi.stubGlobal('fetch', mockFetchForCaptureAndReplay(RECORD_CAPTURE_ENTRY, result))
+    render(<ReplayPage />)
+    await waitFor(() => expect(screen.getByTestId('captures-list')).toBeInTheDocument())
+    await selectFirstCapture()
+    await waitFor(() => expect(screen.getByTestId('replay-record-result')).toBeInTheDocument())
+    const cell = screen.getByTestId('replay-chunk-cell-0')
+    expect(cell.style.backgroundColor).not.toBe('var(--neon-green)')
+    expect(cell.style.backgroundColor).toBe('var(--neon-amber)')
+  })
+
+  it('RecordResult matched chunk at half intensity renders the interpolated rgb colour', async () => {
+    const result = buildRecordResult(1, -1, { 0: { is_burst: true, burst_excess_db: 8.635 } })
+    vi.stubGlobal('fetch', mockFetchForCaptureAndReplay(RECORD_CAPTURE_ENTRY, result))
+    render(<ReplayPage />)
+    await waitFor(() => expect(screen.getByTestId('captures-list')).toBeInTheDocument())
+    await selectFirstCapture()
+    await waitFor(() => expect(screen.getByTestId('replay-record-result')).toBeInTheDocument())
+    const cell = screen.getByTestId('replay-chunk-cell-0')
+    // interpolateBurstColour() at t=0.5:
+    // r = round(0 * 0.5 + 255 * 0.5) = 128
+    // g = round(255 * 0.5 + 204 * 0.5) = 230
+    // b = round(136 * 0.5 + 0 * 0.5) = 68
+    expect(cell.style.backgroundColor).toBe('rgb(128, 230, 68)')
+    expect(cell.style.boxShadow).toBeFalsy()
+  })
+
+  it('RecordResult mismatched chunk with no burst renders solid red and no ring', async () => {
+    const result = buildRecordResult(1, 0)
+    vi.stubGlobal('fetch', mockFetchForCaptureAndReplay(RECORD_CAPTURE_ENTRY, result))
+    render(<ReplayPage />)
+    await waitFor(() => expect(screen.getByTestId('captures-list')).toBeInTheDocument())
+    await selectFirstCapture()
+    await waitFor(() => expect(screen.getByTestId('replay-record-result')).toBeInTheDocument())
+    const cell = screen.getByTestId('replay-chunk-cell-0')
+    expect(cell.style.backgroundColor).toBe('var(--neon-red)')
+    expect(cell.style.boxShadow).toBeFalsy()
+  })
+
+  it('RecordResult mismatched chunk with high burst renders red with an amber ring', async () => {
+    const result = buildRecordResult(1, 0, { 0: { is_burst: true, burst_excess_db: 11.27 } })
+    vi.stubGlobal('fetch', mockFetchForCaptureAndReplay(RECORD_CAPTURE_ENTRY, result))
+    render(<ReplayPage />)
+    await waitFor(() => expect(screen.getByTestId('captures-list')).toBeInTheDocument())
+    await selectFirstCapture()
+    await waitFor(() => expect(screen.getByTestId('replay-record-result')).toBeInTheDocument())
+    const cell = screen.getByTestId('replay-chunk-cell-0')
+    expect(cell.style.backgroundColor).toBe('var(--neon-red)')
+    expect(cell.style.boxShadow).toContain('var(--neon-amber)')
+  })
+
+  it('OneShotResult with is_burst=false does not render a burst badge', async () => {
+    vi.stubGlobal('fetch', mockFetchForCaptureAndReplay(ONESHOT_CAPTURE_ENTRY, buildOneShotResult()))
+    render(<ReplayPage />)
+    await waitFor(() => expect(screen.getByTestId('captures-list')).toBeInTheDocument())
+    await selectFirstCapture()
+    await waitFor(() => expect(screen.getByTestId('replay-oneshot-result')).toBeInTheDocument())
+    expect(screen.queryByTestId('replay-burst-badge')).not.toBeInTheDocument()
+  })
+
+  it('OneShotResult with is_burst=true renders the formatted badge', async () => {
+    const result = buildOneShotResult({}, { is_burst: true, burst_excess_db: 8.635 })
+    vi.stubGlobal('fetch', mockFetchForCaptureAndReplay(ONESHOT_CAPTURE_ENTRY, result))
+    render(<ReplayPage />)
+    await waitFor(() => expect(screen.getByTestId('captures-list')).toBeInTheDocument())
+    await selectFirstCapture()
+    await waitFor(() => expect(screen.getByTestId('replay-oneshot-result')).toBeInTheDocument())
+    const badge = screen.getByTestId('replay-burst-badge')
+    expect(badge).toHaveTextContent('BURST')
+    expect(badge).toHaveTextContent('8.6dB')
+  })
+
+  it('OneShotResult badge rounds 11.27 dB to one decimal place', async () => {
+    const result = buildOneShotResult({}, { is_burst: true, burst_excess_db: 11.27 })
+    vi.stubGlobal('fetch', mockFetchForCaptureAndReplay(ONESHOT_CAPTURE_ENTRY, result))
+    render(<ReplayPage />)
+    await waitFor(() => expect(screen.getByTestId('captures-list')).toBeInTheDocument())
+    await selectFirstCapture()
+    await waitFor(() => expect(screen.getByTestId('replay-oneshot-result')).toBeInTheDocument())
+    expect(screen.getByTestId('replay-burst-badge')).toHaveTextContent('BURST 11.3dB')
+  })
+
+  it('OneShotResult badge falls back to ---dB when burst_excess_db is non-finite', async () => {
+    const result = buildOneShotResult({}, { is_burst: true, burst_excess_db: NaN })
+    vi.stubGlobal('fetch', mockFetchForCaptureAndReplay(ONESHOT_CAPTURE_ENTRY, result))
+    render(<ReplayPage />)
+    await waitFor(() => expect(screen.getByTestId('captures-list')).toBeInTheDocument())
+    await selectFirstCapture()
+    await waitFor(() => expect(screen.getByTestId('replay-oneshot-result')).toBeInTheDocument())
+    expect(screen.getByTestId('replay-burst-badge')).toHaveTextContent('BURST ---dB')
   })
 })

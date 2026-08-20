@@ -235,3 +235,18 @@ body.replay-page::before {
   color: var(--neon-amber);
   letter-spacing: 1px;
 }
+
+.replay-burst-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  margin-left: 8px;
+  background: color-mix(in srgb, var(--neon-amber) 15%, transparent);
+  border: 1px solid var(--neon-amber);
+  border-radius: 999px;
+  color: var(--neon-amber);
+  font-family: var(--font-data);
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}

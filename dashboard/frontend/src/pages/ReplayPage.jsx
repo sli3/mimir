@@ -39,6 +39,58 @@ function formatSignedDelta(value, decimals = 2) {
   return `${sign}${Math.abs(num).toFixed(decimals)}`
 }
 
+// BURST_MARGIN_DB mirrors core/pipeline/features.py:BURST_MARGIN_DB
+// (paired via tests/dashboard/test_replay_burst_thresholds.py).
+// MAX_OBSERVED_EXCESS_DB is empirical — observed 11.27 dB ceiling across
+// two independent ADS-B captures in Phase 72 (-2.6 to 11.3 dB range).
+// Recalibrate after field sessions that move the ceiling.
+const BURST_MARGIN_DB = 6.0
+const MAX_OBSERVED_EXCESS_DB = 11.27
+
+// RGB tuples mirror --neon-green / --neon-amber in theme/cyberpunk.css:15-16.
+// Used for sRGB interpolation between t=0 and t=1.
+const NEON_GREEN_RGB = [0, 255, 136]
+const NEON_AMBER_RGB = [255, 204, 0]
+
+/**
+ * Map a burst_excess_db value to a 0-1 intensity for the visual overlay.
+ *
+ * 0 means "at or below the backend burst threshold" (no visual change).
+ * 1 means "at the empirical ceiling observed across ADS-B captures".
+ * Non-finite or negative values clamp to 0 so the UI never renders NaN.
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function burstIntensity(burstExcessDb) {
+  if (!Number.isFinite(burstExcessDb) || burstExcessDb < 0) return 0
+  const t = (burstExcessDb - BURST_MARGIN_DB) / (MAX_OBSERVED_EXCESS_DB - BURST_MARGIN_DB)
+  return Math.max(0, Math.min(1, t))
+}
+
+/**
+ * Interpolate between neon-green and neon-amber based on burst intensity t.
+ * At t=0 the exact CSS variable is returned so regression tests and the
+ * rendered colour both match today's pure-green cells byte-for-byte.
+ */
+function interpolateBurstColour(t) {
+  if (t <= 0) return 'var(--neon-green)'
+  if (t >= 1) return 'var(--neon-amber)'
+  const r = Math.round(NEON_GREEN_RGB[0] * (1 - t) + NEON_AMBER_RGB[0] * t)
+  const g = Math.round(NEON_GREEN_RGB[1] * (1 - t) + NEON_AMBER_RGB[1] * t)
+  const b = Math.round(NEON_GREEN_RGB[2] * (1 - t) + NEON_AMBER_RGB[2] * t)
+  return `rgb(${r}, ${g}, ${b})`
+}
+
+/**
+ * Build a box-shadow ring for mismatched cells that intensifies with t.
+ * At t=0 no shadow is emitted, preserving the pre-feature red fill exactly.
+ */
+function burstRingStyle(t) {
+  if (t <= 0) return {}
+  return {
+    boxShadow: `0 0 0 ${2 + 3 * t}px var(--neon-amber), 0 0 ${6 + 8 * t}px ${1 + 2 * t}px var(--neon-amber)`,
+  }
+}
+
 /**
  * Render one row of the seven-field comparison. Does NOT hardcode the
  * field names - it iterates the per-chunk field_results dict supplied by
@@ -171,6 +223,12 @@ function OneShotResult({ result }) {
   const chunk = result.per_chunk_results[0]
   const { comparison } = chunk
   const allMatch = comparison.all_match
+  const fp = chunk.replayed_fingerprint ?? {}
+  const isBurst = fp.is_burst === true
+  const burstExcessDb = fp.burst_excess_db
+  const burstText = Number.isFinite(burstExcessDb) && burstExcessDb >= 0
+    ? `${Number(burstExcessDb).toFixed(1)}dB`
+    : '---dB'
 
   return (
     <div className="replay-result-body" data-testid="replay-oneshot-result">
@@ -182,6 +240,11 @@ function OneShotResult({ result }) {
         <span className="replay-status-label">
           {allMatch ? 'EXACT MATCH' : 'MISMATCH'}
         </span>
+        {isBurst && (
+          <span className="replay-burst-badge" data-testid="replay-burst-badge">
+            BURST {burstText}
+          </span>
+        )}
       </div>
       <div className="replay-fields">
         {Object.entries(comparison.field_results).map(([name, field]) => (
@@ -216,6 +279,12 @@ function RecordResult({ result }) {
       <div className="replay-chunk-grid">
         {chunks.map((chunk, idx) => {
           const matched = chunk.comparison.all_match
+          const fp = chunk.replayed_fingerprint ?? {}
+          const t = burstIntensity(fp.burst_excess_db)
+          const cellStyle = {
+            backgroundColor: matched ? interpolateBurstColour(t) : 'var(--neon-red)',
+          }
+          const ringStyle = !matched ? burstRingStyle(t) : {}
           return (
             <button
               type="button"
@@ -224,9 +293,7 @@ function RecordResult({ result }) {
               data-testid={`replay-chunk-cell-${idx}`}
               onClick={() => setSelectedIndex(idx)}
               title={`Chunk ${idx + 1}: ${matched ? 'matched' : 'mismatched'}`}
-              style={{
-                backgroundColor: matched ? 'var(--neon-green)' : 'var(--neon-red)',
-              }}
+              style={{ ...cellStyle, ...ringStyle }}
             >
               {idx + 1}
             </button>
