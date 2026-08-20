@@ -22,6 +22,24 @@ permission:
   bash:
     "*": deny
     "mkdir -p .wiki-drafts": allow
+    # BUGFIX (2026-08-20): the single top-level mkdir above cannot create
+    # nested vault-category subfolders (e.g. .wiki-drafts/01 - Features/
+    # Dashboard). Phase 73's wiki-handoff needed exactly that and the
+    # write silently failed - the agent had edit permission for the
+    # target path but no bash command capable of creating the directory
+    # it lived in. Explicitly allowlisted here, one entry per real
+    # top-level vault category (mirrors the mimir-wiki Obsidian vault
+    # structure: 01 - Features/, 02 - Knowledge/, 99 - Meta/) rather than
+    # a bare wildcard, so directory creation stays auditable and cannot
+    # be used to create arbitrary paths outside the known vault layout.
+    # Add a new line here if a new top-level vault category is ever
+    # introduced.
+    "mkdir -p .wiki-drafts/01 - Features": allow
+    "mkdir -p .wiki-drafts/01 - Features/*": allow
+    "mkdir -p .wiki-drafts/02 - Knowledge": allow
+    "mkdir -p .wiki-drafts/02 - Knowledge/*": allow
+    "mkdir -p .wiki-drafts/99 - Meta": allow
+    "mkdir -p .wiki-drafts/99 - Meta/*": allow
   webfetch: deny
   websearch: deny
   external_directory: deny
