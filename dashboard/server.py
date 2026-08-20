@@ -30,6 +30,7 @@ CONSTRAINTS
 """
 
 import json
+import math
 import logging
 import os
 import re
@@ -1311,6 +1312,8 @@ def api_replay():
                                        data/captures/
         400 not_a_sigmf_meta_file    — suffix is not .sigmf-meta
         400 invalid_tolerance        — tolerance_db not coercible to float
+        400 tolerance_out_of_range   — tolerance_db is NaN, infinite,
+                                       negative, or a bool
         404 file_not_found           — no such file inside data/captures/
         400 replay_failed            — ReplayFileError (malformed file,
                                        no fingerprint field, resource-cap
@@ -1383,13 +1386,35 @@ def api_replay():
         return jsonify(
             {"error": "file_not_found", "detail": str(resolved.name)}
         ), 404
+    # tolerance_db must be a real number: not a bool (float(True)==1.0
+    # would silently pass the isfinite/>=0 check below), not NaN or
+    # +-inf, and not negative. The original invalid_tolerance path
+    # (non-numeric input) is preserved byte-identical; this ADDS two
+    # distinct guards for the cases that float() coerces without
+    # raising. See LOW-03 in AGENTS.md.
+    raw_tolerance = payload.get("tolerance_db", 0.1)
+    if isinstance(raw_tolerance, bool):
+        # bool must be rejected BEFORE float() — float(True) is 1.0
+        return jsonify(
+            {
+                "error": "tolerance_out_of_range",
+                "detail": "tolerance_db must be finite and non-negative",
+            }
+        ), 400
     try:
-        tolerance_db = float(payload.get("tolerance_db", 0.1))
+        tolerance_db = float(raw_tolerance)
     except (TypeError, ValueError):
         return jsonify(
             {
                 "error": "invalid_tolerance",
                 "detail": "tolerance_db must be a number",
+            }
+        ), 400
+    if not math.isfinite(tolerance_db) or tolerance_db < 0:
+        return jsonify(
+            {
+                "error": "tolerance_out_of_range",
+                "detail": "tolerance_db must be finite and non-negative",
             }
         ), 400
 
@@ -1783,8 +1808,6 @@ def api_vectorstore_points():
 # Phase 70 finalise review. They are not blocking issues but should be addressed in
 # future phases.
 
-# LOW-03: tolerance_db unvalidated for NaN/negative/bool at both CLI and route entry
-#     points — add math.isfinite(tolerance_db) and tolerance_db >= 0 check, own phase.
 # LOW-04: NaN serialisation is non-strict JSON; +-inf not covered by the NaN policy
 #     — sanitize non-finite values to null at the result boundary, own phase.
 # ADVISORY: REPLAY_LOCK is process-wide only; the CLI and the API route run as

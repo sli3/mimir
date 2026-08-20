@@ -748,3 +748,83 @@ class TestApiReplay:
         assert data["error"] == "busy"
         assert "detail" in data
 
+    def test_invalid_tolerance_returns_invalid_tolerance(self, client, captures_dir):
+        """Regression: the original invalid_tolerance path (non-numeric
+        input) is unchanged by Fix 2. tolerance_db='banana' returns 400
+        with error 'invalid_tolerance'."""
+        meta_path = self._build_capture(captures_dir)
+        response = client.post(
+            "/api/replay",
+            json={"path": meta_path.name, "tolerance_db": "banana"},
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data["error"] == "invalid_tolerance"
+
+    def test_nan_tolerance_returns_tolerance_out_of_range(self, client, captures_dir):
+        """LOW-03: NaN tolerance_db is finite-check-rejected. JSON has no
+        native NaN literal, but stdlib json.dumps with allow_nan=True
+        (default) emits bare 'NaN', which Flask's parser accepts back.
+        See tests/dashboard/test_radar_reason_endpoint.py for precedent."""
+        import math as _math
+        meta_path = self._build_capture(captures_dir)
+        response = client.post(
+            "/api/replay",
+            json={"path": meta_path.name, "tolerance_db": _math.nan},
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data["error"] == "tolerance_out_of_range"
+
+    def test_negative_tolerance_returns_tolerance_out_of_range(self, client, captures_dir):
+        """LOW-03: negative tolerance_db is range-check-rejected."""
+        meta_path = self._build_capture(captures_dir)
+        response = client.post(
+            "/api/replay",
+            json={"path": meta_path.name, "tolerance_db": -1},
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data["error"] == "tolerance_out_of_range"
+
+    def test_bool_true_tolerance_returns_tolerance_out_of_range(self, client, captures_dir):
+        """LOW-03: bool tolerance_db is rejected BEFORE float() coercion.
+        float(True)==1.0 would silently pass the isfinite/>=0 check; the
+        isinstance(raw, bool) guard catches this."""
+        meta_path = self._build_capture(captures_dir)
+        response = client.post(
+            "/api/replay",
+            json={"path": meta_path.name, "tolerance_db": True},
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data["error"] == "tolerance_out_of_range"
+
+    def test_bool_false_tolerance_returns_tolerance_out_of_range(self, client, captures_dir):
+        """LOW-03: bool False tolerance_db is also rejected before float()
+        coercion. float(False)==0.0 would pass the isfinite/>=0 guard, but
+        the isinstance(raw, bool) guard catches it symmetrically."""
+        meta_path = self._build_capture(captures_dir)
+        response = client.post(
+            "/api/replay",
+            json={"path": meta_path.name, "tolerance_db": False},
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data["error"] == "tolerance_out_of_range"
+
+    def test_infinity_tolerance_returns_tolerance_out_of_range(self, client, captures_dir):
+        """LOW-03: +Infinity tolerance_db is finite-check-rejected. Mirrors
+        the NaN case via the same math.isfinite guard. Optional but free
+        coverage given the existing NaN precedent in
+        tests/dashboard/test_radar_reason_endpoint.py."""
+        import math as _math
+        meta_path = self._build_capture(captures_dir)
+        response = client.post(
+            "/api/replay",
+            json={"path": meta_path.name, "tolerance_db": _math.inf},
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data["error"] == "tolerance_out_of_range"
+

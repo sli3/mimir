@@ -618,3 +618,13 @@ class TestComparisonPolicy:
         comparison = _compare_fingerprints(saved, replayed, 0.1)
         assert comparison["field_results"]["spectral_flatness"]["match"] is False
         assert comparison["all_match"] is False
+
+
+def test_saved_measurement_keys_is_identity_import_of_fingerprint_metadata_keys():
+    """LOW-02: SAVED_MEASUREMENT_KEYS must be a real import alias, not a
+    second independent tuple that happens to match. Identity (IS, not
+    ==) is the only check that distinguishes the two cases."""
+    from core.pipeline.capture import _FINGERPRINT_METADATA_KEYS
+    from core.pipeline.replay import SAVED_MEASUREMENT_KEYS
+
+    assert SAVED_MEASUREMENT_KEYS is _FINGERPRINT_METADATA_KEYS

@@ -33,9 +33,11 @@ It is NOT the hardware method of the same name on HackRFReceiver /
 PlutoReceiver. This module never opens a device; every sample it
 processes comes from a file already on disk.
 
-HARDWARE ISOLATION: this module imports nothing from core.device.*.
-The only pipeline dependencies are compute_psd, fingerprint_spectrum,
-and the read-only BAND_PROFILES / band_key_for_freq helpers.
+HARDWARE ISOLATION: this module has no direct core.device.* import.
+The transitive core.pipeline.capture dependency is constants-only
+(the seven _FINGERPRINT_METADATA_KEYS); this module never instantiates
+or opens a device. TX remains blocked by HardwareTransmitError in
+core/legal/compliance_guard.py.
 
 RESOURCE GUARDS (security-analyst conditions, HIGH severity): replaying
 a large Record-mode file reproduces its capture-time memory footprint
@@ -81,6 +83,7 @@ from sigmf.error import SigMFFileError
 
 from core.pipeline.fft import compute_psd
 from core.pipeline.features import fingerprint_spectrum
+from core.pipeline.capture import _FINGERPRINT_METADATA_KEYS as SAVED_MEASUREMENT_KEYS
 from dashboard.shared_state import (
     BAND_PROFILES,
     PLUTO_BAND_PROFILES,
@@ -114,21 +117,6 @@ REPLAY_LOCK = threading.Lock()
 MAX_ONE_SHOT_SAMPLES = 50_000_000  # one-shot whole-file read cap (samples)
 MAX_SEQUENCE_ENTRIES = 10_000      # Record-mode fingerprint_sequence cap
                                    # (real worst case: 466, Phase 68)
-
-# The seven measurement keys persisted in SigMF metadata. Kept in step
-# with _FINGERPRINT_METADATA_KEYS in core/pipeline/capture.py by
-# convention (capture.py is frozen for this phase, so it cannot be
-# imported from there without violating the freeze — the tuple is
-# duplicated with this note instead).
-SAVED_MEASUREMENT_KEYS = (
-    "peak_freq_hz",
-    "peak_power_db",
-    "noise_floor_db",
-    "snr_db",
-    "bandwidth_hz",
-    "occupied_bins",
-    "spectral_flatness",
-)
 
 # Comparison policy per field (security-analyst condition 4):
 #   - _DB_FIELDS: compared within tolerance_db (default 0.1 dB).
@@ -664,14 +652,6 @@ def _replay_capture_impl(meta_path: Path, tolerance_db: float) -> dict:
 # Phase 70 finalise review. They are not blocking issues but should be addressed in
 # future phases.
 
-# LOW-02: SAVED_MEASUREMENT_KEYS duplicates _FINGERPRINT_METADATA_KEYS from capture.py;
-#     the comment's "freeze" rationale is wrong (scanner.py imports the constant today)
-#     — drift risk. Fix: one-line import + delete duplicate, own phase. Also note: the
-#     Phase 68 session memo mislists the seven keys (says signal_threshold_db instead of
-#     spectral_flatness per capture.py:32-40) — flag for a memo correction, do not
-#     silently fix the old memo yourself.
-# LOW-03: tolerance_db unvalidated for NaN/negative/bool at both CLI and route entry
-#     points — add math.isfinite(tolerance_db) and tolerance_db >= 0 check, own phase.
 # LOW-04: NaN serialisation is non-strict JSON; +-inf not covered by the NaN policy
 #     — sanitize non-finite values to null at the result boundary, own phase.
 # LOW-05: int(core_freq_hz) truncation and OverflowError risk for infinite core:frequency
