@@ -325,7 +325,7 @@ function ResultsView({ replayState, onBack }) {
  * Passive receive display only - no TX capability.
  */
 export default function ReplayPage() {
-  const { state: capturesState } = useCaptures()
+  const { state: capturesState, refetch: refetchCaptures } = useCaptures()
   const { state: replayState, replay } = useReplay()
   const [selectedFilename, setSelectedFilename] = useState(null)
 
@@ -346,6 +346,7 @@ export default function ReplayPage() {
 
   const handleBack = () => {
     setSelectedFilename(null)
+    refetchCaptures()
   }
 
   return (

@@ -470,7 +470,43 @@ describe('ReplayPage back navigation and failures', () => {
       fireEvent.click(screen.getByTestId('replay-back-link'))
     })
     await waitFor(() => expect(screen.getByTestId('captures-list')).toBeInTheDocument())
-    expect(fetchMock).toHaveBeenCalledTimes(2) // captures + replay, not a page reload
+    expect(fetchMock).toHaveBeenCalledTimes(3) // captures + replay + refetch-captures, no page reload
+  })
+
+  it('refetches /api/captures when BACK is pressed', async () => {
+    const fetchMock = vi.fn((url) => {
+      if (url === '/api/captures') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            captures: [{
+              filename: 'capture_98000000hz_20260819_120000.sigmf-meta',
+              mode: 'oneshot',
+              chunk_count: 1,
+              core_frequency_hz: 98_000_000,
+              device: 'hackrf',
+              timestamp: '2026-08-19T12:00:00',
+            }],
+          }),
+        })
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(buildOneShotResult()),
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<ReplayPage />)
+    await waitFor(() => expect(screen.getByTestId('captures-list')).toBeInTheDocument())
+    await selectFirstCapture()
+    await waitFor(() => expect(screen.getByTestId('replay-oneshot-result')).toBeInTheDocument())
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('replay-back-link'))
+    })
+    await waitFor(() => expect(screen.getByTestId('captures-list')).toBeInTheDocument())
+    const capturesCalls = fetchMock.mock.calls.filter(([url]) => url === '/api/captures')
+    expect(capturesCalls.length).toBe(2)
   })
 
   it('maps busy (503) to the specific retry message', async () => {
@@ -502,7 +538,7 @@ describe('ReplayPage back navigation and failures', () => {
     await selectFirstCapture()
     await waitFor(() => expect(screen.getByTestId('replay-failure')).toBeInTheDocument())
     expect(screen.getByTestId('replay-failure')).toHaveTextContent(
-      'Another replay is in progress; try again in a moment'
+      'Previous replay is still finishing on the server — try again in a moment'
     )
   })
 

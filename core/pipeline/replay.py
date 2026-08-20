@@ -517,147 +517,146 @@ def _replay_capture_impl(meta_path: Path, tolerance_db: float) -> dict:
     ReplayFileError (HTTP 400 at the /api/replay route), never as a raw
     library traceback.
     """
-    if True:
-        meta = _load_sigmf(Path(meta_path))
-        try:
-            captures = meta.get_captures()
-            core_freq = captures[0].get("core:frequency") if captures else None
-            sample_rate = meta.sample_rate
-            datatype = meta.get_global_field("core:datatype")
-            if core_freq is None:
-                raise ReplayFileError(
-                    "SigMF metadata has no core:frequency capture field — "
-                    "cannot resolve a band profile"
-                )
-            core_freq = float(core_freq)
-            sample_rate = float(sample_rate)
+    meta = _load_sigmf(Path(meta_path))
+    try:
+        captures = meta.get_captures()
+        core_freq = captures[0].get("core:frequency") if captures else None
+        sample_rate = meta.sample_rate
+        datatype = meta.get_global_field("core:datatype")
+        if core_freq is None:
+            raise ReplayFileError(
+                "SigMF metadata has no core:frequency capture field — "
+                "cannot resolve a band profile"
+            )
+        core_freq = float(core_freq)
+        sample_rate = float(sample_rate)
 
-            band_key, band_match = _resolve_band(core_freq)
-            if band_key is None:
-                # band_key_for_freq returned None — must be a typed error,
-                # never a BAND_PROFILES[None] KeyError.
-                raise ReplayFileError(
-                    f"could not resolve a BAND_PROFILES band for "
-                    f"{core_freq:.0f} Hz"
-                )
-
-            # The device the capture was recorded on decides which
-            # threshold set replay compares against, mirroring the live
-            # scan loop (whose current_band comes from
-            # resolve_band_profile). "hackrf" — and any unknown or empty
-            # device string, e.g. a hand-edited file — replays against
-            # the BAND_PROFILES base; "plutosdr" on a Pluto-supported
-            # band overlays PLUTO_BAND_PROFILES (e.g. ADS-B
-            # signal_threshold_db 10.0 dB, calibrated 2026-08-17) so a
-            # Pluto capture is compared against the same configuration
-            # that produced its saved fingerprint, not the HackRF base.
-            device = meta.get_global_field("mimir:device_profile") or "hackrf"
-            profile_source = (
-                "pluto_overlay"
-                if device == "plutosdr"
-                and PLUTO_BAND_PROFILES.get(band_key, {}).get("supported", False)
-                else "hackrf_base"
+        band_key, band_match = _resolve_band(core_freq)
+        if band_key is None:
+            # band_key_for_freq returned None — must be a typed error,
+            # never a BAND_PROFILES[None] KeyError.
+            raise ReplayFileError(
+                f"could not resolve a BAND_PROFILES band for "
+                f"{core_freq:.0f} Hz"
             )
 
-            # File-implied total sample count, computed by the SigMF
-            # library from core:datatype and the .sigmf-data file size.
-            total_samples = int(meta.sample_count or 0)
+        # The device the capture was recorded on decides which
+        # threshold set replay compares against, mirroring the live
+        # scan loop (whose current_band comes from
+        # resolve_band_profile). "hackrf" — and any unknown or empty
+        # device string, e.g. a hand-edited file — replays against
+        # the BAND_PROFILES base; "plutosdr" on a Pluto-supported
+        # band overlays PLUTO_BAND_PROFILES (e.g. ADS-B
+        # signal_threshold_db 10.0 dB, calibrated 2026-08-17) so a
+        # Pluto capture is compared against the same configuration
+        # that produced its saved fingerprint, not the HackRF base.
+        device = meta.get_global_field("mimir:device_profile") or "hackrf"
+        profile_source = (
+            "pluto_overlay"
+            if device == "plutosdr"
+            and PLUTO_BAND_PROFILES.get(band_key, {}).get("supported", False)
+            else "hackrf_base"
+        )
 
-            saved_single = meta.get_global_field("mimir:fingerprint")
-            saved_sequence = meta.get_global_field("mimir:fingerprint_sequence")
-            if saved_sequence is not None:
-                fingerprint_field = "mimir:fingerprint_sequence"
-            elif saved_single is not None:
-                fingerprint_field = "mimir:fingerprint"
-            else:
-                raise ReplayFileError(
-                    "SigMF file carries neither mimir:fingerprint nor "
-                    "mimir:fingerprint_sequence — nothing to compare against"
-                )
+        # File-implied total sample count, computed by the SigMF
+        # library from core:datatype and the .sigmf-data file size.
+        total_samples = int(meta.sample_count or 0)
 
-            per_chunk_results: list[dict] = []
+        saved_single = meta.get_global_field("mimir:fingerprint")
+        saved_sequence = meta.get_global_field("mimir:fingerprint_sequence")
+        if saved_sequence is not None:
+            fingerprint_field = "mimir:fingerprint_sequence"
+        elif saved_single is not None:
+            fingerprint_field = "mimir:fingerprint"
+        else:
+            raise ReplayFileError(
+                "SigMF file carries neither mimir:fingerprint nor "
+                "mimir:fingerprint_sequence — nothing to compare against"
+            )
 
-            if fingerprint_field == "mimir:fingerprint_sequence":
-                sequence = _validate_sequence(saved_sequence, total_samples)
-                for entry in sequence:
-                    # SigMFFile.read_samples — the FILE reader, not hardware.
-                    samples = meta.read_samples(
-                        start_index=entry["sample_start"],
-                        count=entry["sample_count"],
-                    )
-                    replayed = _fingerprint_samples(
-                        samples, sample_rate, core_freq, band_key, device
-                    )
-                    saved_keys = {k: entry[k] for k in SAVED_MEASUREMENT_KEYS}
-                    per_chunk_results.append({
-                        "replayed_fingerprint": replayed,
-                        "saved_fingerprint": saved_keys,
-                        "comparison": _compare_fingerprints(
-                            saved_keys, replayed, tolerance_db
-                        ),
-                        "sample_start": entry["sample_start"],
-                        "sample_count": entry["sample_count"],
-                        "timestamp_sec": entry["timestamp_sec"],
-                    })
-            else:
-                # One-shot path: the whole file is one scan cycle. Cap the
-                # whole-file read so a mislabelled Record-mode file cannot
-                # be slurped into memory.
-                if total_samples > MAX_ONE_SHOT_SAMPLES:
-                    raise ReplayFileError(
-                        f"one-shot replay refused: file implies "
-                        f"{total_samples} samples, exceeding the "
-                        f"{MAX_ONE_SHOT_SAMPLES}-sample cap (is this a "
-                        f"Record-mode file missing its fingerprint_sequence?)"
-                    )
-                saved_keys = _validate_measurement_keys(
-                    saved_single, "mimir:fingerprint"
-                )
-                saved_keys = {k: saved_single[k] for k in SAVED_MEASUREMENT_KEYS}
+        per_chunk_results: list[dict] = []
+
+        if fingerprint_field == "mimir:fingerprint_sequence":
+            sequence = _validate_sequence(saved_sequence, total_samples)
+            for entry in sequence:
                 # SigMFFile.read_samples — the FILE reader, not hardware.
-                samples = meta.read_samples(count=-1)
+                samples = meta.read_samples(
+                    start_index=entry["sample_start"],
+                    count=entry["sample_count"],
+                )
                 replayed = _fingerprint_samples(
                     samples, sample_rate, core_freq, band_key, device
                 )
+                saved_keys = {k: entry[k] for k in SAVED_MEASUREMENT_KEYS}
                 per_chunk_results.append({
                     "replayed_fingerprint": replayed,
                     "saved_fingerprint": saved_keys,
                     "comparison": _compare_fingerprints(
                         saved_keys, replayed, tolerance_db
                     ),
+                    "sample_start": entry["sample_start"],
+                    "sample_count": entry["sample_count"],
+                    "timestamp_sec": entry["timestamp_sec"],
                 })
-
-            matched = sum(
-                1 for r in per_chunk_results if r["comparison"]["all_match"]
+        else:
+            # One-shot path: the whole file is one scan cycle. Cap the
+            # whole-file read so a mislabelled Record-mode file cannot
+            # be slurped into memory.
+            if total_samples > MAX_ONE_SHOT_SAMPLES:
+                raise ReplayFileError(
+                    f"one-shot replay refused: file implies "
+                    f"{total_samples} samples, exceeding the "
+                    f"{MAX_ONE_SHOT_SAMPLES}-sample cap (is this a "
+                    f"Record-mode file missing its fingerprint_sequence?)"
+                )
+            saved_keys = _validate_measurement_keys(
+                saved_single, "mimir:fingerprint"
             )
-            return {
-                "file_metadata": {
-                    "path": str(meta_path),
-                    "core_frequency_hz": core_freq,
-                    "core_sample_rate_hz": sample_rate,
-                    "core_datatype": datatype,
-                    "mimir_device_profile": meta.get_global_field(
-                        "mimir:device_profile"
-                    ),
-                    "fingerprint_field": fingerprint_field,
-                },
-                "band_resolution": {
-                    "band_key": band_key,
-                    "match": band_match,
-                    "band_center_freq_hz": (
-                        BAND_PROFILES[band_key]["center_freq_hz"]
-                    ),
-                    "profile_source": profile_source,
-                },
-                "per_chunk_results": per_chunk_results,
-                "summary": {
-                    "total_chunks": len(per_chunk_results),
-                    "matched_chunks": matched,
-                    "mismatched_chunks": len(per_chunk_results) - matched,
-                },
-            }
-        except sigmf.error.SigMFError as exc:
-            raise ReplayFileError(f"sigmf library error: {exc}") from exc
+            saved_keys = {k: saved_single[k] for k in SAVED_MEASUREMENT_KEYS}
+            # SigMFFile.read_samples — the FILE reader, not hardware.
+            samples = meta.read_samples(count=-1)
+            replayed = _fingerprint_samples(
+                samples, sample_rate, core_freq, band_key, device
+            )
+            per_chunk_results.append({
+                "replayed_fingerprint": replayed,
+                "saved_fingerprint": saved_keys,
+                "comparison": _compare_fingerprints(
+                    saved_keys, replayed, tolerance_db
+                ),
+            })
+
+        matched = sum(
+            1 for r in per_chunk_results if r["comparison"]["all_match"]
+        )
+        return {
+            "file_metadata": {
+                "path": str(meta_path),
+                "core_frequency_hz": core_freq,
+                "core_sample_rate_hz": sample_rate,
+                "core_datatype": datatype,
+                "mimir_device_profile": meta.get_global_field(
+                    "mimir:device_profile"
+                ),
+                "fingerprint_field": fingerprint_field,
+            },
+            "band_resolution": {
+                "band_key": band_key,
+                "match": band_match,
+                "band_center_freq_hz": (
+                    BAND_PROFILES[band_key]["center_freq_hz"]
+                ),
+                "profile_source": profile_source,
+            },
+            "per_chunk_results": per_chunk_results,
+            "summary": {
+                "total_chunks": len(per_chunk_results),
+                "matched_chunks": matched,
+                "mismatched_chunks": len(per_chunk_results) - matched,
+            },
+        }
+    except sigmf.error.SigMFError as exc:
+        raise ReplayFileError(f"sigmf library error: {exc}") from exc
 
 
 # ── DEFERRED ITEMS (from Phase 70 dual code review) ───────────────────────────────
@@ -665,7 +664,6 @@ def _replay_capture_impl(meta_path: Path, tolerance_db: float) -> dict:
 # Phase 70 finalise review. They are not blocking issues but should be addressed in
 # future phases.
 
-# LOW-01: `if True:` refactor artifact at replay.py:438 — one-line cleanup, own phase.
 # LOW-02: SAVED_MEASUREMENT_KEYS duplicates _FINGERPRINT_METADATA_KEYS from capture.py;
 #     the comment's "freeze" rationale is wrong (scanner.py imports the constant today)
 #     — drift risk. Fix: one-line import + delete duplicate, own phase. Also note: the

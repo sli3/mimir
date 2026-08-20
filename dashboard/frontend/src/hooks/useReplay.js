@@ -70,7 +70,7 @@ export default function useReplay() {
           const code = body.error || 'replay_failed'
           let message
           if (code === 'busy') {
-            message = 'Another replay is in progress; try again in a moment'
+            message = 'Previous replay is still finishing on the server — try again in a moment'
           } else {
             message = `Replay failed: ${body.detail || code}`
           }
