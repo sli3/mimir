@@ -218,3 +218,53 @@ Wires `is_burst` through to the capture response as a top-level sibling of the `
 **RF/Legal notes.** No TX surfaces; all changes are pure frontend styling and state management. No hardware interaction, no new RF capability or legal exposure. Jurisdiction: AU/SA, ACMA, Radiocommunications Act 1992 (Cth).
 
 ---
+
+## Phase 74 — Replay burst analysis panel (frontend-only) (2026-08-20)
+
+**Type:** Frontend-only. No backend changes, no hardware changes.
+
+**Goal.** Extend the Phase 73 burst fade overlay with three new `/replay` UI features: (1) small dim `[SAVED]` and `[REPLAYED]` labels on the seven-field comparison row, (2) a `burst_excess_db` row showing the dB excess value with a BURST badge or threshold note, and (3) a collapsible burst analysis panel with statistics, timeline strip, and legend.
+
+**What shipped.** Three pure-frontend changes: (1) `FieldRow.jsx` label augmentation — small dim `[SAVED]` and `[REPLAYED]` labels added to the seven-field comparison row in both OneShotResult and RecordResult's chunk-detail panel via the shared `FieldRow` component (one component change, two callers). (2) `burst_excess_db` row — new row after the seven compared fields (Record-mode only), shows `burst_excess_db` formatted as "XdB" with a `[REPLAYED]` label (no `[SAVED]` — field was never in the saved set). When `is_burst === true`, appends the existing amber `.replay-burst-badge` "BURST" pill (reused from Phase 73). When `is_burst === false`, appends a dim note reading "below {BURST_MARGIN_DB.toFixed(1)} dB threshold" — interpolated from the existing constant at ReplayPage.jsx:47, NOT a hardcoded "6.0" (locked by the contract test `tests/dashboard/test_replay_burst_thresholds.py`). (3) Collapsible burst analysis panel — positioned between `.replay-summary-line` and `.replay-chunk-grid`, expanded by default via local `useState(true)`. Contains 4 computed statistics (burst count + rate, burst range, strongest burst, full range) computed once via `useMemo` on `chunks` array, clickable timeline strip (one button per chunk) sharing the existing `setSelectedIndex(idx)` state with the main chunk grid (NOT a separate state), and 4-swatch legend (matched-no-burst green, matched-burst amber, mismatch red, mismatch-burst red+amber ring). Colours via CSS variables and the same `interpolateBurstColour()`/`burstRingStyle()` helpers from Phase 73 (NOT hardcoded hex). Helpers reused: `burstIntensity()`, `interpolateBurstColour()`, `burstRingStyle()` from Phase 73.
+
+**Live verification.** No hardware required. Existing ReplayPage tests all pass unchanged. Zero backend files touched; no TX-capable code introduced.
+
+**Design notes.** The timeline strip deliberately shares the existing `setSelectedIndex(idx)` state with the main chunk grid — clicking a timeline chunk behaves identically to clicking the corresponding grid cell, avoiding duplicate state and keeping selection logic in one place. The panel is collapsed by state (`useState(true)`) rather than by CSS, so the collapsed/expanded choice is React-managed and can be persisted to localStorage in a future phase if desired. The 4-swatch legend uses the same `interpolateBurstColour()`/`burstRingStyle()` helpers from Phase 73, not hardcoded hex, so any future theme colour changes automatically propagate to the legend. The threshold note interpolates from the BURST_MARGIN_DB constant at ReplayPage.jsx:47 rather than hardcoding "6.0" — this is enforced by the existing contract test `tests/dashboard/test_replay_burst_thresholds.py` which validates that BURST_MARGIN_DB in `core/pipeline/features.py` and the constant used in ReplayPage.jsx stay in sync.
+
+**Test counts.** 1424 passing (973 pytest + 451 Vitest), 0 failures. Vitest +12 (11 initial tests + 1 review-fix regression test). Pytest unchanged at 973.
+
+**Review fixes.** Frontend-reviewer caught a real bug where `fullMin`/`fullMax` would remain `Infinity`/`-Infinity` if all chunks had non-finite `burst_excess_db`, causing `Infinity.toFixed()` to either crash or render literal "Infinity" text. Fixed by returning `null` and adding a `hasAnyFiniteBurst` flag. Plus 1 regression test (`test_timeline_statistics_handles_all_non_finite_burst_values`). Plan-reviewer verified that `useMemo` import was added, that helper sharing was correct, and that the legend 4 swatches were enumerated as designed.
+
+**Resolved tech debt.** None.
+
+**New tech debt.** Two new desk-fixable rows logged in `AGENTS.md` as TD-74-1 and TD-74-2: (1) Timeline aria-label gap — advisory for future a11y polish. (2) ReplayPage.jsx file-size trend — advisory noting that the file is growing with each phase (171 lines added this phase, 108 lines of CSS).
+
+**Deferred items.** Step 6B live-browser check deferred per TD-73-2 environmental precedent (Flask can't be backgrounded, Vite proxy can't reach backend). The `.replay-burst-badge` rule uses `color-mix(in srgb, var(--neon-amber) 15%, transparent)` — the codebase's first color-mix() use. Feature itself IS verified via manual live-dashboard check this session; only the automated Step 6B reproducibility is deferred.
+
+**RF/Legal notes.** No TX surfaces; all changes are pure frontend styling and state management. No hardware interaction, no new RF capability or legal exposure. Jurisdiction: AU/SA, ACMA, Radiocommunications Act 1992 (Cth).
+
+---
+
+## Phase 75 — Replay stats visual card layout (frontend-only) (2026-08-20)
+
+**Type:** Frontend-only. No backend changes, no hardware changes.
+
+**Goal.** Visual-only follow-up to Phase 74. Remove the timeline strip (visual gap at real capture sizes) and restyle the stats panel from compact single-line text into a 4-column grid of cards.
+
+**What shipped.** Two pure-frontend changes: (1) Timeline strip removal — the `.replay-burst-timeline` JSX block (flex-row of per-chunk buttons) deleted from `ReplayPage.jsx`, CSS rules `.replay-burst-timeline`, `.replay-burst-timeline-seg`, `.replay-burst-timeline-seg:hover` deleted from `ReplayPage.css`, two timeline-specific tests deleted from `ReplayPage.test.jsx`, comments cleaned up (timeline references removed). Rationale: at real capture sizes (332-474+ chunks), the timeline rendered as hundreds of near-invisible slivers directly above the chunk grid, which already provides the same colour-coded view, click-to-select, and chunk numbering. Confirmed via live screenshot comparison. (2) Stats panel card restyle — the four stats (bursts detected, burst excess range, strongest burst, full range) restructured from compact single-line text into a 4-column grid of cards. Each card has a label div (small, dim, uppercase, letter-spaced via `.replay-burst-stat-label`) and a value div (larger body text via `.replay-burst-stat-value`). Full-range card has `replay-burst-stat-card-secondary` modifier class + inline `color: var(--text-dim)` style — visually secondary/muted per Phase 74's design intent. 1 new structural test added to verify the card layout. 1 assertion updated to match the new layout (line 887: `'Full range: —'` → `'—'`).
+
+**Live verification.** No hardware required. Existing ReplayPage tests all pass (except the two timeline tests removed, as expected). Zero backend files touched; no TX-capable code introduced. Manual screenshot comparison confirmed the visual gap rationale (hundreds of near-invisible slivers at real capture sizes).
+
+**Design notes.** The 4-column grid is desktop-only via `@media (max-width: 768px)` break to 2-column, preserving mobile layout. The `burstStats` useMemo block (lines 277-323 of ReplayPage.jsx) is byte-identical to Phase 74 — only the rendering path changed. Phase 73 helpers (`burstIntensity()`, `interpolateBurstColour()`, `burstRingStyle()`) remain present and are used by the chunk grid. OneShotResult is untouched. Full-range secondary styling matches Phase 74's intent (dimmer visual weight because it's a span across all bursts, not a per-burst metric).
+
+**Test counts.** 1423 passing (973 pytest + 450 Vitest), 0 failures. Vitest net -1: 2 timeline tests removed + 1 structural card test added + 1 assertion updated. Pytest unchanged at 973.
+
+**Resolved tech debt.** TD-74-1 (Timeline aria-label gap) is now moot because the timeline strip was removed entirely. Closed as RESOLVED in AGENTS.md.
+
+**Updated tech debt.** TD-74-2 wording updated to reflect that the timeline is now removed (reducing ReplayPage.jsx's growth from ~800 to ~950 lines across Phases 74-75) and that legend and statistics remain in the same file.
+
+**Deferred items.** Step 6B env deferral unchanged from Phase 73/74 — bash scope doesn't allow backgrounding Flask for Vite proxy, so automated Playwright checks cannot run reproducibly in build sessions. Live visual verification is done via manual dashboard checks.
+
+**RF/Legal notes.** No TX surfaces; all changes are pure frontend styling and JSX structure changes. No hardware interaction, no new RF capability or legal exposure. Jurisdiction: AU/SA, ACMA, Radiocommunications Act 1992 (Cth).
+
+---

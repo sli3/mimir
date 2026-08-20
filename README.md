@@ -149,8 +149,8 @@ Full phase-by-phase history lives in [`docs/ROADMAP.md`](./docs/ROADMAP.md), whi
 single source of truth for phase status and test counts. This section shows
 only a quick-glance summary — update `docs/ROADMAP.md` first, then sync this block.
 
-**Current phase: 73 — "Replay burst fade UI overlay (frontend-only)".**
-**Total: 1412 passing (973 pytest + 439 Vitest), 0 failures**
+**Current phase: 75 — "Replay stats visual card layout (frontend-only)".**
+**Total: 1423 passing (973 pytest + 450 Vitest), 0 failures**
 
 > **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector
 > store (`data/vectorstore/`) must be re-seeded after deploying this build.
