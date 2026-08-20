@@ -250,3 +250,123 @@ body.replay-page::before {
   letter-spacing: 1px;
   text-transform: uppercase;
 }
+
+/* FieldRow label (Part 1) */
+.replay-field-label {
+  color: var(--text-dim);
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  font-family: var(--font-data);
+}
+
+/* Burst row in chunk detail (Part 2) */
+.replay-burst-row-note {
+  font-size: 10px;
+  font-family: var(--font-data);
+  letter-spacing: 1px;
+}
+
+/* Collapsible burst analysis panel (Part 3) */
+.replay-burst-panel {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+}
+
+.replay-burst-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  color: var(--neon-amber);
+  font-family: var(--font-data);
+  font-size: 11px;
+  letter-spacing: 1px;
+  padding: 8px 10px;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+
+.replay-burst-panel-chevron {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.replay-burst-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+}
+
+/* Stats panel card layout (Phase 75) */
+.replay-burst-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.replay-burst-stat-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+}
+
+.replay-burst-stat-label {
+  font-size: 9px;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  font-family: var(--font-data);
+}
+
+.replay-burst-stat-value {
+  font-size: 14px;
+  font-family: var(--font-data);
+  letter-spacing: 0.5px;
+  color: var(--text-primary);
+}
+
+/* .replay-burst-stat-card-secondary .replay-burst-stat-value {
+  font-size: 13px;
+} */
+
+.replay-burst-stat-card-secondary .replay-burst-stat-label {
+  /* secondary card: label also dims slightly to reinforce the hierarchy */
+  color: var(--text-dim);
+  opacity: 0.7;
+}
+
+.replay-burst-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.replay-burst-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-family: var(--font-data);
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+}
+
+.replay-burst-legend-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: none;
+}

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import useCaptures from '../hooks/useCaptures.js'
 import useReplay from '../hooks/useReplay.js'
 import './ReplayPage.css'
@@ -120,7 +120,9 @@ function FieldRow({ name, saved, replayed, match, deltaDb, delta }) {
     >
       <span className="replay-field-name">{name}</span>
       <span className="replay-field-values">
-        {String(saved ?? '---')} → {String(replayed ?? '---')}
+        <span className="replay-field-label">[SAVED]</span> {String(saved ?? '---')}
+        {' → '}
+        <span className="replay-field-label">[REPLAYED]</span> {String(replayed ?? '---')}
         {deltaText ? ` (${deltaText})` : ''}
       </span>
     </div>
@@ -268,13 +270,151 @@ function OneShotResult({ result }) {
  */
 function RecordResult({ result }) {
   const [selectedIndex, setSelectedIndex] = useState(0)
+  const [analysisOpen, setAnalysisOpen] = useState(true)
   const { summary, per_chunk_results: chunks } = result
   const selectedChunk = chunks[selectedIndex]
+
+  // burstStats: compute once from chunks array. Returns stats object with:
+  // - total: chunk count, burstCount: chunks where is_burst=true, burstRate: burstCount/total
+  // - burstMin/burstMax: range among bursty chunks only (null if none)
+  // - strongestIdx/strongestVal: chunk index with max burst_excess_db among bursty
+  // - fullMin/fullMax: range across ALL chunks with finite burst_excess_db (null if none)
+  // - hasAnyFiniteBurst: true if any chunk has a finite burst_excess_db value
+  // Empty state semantics: burstMin/burstMax/strongestVal are null when burstCount=0;
+  // fullMin/fullMax are null when no finite values exist. Guarded against division-by-zero.
+  const burstStats = useMemo(() => {
+    const total = chunks.length
+    let burstCount = 0
+    let burstMin = Infinity
+    let burstMax = -Infinity
+    let fullMin = Infinity
+    let fullMax = -Infinity
+    let strongestIdx = -1
+    let strongestVal = -Infinity
+    for (let i = 0; i < total; i += 1) {
+      const fp = chunks[i].replayed_fingerprint ?? {}
+      const v = fp.burst_excess_db
+      if (Number.isFinite(v)) {
+        if (v < fullMin) fullMin = v
+        if (v > fullMax) fullMax = v
+        if (fp.is_burst === true) {
+          burstCount += 1
+          if (v < burstMin) burstMin = v
+          if (v > burstMax) burstMax = v
+          if (v > strongestVal) {
+            strongestVal = v
+            strongestIdx = i
+          }
+        }
+      }
+    }
+    return {
+      total,
+      burstCount,
+      burstRate: total > 0 ? burstCount / total : 0,
+      burstMin: burstCount > 0 ? burstMin : null,
+      burstMax: burstCount > 0 ? burstMax : null,
+      strongestIdx,
+      strongestVal: burstCount > 0 ? strongestVal : null,
+      fullMin: Number.isFinite(fullMin) ? fullMin : null,
+      fullMax: Number.isFinite(fullMax) ? fullMax : null,
+      hasAnyFiniteBurst: Number.isFinite(fullMin) && Number.isFinite(fullMax),
+    }
+  }, [chunks])
 
   return (
     <div className="replay-result-body" data-testid="replay-record-result">
       <div className="replay-summary-line">
         {summary.matched_chunks}/{summary.total_chunks} chunks matched · {summary.mismatched_chunks} mismatched
+      </div>
+      {/* Collapsible burst analysis panel - positioned after summary line, before chunk grid.
+          Shares selectedIndex state with the chunk grid (not a duplicate state). */}
+      <div className="replay-burst-panel" data-testid="replay-burst-panel">
+        <button
+          type="button"
+          className="replay-burst-panel-header"
+          data-testid="replay-burst-panel-toggle"
+          onClick={() => setAnalysisOpen((prev) => !prev)}
+          aria-expanded={analysisOpen}
+        >
+          <span className="replay-burst-panel-chevron">{analysisOpen ? '▾' : '▸'}</span>
+          <span>BURST ANALYSIS</span>
+        </button>
+        {analysisOpen && (
+          <div className="replay-burst-panel-body" data-testid="replay-burst-panel-body">
+            {/* 4-column desktop stat grid: burst count, burst range, strongest burst, full range (secondary) */}
+            <div className="replay-burst-stat-grid" data-testid="replay-burst-stat-grid">
+              {/* bursting count card */}
+              <div className="replay-burst-stat-card" data-testid="burst-stat-count">
+                <div className="replay-burst-stat-label">BURSTS DETECTED</div>
+                <div className="replay-burst-stat-value">
+                  <strong>{burstStats.burstCount}</strong>
+                  <span className="replay-burst-stat-rate"> / {burstStats.total} ({burstStats.total > 0 ? (burstStats.burstRate * 100).toFixed(1) : '0.0'}%)</span>
+                </div>
+              </div>
+
+              {/* burst range card */}
+              <div className="replay-burst-stat-card" data-testid="burst-stat-burst-range">
+                <div className="replay-burst-stat-label">BURST EXCESS RANGE</div>
+                <div className="replay-burst-stat-value">
+                  {burstStats.burstCount > 0 && Number.isFinite(burstStats.burstMin) && Number.isFinite(burstStats.burstMax)
+                    ? `${burstStats.burstMin.toFixed(1)} – ${burstStats.burstMax.toFixed(1)} dB`
+                    : <span style={{ color: 'var(--text-dim)' }}>no bursts detected in this capture</span>}
+                </div>
+              </div>
+
+              {/* strongest burst card */}
+              <div className="replay-burst-stat-card" data-testid="burst-stat-strongest">
+                <div className="replay-burst-stat-label">STRONGEST BURST</div>
+                <div className="replay-burst-stat-value">
+                  {burstStats.burstCount > 0
+                    ? `chunk ${burstStats.strongestIdx + 1} @ ${burstStats.strongestVal.toFixed(1)} dB`
+                    : <span style={{ color: 'var(--text-dim)' }}>—</span>}
+                </div>
+              </div>
+
+              {/* full range card — label is dimmed (see .replay-burst-stat-card-secondary
+                  .replay-burst-stat-label in ReplayPage.css); value colour matches the
+                  other three cards, per live-review: a value fade with no attached
+                  meaning read as an unexplained inconsistency rather than a signal. */}
+              <div className="replay-burst-stat-card replay-burst-stat-card-secondary" data-testid="burst-stat-full-range">
+                <div className="replay-burst-stat-label">FULL RANGE</div>
+                <div className="replay-burst-stat-value">
+                  {burstStats.hasAnyFiniteBurst
+                    ? `${burstStats.fullMin.toFixed(1)} – ${burstStats.fullMax.toFixed(1)} dB`
+                    : '—'}
+                </div>
+              </div>
+            </div>
+            {/* Legend swatches - colours mirror the grid colour logic:
+                green (matched, no burst), amber (matched, burst), red (mismatch),
+                red+amber ring (mismatch, burst). Uses same helpers as Phase 73. */}
+            <div className="replay-burst-legend" data-testid="replay-burst-legend">
+              <div className="replay-burst-legend-item">
+                <span className="replay-burst-legend-swatch" style={{ backgroundColor: 'var(--neon-green)' }} />
+                <span>matched, no burst</span>
+              </div>
+              <div className="replay-burst-legend-item">
+                <span className="replay-burst-legend-swatch" style={{ backgroundColor: 'var(--neon-amber)' }} />
+                <span>matched, burst</span>
+              </div>
+              <div className="replay-burst-legend-item">
+                <span className="replay-burst-legend-swatch" style={{ backgroundColor: 'var(--neon-red)' }} />
+                <span>mismatch</span>
+              </div>
+              <div className="replay-burst-legend-item">
+                <span
+                  className="replay-burst-legend-swatch"
+                  style={{
+                    backgroundColor: 'var(--neon-red)',
+                    boxShadow: '0 0 0 2px var(--neon-amber)',
+                  }}
+                />
+                <span>mismatch, burst</span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
       <div className="replay-chunk-grid">
         {chunks.map((chunk, idx) => {
@@ -317,6 +457,45 @@ function RecordResult({ result }) {
                 delta={field.delta}
               />
             ))}
+          </div>
+          {/* Burst-excess row - shown after the seven compared fields in chunk detail.
+              Has [REPLAYED] label but no [SAVED] because BURST_EXCESS_DB was never in
+              the seven saved/compared fingerprint keys (it's replay-only). */}
+          <div
+            className="replay-field-row replay-burst-row"
+            data-testid={`replay-burst-row-${selectedIndex}`}
+          >
+            <span className="replay-field-name">BURST_EXCESS_DB</span>
+            <span className="replay-burst-row-value">
+              {Number.isFinite(selectedChunk.replayed_fingerprint?.burst_excess_db) && selectedChunk.replayed_fingerprint?.burst_excess_db >= 0 ? (
+                <>
+                  <span className="replay-field-label">[REPLAYED]</span>{' '}
+                  {Number(selectedChunk.replayed_fingerprint.burst_excess_db).toFixed(1)} dB
+                  {selectedChunk.replayed_fingerprint?.is_burst === true ? (
+                    <span
+                      className="replay-burst-badge"
+                      data-testid={`replay-burst-row-badge-${selectedIndex}`}
+                      style={{ marginLeft: '8px' }}
+                    >
+                      BURST
+                    </span>
+                  ) : (
+                    <span
+                      className="replay-burst-row-note"
+                      data-testid={`replay-burst-row-note-${selectedIndex}`}
+                      style={{ marginLeft: '8px', color: 'var(--text-dim)' }}
+                    >
+                      below {BURST_MARGIN_DB.toFixed(1)} dB threshold
+                    </span>
+                  )}
+                </>
+              ) : (
+                <>
+                  <span className="replay-field-label">[REPLAYED]</span>{' '}
+                  <span style={{ color: 'var(--text-dim)' }}>--- dB</span>
+                </>
+              )}
+            </span>
           </div>
         </div>
       )}

@@ -434,7 +434,7 @@ describe('ReplayPage results view — record-mode', () => {
     })
     await waitFor(() => expect(screen.getByTestId('replay-chunk-detail')).toBeInTheDocument())
     const snrRow = screen.getByTestId('replay-field-row-snr_db')
-    expect(snrRow).toHaveTextContent('25 → 30.5 (+5.50 dB)')
+    expect(snrRow).toHaveTextContent('[SAVED] 25 → [REPLAYED] 30.5 (+5.50 dB)')
     expect(snrRow.style.color).toBe('var(--neon-red)')
   })
 })
@@ -766,5 +766,188 @@ describe('ReplayPage burst fade overlay', () => {
     await selectFirstCapture()
     await waitFor(() => expect(screen.getByTestId('replay-oneshot-result')).toBeInTheDocument())
     expect(screen.getByTestId('replay-burst-badge')).toHaveTextContent('BURST ---dB')
+  })
+})
+
+describe('ReplayPage burst analysis panel', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    document.body.className = ''
+  })
+
+  const RECORD_CAPTURE_ENTRY = {
+    filename: 'capture_98000000hz_20260819_120000.sigmf-meta',
+    mode: 'record',
+    chunk_count: 5,
+    core_frequency_hz: 98_000_000,
+    device: 'hackrf',
+    timestamp: '2026-08-19T12:00:00',
+  }
+
+  it('FieldRow labels appear for matched and mismatched rows', async () => {
+    const result = buildRecordResult(5, 3)
+    vi.stubGlobal('fetch', mockFetchForCaptureAndReplay(RECORD_CAPTURE_ENTRY, result))
+    render(<ReplayPage />)
+    await waitFor(() => expect(screen.getByTestId('captures-list')).toBeInTheDocument())
+    await selectFirstCapture()
+    await waitFor(() => expect(screen.getByTestId('replay-chunk-cell-3')).toBeInTheDocument())
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('replay-chunk-cell-3'))
+    })
+    await waitFor(() => expect(screen.getByTestId('replay-chunk-detail')).toBeInTheDocument())
+    const snrRow = screen.getByTestId('replay-field-row-snr_db')
+    expect(snrRow).toHaveTextContent('[SAVED]')
+    expect(snrRow).toHaveTextContent('[REPLAYED]')
+    const peakRow = screen.getByTestId('replay-field-row-peak_freq_hz')
+    expect(peakRow).toHaveTextContent('[SAVED]')
+    expect(peakRow).toHaveTextContent('[REPLAYED]')
+  })
+
+  it('Burst row shows BURST pill when is_burst is true', async () => {
+    const result = buildRecordResult(1, -1, { 0: { is_burst: true, burst_excess_db: 8.0 } })
+    vi.stubGlobal('fetch', mockFetchForCaptureAndReplay(RECORD_CAPTURE_ENTRY, result))
+    render(<ReplayPage />)
+    await waitFor(() => expect(screen.getByTestId('captures-list')).toBeInTheDocument())
+    await selectFirstCapture()
+    await waitFor(() => expect(screen.getByTestId('replay-chunk-detail')).toBeInTheDocument())
+    expect(screen.getByTestId('replay-burst-row-0')).toHaveTextContent('8.0 dB')
+    expect(screen.getByTestId('replay-burst-row-badge-0')).toHaveTextContent('BURST')
+  })
+
+  it('Burst row shows below-threshold note when is_burst is false', async () => {
+    const result = buildRecordResult(1, -1, { 0: { is_burst: false, burst_excess_db: 2.0 } })
+    vi.stubGlobal('fetch', mockFetchForCaptureAndReplay(RECORD_CAPTURE_ENTRY, result))
+    render(<ReplayPage />)
+    await waitFor(() => expect(screen.getByTestId('captures-list')).toBeInTheDocument())
+    await selectFirstCapture()
+    await waitFor(() => expect(screen.getByTestId('replay-chunk-detail')).toBeInTheDocument())
+    expect(screen.getByTestId('replay-burst-row-0')).toHaveTextContent('2.0 dB')
+    expect(screen.getByTestId('replay-burst-row-note-0')).toHaveTextContent('below')
+    expect(screen.getByTestId('replay-burst-row-note-0')).toHaveTextContent('6.0 dB')
+    expect(screen.queryByTestId('replay-burst-row-badge-0')).not.toBeInTheDocument()
+  })
+
+  it('Burst row falls back to --- dB when burst_excess_db is non-finite', async () => {
+    const result = buildRecordResult(1, -1, { 0: { is_burst: true, burst_excess_db: NaN } })
+    vi.stubGlobal('fetch', mockFetchForCaptureAndReplay(RECORD_CAPTURE_ENTRY, result))
+    render(<ReplayPage />)
+    await waitFor(() => expect(screen.getByTestId('captures-list')).toBeInTheDocument())
+    await selectFirstCapture()
+    await waitFor(() => expect(screen.getByTestId('replay-chunk-detail')).toBeInTheDocument())
+    expect(screen.getByTestId('replay-burst-row-0')).toHaveTextContent('--- dB')
+    expect(screen.queryByTestId('replay-burst-row-badge-0')).not.toBeInTheDocument()
+  })
+
+  it('Stats panel computes burst statistics from mixed fixture', async () => {
+    const result = buildRecordResult(5, -1, {
+      0: { is_burst: false, burst_excess_db: 1.0 },
+      1: { is_burst: true, burst_excess_db: 8.0 },
+      2: { is_burst: false, burst_excess_db: -1.0 },
+      3: { is_burst: true, burst_excess_db: 10.5 },
+      4: { is_burst: true, burst_excess_db: 9.0 },
+    })
+    vi.stubGlobal('fetch', mockFetchForCaptureAndReplay(RECORD_CAPTURE_ENTRY, result))
+    render(<ReplayPage />)
+    await waitFor(() => expect(screen.getByTestId('captures-list')).toBeInTheDocument())
+    await selectFirstCapture()
+    await waitFor(() => expect(screen.getByTestId('replay-burst-panel')).toBeInTheDocument())
+    expect(screen.getByTestId('burst-stat-count')).toHaveTextContent('3 / 5')
+    expect(screen.getByTestId('burst-stat-count')).toHaveTextContent('60.0%')
+    expect(screen.getByTestId('burst-stat-burst-range')).toHaveTextContent('8.0 – 10.5 dB')
+    expect(screen.getByTestId('burst-stat-strongest')).toHaveTextContent('chunk 4 @ 10.5 dB')
+    expect(screen.getByTestId('burst-stat-full-range')).toHaveTextContent('-1.0 – 10.5 dB')
+  })
+
+  it('Stats panel shows empty state when no bursts are detected', async () => {
+    const result = buildRecordResult(3, -1, {
+      0: { is_burst: false, burst_excess_db: 1.0 },
+      1: { is_burst: false, burst_excess_db: 2.0 },
+      2: { is_burst: false, burst_excess_db: 3.0 },
+    })
+    vi.stubGlobal('fetch', mockFetchForCaptureAndReplay(RECORD_CAPTURE_ENTRY, result))
+    render(<ReplayPage />)
+    await waitFor(() => expect(screen.getByTestId('captures-list')).toBeInTheDocument())
+    await selectFirstCapture()
+    await waitFor(() => expect(screen.getByTestId('replay-burst-panel')).toBeInTheDocument())
+    expect(screen.getByTestId('burst-stat-burst-range')).toHaveTextContent('no bursts detected in this capture')
+    expect(screen.getByTestId('burst-stat-strongest')).toHaveTextContent('—')
+  })
+
+  it('full range shows "—" when no chunks have finite burst_excess_db', async () => {
+    const result = buildRecordResult(3, -1, {
+      0: { is_burst: false, burst_excess_db: NaN },
+      1: { is_burst: false, burst_excess_db: undefined },
+      2: { is_burst: false, burst_excess_db: null },
+    })
+    vi.stubGlobal('fetch', mockFetchForCaptureAndReplay(RECORD_CAPTURE_ENTRY, result))
+    render(<ReplayPage />)
+    await waitFor(() => expect(screen.getByTestId('captures-list')).toBeInTheDocument())
+    await selectFirstCapture()
+    await waitFor(() => expect(screen.getByTestId('replay-record-result')).toBeInTheDocument())
+    expect(screen.getByTestId('burst-stat-full-range')).toHaveTextContent('—')
+  })
+
+  it('Stats panel renders four cards in a grid layout', async () => {
+    const result = buildRecordResult(3)
+    vi.stubGlobal('fetch', mockFetchForCaptureAndReplay(RECORD_CAPTURE_ENTRY, result))
+    render(<ReplayPage />)
+    await waitFor(() => expect(screen.getByTestId('captures-list')).toBeInTheDocument())
+    await selectFirstCapture()
+    await waitFor(() => expect(screen.getByTestId('replay-burst-panel')).toBeInTheDocument())
+    // Verify the grid wrapper exists
+    expect(screen.getByTestId('replay-burst-stat-grid')).toBeInTheDocument()
+    // Verify all four cards are present
+    expect(screen.getByTestId('burst-stat-count')).toBeInTheDocument()
+    expect(screen.getByTestId('burst-stat-burst-range')).toBeInTheDocument()
+    expect(screen.getByTestId('burst-stat-strongest')).toBeInTheDocument()
+    expect(screen.getByTestId('burst-stat-full-range')).toBeInTheDocument()
+    // Verify each card has the expected label-value structure
+    const countCard = screen.getByTestId('burst-stat-count')
+    expect(countCard.querySelector('.replay-burst-stat-label')).toHaveTextContent('BURSTS DETECTED')
+    expect(countCard.querySelector('.replay-burst-stat-value')).toBeInTheDocument()
+    const fullRangeCard = screen.getByTestId('burst-stat-full-range')
+    expect(fullRangeCard.querySelector('.replay-burst-stat-label')).toHaveTextContent('FULL RANGE')
+    // Confirm the full-range card has the secondary/muted modifier class
+    expect(fullRangeCard.classList.contains('replay-burst-stat-card-secondary')).toBe(true)
+  })
+
+  it('Burst analysis panel is expanded by default', async () => {
+    const result = buildRecordResult(1)
+    vi.stubGlobal('fetch', mockFetchForCaptureAndReplay(RECORD_CAPTURE_ENTRY, result))
+    render(<ReplayPage />)
+    await waitFor(() => expect(screen.getByTestId('captures-list')).toBeInTheDocument())
+    await selectFirstCapture()
+    await waitFor(() => expect(screen.getByTestId('replay-burst-panel')).toBeInTheDocument())
+    expect(screen.getByTestId('replay-burst-panel-body')).toBeInTheDocument()
+  })
+
+  it('Burst analysis panel toggles open and closed', async () => {
+    const result = buildRecordResult(1)
+    vi.stubGlobal('fetch', mockFetchForCaptureAndReplay(RECORD_CAPTURE_ENTRY, result))
+    render(<ReplayPage />)
+    await waitFor(() => expect(screen.getByTestId('captures-list')).toBeInTheDocument())
+    await selectFirstCapture()
+    await waitFor(() => expect(screen.getByTestId('replay-burst-panel-body')).toBeInTheDocument())
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('replay-burst-panel-toggle'))
+    })
+    await waitFor(() => expect(screen.queryByTestId('replay-burst-panel-body')).not.toBeInTheDocument())
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('replay-burst-panel-toggle'))
+    })
+    await waitFor(() => expect(screen.getByTestId('replay-burst-panel-body')).toBeInTheDocument())
+  })
+
+  it('Legend renders all four swatch labels', async () => {
+    const result = buildRecordResult(1)
+    vi.stubGlobal('fetch', mockFetchForCaptureAndReplay(RECORD_CAPTURE_ENTRY, result))
+    render(<ReplayPage />)
+    await waitFor(() => expect(screen.getByTestId('captures-list')).toBeInTheDocument())
+    await selectFirstCapture()
+    await waitFor(() => expect(screen.getByTestId('replay-burst-legend')).toBeInTheDocument())
+    expect(screen.getByTestId('replay-burst-legend')).toHaveTextContent('matched, no burst')
+    expect(screen.getByTestId('replay-burst-legend')).toHaveTextContent('matched, burst')
+    expect(screen.getByTestId('replay-burst-legend')).toHaveTextContent('mismatch')
+    expect(screen.getByTestId('replay-burst-legend')).toHaveTextContent('mismatch, burst')
   })
 })
