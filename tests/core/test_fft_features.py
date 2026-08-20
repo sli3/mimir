@@ -480,6 +480,66 @@ class TestFingerprintSpectrum:
         assert result_avg['peak_power_db'] == -50.0
         assert result_max['peak_power_db'] == -30.0
 
+    def test_burst_ratio_db_distinct_traces_with_max_hold_trace_key(self):
+        """With trace_key='psd_max_hold_db', burst_ratio_db must compare max-hold
+        against the AVERAGED trace, not against itself.
+
+        Regression guard for the ADS-B bug: when psd_db and psd_max_hold_db
+        are deliberately different, the comparator must return the real gap.
+        """
+        nfft = 2048
+        freqs = np.linspace(97_000_000, 99_000_000, nfft)
+        peak_idx = 1024
+        averaged = np.full(nfft, -50.0)
+        max_hold = np.full(nfft, -50.0)
+        max_hold[peak_idx] = -20.0
+        psd_result = {
+            'frequencies_hz': freqs,
+            'psd_db': averaged,
+            'psd_max_hold_db': max_hold,
+            'center_freq_hz': 98_000_000,
+            'sample_rate_hz': 2_000_000,
+            'nfft': nfft,
+            'num_chunks': 4,
+        }
+
+        result = fingerprint_spectrum(psd_result, trace_key='psd_max_hold_db')
+        assert result['burst_ratio_db'] == pytest.approx(30.0)
+        assert result['burst_excess_db'] > 0.0
+        assert result['is_burst'] is True
+
+        # Wide-window variant must also see a non-zero contrast, not collapse to 0.0.
+        wide = fingerprint_spectrum(
+            psd_result,
+            trace_key='psd_max_hold_db',
+            crop_half_width_hz=50_000,
+            burst_use_wide_window=True,
+        )
+        assert wide['burst_ratio_db'] > 0.0
+
+    def test_burst_ratio_db_identical_traces_returns_zero(self):
+        """When psd_db and psd_max_hold_db are the SAME array, the burst ratio
+        is genuinely zero — but it must be zero because the traces match, not
+        because the comparator is broken.
+        """
+        nfft = 2048
+        freqs = np.linspace(97_000_000, 99_000_000, nfft)
+        shared = np.full(nfft, -50.0)
+        shared[1024] = -20.0
+        psd_result = {
+            'frequencies_hz': freqs,
+            'psd_db': shared,
+            'psd_max_hold_db': shared,  # same object — legacy aliasing shape
+            'center_freq_hz': 98_000_000,
+            'sample_rate_hz': 2_000_000,
+            'nfft': nfft,
+            'num_chunks': 4,
+        }
+
+        result = fingerprint_spectrum(psd_result, trace_key='psd_max_hold_db')
+        assert result['burst_ratio_db'] == 0.0
+        assert result['is_burst'] is False
+
     def test_missing_trace_key_raises_key_error(self):
         """Passing a trace_key that does not exist in psd_result raises KeyError."""
         psd_result = {

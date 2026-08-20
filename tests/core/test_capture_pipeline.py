@@ -717,6 +717,10 @@ class TestCaptureAndSave:
             assert fp_kwargs["burst_use_wide_window"] == profile.get(
                 "burst_use_wide_window", False
             )
+            assert fp_kwargs["trace_key"] == profile.get(
+                "fingerprint_trace_key", "psd_db"
+            )
+            assert fp_kwargs["trace_key"] == "psd_db"
 
             mock_save.assert_called_once()
             fingerprint = mock_save.call_args.kwargs["fingerprint"]
@@ -733,6 +737,40 @@ class TestCaptureAndSave:
                 assert key in fingerprint, (
                     f"Fingerprint passed to save_capture is missing {key!r}."
                 )
+
+    def test_valid_adsb_band_passes_trace_key_max_hold(
+        self, tmp_path
+    ):
+        """ADS-B profile sets fingerprint_trace_key='psd_max_hold_db' and
+        capture_and_save must forward it to fingerprint_spectrum."""
+        with patch("core.pipeline.capture.PlutoReceiver") as mock_pluto_cls, \
+             patch("core.pipeline.capture.compute_psd", wraps=compute_psd) as spy_psd, \
+             patch(
+                 "core.pipeline.capture.fingerprint_spectrum",
+                 wraps=fingerprint_spectrum,
+             ) as spy_fp, \
+             patch("core.pipeline.capture.save_capture") as mock_save:
+            mock_pluto_cls.return_value = _mock_sdr_with_samples(2048)
+
+            capture_and_save(
+                freq_hz=1_090_000_000,
+                num_samples=2048,
+                sample_rate_hz=2_000_000,
+                band="adsb",
+                output_dir=tmp_path,
+                device="plutosdr",
+                bandwidth_hz=1_800_000,
+            )
+
+            spy_psd.assert_called_once()
+            spy_fp.assert_called_once()
+
+            profile = BAND_PROFILES["adsb"]
+            fp_kwargs = spy_fp.call_args.kwargs
+            assert fp_kwargs["trace_key"] == profile["fingerprint_trace_key"]
+            assert fp_kwargs["trace_key"] == "psd_max_hold_db"
+
+            mock_save.assert_called_once()
 
 
 def _make_sequence_entry(sample_start, sample_count, **overrides):

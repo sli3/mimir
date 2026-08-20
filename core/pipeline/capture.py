@@ -527,8 +527,9 @@ def capture_and_save(
         sample_rate_hz: Samples per second.
         band: BAND_PROFILES key (e.g. "fm_broadcast", "adsb"). Required.
               Selects the per-band signal_threshold_db,
-              crop_half_width_hz, and burst_use_wide_window used for the
-              fingerprint measurement. Any key not defined by the band's
+              fingerprint_trace_key, crop_half_width_hz, and
+              burst_use_wide_window used for the fingerprint
+              measurement. Any key not defined by the band's
               profile falls back to fingerprint_spectrum()'s own default.
         output_dir: Directory to save the files in. Defaults to
                     Path("data/captures").
@@ -594,7 +595,7 @@ def capture_and_save(
     # Measure the spectral fingerprint from the captured samples. The
     # band profile supplies the per-band measurement parameters; any key
     # a profile does not define falls back to fingerprint_spectrum()'s
-    # own default via .get() (signal_threshold_db=None,
+    # own default via .get() (signal_threshold_db=None, trace_key='psd_db',
     # crop_half_width_hz=None, burst_use_wide_window=False). This is a
     # measurement recorded as metadata - the samples passed to
     # save_capture below are the raw captures, unmodified.
@@ -603,6 +604,7 @@ def capture_and_save(
     fingerprint = fingerprint_spectrum(
         psd_result,
         signal_threshold_db=profile.get("signal_threshold_db"),
+        trace_key=profile.get("fingerprint_trace_key", "psd_db"),
         crop_half_width_hz=profile.get("crop_half_width_hz"),
         burst_use_wide_window=profile.get("burst_use_wide_window", False),
     )

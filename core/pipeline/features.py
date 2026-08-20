@@ -230,15 +230,27 @@ def fingerprint_spectrum(
     # BURST_MARGIN_DB counts as a genuine burst. This replaces the previous
     # single-chunk extreme vs averaged mean comparison, which produced a
     # positive gap on pure noise that grew with num_chunks.
-    max_hold_db = psd_result.get("psd_max_hold_db", psd_db)
-    if len(max_hold_db) != len(psd_db):
+    # BUGFIX (verified 2026-08-20): burst detection compares max-hold
+    # power against AVERAGED power at the peak bin. Both sides of that
+    # comparison must come from psd_result's raw traces by their real
+    # keys, independent of trace_key. Previously this block reused the
+    # function-local psd_db variable (bound to psd_result[trace_key]) as
+    # the "averaged" side. Harmless for every band except adsb, whose
+    # BAND_PROFILES entry sets trace_key='psd_max_hold_db' — which
+    # silently made psd_db and max_hold_db the SAME array, collapsing
+    # burst_ratio_db to exactly 0.0 on every ADS-B call regardless of
+    # real signal content, making is_burst permanently unreachable for
+    # ADS-B (live scan, Record-mode, and replay all affected).
+    true_avg_db = psd_result.get("psd_db", psd_db)
+    max_hold_db = psd_result.get("psd_max_hold_db", true_avg_db)
+    if len(max_hold_db) != len(true_avg_db):
         logger.warning(
             "psd_max_hold_db length (%d) does not match psd_db length (%d) "
             "— falling back to averaged trace for burst ratio",
             len(max_hold_db),
-            len(psd_db),
+            len(true_avg_db),
         )
-        max_hold_db = psd_db
+        max_hold_db = true_avg_db
     if burst_use_wide_window and crop_mask is not None:
         # Phase 46: total-power ratio across the crop window.
         # Distinguishes continuous-but-frequency-agile signals (FM sweep)
@@ -257,7 +269,7 @@ def fingerprint_spectrum(
         # BURST_MARGIN_DB margin is unvalidated for this new metric and
         # may need retuning once live FM data is checked.
         max_hold_lin = np.power(10.0, max_hold_db[crop_mask] / 10.0)
-        avg_lin = np.power(10.0, psd_db[crop_mask] / 10.0)
+        avg_lin = np.power(10.0, true_avg_db[crop_mask] / 10.0)
         total_max_hold = float(np.sum(max_hold_lin))
         total_avg = float(np.sum(avg_lin))
         burst_ratio_db = float(
@@ -265,7 +277,7 @@ def fingerprint_spectrum(
         )
     else:
         # Phase 45 single-bin narrow metric (unchanged).
-        burst_ratio_db = float(max_hold_db[peak_idx] - psd_db[peak_idx])
+        burst_ratio_db = float(max_hold_db[peak_idx] - true_avg_db[peak_idx])
 
     # num_chunks guards: missing falls back to 1; a single chunk has no
     # max-hold meaning, and the guard also prevents log of zero or negative.
