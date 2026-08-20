@@ -170,3 +170,29 @@ Wires `is_burst` through to the capture response as a top-level sibling of the `
 **New tech debt.** Five new desk-fixable rows logged in `AGENTS.md` as TD-71-1 through TD-71-5: TD-71-1 (BACK does not abort in-flight replay, MEDIUM), TD-71-2 (validation asymmetry, LOW), TD-71-3 (spectral_flatness hardcoded, LOW), TD-71-4 (refetch dead, LOW), TD-71-5 (O(n) uncapped listing, ADVISORY).
 
 **RF/Legal notes.** No TX surfaces; all changes are read-only file reads and React state. No hardware interaction, no new RF capability or legal exposure. Jurisdiction: AU/SA, ACMA, Radiocommunications Act 1992 (Cth).
+
+---
+
+## Phase 72 — Fix ADS-B burst-detection self-cancellation and one-shot trace_key omission (2026-08-20)
+
+**Type:** Code-only bugfix. No frontend changes, no hardware changes.
+
+**Goal.** Fix two bugs in the ADS-B burst-detection path: (1) `fingerprint_spectrum()`'s burst comparator aliased both operands when `trace_key='psd_max_hold_db'`, making `is_burst` permanently unreachable for ADS-B; (2) `capture_and_save()` never resolved `trace_key` at all, silently defaulting to `'psd_db'` for every band including ADS-B.
+
+**What shipped.** `core/pipeline/features.py` burst-detection block rewritten with `true_avg_db = psd_result.get("psd_db", psd_db)` sourced independently of `trace_key` (used by both wide-window sum and single-bin comparator paths). New BUGFIX comment block at lines 233–243 documents the root cause. `core/pipeline/capture.py` `capture_and_save()` now forwards `trace_key=profile.get("fingerprint_trace_key", "psd_db")` to `fingerprint_spectrum()`. Comment at lines 594–600 updated to include `trace_key='psd_db'` in the list of fallback defaults. Docstring at the `band:` parameter (lines 528–531) updated to enumerate `fingerprint_trace_key` alongside the other three per-band parameters. Three new regression tests: `test_burst_ratio_db_distinct_traces_with_max_hold_trace_key` (features.py, primary guard for Bug 1), `test_burst_ratio_db_identical_traces_returns_zero` (proves the fix distinguishes "genuinely no burst" from "comparator broken"), and `test_valid_adsb_band_passes_trace_key_max_hold` (capture.py, regression guard for Bug 2). Extended `test_valid_band_produces_fingerprint_and_passes_to_save_capture` to assert `trace_key` kwarg forwarding for `fm_broadcast`.
+
+**Live verification.** Live-verified against two independent ADS-B captures (332 and 474 chunks) at 1090 MHz using PlutoSDR. Previous replays showed `burst_excess_db` flat at -6.75 dB across all chunks; post-fix replays show real per-chunk variation (-2.6 to 11.3 dB), with `is_burst` correctly firing on 13-25% of chunks depending on capture strength. `burst_excess_db` ceiling agrees within 0.1 dB across both captures (11.17 and 11.27 dB). No TX-capable code introduced.
+
+**Design notes.** The burst-detection fix intentionally leaves the function-local `psd_db` (bound to `psd_result[trace_key]` at the function top) unchanged elsewhere in the function — peak search, noise floor, SNR, bandwidth, occupied bins, and spectral flatness all correctly use the trace_key-selected trace. The `capture_and_save()` fix mirrors the existing pattern in `scanner.py` and `replay.py` (both already forward `trace_key` to `fingerprint_spectrum()`). Bug 2 severity is LOW because `capture_and_save()` has zero live call sites today (verified via `grep -rn "capture_and_save(" .` excluding tests/binaries).
+
+**Test counts.** 1398 passing (972 pytest + 426 Vitest), 0 failures. 972 pytest = 969 baseline + 3 new tests this phase. 426 Vitest = unchanged from Phase 71 (no frontend touched).
+
+**Build chronology.** Single-pass implementation. No defensive fixes required.
+
+**Resolved tech debt.** Updated AGENTS.md Known Tech Debt row for `[PEAK]` burst-detection metric to mark fault (3) as RESOLVED by Phase 72, and to flag faults (1)-(2) as stale relative to the current implementation (Phase 45's single-chunk comparator replaced the old per-bin max-hold comparator).
+
+**New tech debt.** None.
+
+**RF/Legal notes.** No TX surfaces; all changes are read-only spectrum analysis and metadata plumbing. No hardware interaction, no new RF capability or legal exposure. Jurisdiction: AU/SA, ACMA, Radiocommunications Act 1992 (Cth).
+
+---

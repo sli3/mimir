@@ -149,8 +149,8 @@ Full phase-by-phase history lives in [`docs/ROADMAP.md`](./docs/ROADMAP.md), whi
 single source of truth for phase status and test counts. This section shows
 only a quick-glance summary — update `docs/ROADMAP.md` first, then sync this block.
 
-**Current phase: 71 — "Raw Capture & Replay UI". Phase 71 ships `GET /api/captures` (new read-only listing endpoint in `dashboard/server.py`, peek-only over `.sigmf-meta` files, no `.sigmf-data` reads, malformed-file-tolerant), `useCaptures.js` + `useReplay.js` hooks, and `/replay` page (picker + results views over the existing Phase 70 `/api/replay` POST endpoint). Every record-mode chunk cell is clickable (matched AND mismatched — explicit design call, twice-corrected during planning). Frontend iterates `Object.entries(comparison.field_results)` rather than hardcoding the seven-field list.**
-**Total: 1387 passing (962 pytest + 425 Vitest), 0 failures**
+**Current phase: 72 — "Fix ADS-B burst-detection self-cancellation and one-shot trace_key omission".**
+**Total: 1398 passing (972 pytest + 426 Vitest), 0 failures**
 
 > **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector
 > store (`data/vectorstore/`) must be re-seeded after deploying this build.
