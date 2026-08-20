@@ -196,3 +196,25 @@ Wires `is_burst` through to the capture response as a top-level sibling of the `
 **RF/Legal notes.** No TX surfaces; all changes are read-only spectrum analysis and metadata plumbing. No hardware interaction, no new RF capability or legal exposure. Jurisdiction: AU/SA, ACMA, Radiocommunications Act 1992 (Cth).
 
 ---
+
+## Phase 73 — Replay burst fade UI overlay (frontend-only) (2026-08-20)
+
+**Type:** Frontend-only. No backend changes, no hardware changes.
+
+**Goal.** Surface the post-Phase-72 burst-detection data visually in `/replay`. Phase 72 fixed the backend burst detection so `is_burst` actually fires; Phase 73 surfaces that data visually in the replay results view.
+
+**What shipped.** Three new helper functions in `ReplayPage.jsx`: `burstIntensity()` (calibrated to BURST_MARGIN_DB=6.0, MAX_OBSERVED_EXCESS_DB=11.27 from Phase 72's two ADS-B captures), `interpolateBurstColour()` (smooth sRGB lerp green→amber), `burstRingStyle()`. Matched chunks fade green→amber as burst intensity rises. Mismatched chunks keep solid red background and gain an amber box-shadow ring. One-shot cards get an amber burst badge gated on `is_burst`, showing "BURST XdB" or "BURST ---dB" fallback when burst_excess_db is NaN. Data source: `chunk.replayed_fingerprint.is_burst` / `burst_excess_db` (already populated by `core/pipeline/replay.py:_fingerprint_samples()` post-Phase 72). CSS: new `.replay-burst-badge` rule using `color-mix(in srgb, var(--neon-amber) 15%, transparent)` — the codebase's first color-mix() use. Tests: 13 new Vitest tests in `ReplayPage.test.jsx` (burst helpers, RecordResult grid, OneShotResult badge, NaN handling), new paired-constant contract test `tests/dashboard/test_replay_burst_thresholds.py` (mirrors the HIGH_TURN_RATE pattern in `test_path_reasoner_thresholds.py`).
+
+**Live verification.** No hardware required. Existing 15 ReplayPage tests all pass unchanged. Zero backend files touched; no TX-capable code introduced.
+
+**Design notes.** The 11.27 dB MAX_OBSERVED_EXCESS_DB is an empirical ceiling from Phase 72's two ADS-B captures (332 and 474 chunks), agreeing within 0.1 dB across both captures. The lerp is pure sRGB (no HSL conversion) for speed; this is acceptable because we're interpolating between two fixed cyberpunk theme colours, not arbitrary hue shifts. The mismatched solid red is deliberate (high-contrast alert), but the amber ring provides burst awareness without losing the mismatched signal. One-shot badge is gated on `is_burst` rather than burst_excess_db > 0 to respect the backend's boolean verdict; the "---dB" fallback handles the NaN case for non-bursting captures. The paired-constant contract test mirrors the existing `test_path_reasoner_thresholds.py` pattern and validates that BURST_MARGIN_DB in `core/pipeline/features.py` and MAX_OBSERVED_EXCESS_DB in `ReplayPage.jsx` stay in sync across future phases.
+
+**Test counts.** 1412 passing (973 pytest + 439 Vitest), 0 failures. Vitest +13 (12 first-pass tests + 1 mid-intensity interpolation test). Pytest +1 (paired-constant contract test).
+
+**Resolved tech debt.** None.
+
+**New tech debt.** Two new desk-fixable rows logged in `AGENTS.md` as TD-73-1 and TD-73-2: (1) a11y on chunk cell title — burst intensity is colour-only (green→amber fades are deuteranopia-inaccessible). (2) Live visual check of the burst badge (color-mix) at the next dashboard serve — jsdom doesn't load stylesheets so Vitest can't verify badge rendering; operator should confirm in a real browser after the next `npm run build`.
+
+**RF/Legal notes.** No TX surfaces; all changes are pure frontend styling and state management. No hardware interaction, no new RF capability or legal exposure. Jurisdiction: AU/SA, ACMA, Radiocommunications Act 1992 (Cth).
+
+---

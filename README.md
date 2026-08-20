@@ -149,8 +149,8 @@ Full phase-by-phase history lives in [`docs/ROADMAP.md`](./docs/ROADMAP.md), whi
 single source of truth for phase status and test counts. This section shows
 only a quick-glance summary — update `docs/ROADMAP.md` first, then sync this block.
 
-**Current phase: 72 — "Fix ADS-B burst-detection self-cancellation and one-shot trace_key omission".**
-**Total: 1398 passing (972 pytest + 426 Vitest), 0 failures**
+**Current phase: 73 — "Replay burst fade UI overlay (frontend-only)".**
+**Total: 1412 passing (973 pytest + 439 Vitest), 0 failures**
 
 > **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector
 > store (`data/vectorstore/`) must be re-seeded after deploying this build.
