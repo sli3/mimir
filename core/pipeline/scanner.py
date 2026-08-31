@@ -119,8 +119,12 @@ class ScanRunner:
     auto-stop and no backend cap — the recording runs until the
     operator stops it (a 60-second soft warning is displayed client-side).
     """
-    def __init__(self, device, embedder, store, classifier, config: MimirConfig,
-                 device_driver: str = "hackrf") -> None:
+    def __init__(
+        self, device, embedder, store, classifier, config: MimirConfig,
+        device_driver: str = "hackrf",
+        *,
+        is_demo_device: bool = False,
+    ) -> None:
         """Initialise the two-thread scanner.
 
         The scan loop captures IQ and queues fingerprints; the AI loop classifies
@@ -143,6 +147,12 @@ class ScanRunner:
         of tuning into noise. Defaults to "hackrf", which supports every band
         and bypasses the guard entirely.
 
+        is_demo_device — when True, ``set_focus_frequency()`` skips the queue
+        drain. Demo mode has no real device to retune, so any chunks in the
+        queue were legitimately captured from the demo file by ``DemoProducer``
+        and must reach the AI loop, not be silently dropped on every socket
+        reconnect. Defaults to False (live mode).
+
         Raises:
             ValueError: If device_driver is not a DEVICE_PROFILES key. The
                 scan loop's guard calls band_supported_by_device(), which
@@ -157,6 +167,7 @@ class ScanRunner:
             )
         self._device = device
         self._device_driver = device_driver
+        self._is_demo_device = is_demo_device
         self._embedder = embedder
         self._store = store
         self._classifier = classifier
@@ -231,6 +242,20 @@ class ScanRunner:
         self._scan_thread.join()
         self._ai_thread.join()
 
+    def start_ai_only(self) -> None:
+        """Start only the AI loop thread (demo mode).
+
+        Demo mode does not open hardware, so the scan loop is never started.
+        The queue is fed externally by ``DemoProducer``.
+
+        Blocks (joins the AI thread) until ``stop()`` is called. Same shape
+        as ``run()`` but without the scan thread.
+        """
+        self._running = True
+        self._ai_thread = threading.Thread(target=self._ai_loop, daemon=True)
+        self._ai_thread.start()
+        self._ai_thread.join()
+
     def stop(self) -> None:
         self._running = False
 
@@ -255,16 +280,32 @@ class ScanRunner:
         }
 
     def set_focus_frequency(self, freq_hz: float) -> None:
-        """Change the focus frequency and flush stale queue items."""
+        """Change the focus frequency and flush stale queue items (live mode only).
+
+        In demo mode (``is_demo_device=True``), the queue drain is SKIPPED:
+        there is no real device to retune, so any chunks in the queue were
+        legitimately captured from the demo file by ``DemoProducer`` and must
+        reach the AI loop rather than being silently dropped on every socket
+        reconnect. The focus frequency itself is still updated (it is harmless
+        in demo mode — the AI loop doesn't read it, and the scan loop is not
+        running).
+        """
         with self._focus_lock:
             self._focus_freq_hz = freq_hz
-            q = self._queue
-            while True:
-                try:
-                    q.get_nowait()
-                except queue.Empty:
-                    break
-        logger.info("Focus changed to %.3f MHz — queue flushed", freq_hz / 1e6)
+            if not self._is_demo_device:
+                q = self._queue
+                while True:
+                    try:
+                        q.get_nowait()
+                    except queue.Empty:
+                        break
+        if self._is_demo_device:
+            logger.info(
+                "Focus changed to %.3f MHz - queue flush skipped in demo mode",
+                freq_hz / 1e6,
+            )
+        else:
+            logger.info("Focus changed to %.3f MHz — queue flushed", freq_hz / 1e6)
 
     def capture_now(self, timeout_sec: float = 5.0) -> dict:
         """Request a manual capture using the next scan cycle's live samples.
@@ -473,7 +514,7 @@ class ScanRunner:
         libhackrf / SoapySDR retune calls that cost ~500 ms each — significant at
         1090 MHz (ADS-B) where the same frequency is scanned repeatedly. The cache
         is reset automatically when ``set_focus_frequency()`` is called (the queue
-        flush there is unrelated to this cache).
+        flush there is unrelated to this cache and is skipped in demo mode).
 
         The spectrum broadcast (step 5) is wrapped in its own try/except so that a
         broadcast failure (e.g. no connected dashboard) does not prevent the scan
@@ -774,7 +815,8 @@ class ScanRunner:
                 # Safe: _scan_loop is the only producer; after drain, queue is empty,
                 # so put_nowait always succeeds without raising queue.Full.
                 # Note: set_focus_frequency() also drains this queue (consumer-only),
-                # which is safe because both paths only remove items.
+                # which is safe because both paths only remove items; in demo mode
+                # that drain is skipped so DemoProducer chunks are preserved.
                 while True:
                     try:
                         q.get_nowait()

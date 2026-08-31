@@ -2,6 +2,7 @@ import React, { useRef, useState, useCallback, useEffect } from 'react'
 import { useSocket } from '../hooks/useSocket.js'
 import { useCanvasSize } from '../hooks/useCanvasSize.js'
 import { useWaterfall } from '../hooks/useWaterfall.js'
+import { freqMatches } from '../utils/frequency.js'
 
 export const WATERFALL_LABEL_WIDTH = 0
 
@@ -113,9 +114,10 @@ function WaterfallStrip({ config, latestPsd, focusedFreq, focusFrequency, single
    * (singleBand=false) the click position is mapped to a frequency and
    * emitted via focusFrequency.  In singleBand mode the mapping is
    * suppressed because an off-centre click would compute a non-STRIP_CONFIG
-   * value (e.g. 1089753124 instead of 1090000000).  The latestUpdate lookup
-   * in WaterfallPanel uses strict equality against config.freq_hz, so any
-   * deviation freezes the waterfall.
+   * value (e.g. 1089753124 instead of 1090000000).  config.freq_hz is the
+   * exact focusedFreq for named bands, so a click outside the band would
+   * target a different freq and break the latestUpdate lookup against the
+   * strip's data (now matched within 100 kHz tolerance by freqMatches()).
    */
   const handleCanvasClick = useCallback((e) => {
     const canvas = canvasRef.current
@@ -126,8 +128,9 @@ function WaterfallStrip({ config, latestPsd, focusedFreq, focusFrequency, single
     setCrosshairX(x)
     // In singleBand mode, do NOT change the focus frequency.
     // An off-centre click computes a non-STRIP_CONFIG value (e.g. 1089753124
-    // instead of 1090000000). The latestUpdate lookup uses strict equality
-    // against config.freq_hz, so any deviation freezes the waterfall.
+    // instead of 1090000000). config.freq_hz is the exact focusedFreq for
+    // named bands, so a click outside the band would target a different
+    // freq and break the latestUpdate lookup against the strip's data.
     // In multi-band overview mode (singleBand=false), preserve original behaviour.
     if (!singleBand) {
       const width = canvas.width
@@ -254,7 +257,16 @@ export default function WaterfallPanel({ focusedFreq, focusFrequency, singleBand
   // system_stats — threaded into useWaterfall for per-device colour scaling
   // (Phase 42). null until the first system_stats arrives, which selects
   // the _default profile (pre-Phase-42 behaviour).
-  const { spectrumUpdates, device } = useSocket()
+  // Phase 76 third fix: opt out of focus control. WaterfallPanel's own useSocket()
+  // instance opens its own socket and holds its own focusedFreqRef, but it has no
+  // legitimate opinion about which frequency the dashboard should be focused on.
+  // Without skipInitialRetune, this hook's stale 98MHz default would emit
+  // set_focus_frequency on every socket connect and silently overwrite the
+  // server's single global focus state whenever its resync fires last after
+  // App.jsx's real focus-control instance. Most visibly broken in --demo mode
+  // where it caused ALL classification results to be filtered out of the
+  // dashboard because the server's focus kept getting reset to FM.
+  const { spectrumUpdates, device } = useSocket({ skipInitialRetune: true })
 
   const configs = singleBand
     ? (() => {
@@ -285,7 +297,7 @@ export default function WaterfallPanel({ focusedFreq, focusFrequency, singleBand
     }}>
       {configs.map((config) => {
         const latestUpdate = spectrumUpdates.find(
-          (u) => u.center_freq_hz === config.freq_hz
+          (u) => freqMatches(u.center_freq_hz, config.freq_hz)
         )
         return (
           <WaterfallStrip

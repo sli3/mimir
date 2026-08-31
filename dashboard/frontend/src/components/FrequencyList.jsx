@@ -1,4 +1,5 @@
 import React from 'react'
+import { freqMatches } from '../utils/frequency.js'
 
 /** Frequency configuration for the sidebar band list.
  *  Seven AU-legal frequencies, each with a display label, name,
@@ -25,7 +26,7 @@ const FREQ_CONFIGS = [
 function latestForFreq(scanResults, freqHz) {
   if (!scanResults || scanResults.length === 0) return null
   for (const r of scanResults) {
-    if (r.center_freq_hz === freqHz) return r
+    if (freqMatches(r.center_freq_hz, freqHz)) return r
   }
   return null
 }

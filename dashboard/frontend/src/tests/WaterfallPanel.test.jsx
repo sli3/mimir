@@ -5,11 +5,11 @@ import React from 'react'
 const mockFocusFrequency = vi.fn()
 
 vi.mock('../hooks/useSocket.js', () => ({
-  useSocket: () => ({
+  useSocket: vi.fn(() => ({
     spectrumUpdates: [],
     acarsRawLog: [],
     aisRawLog: [],
-  }),
+  })),
 }))
 
 vi.mock('../hooks/useCanvasSize.js', () => ({
@@ -21,10 +21,14 @@ vi.mock('../hooks/useWaterfall.js', () => ({
 }))
 
 import WaterfallPanel from '../components/WaterfallPanel.jsx'
+import { useSocket } from '../hooks/useSocket.js'
+import { useWaterfall } from '../hooks/useWaterfall.js'
 
 describe('WaterfallPanel', () => {
   beforeEach(() => {
     mockFocusFrequency.mockClear()
+    useSocket.mockClear()
+    useWaterfall.mockClear()
   })
 
   it('renders 14 canvas elements (main + crosshair per band strip) in default mode', () => {
@@ -172,5 +176,31 @@ describe('WaterfallPanel', () => {
     expect(mockFocusFrequency).toHaveBeenCalled()
     const calledWith = mockFocusFrequency.mock.calls[0][0]
     expect(typeof calledWith).toBe('number')
+  })
+
+  it('finds a spectrumUpdate whose center_freq_hz is within tolerance of the focused band (Phase 76 demo-mode offset)', () => {
+    const psd = new Array(2048).fill(-55)
+    useSocket.mockReturnValueOnce({
+      spectrumUpdates: [{ center_freq_hz: 1_090_030_000, psd_db: psd, ts: Date.now() }],
+      acarsRawLog: [],
+      aisRawLog: [],
+    })
+
+    render(
+      <WaterfallPanel
+        focusedFreq={1_090_000_000}
+        focusFrequency={mockFocusFrequency}
+        singleBand={true}
+      />
+    )
+
+    const calls = useWaterfall.mock.calls
+    expect(calls.length).toBe(1)
+    expect(calls[0][0].psdDb).toBe(psd)
+  })
+
+  it('calls useSocket with { skipInitialRetune: true } (Phase 76 fix — read-only consumer opt-out)', () => {
+    render(<WaterfallPanel focusedFreq={null} focusFrequency={mockFocusFrequency} />)
+    expect(useSocket).toHaveBeenCalledWith({ skipInitialRetune: true })
   })
 })

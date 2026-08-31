@@ -34,6 +34,9 @@ PlutoReceiver. This module never opens a device; every sample it
 processes comes from a file already on disk.
 
 HARDWARE ISOLATION: this module has no direct core.device.* import.
+The per-chunk fingerprinting helper `_fingerprint_samples` was
+extracted to `core.pipeline.fingerprint.fingerprint_samples` for reuse
+by the demo producer (Phase 76) — same function, public location.
 The transitive core.pipeline.capture dependency is constants-only
 (the seven _FINGERPRINT_METADATA_KEYS); this module never instantiates
 or opens a device. TX remains blocked by HardwareTransmitError in
@@ -84,6 +87,7 @@ from sigmf.error import SigMFFileError
 from core.pipeline.fft import compute_psd
 from core.pipeline.features import fingerprint_spectrum
 from core.pipeline.capture import _FINGERPRINT_METADATA_KEYS as SAVED_MEASUREMENT_KEYS
+from core.pipeline.fingerprint import fingerprint_samples
 from dashboard.shared_state import (
     BAND_PROFILES,
     PLUTO_BAND_PROFILES,
@@ -261,45 +265,6 @@ def _resolve_band(core_freq_hz: float) -> tuple[str | None, str]:
     if key is None:
         return None, "none"
     return key, "nearest"
-
-
-def _fingerprint_samples(
-    samples,
-    sample_rate_hz: float,
-    core_freq_hz: float,
-    band_key: str,
-    device: str,
-) -> dict:
-    """Run compute_psd + fingerprint_spectrum over replayed samples.
-
-    All four fingerprint_spectrum() parameters come from the SAME
-    device-resolved band profile, resolved via
-    resolve_band_profile(band_key, device) — the same helper the live
-    scan loop uses to populate shared_state.current_band
-    (dashboard/server.py). This matters for Pluto captures: a Pluto
-    ADS-B file was fingerprinted at capture time against
-    PLUTO_BAND_PROFILES (signal_threshold_db 10.0 dB, calibrated
-    2026-08-17), so replaying it against the raw BAND_PROFILES base
-    (3.0 dB) would shift occupied_bins / bandwidth_hz and report a
-    structural mismatch on a capture that never changed. On "hackrf"
-    (or any unknown device string) resolve_band_profile returns the
-    BAND_PROFILES base unchanged, matching the pre-fix behaviour.
-
-    fingerprint_trace_key is CRITICAL for ADS-B: that band fingerprints
-    the psd_max_hold_db trace, and replaying it against the default
-    averaged trace would make every ADS-B comparison structurally
-    invalid. resolve_band_profile never overlays the trace key, so the
-    BAND_PROFILES value carries through on both devices.
-    """
-    profile = resolve_band_profile(band_key, device)
-    psd_result = compute_psd(samples, sample_rate_hz, core_freq_hz)
-    return fingerprint_spectrum(
-        psd_result,
-        signal_threshold_db=profile.get("signal_threshold_db"),
-        crop_half_width_hz=profile.get("crop_half_width_hz"),
-        burst_use_wide_window=profile.get("burst_use_wide_window", False),
-        trace_key=profile.get("fingerprint_trace_key", "psd_db"),
-    )
 
 
 def _validate_measurement_keys(fingerprint: Any, context: str) -> dict:
@@ -572,7 +537,7 @@ def _replay_capture_impl(meta_path: Path, tolerance_db: float) -> dict:
                     start_index=entry["sample_start"],
                     count=entry["sample_count"],
                 )
-                replayed = _fingerprint_samples(
+                replayed = fingerprint_samples(
                     samples, sample_rate, core_freq, band_key, device
                 )
                 saved_keys = {k: entry[k] for k in SAVED_MEASUREMENT_KEYS}
@@ -603,7 +568,7 @@ def _replay_capture_impl(meta_path: Path, tolerance_db: float) -> dict:
             saved_keys = {k: saved_single[k] for k in SAVED_MEASUREMENT_KEYS}
             # SigMFFile.read_samples — the FILE reader, not hardware.
             samples = meta.read_samples(count=-1)
-            replayed = _fingerprint_samples(
+            replayed = fingerprint_samples(
                 samples, sample_rate, core_freq, band_key, device
             )
             per_chunk_results.append({

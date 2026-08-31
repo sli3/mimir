@@ -194,6 +194,41 @@ class TestScanRunner:
         assert scanner._queue.qsize() == 0
         assert scanner._focus_freq_hz == 1_090_000_000.0
 
+    def test_set_focus_frequency_skips_queue_flush_in_demo_mode(
+        self, config, mock_device, mock_embedder, mock_store, mock_classifier,
+    ):
+        """Demo mode must not flush the queue on focus changes.
+
+        In demo mode, ``DemoProducer`` is the queue producer; the scan
+        loop never runs (``start_ai_only()`` is the only thread). Any
+        chunks in the queue were legitimately captured from the demo
+        file and must reach the AI loop. The browser's deliberate
+        ``set_focus_frequency`` re-emit on every socket connect (see
+        ``useSocket.js``) would otherwise drain them on every reconnect
+        — this is the Phase 76 Bug 2 fix.
+
+        Live-mode regression guard is ``test_set_focus_frequency_flushes_queue``
+        above: the default fixture scanner has ``is_demo_device=False``, so
+        that test continues to exercise the drain.
+        """
+        scanner = ScanRunner(
+            mock_device, mock_embedder, mock_store, mock_classifier, config,
+            is_demo_device=True,
+        )
+        for i in range(3):
+            scanner._queue.put_nowait(
+                {"freq_hz": float(i), "fingerprint": {}, "vector": [0.0] * 7}
+            )
+        assert scanner._queue.qsize() == 3
+        scanner.set_focus_frequency(1_090_000_000.0)
+        # Queue must NOT be flushed in demo mode.
+        assert scanner._queue.qsize() == 3
+        # Focus frequency IS still updated (harmless in demo mode but
+        # keeps state consistent if anything ever reads it).
+        assert scanner._focus_freq_hz == 1_090_000_000.0
+        # Flag persisted correctly.
+        assert scanner._is_demo_device is True
+
     def test_read_error_calls_record_hw_error(
         self, config, mock_device, mock_embedder, mock_store, mock_classifier
     ):
@@ -1747,3 +1782,58 @@ class TestRecording:
         assert scanner._record_sample_offset == 0
         # A subsequent recording begins clean.
         assert scanner.start_recording() == {"status": "ok"}
+
+
+class TestStartAiOnly:
+    """Tests for ScanRunner.start_ai_only() (Phase 76 demo mode).
+
+    Demo mode runs the AI loop without the scan loop because the queue
+    is fed by ``DemoProducer`` reading SigMF files. This method must
+    start and join only the AI thread, and must leave ``_scan_thread``
+    as ``None``.
+    """
+
+    def test_start_ai_only_runs_ai_thread_only(self, scanner):
+        """start_ai_only() starts the AI thread and joins until stop()."""
+        scanner._running = True
+        # Pre-fill the queue so the AI loop processes something and then
+        # waits, giving us time to stop it cleanly.
+        scanner._queue.put_nowait({
+            "freq_hz": 98_000_000.0,
+            "fingerprint": {"center_freq_hz": 98_000_000.0},
+            "vector": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.3],
+        })
+
+        def stop_after_delay():
+            time.sleep(0.05)
+            scanner.stop()
+
+        t = threading.Thread(target=stop_after_delay, daemon=True)
+        t.start()
+        scanner.start_ai_only()
+        t.join(timeout=3)
+
+        assert scanner._ai_thread is not None
+        assert not scanner._ai_thread.is_alive()
+        assert scanner._scan_thread is None
+
+    def test_start_ai_only_does_not_start_scan_thread(self, scanner):
+        """After start_ai_only() returns, no scan thread was ever created."""
+        scanner._running = True
+        scanner._queue.put_nowait({
+            "freq_hz": 98_000_000.0,
+            "fingerprint": {"center_freq_hz": 98_000_000.0},
+            "vector": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.3],
+        })
+
+        def stop_after_delay():
+            time.sleep(0.05)
+            scanner.stop()
+
+        t = threading.Thread(target=stop_after_delay, daemon=True)
+        t.start()
+        scanner.start_ai_only()
+        t.join(timeout=3)
+
+        assert scanner._scan_thread is None
+

@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { io } from 'socket.io-client'
 import { mergeAircraftRecord } from '../utils/mergeAircraftRecord.js'
+import { freqMatches } from '../utils/frequency.js'
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000'
 
@@ -86,7 +87,7 @@ export function useSocket({ skipInitialRetune = false } = {}) {
         const next = [{ ...data }, ...prev]
         return next.slice(0, 200)
       })
-      if (data.center_freq_hz === focusedFreqRef.current) {
+      if (freqMatches(data.center_freq_hz, focusedFreqRef.current)) {
         // TODO(tech-debt TD-45-5): Burst-detection fields are omitted from this
         // mapper. Benign because the AI Reasoning panel does not render [PEAK] —
         // SignalHistoryLog reads is_burst directly from scanResults instead.

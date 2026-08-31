@@ -174,4 +174,23 @@ describe('SignalHistoryLog', () => {
     expect(text).toContain('acars')
     expect(text).toContain('ais')
   })
+
+  it('F7: offset ADS-B frequency uses the canonical magenta colour (Phase 76 demo-mode tolerance)', () => {
+    const results = [
+      { timestamp: 1000000000, center_freq_hz: 1_090_030_000, signal_type: 'adsb', confidence_score: 0.95 },
+    ]
+    render(<SignalHistoryLog scanResults={results} />)
+    const labelSpan = screen.getByText('[1090.0 MHz]')
+    expect(labelSpan).toBeInTheDocument()
+    expect(labelSpan.style.color).toBe('var(--neon-magenta)')
+  })
+
+  it('F8: offset ADS-B frequency renders the canonical label, not the raw offset label', () => {
+    const results = [
+      { timestamp: 1000000000, center_freq_hz: 1_090_030_000, signal_type: 'adsb', confidence_score: 0.95 },
+    ]
+    render(<SignalHistoryLog scanResults={results} />)
+    expect(screen.getByText('[1090.0 MHz]')).toBeInTheDocument()
+    expect(screen.queryByText('[1090.030 MHz]')).toBeNull()
+  })
 })

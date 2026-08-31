@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useCallback, useState } from 'react'
 import { useCanvasSize } from '../hooks/useCanvasSize.js'
 import { WATERFALL_LABEL_WIDTH } from './WaterfallPanel.jsx'
+import { freqMatches } from '../utils/frequency.js'
 
 const SAMPLE_RATE_HZ = 2_000_000
 
@@ -9,7 +10,7 @@ function findLatestSpectrum(spectrumUpdates, focusedFreq) {
     return null
   }
   for (let i = 0; i < spectrumUpdates.length; i++) {
-    if (spectrumUpdates[i].center_freq_hz === focusedFreq) {
+    if (freqMatches(spectrumUpdates[i].center_freq_hz, focusedFreq)) {
       return spectrumUpdates[i]
     }
   }

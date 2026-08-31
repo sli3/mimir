@@ -142,6 +142,24 @@ describe('FrequencyList', () => {
     expect(mockFocusFrequency).toHaveBeenCalledWith(98000000)
   })
 
+  it('renders latest scan result for a frequency within tolerance of the canonical band (Phase 76 demo-mode offset)', () => {
+    render(
+      <FrequencyList
+        scanResults={[
+          {
+            center_freq_hz: 1_090_030_000,
+            signal_type: 'adsb',
+            confidence_score: 0.95,
+          },
+        ]}
+        focusedFreq={null}
+        focusFrequency={mockFocusFrequency}
+      />
+    )
+    expect(screen.getByText('adsb')).toBeInTheDocument()
+    expect(screen.getByText('95%')).toBeInTheDocument()
+  })
+
   it('unsupportedBands defaults to {} when prop is omitted (zero visual change for HackRF)', () => {
     // Backwards-compat: callers that don't pass unsupportedBands at all
     // get the empty-map default and zero visual change.

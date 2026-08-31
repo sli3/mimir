@@ -304,6 +304,34 @@ describe('useSocket', () => {
     expect(result.current.scanResults[0].peak_bin_power_db).toBe(-65.0)
   })
 
+  it('scan_result within tolerance of focusedFreq updates aiReasoning (Phase 76 demo-mode offset)', () => {
+    const { result } = renderHook(() => useSocket())
+    const handler = eventHandlers['scan_result'][0]
+
+    act(() => {
+      result.current.focusFrequency(1_090_000_000)
+    })
+
+    const payload = {
+      center_freq_hz: 1_090_030_000,
+      signal_type: 'adsb',
+      confidence: 'high',
+      confidence_score: 1.0,
+      au_legal_status: 'LEGAL RX',
+      reasoning: 'Confirmed ADS-B decode',
+      timestamp: '2026-08-31T12:00:00.000Z',
+      source: 'decode',
+    }
+
+    act(() => {
+      handler(payload)
+    })
+
+    expect(result.current.aiReasoning.freq_hz).toBe(1_090_030_000)
+    expect(result.current.aiReasoning.signal_type).toBe('adsb')
+    expect(result.current.aiReasoning.source).toBe('decode')
+  })
+
   it('scan_result NOT matching focusedFreq does NOT update aiReasoning', () => {
     const { result } = renderHook(() => useSocket())
     const handler = eventHandlers['scan_result'][0]

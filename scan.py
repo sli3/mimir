@@ -13,20 +13,24 @@ import logging
 import os
 import sys
 import time
+from pathlib import Path
 
 from core.config.loader import load_config
 from core.device.factory import build_device
 from core.device.detect import detect_device
 from core.device.profiles import DEVICE_PROFILES
+from core.pipeline.demo_producer import DemoProducer
 from core.pipeline.scanner import ScanRunner
 import dashboard.shared_state as shared_state
 from dashboard.server import emit_acars_message, emit_ais_message, emit_adsb_aircraft, emit_adsb_scan_result, start_server
 from embeddings.embedder import SpectrumEmbedder
 from embeddings.store import SignalStore
 from llm.classifier import SignalClassifier
+from llm.demo_classifier import DemoSignalClassifier
 from modules.acars import AcarsSubscriber
 from modules.ais import AisSubscriber
 from modules.adsb import AdsbSubscriber
+import sigmf
 
 logging.basicConfig(
     level=logging.INFO,
@@ -58,7 +62,41 @@ def _parse_args() -> argparse.Namespace:
         choices=sorted(DEVICE_PROFILES.keys()),
         help="SDR device to open. Omit to auto-select: Pluto is preferred when both are present, otherwise the only device found. Pass an explicit driver to force it.",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--demo",
+        action="store_true",
+        help=(
+            "Run in demo mode: loop SigMF files through the classifier "
+            "pipeline with cached LLM responses, no hardware, no live LLM."
+        ),
+    )
+    parser.add_argument(
+        "--demo-files",
+        nargs="+",
+        default=None,
+        help=(
+            "One or more SigMF metadata files (.sigmf-meta) to loop in demo "
+            "mode. Required when --demo is set."
+        ),
+    )
+    parser.add_argument(
+        "--demo-cache",
+        default=None,
+        help=(
+            "Path to the demo cache JSON file. Defaults to "
+            "data/demo_cache/<first-file-stem>.json. Must exist or startup "
+            "fails fast."
+        ),
+    )
+
+    args = parser.parse_args()
+
+    if args.demo and args.device is not None:
+        parser.error("--demo and --device are mutually exclusive")
+    if args.demo and not args.demo_files:
+        parser.error("--demo-files is required when --demo is set")
+
+    return args
 
 
 def _first_supported_freq(
@@ -125,6 +163,120 @@ def main() -> None:
     paths exited 0.
     """
     args = _parse_args()
+
+    if args.demo:
+        # ------------------------------------------------------------------
+        # DEMO MODE (Phase 76): replay SigMF files through the real AI loop
+        # with cached LLM responses. No hardware, no live LLM, no decoder
+        # subscribers. ACARS/AIS/ADS-B modules are not started because they
+        # need raw IQ, not pre-fingerprinted chunks.
+        # ------------------------------------------------------------------
+        demo_files = [Path(p) for p in args.demo_files]
+        missing = [p for p in demo_files if not p.exists()]
+        if missing:
+            for p in missing:
+                logger.error("Demo file not found: %s", p)
+            sys.exit(1)
+
+        first_path = demo_files[0]
+        if args.demo_cache is not None:
+            cache_path = Path(args.demo_cache)
+        else:
+            cache_dir = Path("data/demo_cache")
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            cache_path = cache_dir / f"{first_path.stem}.json"
+
+        if not cache_path.exists():
+            logger.error(
+                "Demo cache not found: %s. Generate it with "
+                "tools/generate_demo_cache.py or pass --demo-cache.",
+                cache_path,
+            )
+            sys.exit(1)
+
+        config = load_config("config/mimir.yaml")
+
+        # DemoDevice is a hardware placeholder: the dashboard only reads
+        # ``is_open`` (which is False, truthfully) and ``close()`` (no-op).
+        # Any other attribute access raises NotImplementedError.
+        class DemoDevice:
+            driver = "hackrf"
+            is_open = False
+
+            def close(self) -> None:
+                pass
+
+            def __getattr__(self, name: str):
+                raise NotImplementedError(
+                    f"DemoDevice.{name!r} — demo mode does not open hardware"
+                )
+
+        # Read the device profile recorded in the first demo file. This
+        # must be a real DEVICE_PROFILES key ("hackrf" or "plutosdr") so
+        # ScanRunner's constructor and the dashboard's unsupported-band
+        # logic accept it.
+        try:
+            first_meta = sigmf.fromfile(str(first_path))
+            device_driver = first_meta.get_global_field("mimir:device_profile")
+        except Exception as exc:
+            logger.error("Could not read first demo file %s: %s", first_path, exc)
+            sys.exit(1)
+        device_driver = device_driver or "hackrf"
+
+        with shared_state.current_device_lock:
+            shared_state.current_device = device_driver
+
+        embedder = SpectrumEmbedder()
+        store = SignalStore(path="data/vectorstore")
+        # Demo mode queries the existing store but never adds to it — the
+        # cache holds pre-computed LLM responses, so no live ingestion is
+        # needed or wanted.
+        classifier = DemoSignalClassifier(cache_path=Path(cache_path))
+
+        scanner = ScanRunner(
+            DemoDevice(), embedder, store, classifier, config,
+            device_driver=device_driver,
+            is_demo_device=True,
+        )
+
+        broadcast = start_server(
+            config.dashboard_host, config.dashboard_port,
+            device=DemoDevice(), scanner=scanner,
+        )
+        scanner._broadcast_fn = broadcast
+        scanner._broadcast_spectrum_fn = start_server._broadcast_spectrum_fn
+
+        producer = DemoProducer(
+            sigmf_files=demo_files,
+            embedder=embedder,
+            scanner=scanner,
+            config=config,
+            broadcast_spectrum_fn=scanner._broadcast_spectrum_fn,
+        )
+        producer.start()
+
+        print("Mimir — DEMO MODE")
+        print(f"Replaying: {', '.join(str(p) for p in demo_files)}")
+        print(f"Cache: {cache_path}")
+        print("No hardware. No live LLM connection. Dashboard live and interactive.")
+        print(f"Dashboard: http://{config.dashboard_host}:{config.dashboard_port}")
+
+        fatal_error = False
+        try:
+            scanner.start_ai_only()
+        except KeyboardInterrupt:
+            print("\nDemo stopped by user.")
+        except Exception as e:
+            logger.error("Fatal error in demo AI loop: %s", e)
+            fatal_error = True
+        finally:
+            scanner.stop()
+            producer.stop()
+            if producer._thread is not None:
+                producer._thread.join(timeout=2.0)
+            print("Demo stopped.")
+            sys.exit(1 if fatal_error else 0)
+
     try:
         detected = detect_device(preferred=args.device)
     except RuntimeError as exc:

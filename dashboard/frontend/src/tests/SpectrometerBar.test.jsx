@@ -131,6 +131,39 @@ describe('SpectrometerBar', () => {
     expect(mockFocusFrequency).not.toHaveBeenCalled()
   })
 
+  it('renders PSD stroke when spectrum update is within tolerance of focusedFreq (Phase 76 demo-mode offset)', () => {
+    const mockCtx = {
+      fillStyle: '',
+      fillRect: vi.fn(),
+      beginPath: vi.fn(),
+      closePath: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      strokeStyle: '',
+      lineWidth: 0,
+      stroke: vi.fn(),
+      fill: vi.fn(),
+      setLineDash: vi.fn(),
+      fillText: vi.fn(),
+      font: '',
+      measureText: vi.fn(() => ({ width: 50 })),
+    }
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(mockCtx)
+
+    render(
+      <SpectrometerBar
+        spectrumUpdates={[
+          { center_freq_hz: 1_090_030_000, psd_db: new Array(2048).fill(-50), ts: Date.now() },
+        ]}
+        focusedFreq={1_090_000_000}
+        focusFrequency={mockFocusFrequency}
+      />
+    )
+
+    expect(mockCtx.beginPath).toHaveBeenCalled()
+    expect(mockCtx.stroke).toHaveBeenCalled()
+  })
+
   it('clicking SpectrometerBar at different positions never calls focusFrequency', () => {
     mockFocusFrequency.mockClear()
     const { container } = render(

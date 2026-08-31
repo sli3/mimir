@@ -1,4 +1,5 @@
 import React from 'react'
+import { freqMatches, findCanonicalValue } from '../utils/frequency.js'
 
 /** Colour mapping for AU band frequencies. */
 const FREQ_COLOUR_MAP = {
@@ -11,6 +12,16 @@ const FREQ_COLOUR_MAP = {
   1090000000: '--neon-magenta',
 }
 
+const FREQ_LABEL_MAP = {
+  98000000: '98.0 MHz',
+  127000000: '127.0 MHz',
+  129125000: '129.125 MHz',
+  145175000: '145.175 MHz',
+  162000000: '162.000 MHz',
+  915000000: '915.0 MHz',
+  1090000000: '1090.0 MHz',
+}
+
 function formatTime(ts) {
   if (!ts) return '--:--:--'
   const d = new Date(ts)
@@ -18,14 +29,7 @@ function formatTime(ts) {
 }
 
 function freqLabel(freqHz) {
-  if (freqHz === 98000000) return '98.0 MHz'
-  if (freqHz === 127000000) return '127.0 MHz'
-  if (freqHz === 129125000) return '129.125 MHz'
-  if (freqHz === 145175000) return '145.175 MHz'
-  if (freqHz === 162000000) return '162.000 MHz'
-  if (freqHz === 915000000) return '915.0 MHz'
-  if (freqHz === 1090000000) return '1090.0 MHz'
-  return `${(freqHz / 1e6).toFixed(3)} MHz`
+  return findCanonicalValue(freqHz, FREQ_LABEL_MAP) || `${(freqHz / 1e6).toFixed(3)} MHz`
 }
 
 /** Scrolling log of all scan results. Each row shows timestamp, frequency,
@@ -62,7 +66,7 @@ const SignalHistoryLog = React.memo(function SignalHistoryLog({ scanResults, onP
         </div>
       ) : (
         scanResults.map((entry, idx) => {
-          const colourVar = FREQ_COLOUR_MAP[entry.center_freq_hz] || '--neon-white'
+          const colourVar = findCanonicalValue(entry.center_freq_hz, FREQ_COLOUR_MAP) || '--neon-white'
           const colour = `var(${colourVar})`
           const isPinned = entry.timestamp === pinnedTimestamp
           // TODO(tech-debt TD-45-2): FM broadcast may trigger false-positive [PEAK] tags
