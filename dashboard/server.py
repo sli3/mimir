@@ -44,6 +44,7 @@ import sigmf
 from flask import Flask, jsonify, request
 from flask_socketio import SocketIO
 
+from core.pipeline.frequency import freq_matches
 from core.pipeline.replay import ReplayBusyError, ReplayFileError, replay_capture
 from core.pipeline.scan_result import ScanResult
 from embeddings.store import SignalStore
@@ -584,7 +585,7 @@ def start_server(host: str, port: int, device=None, scanner=None):
         """
         with _focused_freq_lock:
             focused = _focused_freq_hz
-        if focused is not None and scan_result.center_freq_hz != focused:
+        if focused is not None and not freq_matches(scan_result.center_freq_hz, focused):
             return
         cls = scan_result.classification
         fp = scan_result.fingerprint or {}  # fingerprint dict, may be None

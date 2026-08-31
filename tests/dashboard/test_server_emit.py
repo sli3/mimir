@@ -11,7 +11,7 @@ Run with:
 import sys
 import os
 from datetime import datetime, timezone
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -22,10 +22,12 @@ from dashboard.server import (
     emit_adsb_aircraft,
     emit_adsb_scan_result,
     emit_ais_message,
+    start_server,
 )
 from modules.acars.message import AcarsMessage
 from modules.adsb.message import AdsbMessage
 from modules.ais.message import AisMessage
+from core.pipeline.scan_result import ScanResult
 
 
 class TestEmitAcarsMessage:
@@ -140,3 +142,110 @@ class TestEmitAdsbMessage:
         event_name, payload = mock_emit.call_args[0]
         assert event_name == "scan_result"
         assert "squawk unknown" in payload["reasoning"]
+
+
+class TestBroadcastFocusFilter:
+    """broadcast() must use tolerance-based focus matching, not strict equality.
+
+    Mirrors the frontend Phase 76 Fix 4 (dashboard/frontend/src/utils/frequency.js).
+    Without this fix, demo-mode scan results from a real captured file
+    (e.g. 1_090_030_000 Hz from capture_1090030000hz_*.sigmf-meta) are silently
+    dropped because the focus is set to a rounded canonical band value
+    (1_090_000_000 Hz) by the ADS-B button — strict equality fails every time.
+    """
+
+    def _start_server_with_mocks(self):
+        """Obtain broadcast() by calling start_server() with mocked threading/socketio.run.
+
+        Mirrors the established pattern in tests/dashboard/test_server_stats.py:128-135.
+        Patches threading.Thread.start (so no Flask/stats threads actually run) and
+        dashboard.server.socketio.run (so no port binding occurs).
+        """
+        mock_device = MagicMock()
+        with (
+            patch("dashboard.server.socketio.run"),
+            patch("threading.Thread.start"),
+        ):
+            broadcast = start_server("localhost", 5000, mock_device)
+        return broadcast
+
+    def _make_scan_result(self, freq_hz: float) -> ScanResult:
+        """Construct a minimal ScanResult carrying only center_freq_hz.
+
+        broadcast() only inspects scan_result.center_freq_hz (for the
+        focus filter) and scan_result.classification / .fingerprint /
+        .timestamp (for the payload). The classification object is a
+        MagicMock because we never assert on its field contents — only
+        that the emit was attempted or not.
+        """
+        return ScanResult(
+            center_freq_hz=freq_hz,
+            timestamp="2026-08-20T15:33:07",
+            fingerprint={},
+            classification=MagicMock(
+                signal_type="adsb",
+                confidence="high",
+                confidence_score=0.95,
+                novel=False,
+                au_legal_status="legal_rx",
+                reasoning="test",
+            ),
+        )
+
+    def test_offset_frequency_within_tolerance_emits(self):
+        """The real bug scenario: focus on 1_090_000_000, scan at 1_090_030_000 (30 kHz off) MUST emit.
+
+        Pre-fix behaviour: strict equality 1_090_030_000 != 1_090_000_000
+        returns True, broadcast() exits early, scan_result is dropped.
+        Post-fix behaviour: freq_matches within 100 kHz tolerance, emit proceeds.
+        """
+        broadcast = self._start_server_with_mocks()
+        with (
+            patch("dashboard.server._focused_freq_hz", 1_090_000_000),
+            patch("dashboard.server.socketio.emit") as mock_emit,
+        ):
+            broadcast(self._make_scan_result(1_090_030_000))
+        scan_result_calls = [
+            call for call in mock_emit.call_args_list if call[0][0] == "scan_result"
+        ]
+        assert len(scan_result_calls) == 1, (
+            "Real bug: 30 kHz offset must emit under tolerance-based filter"
+        )
+
+    def test_genuinely_different_band_does_not_emit(self):
+        """Regression guard: focus on ADS-B (1090 MHz), scan at FM (98 MHz, 992 MHz gap) MUST NOT emit.
+
+        Proves the filter still filters correctly with the new tolerance,
+        just with the right granularity. The 992 MHz gap is 9920x the
+        tolerance — no chance of a false match.
+        """
+        broadcast = self._start_server_with_mocks()
+        with (
+            patch("dashboard.server._focused_freq_hz", 1_090_000_000),
+            patch("dashboard.server.socketio.emit") as mock_emit,
+        ):
+            broadcast(self._make_scan_result(98_000_000))
+        scan_result_calls = [
+            call for call in mock_emit.call_args_list if call[0][0] == "scan_result"
+        ]
+        assert len(scan_result_calls) == 0, (
+            "Regression guard: 992 MHz off-band scan must be filtered"
+        )
+
+    def test_focused_none_passes_any_frequency(self):
+        """focused=None still means 'no filter' — an off-band scan must emit.
+
+        Mirrors the existing test_passes_all_when_focus_is_none in
+        test_server_stats.py:272 but uses off-band frequency (98 MHz vs
+        1090 MHz) to prove the None path is not accidentally blocked.
+        """
+        broadcast = self._start_server_with_mocks()
+        with (
+            patch("dashboard.server._focused_freq_hz", None),
+            patch("dashboard.server.socketio.emit") as mock_emit,
+        ):
+            broadcast(self._make_scan_result(98_000_000))
+        scan_result_calls = [
+            call for call in mock_emit.call_args_list if call[0][0] == "scan_result"
+        ]
+        assert len(scan_result_calls) == 1
