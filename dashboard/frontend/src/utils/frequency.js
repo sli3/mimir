@@ -31,16 +31,24 @@
  *     single-band signal can match two different bands within tolerance.
  *
  *   IMPORTANT — NAME COLLISION WARNING:
- *     The backend exports `FREQ_TOLERANCE_HZ = 2_000_000` in
- *     `modules/adsb/constants.py:11` for a different purpose (whether
- *     to emit a scan_result at all when user is "near" a band, not
- *     identity matching). DO NOT "sync" this frontend value to match
- *     the backend's 2 MHz — at 2 MHz, a 128.06 MHz query would fall
- *     within 2×tolerance of BOTH 127 MHz and 129.125 MHz (gap 2.125 MHz
- *     ≤ 4 MHz), re-introducing exactly the cross-match this module
- *     rejects. The two constants are deliberately different magnitudes
- *     for different purposes. This module is strictly identity-matching;
- *     2 MHz would break that.
+ *     The backend has THREE pre-existing FREQ_TOLERANCE_HZ constants,
+ *     each with a DIFFERENT purpose and magnitude:
+ *       - modules/adsb/constants.py:11    → 2_000_000 Hz (2 MHz)
+ *         Purpose: Emit gate (whether to emit a scan_result when user
+ *         is "near" a band), NOT identity matching.
+ *       - modules/ais/constants.py:16     → 100_000 Hz (100 kHz)
+ *         Purpose: AIS chunk acceptance during decoding. IDENTICAL
+ *         value to this frontend/backend pair, but completely different
+ *         purpose — the strongest "looks identical" naming trap.
+ *       - modules/acars/constants.py:20  → 5_000 Hz (5 kHz)
+ *         Purpose: ACARS narrow window.
+ *
+ *     DO NOT "sync" this frontend value to match the backend's 2 MHz
+ *     (ADS-B) — at 2 MHz, a 128.06 MHz query would fall within 2×tolerance
+ *     of BOTH 127 MHz and 129.125 MHz (gap 2.125 MHz ≤ 4 MHz), re-introducing
+ *     exactly the cross-match this module rejects. The four constants are
+ *     deliberately different magnitudes for different purposes. This module
+ *     is strictly identity-matching; 2 MHz would break that.
  *
  * @module utils/frequency
  */

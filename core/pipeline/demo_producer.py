@@ -72,11 +72,10 @@ logger = logging.getLogger(__name__)
 # floor). For demo mode, reading pre-recorded samples from disk has no
 # such floor: inheriting dwell_time_sec would mean sleep(0.0), flooding
 # the queue at raw compute speed (dozens of chunks per second), starving
-# the AI loop and overwhelming a human audience. A fixed ~0.5 s gives
-# ~2 chunks/sec — fast enough for a ~550-chunk demo file to loop in
-# ~5 minutes while remaining watchable. Hardcoded per the Phase 76 fix
-# scope (no --demo-speed flag added in this fix; a configurable pace
-# remains a legitimate future enhancement).
+# the AI loop and overwhelming a human audience. The current value is a
+# deliberate operator-tuned pace for snappy, watchable presentation feel.
+# Hardcoded per the Phase 76 fix scope (no --demo-speed flag added in this
+# fix; a configurable pace remains a legitimate future enhancement).
 DEMO_CHUNK_INTERVAL_SEC: float = 0.05
 
 

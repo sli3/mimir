@@ -19,6 +19,39 @@ built to solve.
 
 ---
 
+## Recently completed
+
+### Phase 76 — Demo Mode (--demo flag) for scan.py ✅
+
+**Goal:** Let operators run the full, genuinely live, interactive Mimir dashboard against a looping replayed SigMF capture with no SDR hardware attached and no live network dependency on the yubaba LLM server (cached responses instead). Built for SDR Conference 2026 (Flinders University, Adelaide, 29 Sep–2 Oct) so the operator can take real questions from the audience and click through the dashboard interactively, instead of playing back pre-recorded video.
+
+**Delivered:**
+- `core/pipeline/demo_producer.py` (new) — DemoProducer daemon thread; reads SigMF chunks via `_load_sigmf`/`_validate_sequence` from the existing replay tooling, runs them through `core/pipeline/fingerprint.py:fingerprint_from_psd` (newly extracted so PSD is computed once, not twice), paces itself via `DEMO_CHUNK_INTERVAL_SEC = 0.05s` independent of `config.dwell_time_sec`, and pushes onto the same queue `_ai_loop` consumes in `ScanRunner`.
+- `core/pipeline/fingerprint.py` (new) — `fingerprint_from_psd()`, extracted from `core/pipeline/replay.py` so both the live `core/pipeline/scanner.py` path and the demo `DemoProducer` path share one PSD-then-fingerprint implementation.
+- `llm/demo_classifier.py` (new) — DemoSignalClassifier subclasses the real SignalClassifier (Option A: subclass/wrap, NOT a flag on the production class — deliberate to keep demo-only logic fully out of the production LLM path) and serves pre-generated cached responses instead of a live HTTP call to yubaba.
+- `tools/generate_demo_cache.py` (new) — one-time cache-generation tool; run once with a live yubaba connection against a chosen SigMF file to produce the JSON cache that DemoSignalClassifier reads at demo runtime.
+- `core/pipeline/scanner.py` — `ScanRunner.__init__` gains `is_demo_device: bool = False` (default zero behaviour change for live mode); `set_focus_frequency()` skips its queue drain when `is_demo_device=True` (the drain semantics are correct for live hardware retuning but wrong for demo mode where there is no real device to invalidate against).
+- `scan.py` — new `--demo` and `--demo-files` CLI flags; bypasses `build_device`, `device.open`, and the Pluto startup-focus check; does NOT start the ACARS/AIS/ADS-B raw-IQ decoder subscribers (deliberate scope boundary — see "Decode-path scope" below).
+- `dashboard/frontend/src/utils/frequency.js` (new) — tolerance-based `freqMatches(a, b, toleranceHz)` and `findCanonicalValue(freq, canonicalMap)` helpers; `FREQ_TOLERANCE_HZ = 100_000`. Applied at six frontend sites where a strict-equality `===` between emitted and canonical frequencies was silently failing.
+- `core/pipeline/frequency.py` (new) — backend twin of `frequency.js`; `FOCUS_FREQ_TOLERANCE_HZ = 100_000` (deliberately named differently from the three pre-existing `FREQ_TOLERANCE_HZ` constants in `modules/adsb/constants.py` (2 MHz), `modules/ais/constants.py` (100 kHz — the identical-value trap), and `modules/acars/constants.py` (5 kHz) to avoid import collision). `freq_matches()` helper applied inside `dashboard/server.py:broadcast()`.
+
+**FIVE live-verified bugs found after the initial build, all missed by the 1022+ passing tests.** This is a real, recent example of the project's standing "green tests are necessary but not sufficient" principle:
+1. Double PSD computation + zero-value `dwell_time_sec` pacing → extracted `fingerprint_from_psd`, added `DEMO_CHUNK_INTERVAL_SEC`.
+2. Live-mode focus-change flushed the demo's queue on every socket reconnect → `is_demo_device` skip-queue-drain flag.
+3. WaterfallPanel opened a second competing socket connection → added `skipInitialRetune: true` mirroring RadarPage.jsx's existing read-only-consumer pattern.
+4. Strict-equality `===` on real captured frequency vs rounded canonical band constant, six frontend sites → `frequency.js` tolerance helper applied at all six sites.
+5. Backend `broadcast()` ALSO used strict equality, one line, one file → `frequency.py` `freq_matches()` helper + `FOCUS_FREQ_TOLERANCE_HZ` constant + cross-language contract test pinning Python to JS.
+
+**Decode-path scope boundary (by design):** RAW DECODE and FRAME INSPECTOR panels correctly remain empty in demo mode (and the `/radar` page is not affected). These need RAW IQ SAMPLES, which the fingerprint-only demo producer does not provide. A future phase would need a genuinely different producer feeding AdsbSubscriber. NOT currently scoped or scheduled — see TD-76-7.
+
+**Test counts:** 1515 total passing (1042 pytest + 473 Vitest), 0 failures. pytest delta = +69 (new test files `tests/core/test_demo_producer.py`, `tests/core/test_frequency.py`, plus `tests/dashboard/test_server_emit.py` updates for the Fix 5 broadcast-filter contract).
+
+**Commits:** `fda66cb` (initial demo mode + Fixes 1-4) and `4e05c57` (Fix 5: backend broadcast tolerance).
+
+**Test counts ground-truth statement:** Every figure in this entry was verified in the finalise-build session that wrote it. pytest was run via `uv run pytest` and Vitest via `npx vitest run` from `dashboard/frontend/`. The two source commits are on `main`; `git status` shows the only working-tree changes are docstring polish in `core/pipeline/demo_producer.py` and `dashboard/frontend/src/utils/frequency.js` (no behaviour change).
+
+---
+
 ## Sequencing (do these roughly in order)
 
 1. **Receiver reference position fix** — `modules/adsb/constants.py` `ADELAIDE_LAT`/`ADELAIDE_LON`
