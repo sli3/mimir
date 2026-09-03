@@ -42,7 +42,7 @@ built to solve.
 4. Strict-equality `===` on real captured frequency vs rounded canonical band constant, six frontend sites → `frequency.js` tolerance helper applied at all six sites.
 5. Backend `broadcast()` ALSO used strict equality, one line, one file → `frequency.py` `freq_matches()` helper + `FOCUS_FREQ_TOLERANCE_HZ` constant + cross-language contract test pinning Python to JS.
 
-**Decode-path scope boundary (by design):** RAW DECODE and FRAME INSPECTOR panels correctly remain empty in demo mode (and the `/radar` page is not affected). These need RAW IQ SAMPLES, which the fingerprint-only demo producer does not provide. A future phase would need a genuinely different producer feeding AdsbSubscriber. NOT currently scoped or scheduled — see TD-76-7.
+**Decode-path scope boundary (by design):** RAW DECODE and FRAME INSPECTOR panels correctly remain empty in demo mode (and the `/radar` page is not affected). These need RAW IQ SAMPLES, which the fingerprint-only demo producer does not provide. A future phase would need a genuinely different producer feeding AdsbSubscriber. NOT currently scoped or scheduled — see TD-76-7. (RESOLVED 2026-09-03: commit `4edbb108` added `AdsbDemoProducer` (`core/pipeline/adsb_demo_producer.py`), a raw-IQ producer feeding `AdsbSubscriber`, wired into `scan.py`'s `--demo` branch via the new optional `--demo-files-adsb` flag. See the closed TD-76-7 row in AGENTS.md.)
 
 **Test counts:** 1515 total passing (1042 pytest + 473 Vitest), 0 failures. pytest delta = +69 (new test files `tests/core/test_demo_producer.py`, `tests/core/test_frequency.py`, plus `tests/dashboard/test_server_emit.py` updates for the Fix 5 broadcast-filter contract).
 
