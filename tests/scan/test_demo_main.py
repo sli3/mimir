@@ -116,6 +116,7 @@ def _patch_dependencies():
     p_load_config = patch("scan.load_config")
     p_signal_store = patch("scan.SignalStore")
     p_embedder = patch("scan.SpectrumEmbedder")
+    p_adsb_demo = patch("scan.AdsbDemoProducer")
     return (
         p_start_server,
         p_scanner,
@@ -129,6 +130,7 @@ def _patch_dependencies():
         p_load_config,
         p_signal_store,
         p_embedder,
+        p_adsb_demo,
     )
 
 
@@ -146,6 +148,10 @@ def _apply_patches(patches):
     mocks[0].return_value._broadcast_spectrum_fn = MagicMock()
     mocks[0]._broadcast_spectrum_fn = MagicMock()
     mocks[10].return_value = MagicMock()
+    # AdsbDemoProducer mock needs the same shape as the real instance for
+    # scan.py's finally block.
+    mocks[12].return_value._thread = MagicMock()
+    mocks[12].return_value._stop_event = MagicMock()
 
     return mocks, stack
 
@@ -203,6 +209,7 @@ class TestDemoBranch:
             _mock_load_config,
             _mock_store,
             _mock_embedder,
+            _mock_adsb_demo,
         ) = mocks
 
         mock_scanner.return_value.start_ai_only.side_effect = KeyboardInterrupt
@@ -256,6 +263,7 @@ class TestDemoBranch:
             _mock_load_config,
             _mock_store,
             _mock_embedder,
+            _mock_adsb_demo,
         ) = mocks
 
         mock_scanner.return_value.start_ai_only.side_effect = KeyboardInterrupt
@@ -276,12 +284,22 @@ class TestDemoBranch:
 
         assert shared_state.current_device == "hackrf"
 
-    def test_demo_branch_skips_hardware_and_subscribers(
-        self, tmp_path: Path
+    def test_demo_branch_skips_hardware_and_non_adsb_subscribers(
+        self, tmp_path: Path, monkeypatch
     ) -> None:
         meta_path = _build_one_shot(tmp_path)
         cache_path = tmp_path / "demo_cache.json"
         _write_cache(cache_path)
+
+        # Make the default ADS-B demo file exist so the conditional ADS-B
+        # decode path is exercised deterministically.
+        default_adsb_path = (
+            tmp_path / "data" / "captures" /
+            "capture_1090030000hz_20260820_153307.sigmf-meta"
+        )
+        default_adsb_path.parent.mkdir(parents=True, exist_ok=True)
+        default_adsb_path.touch()
+        monkeypatch.chdir(tmp_path)
 
         patches = _patch_dependencies()
         mocks, stack = _apply_patches(patches)
@@ -298,6 +316,7 @@ class TestDemoBranch:
             _mock_load_config,
             _mock_store,
             _mock_embedder,
+            mock_adsb_demo,
         ) = mocks
 
         # Simulate the AI loop returning quickly.
@@ -320,7 +339,13 @@ class TestDemoBranch:
         mock_build_device.assert_not_called()
         mock_acars.assert_not_called()
         mock_ais.assert_not_called()
-        mock_adsb.assert_not_called()
+        # ADS-B is started in demo mode via AdsbDemoProducer (TD-76-7).
+        mock_adsb.assert_called_once()
+        mock_adsb.return_value.start.assert_called_once()
+        mock_adsb.return_value.stop.assert_called_once()
+        mock_adsb_demo.assert_called_once()
+        mock_adsb_demo.return_value.start.assert_called_once()
+        mock_adsb_demo.return_value.stop.assert_called_once()
         mock_demo_classifier.assert_called_once()
         mock_demo_producer.assert_called_once()
         mock_scanner.return_value.start_ai_only.assert_called_once()
@@ -336,7 +361,7 @@ class TestDemoBranch:
         mocks, stack = _apply_patches(patches)
         (
             _mock_start_server,
-            _mock_scanner,
+            mock_scanner,
             _mock_demo_classifier,
             _mock_demo_producer,
             mock_detect_device,
@@ -347,6 +372,7 @@ class TestDemoBranch:
             _mock_load_config,
             _mock_store,
             _mock_embedder,
+            _mock_adsb_demo,
         ) = mocks
 
         with patch.object(sys, "argv", [
@@ -384,6 +410,82 @@ class TestDemoBranch:
 
         assert exc_info.value.code == 1
 
+    def test_explicit_adsb_demo_file_missing_exits_with_error(
+        self, tmp_path: Path
+    ) -> None:
+        """--demo-files-adsb pointing at a non-existent file exits with code 1."""
+        meta_path = _build_one_shot(tmp_path)
+        cache_path = tmp_path / "demo_cache.json"
+        _write_cache(cache_path)
+        missing_adsb = tmp_path / "missing_adsb.sigmf-meta"
+
+        with pytest.raises(SystemExit) as exc_info:
+            with patch.object(sys, "argv", [
+                "scan.py",
+                "--demo",
+                "--demo-files", str(meta_path),
+                "--demo-cache", str(cache_path),
+                "--demo-files-adsb", str(missing_adsb),
+            ]):
+                main()
+
+        assert exc_info.value.code == 1
+
+    def test_missing_default_adsb_demo_path_graceful_degradation(
+        self, tmp_path: Path, monkeypatch, caplog
+    ) -> None:
+        """If the default ADS-B capture is absent, the fingerprint demo still
+        runs and AdsbDemoProducer is never constructed.
+        """
+        meta_path = _build_one_shot(tmp_path)
+        cache_path = tmp_path / "demo_cache.json"
+        _write_cache(cache_path)
+
+        # Run from a temp directory that does NOT contain the default
+        # data/captures/<name>.sigmf-meta file.
+        monkeypatch.chdir(tmp_path)
+
+        patches = _patch_dependencies()
+        mocks, stack = _apply_patches(patches)
+        (
+            mock_start_server,
+            mock_scanner,
+            mock_demo_classifier,
+            mock_demo_producer,
+            _mock_detect_device,
+            _mock_build_device,
+            _mock_acars,
+            _mock_ais,
+            mock_adsb,
+            _mock_load_config,
+            _mock_store,
+            _mock_embedder,
+            mock_adsb_demo,
+        ) = mocks
+
+        mock_scanner.return_value.start_ai_only.side_effect = KeyboardInterrupt
+
+        with caplog.at_level("WARNING"):
+            with patch.object(sys, "argv", [
+                "scan.py",
+                "--demo",
+                "--demo-files", str(meta_path),
+                "--demo-cache", str(cache_path),
+            ]):
+                try:
+                    main()
+                except SystemExit as exc:
+                    assert exc.code == 0
+                finally:
+                    _stop_all(stack)
+
+        mock_adsb.assert_not_called()
+        mock_adsb_demo.assert_not_called()
+        mock_demo_classifier.assert_called_once()
+        mock_demo_producer.assert_called_once()
+        mock_start_server.assert_called_once()
+        assert "ADS-B demo file not found" in caplog.text
+
 
 class TestLiveBranch:
     """Tests proving the non-demo path remains the live hardware path."""
@@ -405,6 +507,7 @@ class TestLiveBranch:
             _mock_load_config,
             _mock_store,
             _mock_embedder,
+            _mock_adsb_demo,
         ) = mocks
 
         fake_device = MagicMock()

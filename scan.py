@@ -19,7 +19,9 @@ from core.config.loader import load_config
 from core.device.factory import build_device
 from core.device.detect import detect_device
 from core.device.profiles import DEVICE_PROFILES
+from core.pipeline.adsb_demo_producer import AdsbDemoProducer
 from core.pipeline.demo_producer import DemoProducer
+from core.pipeline.replay import ReplayFileError
 from core.pipeline.scanner import ScanRunner
 import dashboard.shared_state as shared_state
 from dashboard.server import emit_acars_message, emit_ais_message, emit_adsb_aircraft, emit_adsb_scan_result, start_server
@@ -86,6 +88,16 @@ def _parse_args() -> argparse.Namespace:
             "Path to the demo cache JSON file. Defaults to "
             "data/demo_cache/<first-file-stem>.json. Must exist or startup "
             "fails fast."
+        ),
+    )
+    parser.add_argument(
+        "--demo-files-adsb",
+        default=None,
+        help=(
+            "Optional path to a .sigmf-meta file whose raw IQ is fed to the ADS-B "
+            "decode path during --demo mode. Defaults to "
+            "data/captures/capture_1090030000hz_20260820_153307.sigmf-meta "
+            "(relative to the project root). Must be a 2 MSa/s, 1090 MHz capture."
         ),
     )
 
@@ -166,10 +178,14 @@ def main() -> None:
 
     if args.demo:
         # ------------------------------------------------------------------
-        # DEMO MODE (Phase 76): replay SigMF files through the real AI loop
-        # with cached LLM responses. No hardware, no live LLM, no decoder
-        # subscribers. ACARS/AIS/ADS-B modules are not started because they
-        # need raw IQ, not pre-fingerprinted chunks.
+        # DEMO MODE (Phase 76 + TD-76-7): replay SigMF files through the real
+        # AI loop with cached LLM responses. No hardware, no live LLM.
+        # ACARS and AIS modules are NOT started because they need raw IQ and
+        # no replay producer exists for them in this build. ADS-B IS started
+        # via a second daemon producer (AdsbDemoProducer) that reads raw IQ
+        # from a separate SigMF file and feeds it directly into
+        # AdsbSubscriber.receive(), so RAW DECODE, FRAME INSPECTOR and the
+        # /radar page populate during demo mode.
         # ------------------------------------------------------------------
         demo_files = [Path(p) for p in args.demo_files]
         missing = [p for p in demo_files if not p.exists()]
@@ -255,6 +271,57 @@ def main() -> None:
         )
         producer.start()
 
+        adsb_subscriber: AdsbSubscriber | None = None
+        adsb_demo_producer: AdsbDemoProducer | None = None
+
+        adsb_demo_path = (
+            Path(args.demo_files_adsb)
+            if args.demo_files_adsb
+            else Path("data/captures/capture_1090030000hz_20260820_153307.sigmf-meta")
+        )
+        explicit_adsb_demo = args.demo_files_adsb is not None
+
+        if not adsb_demo_path.exists():
+            if explicit_adsb_demo:
+                logger.error(
+                    "ADS-B demo file not found: %s", adsb_demo_path
+                )
+                sys.exit(1)
+            logger.warning(
+                "ADS-B demo file not found at %s — running fingerprint demo "
+                "without ADS-B decode path. Pass --demo-files-adsb to enable.",
+                adsb_demo_path,
+            )
+        else:
+            adsb_subscriber = AdsbSubscriber(
+                broadcast_fn=emit_adsb_aircraft,
+                scan_result_fn=emit_adsb_scan_result,
+            )
+            adsb_subscriber.start()
+            try:
+                adsb_demo_producer = AdsbDemoProducer(
+                    sigmf_path=adsb_demo_path,
+                    adsb_subscriber=adsb_subscriber,
+                )
+            except (FileNotFoundError, ReplayFileError) as exc:
+                adsb_subscriber.stop()
+                if explicit_adsb_demo:
+                    logger.error(
+                        "Cannot load ADS-B demo file %s: %s",
+                        adsb_demo_path,
+                        exc,
+                    )
+                    sys.exit(1)
+                logger.warning(
+                    "Default ADS-B demo file %s could not be loaded: %s — "
+                    "running fingerprint demo without ADS-B decode path.",
+                    adsb_demo_path,
+                    exc,
+                )
+                adsb_subscriber = None
+            else:
+                adsb_demo_producer.start()
+
         print("Mimir — DEMO MODE")
         print(f"Replaying: {', '.join(str(p) for p in demo_files)}")
         print(f"Cache: {cache_path}")
@@ -270,6 +337,15 @@ def main() -> None:
             logger.error("Fatal error in demo AI loop: %s", e)
             fatal_error = True
         finally:
+            if adsb_demo_producer is not None:
+                adsb_demo_producer.stop()
+            if adsb_subscriber is not None:
+                adsb_subscriber.stop()
+            if (
+                adsb_demo_producer is not None
+                and adsb_demo_producer._thread is not None
+            ):
+                adsb_demo_producer._thread.join(timeout=2.0)
             scanner.stop()
             producer.stop()
             if producer._thread is not None:
