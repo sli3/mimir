@@ -178,17 +178,18 @@ _DISTANCE_SCALE_REFERENCE = """
 ChromaDB distance scale (lower = more similar):
 Calibrated from real HackRF One captures — Adelaide, AU — June 2026.
 
-  0.000 – 0.004 : Strong match   — almost certainly the same signal type
-  0.004 – 0.031 : Possible match — likely same type, moderate confidence
-  0.031 – 0.052 : Different type — known signal but different category
-  0.052+        : Novel signal   — does not closely match anything stored
+  0.000 – 0.005 : Strong match   — almost certainly the same signal type
+  0.005 – 0.007 : Possible match — likely same type, moderate confidence
+  0.007 – 0.008 : Different type — known signal but different category
+  0.008+        : Novel signal   — does not closely match anything stored
 
 Reference distances from calibration:
   FM broadcast same-type:    0.0019  (very stable)
   Aviation VHF same-type:    0.0000  (near-identical captures)
   APRS same-type:            0.0009  (very stable)
-  Aviation VHF vs APRS:      0.0575  (closest cross-type pair)
-  FM vs noise:               1.3500  (FM is highly distinctive)
+  ADS-B same-type:           0.0023  (Pluto, 2026-09-04)
+  ISM_LoRa same-type:        0.0001  (Pluto, 2026-09-04)
+  ADS-B vs ISM_LoRa:         0.0094  (closest cross-type pair, Pluto)
 
 Note: ACARS, AIS, and Aviation VHF share identical gain settings (lna=16/vga=20).
 Without live signal, their noise captures are nearly indistinguishable in vector
@@ -629,7 +630,7 @@ No code blocks. Raw JSON exactly matching this schema:
 {_JSON_SCHEMA}
 
 If you cannot confidently classify the signal, use signal_type "unknown" \
-and set confidence to "low". If all neighbours have distances above 0.052, \
+and set confidence to "low". If all neighbours have distances above 0.008, \
 set novel to true.
 
 EVIDENCE PRIORITY (important):
@@ -741,11 +742,11 @@ Never invent data — only classify based on what you are given. /no_think"""
                 label = n.get("label", "unknown")
                 distance = n.get("distance", 0.0)
 
-                if distance <= 0.004:
+                if distance <= 0.005:
                     match_label = "strong match"
-                elif distance <= 0.031:
+                elif distance <= 0.007:
                     match_label = "possible match"
-                elif distance <= 0.052:
+                elif distance <= 0.008:
                     match_label = "different signal type"
                 else:
                     match_label = "novel signal — not closely matched to anything stored"
