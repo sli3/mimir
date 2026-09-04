@@ -176,7 +176,10 @@ Australian frequency bands (legal to receive passively — no licence required):
 
 _DISTANCE_SCALE_REFERENCE = """
 ChromaDB distance scale (lower = more similar):
-Calibrated from real HackRF One captures — Adelaide, AU — June 2026.
+Mixed-source calibration: HackRF One captures (Adelaide, AU, June 2026) for
+FM broadcast, Aviation VHF, and APRS; Pluto captures (2026-09-04) for ADS-B
+and ISM_LoRa. ACARS, AIS, and noise_floor have no current reference distance
+in this block.
 
   0.000 – 0.005 : Strong match   — almost certainly the same signal type
   0.005 – 0.007 : Possible match — likely same type, moderate confidence

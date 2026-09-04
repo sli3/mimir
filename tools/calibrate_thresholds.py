@@ -502,6 +502,12 @@ def _compute_pairwise_distances(
     or older-session records competing for the top-K slots. Previous truncation
     at len(entries) silently dropped pairs whose partner was outside the top-K,
     distorting the threshold derivation (Phase 77).
+
+    Caller invariant: every entry in `entries` must already be in the store
+    (added via store.add() or merged from it). Because n_results spans the
+    whole store, the competitor set is broader than just off-device records:
+    stale same-device records of skipped bands (e.g. an operator aborting at
+    the antenna prompt) also compete for neighbour slots.
     """
     n_results = store.count()
     distance_pairs: list[tuple[str, str, float]] = []
