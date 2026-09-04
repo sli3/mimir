@@ -485,6 +485,57 @@ def _find_cross_type_min_pair(
     return cross_type_min, cross_type_min_pair
 
 
+def _compute_pairwise_distances(
+    entries: list[dict],
+    store: SignalStore,
+) -> list[tuple[str, str, float]]:
+    """Compute pairwise distances between all entries using store.query().
+
+    Returns list of (a_id, b_id, distance) tuples. Pairs whose partner cannot
+    be located in the store's neighbour list (which after the fix genuinely
+    indicates a bug: an entry whose ID was never added to the store) are
+    dropped with a diagnostic logger.error log line and excluded from the
+    result.
+
+    n_results is sized to the entire store (not len(entries)) so the partner
+    for a pair can never be truncated out of the neighbour list by off-device
+    or older-session records competing for the top-K slots. Previous truncation
+    at len(entries) silently dropped pairs whose partner was outside the top-K,
+    distorting the threshold derivation (Phase 77).
+    """
+    n_results = store.count()
+    distance_pairs: list[tuple[str, str, float]] = []
+
+    for a, b in itertools.combinations(entries, 2):
+        a_id, b_id = a["id"], b["id"]
+
+        # Query store with embedding from entry a to find nearest neighbours
+        query_result = store.query(a["embedding"], n_results=n_results)
+
+        # Get distances and ids (ChromaDB returns lists)
+        distances = query_result.get("distances", [[]])[0]
+        ids = query_result.get("ids", [[]])[0]
+
+        # Find the distance to entry b
+        try:
+            idx_b = ids.index(b_id)
+            distance = float(distances[idx_b])
+            distance_pairs.append((a_id, b_id, distance))
+        except ValueError:
+            logger.error(
+                "Could not find pair (%s, %s) in store: store has %d records, "
+                "queried n_results=%d; an entry ID present in entries but absent "
+                "from the store indicates a bug",
+                a_id,
+                b_id,
+                store.count(),
+                n_results,
+            )
+            continue
+
+    return distance_pairs
+
+
 # =============================================================================
 # SECTION 1 — CALIBRATION_TARGETS config block
 # =============================================================================
@@ -1050,26 +1101,7 @@ def main() -> None:
         raise SystemExit(1)
 
     # Compute pairwise distances and store them
-    distance_pairs: list[tuple[str, str, float]] = []
-
-    for a, b in itertools.combinations(entries, 2):
-        a_id, b_id = a["id"], b["id"]
-
-        # Query store with embedding from entry a to find nearest neighbours
-        query_result = store.query(a["embedding"], n_results=len(entries))
-
-        # Get distances and metadatas (ChromaDB returns lists)
-        distances = query_result.get("distances", [[]])[0]
-        ids = query_result.get("ids", [[]])[0]
-
-        # Find the distance to entry b
-        try:
-            idx_b = ids.index(b_id)
-            distance = float(distances[idx_b])
-            distance_pairs.append((a_id, b_id, distance))
-        except ValueError:
-            logger.warning("Could not find pair (%s, %s) in store", a_id, b_id)
-            continue
+    distance_pairs = _compute_pairwise_distances(entries, store)
 
     # Compute thresholds for colouring distance cells (same formulas as Step G)
     entry_labels = {e["id"]: e["label"] for e in entries}

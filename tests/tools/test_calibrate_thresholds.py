@@ -7,6 +7,9 @@ cross-session merge helpers.
 
 from datetime import datetime, timedelta
 
+import itertools
+import logging
+
 import numpy as np
 import pytest
 
@@ -20,6 +23,7 @@ from tools.calibrate_thresholds import (
     STRONG_MATCH_FLOOR,
     _classify_distance_pairs,
     _compute_band_freshness,
+    _compute_pairwise_distances,
     _find_cross_type_min_pair,
     _merge_stored_entries,
     derive_thresholds,
@@ -427,4 +431,153 @@ def test_merge_stored_entries_empty_when_all_captured_or_stale():
     merged = _merge_stored_entries(entries, store, freshness, {"FM_broadcast"})
 
     assert len(merged) == 1
+    store.delete_collection()
+
+
+# ---------------------------------------------------------------------------
+# Pairwise distance computation tests (Phase 77)
+# ---------------------------------------------------------------------------
+
+def test_pair_query_is_not_silently_dropped_when_partner_is_outside_top_k(tmp_path):
+    """Phase 77 regression test.
+
+    When the store has more records than `entries`, the partner for a pair
+    could previously fall outside the truncated top-K returned by
+    store.query(n_results=len(entries)) and the pair was silently dropped.
+    After the fix, n_results = store.count() so the partner is always in
+    the neighbour list and the pair is always computed.
+    """
+    store = SignalStore(path=":memory:")
+
+    # 2 entries (a, b), so pair (a, b) is the only combination.
+    # The 18 noise records are placed deliberately close to a's embedding so
+    # they crowd the top of the nearest-neighbour ranking, pushing b
+    # outside the top-2 (which is what the OLD buggy code would have
+    # asked for: n_results=len(entries)=2).
+    a_vec = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    b_vec = [1.0, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0]  # close to a but not identical
+    entries = [
+        {"id": "a", "label": "X", "embedding": a_vec},
+        {"id": "b", "label": "X", "embedding": b_vec},
+    ]
+
+    store.add({"id": "a", "embedding": a_vec,
+               "metadata": {"label": "X", "device": "hackrf"}})
+    store.add({"id": "b", "embedding": b_vec,
+               "metadata": {"label": "X", "device": "hackrf"}})
+
+    # Add 18 noise records close to a, all distinct IDs, all with the same
+    # embedding so they are tied at a small distance from a. With
+    # n_results=2 (old buggy behaviour), only a + 1 noise record are returned,
+    # and b is excluded. With n_results=store.count() (the fix), all 20 records
+    # are returned and b is found.
+    for i in range(18):
+        store.add({"id": f"noise_{i}", "embedding": [0.95, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                   "metadata": {"label": "noise_floor", "device": "hackrf"}})
+
+    pairs = _compute_pairwise_distances(entries, store)
+
+    assert len(pairs) == 1, "exactly one pair (a, b) should be computed"
+    a_id, b_id, dist = pairs[0]
+    assert (a_id, b_id) == ("a", "b")
+    assert dist is not None
+    assert isinstance(dist, float)
+    assert dist > 0  # a and b are not identical
+
+    store.delete_collection()
+
+
+def test_pair_count_unaffected_by_off_device_records_in_store(tmp_path):
+    """Off-device records in the store must not push any active pair out of the neighbour list."""
+    store = SignalStore(path=":memory:")
+
+    # 3 active entries, all hackrf.
+    active = [
+        {"id": "h1", "label": "X", "embedding": [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]},
+        {"id": "h2", "label": "X", "embedding": [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]},
+        {"id": "h3", "label": "X", "embedding": [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]},
+    ]
+    for entry in active:
+        store.add({"id": entry["id"], "embedding": entry["embedding"],
+                   "metadata": {"label": "X", "device": "hackrf"}})
+
+    # Add 30 Pluto records with embeddings closer to h1 than h2/h3 are,
+    # so under the OLD buggy n_results=3 they would crowd h2 and h3 out
+    # of the top-3 neighbours of h1.
+    for i in range(30):
+        store.add({"id": f"pluto_{i}", "embedding": [0.99, 0.01, 0.0, 0.0, 0.0, 0.0, 0.0],
+                   "metadata": {"label": "X", "device": "plutosdr"}})
+
+    pairs = _compute_pairwise_distances(active, store)
+    pair_set = {(a, b) for a, b, _ in pairs}
+
+    # C(3, 2) = 3 pairs expected, all computed.
+    expected = {("h1", "h2"), ("h1", "h3"), ("h2", "h3")}
+    assert pair_set == expected, (
+        f"all 3 pairs must be computed regardless of off-device store records; "
+        f"got {pair_set}"
+    )
+
+    store.delete_collection()
+
+
+def test_pair_count_is_n_choose_2_with_no_drops(tmp_path):
+    """For N entries, exactly N*(N-1)/2 pairs are computed (no drops)."""
+    store = SignalStore(path=":memory:")
+
+    # 5 entries, all hackrf, all distinct IDs.
+    n = 5
+    entries = [
+        {"id": f"e{i}", "label": "X",
+         "embedding": [float(i == j) for j in range(7)]}  # one-hot in 7D
+        for i in range(n)
+    ]
+    for entry in entries:
+        store.add({"id": entry["id"], "embedding": entry["embedding"],
+                   "metadata": {"label": "X", "device": "hackrf"}})
+
+    # Add 20 noise records to make the store larger than entries
+    # (exercising the truncation scenario).
+    for i in range(20):
+        store.add({"id": f"noise_{i}",
+                   "embedding": [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
+                   "metadata": {"label": "noise_floor", "device": "hackrf"}})
+
+    pairs = _compute_pairwise_distances(entries, store)
+
+    assert len(pairs) == n * (n - 1) // 2  # 10 pairs, no drops
+    assert all(dist is not None for _, _, dist in pairs)
+    # Distances must be positive (distinct one-hots give positive L2).
+    assert all(dist > 0 for _, _, dist in pairs)
+
+    store.delete_collection()
+
+
+def test_missing_pair_in_store_logs_error_with_diagnostic_info(tmp_path, caplog):
+    """If a partner ID is genuinely missing from the store (a real bug),
+    the helper logs an ERROR with store.count() and n_results so the
+    cause is diagnosable from the log line alone, and the pair is dropped.
+    """
+    store = SignalStore(path=":memory:")
+    a_vec = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    # 'entries' contains an ID that was NEVER added to the store, a real
+    # bug scenario. The fix makes the helper detect and log this loudly.
+    entries = [
+        {"id": "in_store", "label": "X", "embedding": a_vec},
+        {"id": "missing", "label": "X", "embedding": [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]},
+    ]
+    store.add({"id": "in_store", "embedding": a_vec,
+               "metadata": {"label": "X", "device": "hackrf"}})
+
+    with caplog.at_level(logging.ERROR, logger="tools.calibrate_thresholds"):
+        pairs = _compute_pairwise_distances(entries, store)
+
+    assert len(pairs) == 0  # pair dropped
+    error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(error_records) == 1
+    msg = error_records[0].getMessage()
+    assert "in_store" in msg and "missing" in msg
+    assert "n_results=" in msg or "n_results = " in msg  # diagnostic context
+    assert "store has" in msg or "store size" in msg.lower()
+
     store.delete_collection()
