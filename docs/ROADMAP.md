@@ -9,7 +9,7 @@
 
 Full history for every completed phase (Phase 0 through Phase 66, plus BUG-03/BUG-04)
 has moved to the `mimir-wiki` repo, under `03 - Legacy/docs/` — one file per phase,
-indexed and searchable via the wiki-search OpenCode tool. This file only tracks
+indexed and searchable via the `wiki-search` MCP server. This file only tracks
 what's actually still ahead.
 
 Looking for what shipped, when, or the detail behind a past phase? Ask `wiki-search`
@@ -96,8 +96,9 @@ built to solve.
 
 ## Known tech debt
 
-Tracked in `AGENTS.md`'s Known Tech Debt table, not duplicated here. That table is the
-single source of truth for open defects, stale values, and cross-session housekeeping.
+Tracked in `docs/TECH_DEBT.md`, not duplicated here. That file is the single source
+of truth for open defects, stale values, and cross-session housekeeping. (Until
+2026-11-13 the table lived in `AGENTS.md`; older phase write-ups below still say so.)
 
 ---
 

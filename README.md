@@ -424,8 +424,11 @@ All three are installed automatically by `uv sync --all-extras`. No additional s
 
 ```
 mimir/
-├── AGENTS.md                          ← OpenCode memory — read first every session
-├── opencode.json                      ← OpenCode config + local LLM settings
+├── AGENTS.md                          ← Agent protocol (Claude Code + Codex) — read first
+├── CLAUDE.md                          ← Imports AGENTS.md for Claude Code
+├── .claude/                           ← Claude Code agents, skills, hooks, settings
+├── .codex/                            ← Codex sandbox config and command rules
+├── .mcp.json                          ← MCP servers (context7, playwright, wiki-search)
 ├── README.md
 ├── scan.py                            ← Entry point — starts scanner + dashboard
 ├── setup.sh                           ← Auto-detecting install + React build
