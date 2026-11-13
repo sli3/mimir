@@ -142,8 +142,13 @@ class BearingTracker:
     separate timer), and if the table reaches ``MAX_AIRCRAFT`` the oldest
     entry is dropped on the next insert.
 
-    This tracker is not wired into the live subscriber broadcast path; it
-    consumes ``AdsbMessage`` objects supplied by the caller.
+    ``AdsbSubscriber`` owns one instance, built in its ``__init__``, and
+    calls ``update()`` for every decoded message in both ``_decode_loop()``
+    and the periodic and shutdown harvest ``_harvest_and_broadcast()``.
+    It then attaches the report's bearing, bearing rate in degrees per
+    second and range fields to the message before broadcast.  The tracker
+    itself only consumes ``AdsbMessage`` objects supplied by its caller
+    and performs no radio operations.
     """
 
     def __init__(self, ref_lat_deg: float = ADELAIDE_LAT, ref_lon_deg: float = ADELAIDE_LON) -> None:
