@@ -497,6 +497,7 @@ class TestScanDemoModeSmoke:
     def test_scan_demo_starts_both_producers(
         self, tmp_path: Path
     ) -> None:
+        """Require both demo producers to start and main to exit with code 0."""
         from contextlib import ExitStack
         from scan import main
 
@@ -545,10 +546,9 @@ class TestScanDemoModeSmoke:
                 "--demo-cache", str(cache_path),
                 "--demo-files-adsb", str(adsb_meta),
             ]):
-                try:
+                with pytest.raises(SystemExit) as exc_info:
                     main()
-                except SystemExit as exc:
-                    assert exc.code == 0
+                assert exc_info.value.code == 0
 
         # Both producers were instantiated and started; no producer
         # blocked the other because the AI loop returned immediately.

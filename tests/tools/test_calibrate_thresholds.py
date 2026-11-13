@@ -555,7 +555,7 @@ def test_pair_count_is_n_choose_2_with_no_drops(tmp_path):
 
 def test_missing_pair_in_store_logs_error_with_diagnostic_info(tmp_path, caplog):
     """If a partner ID is genuinely missing from the store (a real bug),
-    the helper logs an ERROR with store.count() and n_results so the
+    the helper's logger emits an ERROR with store.count() and n_results so the
     cause is diagnosable from the log line alone, and the pair is dropped.
     """
     store = SignalStore(path=":memory:")
@@ -573,7 +573,11 @@ def test_missing_pair_in_store_logs_error_with_diagnostic_info(tmp_path, caplog)
         pairs = _compute_pairwise_distances(entries, store)
 
     assert len(pairs) == 0  # pair dropped
-    error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
+    # Third-party loggers such as ChromaDB telemetry can emit unrelated errors.
+    error_records = [
+        r for r in caplog.records
+        if r.levelno == logging.ERROR and r.name == "tools.calibrate_thresholds"
+    ]
     assert len(error_records) == 1
     msg = error_records[0].getMessage()
     assert "in_store" in msg and "missing" in msg

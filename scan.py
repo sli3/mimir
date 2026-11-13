@@ -156,6 +156,9 @@ def main() -> None:
     and enters the scan loop.
     Ctrl+C stops the scan gracefully.
 
+    Demo mode validates replay files and any explicit --demo-files-adsb
+    path before resolving the cache path or starting components.
+
     Device selection:
     With Pluto (auto-selected or explicit --device plutosdr), the
     configured frequencies are checked against the Pluto's supported
@@ -180,6 +183,8 @@ def main() -> None:
         # ------------------------------------------------------------------
         # DEMO MODE (Phase 76 + TD-76-7): replay SigMF files through the real
         # AI loop with cached LLM responses. No hardware, no live LLM.
+        # Validate replay files and any explicit ADS-B path before cache
+        # directory creation or component startup.
         # ACARS and AIS modules are NOT started because they need raw IQ and
         # no replay producer exists for them in this build. ADS-B IS started
         # via a second daemon producer (AdsbDemoProducer) that reads raw IQ
@@ -192,6 +197,16 @@ def main() -> None:
         if missing:
             for p in missing:
                 logger.error("Demo file not found: %s", p)
+            sys.exit(1)
+
+        adsb_demo_path = (
+            Path(args.demo_files_adsb)
+            if args.demo_files_adsb
+            else Path("data/captures/capture_1090030000hz_20260820_153307.sigmf-meta")
+        )
+        explicit_adsb_demo = args.demo_files_adsb is not None
+        if explicit_adsb_demo and not adsb_demo_path.exists():
+            logger.error("ADS-B demo file not found: %s", adsb_demo_path)
             sys.exit(1)
 
         first_path = demo_files[0]
@@ -274,15 +289,9 @@ def main() -> None:
         adsb_subscriber: AdsbSubscriber | None = None
         adsb_demo_producer: AdsbDemoProducer | None = None
 
-        adsb_demo_path = (
-            Path(args.demo_files_adsb)
-            if args.demo_files_adsb
-            else Path("data/captures/capture_1090030000hz_20260820_153307.sigmf-meta")
-        )
-        explicit_adsb_demo = args.demo_files_adsb is not None
-
         if not adsb_demo_path.exists():
             if explicit_adsb_demo:
+                # Defensive re-check in case the file vanished during startup.
                 logger.error(
                     "ADS-B demo file not found: %s", adsb_demo_path
                 )

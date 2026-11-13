@@ -189,7 +189,7 @@ class TestDemoBranch:
 
     def test_demo_device_attributes(self, tmp_path: Path) -> None:
         """DemoDevice.is_open is False, close() is a no-op, and any other
-        attribute access raises NotImplementedError."""
+        attribute access raises NotImplementedError after a required exit 0."""
         meta_path = _build_one_shot(tmp_path)
         cache_path = tmp_path / "demo_cache.json"
         _write_cache(cache_path)
@@ -221,9 +221,9 @@ class TestDemoBranch:
             "--demo-cache", str(cache_path),
         ]):
             try:
-                main()
-            except SystemExit as exc:
-                assert exc.code == 0
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
+                assert exc_info.value.code == 0
             finally:
                 _stop_all(stack)
 
@@ -238,7 +238,7 @@ class TestDemoBranch:
         self, tmp_path: Path
     ) -> None:
         """Demo mode writes the real device driver key to
-        shared_state.current_device before starting the producer."""
+        shared_state.current_device before starting the producer and exits 0."""
         import dashboard.shared_state as shared_state
 
         meta_path = _build_one_shot(tmp_path)
@@ -275,9 +275,9 @@ class TestDemoBranch:
             "--demo-cache", str(cache_path),
         ]):
             try:
-                main()
-            except SystemExit as exc:
-                assert exc.code == 0
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
+                assert exc_info.value.code == 0
             finally:
                 _stop_all(stack)
                 shared_state.current_device = original_device
@@ -287,6 +287,7 @@ class TestDemoBranch:
     def test_demo_branch_skips_hardware_and_non_adsb_subscribers(
         self, tmp_path: Path, monkeypatch
     ) -> None:
+        """Require exit 0 after demo setup skips live-only dependencies."""
         meta_path = _build_one_shot(tmp_path)
         cache_path = tmp_path / "demo_cache.json"
         _write_cache(cache_path)
@@ -329,9 +330,9 @@ class TestDemoBranch:
             "--demo-cache", str(cache_path),
         ]):
             try:
-                main()
-            except SystemExit as exc:
-                assert exc.code == 0
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
+                assert exc_info.value.code == 0
             finally:
                 _stop_all(stack)
 
@@ -354,6 +355,7 @@ class TestDemoBranch:
     def test_demo_cache_missing_exits_with_error(
         self, tmp_path: Path
     ) -> None:
+        """Require exit 1 when the demo cache is missing."""
         meta_path = _build_one_shot(tmp_path)
         missing_cache = tmp_path / "no_cache.json"
 
@@ -382,9 +384,9 @@ class TestDemoBranch:
             "--demo-cache", str(missing_cache),
         ]):
             try:
-                main()
-            except SystemExit as exc:
-                assert exc.code == 1
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
+                assert exc_info.value.code == 1
             finally:
                 _stop_all(stack)
 
@@ -413,13 +415,31 @@ class TestDemoBranch:
     def test_explicit_adsb_demo_file_missing_exits_with_error(
         self, tmp_path: Path
     ) -> None:
-        """--demo-files-adsb pointing at a non-existent file exits with code 1."""
+        """Require exit 1 for a missing explicit ADS-B file before setup."""
         meta_path = _build_one_shot(tmp_path)
         cache_path = tmp_path / "demo_cache.json"
         _write_cache(cache_path)
         missing_adsb = tmp_path / "missing_adsb.sigmf-meta"
 
-        with pytest.raises(SystemExit) as exc_info:
+        patches = _patch_dependencies()
+        mocks, stack = _apply_patches(patches)
+        (
+            mock_start_server,
+            mock_scanner,
+            mock_demo_classifier,
+            mock_demo_producer,
+            mock_detect_device,
+            mock_build_device,
+            mock_acars,
+            mock_ais,
+            mock_adsb,
+            mock_load_config,
+            mock_store,
+            mock_embedder,
+            mock_adsb_demo,
+        ) = mocks
+
+        try:
             with patch.object(sys, "argv", [
                 "scan.py",
                 "--demo",
@@ -427,15 +447,31 @@ class TestDemoBranch:
                 "--demo-cache", str(cache_path),
                 "--demo-files-adsb", str(missing_adsb),
             ]):
-                main()
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
+                assert exc_info.value.code == 1
+        finally:
+            _stop_all(stack)
 
-        assert exc_info.value.code == 1
+        mock_start_server.assert_not_called()
+        mock_scanner.assert_not_called()
+        mock_demo_classifier.assert_not_called()
+        mock_demo_producer.assert_not_called()
+        mock_detect_device.assert_not_called()
+        mock_build_device.assert_not_called()
+        mock_acars.assert_not_called()
+        mock_ais.assert_not_called()
+        mock_adsb.assert_not_called()
+        mock_load_config.assert_not_called()
+        mock_store.assert_not_called()
+        mock_embedder.assert_not_called()
+        mock_adsb_demo.assert_not_called()
 
     def test_missing_default_adsb_demo_path_graceful_degradation(
         self, tmp_path: Path, monkeypatch, caplog
     ) -> None:
         """If the default ADS-B capture is absent, the fingerprint demo still
-        runs and AdsbDemoProducer is never constructed.
+        runs, exits 0 and AdsbDemoProducer is never constructed.
         """
         meta_path = _build_one_shot(tmp_path)
         cache_path = tmp_path / "demo_cache.json"
@@ -473,9 +509,9 @@ class TestDemoBranch:
                 "--demo-cache", str(cache_path),
             ]):
                 try:
-                    main()
-                except SystemExit as exc:
-                    assert exc.code == 0
+                    with pytest.raises(SystemExit) as exc_info:
+                        main()
+                    assert exc_info.value.code == 0
                 finally:
                     _stop_all(stack)
 
@@ -492,6 +528,7 @@ class TestLiveBranch:
 
     @patch("llm.classifier.requests.get")
     def test_live_path_calls_detect_and_build_device(self, mock_get) -> None:
+        """Require exit 0 after mocked live device setup and cleanup."""
         patches = _patch_dependencies()
         mocks, stack = _apply_patches(patches)
         (
@@ -530,9 +567,9 @@ class TestLiveBranch:
 
         with patch.object(sys, "argv", ["scan.py", "--device", "hackrf"]):
             try:
-                main()
-            except SystemExit as exc:
-                assert exc.code == 0
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
+                assert exc_info.value.code == 0
             finally:
                 _stop_all(stack)
 
