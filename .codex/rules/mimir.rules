@@ -1,0 +1,41 @@
+# Mimir command rules for Codex. Mimir is receive-only under the
+# Radiocommunications Act 1992 (Cth): Codex never touches the radio hardware,
+# never runs the live scanner, and never commits or pushes.
+# Check a command with:
+#   codex execpolicy check --pretty --rules .codex/rules/mimir.rules -- <command>
+
+prefix_rule(
+    pattern = [["hackrf_transfer", "hackrf_spiflash", "hackrf_cpldjtag", "hackrf_debug", "hackrf_sweep", "hackrf_info"]],
+    decision = "forbidden",
+    justification = "Mimir agents never touch the HackRF. hackrf_transfer can transmit; live hardware checks are Prin's.",
+    match = ["hackrf_transfer -t file.iq -f 915000000", "hackrf_info"],
+    not_match = ["uv run pytest"],
+)
+
+prefix_rule(
+    pattern = [["iio_attr", "iio_writedev", "iio_readdev", "SoapySDRUtil"]],
+    decision = "forbidden",
+    justification = "Mimir agents never touch the Pluto or any SDR. iio_writedev can transmit.",
+    match = ["iio_writedev -u usb:1.2.3 cf-ad9361-dds-core-lpc", "SoapySDRUtil --probe"],
+)
+
+prefix_rule(
+    pattern = [["python", "python3"], "scan.py"],
+    decision = "forbidden",
+    justification = "The live scanner opens the SDR. Prin runs it himself.",
+    match = ["python scan.py --demo"],
+)
+
+prefix_rule(
+    pattern = ["uv", "run", "python", "scan.py"],
+    decision = "forbidden",
+    justification = "The live scanner opens the SDR. Prin runs it himself.",
+)
+
+prefix_rule(
+    pattern = ["git", ["commit", "push", "reset", "rebase", "merge", "checkout", "switch", "stash", "tag"]],
+    decision = "forbidden",
+    justification = "Codex never changes git history or branches. pm and Prin handle git.",
+    match = ["git commit -m x", "git push origin main"],
+    not_match = ["git diff HEAD", "git status --short"],
+)

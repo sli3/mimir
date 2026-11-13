@@ -1,0 +1,36 @@
+model = "gpt-6.1-sol"
+approval_policy = "never"
+default_permissions = "mimir"
+web_search = "disabled"
+
+[permissions.mimir]
+extends = ":workspace"
+
+[permissions.mimir.filesystem]
+"/home/sli3/.cache/uv" = "write"
+
+[permissions.mimir.filesystem.":workspace_roots"]
+".env" = "deny"
+".mcp.json" = "deny"
+"data/captures" = "deny"
+"data/vectorstore" = "deny"
+"data/calibration_vectorstore" = "deny"
+"data/demo_cache" = "deny"
+"data/frequency_reference.json" = "read"
+"AGENTS.md" = "read"
+"CLAUDE.md" = "read"
+"README.md" = "read"
+".claude" = "read"
+".codex" = "read"
+".opencode" = "read"
+"opencode.json" = "read"
+".session-memos" = "read"
+".git" = "read"
+"docs/ROADMAP.md" = "read"
+"docs/TECH_DEBT.md" = "read"
+"docs/au-legal-reference.md" = "read"
+"core/legal/compliance_guard.py" = "read"
+"tests/test_no_transmit.py" = "read"
+
+[shell_environment_policy]
+ignore_default_excludes = false

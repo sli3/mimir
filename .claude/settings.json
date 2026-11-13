@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(uv run pytest)",
+      "Bash(uv run pytest *)",
+      "Bash(uv run python -m pytest *)",
+      "Bash(uv run python -m py_compile *)",
+      "Bash(npm run test --prefix dashboard/frontend)",
+      "Bash(npm run test --prefix dashboard/frontend *)",
+      "Bash(npm run lint --prefix dashboard/frontend)",
+      "Bash(npm run lint --prefix dashboard/frontend *)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git --no-pager diff *)",
+      "Bash(git log *)",
+      "Bash(git --no-pager log *)",
+      "Bash(git show *)",
+      "Bash(git --no-pager show *)",
+      "Bash(git add *)",
+      "Bash(git reset -q -- *)",
+      "Bash(git switch *)",
+      "Bash(git checkout -b *)",
+      "Bash(git branch *)",
+      "Bash(mkdir -p .session-memos)",
+      "Bash(rm -rf .playwright-mcp)",
+      "Bash(date *)",
+      "Bash(codex exec *)",
+      "mcp__context7",
+      "mcp__wiki-search",
+      "mcp__playwright",
+      "mcp__claude-in-chrome",
+      "Edit(/docs/ROADMAP.md)",
+      "Edit(/docs/TECH_DEBT.md)"
+    ],
+    "ask": [
+      "Bash(git commit *)",
+      "Bash(uv run python -c *)",
+      "Bash(git branch -D *)",
+      "Bash(git switch --discard-changes *)"
+    ],
+    "deny": [
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(!.env.example)",
+      "Edit(/AGENTS.md)",
+      "Edit(/CLAUDE.md)",
+      "Edit(/.mcp.json)",
+      "Edit(/.claude/**)",
+      "Edit(/.codex/**)",
+      "Edit(/opencode.json)",
+      "Edit(/.opencode/**)",
+      "Edit(/data/**)",
+      "Bash(git push *)",
+      "Bash(git * --force*)",
+      "Bash(git * -f)",
+      "Bash(git * -f *)",
+      "Bash(git reset --hard *)",
+      "Bash(hackrf_transfer *)",
+      "Bash(hackrf_spiflash *)",
+      "Bash(hackrf_cpldjtag *)",
+      "Bash(hackrf_debug *)",
+      "Bash(iio_attr *)",
+      "Bash(iio_writedev *)",
+      "Bash(SoapySDRUtil *)",
+      "Bash(python scan.py *)",
+      "Bash(python3 scan.py *)",
+      "Bash(uv run python scan.py *)",
+      "Bash(codex * --sandbox*)",
+      "Bash(codex * danger-full-access*)",
+      "Bash(codex * workspace-write*)",
+      "Bash(codex * -s read-only*)",
+      "Bash(codex * --dangerously*)",
+      "Bash(codex * --yolo*)",
+      "Bash(codex * --ignore-user-config*)",
+      "Bash(codex * --profile*)",
+      "Bash(codex * --add-dir*)",
+      "Bash(codex * sandbox_mode*)",
+      "Bash(codex * default_permissions*)",
+      "mcp__claude-in-chrome__javascript_tool",
+      "mcp__claude-in-chrome__form_input",
+      "mcp__claude-in-chrome__upload_image",
+      "mcp__claude-in-chrome__shortcuts_execute",
+      "mcp__playwright__browser_evaluate",
+      "mcp__playwright__browser_run_code_unsafe",
+      "mcp__playwright__browser_fill_form",
+      "mcp__playwright__browser_type",
+      "mcp__playwright__browser_file_upload"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|Agent|mcp__claude-in-chrome__.*|mcp__playwright__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/agent_guard.py"],
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

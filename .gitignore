@@ -17,3 +17,6 @@ node_modules/
 embeddings/chroma_store/
 .playwright-mcp/
 .wiki-drafts/
+
+# Claude Code personal settings (per machine)
+.claude/settings.local.json
