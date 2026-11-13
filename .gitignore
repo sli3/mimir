@@ -12,7 +12,8 @@ data/
 # Legacy OpenCode config (retired 2026-11-13). Still ignored so a leftover
 # local copy, which holds provider settings, can never be committed.
 opencode.json
-.session-memos/
+.session-memos/*
+!.session-memos/.gitkeep
 dashboard/static/
 !data/frequency_reference.json
 node_modules/
