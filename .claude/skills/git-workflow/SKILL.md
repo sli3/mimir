@@ -45,7 +45,8 @@ Prin asked for this commit. You still show the staged diff and wait for his
    | `chore` | Build, config or tooling |
    | `test` | Tests added or updated |
 
-   Any body goes in a further `-m` argument. Keep messages free of `;`, `&`,
+   End the subject with the build's Kanzo card id in brackets when there is
+   one, for example `(mimir#12)`. Any body goes in a further `-m` argument. Keep messages free of `;`, `&`,
    `|`, `<`, `>`, backticks and `$(`, which `agent_guard.py` rejects.
    `git commit` also prompts Prin once more (an `ask` rule): that is expected.
 
@@ -53,6 +54,11 @@ Prin asked for this commit. You still show the staged diff and wait for his
    Never push; `git push` is denied. After the commit, show
    `git log -1 --oneline` and give Prin the exact command, naming the branch:
    `git push origin <branch>`.
+
+6. **Board (pm only)**
+   If the commit belongs to a build with a Kanzo card, move the card to
+   `done` with a one-line comment giving the short hash (KANZO BOARD 4f in
+   pm's agent definition). A Kanzo failure never undoes the commit.
 
 ### Rules
 

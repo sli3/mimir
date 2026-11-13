@@ -52,6 +52,11 @@ CHECKPOINT is ON only if the text above contains `CHECKPOINT_MODE: ON`
 
 ## WORKFLOW
 
+### STEP 0 — CONTEXT
+
+One Hindsight `recall` for this change (MEMORY in your agent definition), and
+find the build's card on the board (it should be in `review`).
+
 ### STEP 1 — RE-VERIFY THE HARD TRUTH
 
 Run both suites and read the counts off the real output:
@@ -78,8 +83,9 @@ Following GOVERNANCE RECORDS in your agent definition:
    identifier before you write it.
 2. If CHECKPOINT is ON: add the phase entry to `docs/ROADMAP.md`. Ask Prin
    for the phase number only if the summary does not give one.
-3. `README.md`: sync the two Phase Tracker summary lines to the newest
-   ROADMAP entry and the Step 1 counts. Nothing else.
+3. `README.md`: always set the `**Total: ...**` line to the Step 1 counts,
+   CHECKPOINT or not. Change the `**Current phase: ...**` line only when
+   CHECKPOINT is ON. Nothing else.
 4. Test counts anywhere: the three numbers from Step 1, verbatim, nothing
    derived from them.
 5. If `AGENTS.md` looks out of date (for example a Key Files row), do not edit
@@ -101,6 +107,9 @@ Following GOVERNANCE RECORDS in your agent definition:
 ### STEP 5 — SESSION MEMO
 
 Write the memo per SESSION MEMO in your agent definition. Confirm the path.
+Then one Hindsight `retain` digest (MEMORY in your agent definition), and a
+one-line comment on the card with the verified test total and memo name
+(KANZO BOARD 4e).
 
 ### STEP 6 — REPORT (to chat only)
 
@@ -108,6 +117,7 @@ Write the memo per SESSION MEMO in your agent definition. Confirm the path.
 - Each governance file changed, one line each, plus the diff
 - Whether the phase tracker moved, and that CHECKPOINT was ON or OFF
 - The memo path
+- Memory: retained, declined or failed; Board: card id and column
 - The Step 4 verification result
 - Any `AGENTS.md` change Prin should make by hand
 - Tech debt or follow-ups
@@ -118,7 +128,8 @@ End with a **COMMIT HANDOFF** built from this run's facts:
   commit first.
 - **Governance:** the exact files from Step 3 that changed.
 - **Never staged:** `.session-memos/` (name this run's memo).
-- **Suggested messages:** one per commit, category prefix, British English.
+- **Suggested messages:** one per commit, category prefix, British English,
+  ending with the card id in brackets when there is one.
 - **Next:** tell Prin to ask you to commit (you will use `git-workflow`, which
   runs the TX grep and waits for his OK), or to commit by hand.
 

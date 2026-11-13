@@ -72,7 +72,9 @@ Before calling it, establish prior session context:
 1. Newest memo: `ls -t .session-memos/`, skipping `handoff-*` files. Read it.
 2. Read `docs/TECH_DEBT.md` for rows touching this task's area, and
    `docs/ROADMAP.md`'s "Recently completed" and "Sequencing" sections.
-3. One `mcp__wiki-search__wikisearch` call for the task's area.
+3. One `mcp__wiki-search__wikisearch` call for the task's area, and one
+   Hindsight `recall` (MEMORY in your agent definition).
+3a. Claim or create the build's card and move it to `doing` (KANZO BOARD 4a).
 4. `git status --porcelain`: note files already changed before the build.
    They are Prin's work; the build never stages them.
 5. Read the actual source files the task touches. Never plan from a summary.
@@ -159,6 +161,10 @@ unresolved → hard stop.
      or "not run" with the reason
    - PM audit result
    - Tech debt or follow-ups surfaced (for `/finalise-build` to record)
+   - Board: the card id and its column (moved to `review`, KANZO BOARD 4d),
+     or "Board: unavailable" with the reason
+   - Memory: whether the Hindsight recall returned anything that shaped the
+     plan
    - A checklist with ✅ / ❌ / ⚠️ under BACKEND CODE, TESTS, CONSTRAINTS
      (TX scan, AU law, protected files) and GOVERNANCE (must read "not
      touched, by design")

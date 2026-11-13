@@ -58,6 +58,7 @@ MEMO_DIR = ".session-memos/"
 # command matches a prefix when it equals it or continues with a space.
 GIT_READ = (
     "git status",
+    "git --no-pager status",
     "git diff",
     "git --no-pager diff",
     "git log",
@@ -177,10 +178,70 @@ PLAYWRIGHT_PM_ALLOWED = frozenset({
 })
 PLAYWRIGHT_FILE_KEYS = ("filename", "path", "outputPath", "output_path")
 
+# Hindsight long-term memory (bank "mimir"). Nobody, in any session, may run a
+# destructive memory tool. Named agents: only pm, and only recall and retain.
+HINDSIGHT_PREFIX = "mcp__hindsight__"
+HINDSIGHT_DESTRUCTIVE = re.compile(r"^(?:delete_|clear_|update_bank$)")
+HINDSIGHT_PM_ALLOWED = frozenset({"recall", "retain"})
+
+# Kanzo task board. Named agents: only pm. Nobody deletes cards or projects, and
+# next_task is refused because it moves the top todo card to doing by itself.
+KANZO_PREFIX = "mcp__kanzo__"
+KANZO_BLOCKED = re.compile(r"(?:^|_)(?:delete|archive|remove)(?:_|$)|^next_task$")
+
 # Shell constructs that could write files or run hidden commands.
 UNSAFE_SHELL = re.compile(r"[<>`]|\$\(")
 HARMLESS_REDIRECTS = re.compile(r"\s2>&1|\s2>/dev/null")
 COMMAND_SEPARATORS = re.compile(r"&&|\|\||[;|&\n]")
+
+
+def split_shell(command: str) -> tuple[list[str], str]:
+    """Split a command on UNQUOTED ; | & && || and newlines.
+
+    Returns the segments, plus the command text with quoted contents removed,
+    for spotting redirection. Text inside quotes is an argument (for example a
+    grep pattern "a|b"), not shell syntax, so it must not split a segment or
+    count as a redirect. Command substitution is still dangerous inside double
+    quotes, so callers check for `$(` and backticks on the raw command too.
+    """
+    segments, current, unquoted = [], [], []
+    quote = None
+    i = 0
+    while i < len(command):
+        ch = command[i]
+        if quote:
+            current.append(ch)
+            if ch == "\\" and quote == '"' and i + 1 < len(command):
+                current.append(command[i + 1])
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+        elif ch in ("'", '"'):
+            quote = ch
+            current.append(ch)
+        elif ch == "\\" and i + 1 < len(command):
+            current.append(ch + command[i + 1])
+            unquoted.append(" ")
+            i += 2
+            continue
+        elif ch in ";|&\n":
+            segments.append("".join(current))
+            current = []
+            unquoted.append(" ")
+            if command[i:i + 2] in ("&&", "||"):
+                i += 1
+        else:
+            current.append(ch)
+            unquoted.append(ch)
+        i += 1
+    segments.append("".join(current))
+    if quote:
+        segments.append("\x00unterminated-quote")
+    return segments, "".join(unquoted)
+
+
+SUBSTITUTION = re.compile(r"`|\$\(")
 # Files holding secrets. No guarded agent may name them in Bash.
 SECRET_FILES = re.compile(r"(?:^|[\s/\"'=])\.env\b(?!\.example)")
 # The only Codex commands pm may run.
@@ -341,9 +402,16 @@ def check_bash(agent: str, command: str) -> None:
     if command.strip() in BASH_EXACT.get(agent, ()):
         return
     cleaned = HARMLESS_REDIRECTS.sub("", command)
-    if UNSAFE_SHELL.search(cleaned):
-        block(f"{agent} may not use redirection or command substitution in Bash")
-    for segment in COMMAND_SEPARATORS.split(cleaned):
+    # $( and backticks run commands even inside double quotes; single quotes
+    # are literal, so drop single-quoted text before looking.
+    if SUBSTITUTION.search(re.sub(r"'[^']*'", "''", cleaned)):
+        block(f"{agent} may not use command substitution in Bash")
+    segments, unquoted = split_shell(cleaned)
+    if re.search(r"[<>]", unquoted):
+        block(f"{agent} may not use redirection in Bash")
+    for segment in segments:
+        if segment.startswith("\x00"):
+            block(f"{agent} sent a command with an unterminated quote")
         segment = " ".join(segment.split())
         if not segment:
             continue
@@ -456,6 +524,26 @@ def check_playwright(agent: str, tool: str, tool_input: dict) -> None:
         block(reason)
 
 
+def check_hindsight(agent: str, tool: str) -> None:
+    """Hindsight: no destructive tools for anyone; named agents get pm's two tools only."""
+    short = tool.removeprefix(HINDSIGHT_PREFIX)
+    if HINDSIGHT_DESTRUCTIVE.match(short):
+        block(f"no session may run the destructive Hindsight tool '{short}'; Prin manages the bank by hand")
+    if agent in TEAM or agent in CODEX_AGENT_NAMES:
+        block(f"{agent} may not use Hindsight; pm passes recalled context in the task prompt")
+    if agent == PM and short not in HINDSIGHT_PM_ALLOWED:
+        block(f"pm may use only Hindsight recall and retain, not '{short}'")
+
+
+def check_kanzo(agent: str, tool: str) -> None:
+    """Kanzo board: never delete, archive or auto-advance; named agents other than pm none."""
+    short = tool.removeprefix(KANZO_PREFIX)
+    if KANZO_BLOCKED.search(short) and agent in (PM,) + TEAM + CODEX_AGENT_NAMES:
+        block(f"agents may not run Kanzo '{short}' (no deleting, archiving or next_task)")
+    if agent in TEAM or agent in CODEX_AGENT_NAMES:
+        block(f"{agent} may not use the Kanzo board; only pm may")
+
+
 def main() -> None:
     """Read the hook input from stdin and apply the rules for its agent."""
     data = json.load(sys.stdin)
@@ -465,6 +553,12 @@ def main() -> None:
 
     if tool == "Bash":
         check_every_session_bash(str(tool_input.get("command", "")))
+    if tool.startswith(HINDSIGHT_PREFIX):
+        check_hindsight(agent, tool)
+        return
+    if tool.startswith(KANZO_PREFIX):
+        check_kanzo(agent, tool)
+        return
 
     if agent != PM and agent not in TEAM and agent not in CODEX_AGENT_NAMES:
         # Plain sessions (Prin's own `claude`) keep the normal permission rules,

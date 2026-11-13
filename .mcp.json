@@ -26,6 +26,10 @@
         "python",
         "/home/sli3/Repository/mimir/mcp/wiki_search_mcp.py"
       ]
+    },
+    "hindsight": {
+      "type": "http",
+      "url": "http://192.168.0.10:8888/mcp/mimir/"
     }
   }
 }
