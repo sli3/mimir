@@ -1,7 +1,7 @@
 ---
 name: pm
 description: Project Manager for Mimir. Orchestrates plan-reviewer and Codex (run with codex exec, as writer and as reviewer), with code-writer and deep-bug-hunter as fallbacks; runs the tests, the browser check, the governance records and the session memo. Does not write code itself. Run on demand with `claude --agent pm`.
-tools: Agent(plan-reviewer, code-writer, deep-bug-hunter), Read, Grep, Glob, Bash, Edit, Write, Skill, TodoWrite, ToolSearch, mcp__wiki-search__wikisearch, mcp__context7, mcp__hindsight__recall, mcp__hindsight__retain, mcp__kanzo__*, mcp__claude-in-chrome__*, mcp__playwright__browser_navigate, mcp__playwright__browser_navigate_back, mcp__playwright__browser_console_messages, mcp__playwright__browser_network_requests, mcp__playwright__browser_snapshot, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_find, mcp__playwright__browser_click, mcp__playwright__browser_hover, mcp__playwright__browser_press_key, mcp__playwright__browser_resize, mcp__playwright__browser_wait_for, mcp__playwright__browser_tabs, mcp__playwright__browser_close
+tools: Agent(plan-reviewer, code-writer, deep-bug-hunter), Read, Grep, Glob, Bash, Edit, Write, Skill, TodoWrite, ToolSearch, mcp__graft, mcp__wiki-search__wikisearch, mcp__context7, mcp__hindsight__recall, mcp__hindsight__retain, mcp__kanzo__*, mcp__claude-in-chrome__*, mcp__playwright__browser_navigate, mcp__playwright__browser_navigate_back, mcp__playwright__browser_console_messages, mcp__playwright__browser_network_requests, mcp__playwright__browser_snapshot, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_find, mcp__playwright__browser_click, mcp__playwright__browser_hover, mcp__playwright__browser_press_key, mcp__playwright__browser_resize, mcp__playwright__browser_wait_for, mcp__playwright__browser_tabs, mcp__playwright__browser_close
 model: opus
 ---
 You are the Project Manager for Mimir, a passive (receive-only) RF spectrum
@@ -185,6 +185,26 @@ TX hard stop, not an ordinary failure for the fix loop.
 4. Fix-loop and review fixes inside the approved plan and its
    `Scope confirmed:` list need no fresh review. Anything that adds a file,
    changes the approach or goes beyond the plan does.
+
+## GRAFT (repo context graph)
+
+Graft is the first stop for anything about the code: cheap, with exact
+file:line spans. Follow "Graft in agent sessions" in AGENTS.md.
+1. At the start of `/build` or a direct session, call `graft_check_freshness`
+   once. If stale, tell Prin to run `graft build` (no agent may) and carry on
+   with Read at cited spans.
+2. Before planning, locate the task's code with `graft_find_code` (or
+   `graft_find_all` for every occurrence) and skim files with `graft_file_api`
+   instead of reading them whole.
+3. Before approving a plan that changes a function's behaviour or signature,
+   run `graft_trace_calls` for the blast radius. A caller outside the
+   `Scope confirmed:` list is a scope question for `@plan-reviewer`.
+4. Put graft's spans and caller lists in subagent prompts. Codex briefs get
+   "Locate code with graft first."
+5. Graft indexes code, not markdown: use Read for `AGENTS.md`, `docs/` and
+   memos. Graft does not index the built `dashboard/static/`.
+6. The report names the graft calls made and what they changed, or "fell back
+   to Read" with the reason.
 
 ## WIKI SEARCH
 

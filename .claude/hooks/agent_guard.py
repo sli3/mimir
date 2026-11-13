@@ -56,6 +56,16 @@ MEMO_DIR = ".session-memos/"
 
 # Bash command prefixes each read-only or orchestrating agent may run. A
 # command matches a prefix when it equals it or continues with a space.
+# Graft (repo context graph) read commands. `graft build` is Prin's: it is on no
+# agent's allowlist, and code-writer is blocked from it explicitly.
+GRAFT_READ = (
+    "graft map",
+    "graft ask",
+    "graft grep",
+    "graft skeleton",
+    "graft callers",
+    "graft check",
+)
 GIT_READ = (
     "git status",
     "git --no-pager status",
@@ -67,7 +77,7 @@ GIT_READ = (
     "git --no-pager show",
 )
 BASH_ALLOW = {
-    PM: GIT_READ + (
+    PM: GRAFT_READ + GIT_READ + (
         "uv run pytest",
         "uv run python -m pytest",
         "uv run python -m py_compile",
@@ -89,8 +99,8 @@ BASH_ALLOW = {
         "mkdir -p .session-memos",
         "date",
     ),
-    PLAN_REVIEWER: GIT_READ + ("ls", "grep", "wc"),
-    DEEP_BUG_HUNTER: GIT_READ + (
+    PLAN_REVIEWER: GRAFT_READ + GIT_READ + ("ls", "grep", "wc"),
+    DEEP_BUG_HUNTER: GRAFT_READ + GIT_READ + (
         "ls",
         "grep",
         "wc",
@@ -394,6 +404,8 @@ def check_bash(agent: str, command: str) -> None:
         for segment in COMMAND_SEPARATORS.split(command):
             if segment.strip().startswith(("git commit", "git push", "git reset", "git checkout", "git switch")):
                 block("code-writer may not run git commands that change history or branches")
+            if segment.strip().startswith(("graft build", "graft init", "graft upgrade")):
+                block("code-writer may not run graft build, init or upgrade; Prin runs them")
         return
 
     allowed = BASH_ALLOW.get(agent)

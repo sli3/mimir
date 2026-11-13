@@ -380,6 +380,7 @@ Read `docs/TECH_DEBT.md` and the latest session memo before planning any build.
 
 | Server | Purpose | Who uses it |
 |---|---|---|
+| `graft` | Repo context graph: locate code, signatures and callers with exact spans | All agents (read commands only) |
 | `context7` | Live library and API docs (ChromaDB, SoapySDR, pyModeS, pyais, Flask-SocketIO, React) | `plan-reviewer`, `pm` |
 | `playwright` | Headless browser for checking the dashboard on `localhost` | `pm` only, enforced by `agent_guard.py` |
 | `wiki-search` | Read-only semantic search of the private mimir-wiki | `pm`, `plan-reviewer` |
@@ -388,6 +389,26 @@ Read `docs/TECH_DEBT.md` and the latest session memo before planning any build.
 
 There is deliberately no filesystem MCP server and no GitHub MCP server: both
 were write paths around the permission rules in the July 2026 incident.
+
+## Graft in agent sessions
+
+The repo is indexed by Graft into `graft/` (a local, gitignored cache that
+Prin rebuilds). For any task about the code, get context from the graph
+before grepping or opening whole files.
+- MCP tools (names start with `mcp__graft__`): `graft_find_code`,
+  `graft_file_api`, `graft_trace_calls`, `graft_find_all`, `graft_repo_map`,
+  `graft_check_freshness`. Call only tools that appear in your tool list
+- CLI, through Bash: `graft map`, `graft ask "<question>" --source`,
+  `graft grep "<literal>"` (exhaustive), `graft skeleton <file>`,
+  `graft callers <symbol>`, `graft check`
+- Agents may run only those read commands. `graft build`, `init` and
+  `upgrade` are Prin's; run `graft build` after big code changes
+- Open source only at the file:line spans graft cites. If a span is
+  truncated, open the file at that exact range
+- If a graft call fails, do not repeat it unchanged: switch to the CLI form,
+  another graft tool, or Read at a cited span. If graft is unavailable, fall
+  back to Read and Glob and say so
+- Graft indexes code, not markdown, and not the built `dashboard/static/`
 
 ## Memory
 

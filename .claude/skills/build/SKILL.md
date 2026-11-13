@@ -77,7 +77,9 @@ Before calling it, establish prior session context:
 3a. Claim or create the build's card and move it to `doing` (KANZO BOARD 4a).
 4. `git status --porcelain`: note files already changed before the build.
    They are Prin's work; the build never stages them.
-5. Read the actual source files the task touches. Never plan from a summary.
+5. Orient with graft (GRAFT in your agent definition): freshness check, then
+   locate the task's code and trace callers. Then read the actual source at
+   the cited spans. Never plan from a summary.
 
 Send `@plan-reviewer` your proposed approach, the "Prior session context"
 block, and an explicit **`Scope confirmed: <file list>`** line naming every
@@ -139,6 +141,7 @@ Before reporting, check:
 - Were all review findings actioned, or the review skip stated with reason?
 - Does the change match the approved plan and stay inside the scope list?
 - Did `tests/test_no_transmit.py` pass in the final run?
+- Did Step 1 include graft orientation, or say why it was skipped?
 - Frontend build: did 4b run, or is "not run" stated with the reason?
 - Were docstrings and comments of changed functions updated?
 
@@ -165,6 +168,8 @@ unresolved → hard stop.
      or "Board: unavailable" with the reason
    - Memory: whether the Hindsight recall returned anything that shaped the
      plan
+   - Graft: freshness result, what was located, callers traced, or "fell back
+     to Read" with the reason
    - A checklist with ✅ / ❌ / ⚠️ under BACKEND CODE, TESTS, CONSTRAINTS
      (TX scan, AU law, protected files) and GOVERNANCE (must read "not
      touched, by design")

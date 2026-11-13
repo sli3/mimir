@@ -87,6 +87,13 @@ cases = [
  ("pm", B("grep 'x' f > out.txt"), True, "pm: unquoted redirect"),
  ("pm", B('grep "x" f; rm -rf docs'), True, "pm: second segment not allowed"),
  ("pm", B('grep "unterminated f'), True, "pm: unterminated quote"),
+ ("pm", B('graft ask "where is the ADS-B preamble threshold" --source'), False, "pm: graft ask"),
+ ("pm", B("graft callers BearingTracker --depth 2"), False, "pm: graft callers"),
+ ("pm", B("graft build"), True, "pm: graft build"),
+ ("plan-reviewer", B("graft skeleton core/pipeline/fft.py"), False, "plan-reviewer: graft skeleton"),
+ ("deep-bug-hunter", B('graft grep "transmit_guard"'), False, "dbh: graft grep"),
+ ("code-writer", B("graft build"), True, "code-writer: graft build"),
+ ("code-writer", B("graft map"), False, "code-writer: graft map"),
 ]
 fails = 0
 for agent, (tool, inp), expect, label in cases:

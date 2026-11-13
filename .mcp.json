@@ -1,5 +1,14 @@
 {
   "mcpServers": {
+    "graft": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@nanonets/graft",
+        "mcp"
+      ]
+    },
     "context7": {
       "type": "http",
       "url": "https://mcp.context7.com/mcp",
