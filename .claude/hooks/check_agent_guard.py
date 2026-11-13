@@ -94,6 +94,9 @@ cases = [
  ("deep-bug-hunter", B('graft grep "transmit_guard"'), False, "dbh: graft grep"),
  ("code-writer", B("graft build"), True, "code-writer: graft build"),
  ("code-writer", B("graft map"), False, "code-writer: graft map"),
+ ("pm", B("uv run pytest -q | tail -5"), False, "pm: pytest piped to tail"),
+ ("pm", B("stat -c '%y %n' .mcp.json"), False, "pm: stat"),
+ ("pm", B("sed -i s/a/b/ docs/TECH_DEBT.md"), True, "pm: sed still blocked"),
 ]
 fails = 0
 for agent, (tool, inp), expect, label in cases:

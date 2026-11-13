@@ -135,7 +135,10 @@ contradicts the code, or a reproduction fails.
 
 Codex edits files from its own process, so `agent_guard.py` never sees those
 edits. After every writer run, run `git status --porcelain` and
-`git diff --stat`. Stop at once if any changed path is outside the
+`git diff --stat` yourself. Judge this check ONLY on your own output: Codex's
+`git status` from inside its sandbox can show a file it may not read as
+modified (for example `.env`) when nothing on disk changed. If Codex's view and
+yours differ, note it in the report and trust yours. Stop at once if any changed path is outside the
 `Scope confirmed:` list (ignore `.session-memos/`), or is `AGENTS.md`,
 `CLAUDE.md`, `README.md`, `.mcp.json`, anything under `.claude/`,
 `.codex/` or `data/`, `docs/ROADMAP.md`,

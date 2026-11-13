@@ -90,6 +90,8 @@ BASH_ALLOW = {
         "cat",
         "wc",
         "grep",
+        "tail",
+        "stat",
         "git add",
         "git reset -q --",  # unstage paths only; "--" makes any later word a path
         "git commit",  # still prompts: "ask" rule in settings.json

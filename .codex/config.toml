@@ -11,7 +11,7 @@ extends = ":workspace"
 
 [permissions.mimir.filesystem.":workspace_roots"]
 ".env" = "deny"
-".mcp.json" = "deny"
+".mcp.json" = "read"
 "data/captures" = "deny"
 "data/vectorstore" = "deny"
 "data/calibration_vectorstore" = "deny"
