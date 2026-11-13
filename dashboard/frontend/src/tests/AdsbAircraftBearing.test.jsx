@@ -15,7 +15,20 @@ const makeAircraft = (overrides = {}) => ({
   ...overrides,
 })
 
-describe('AdsbAircraftPanel — bearing and Δr columns', () => {
+describe('AdsbAircraftPanel — bearing and bearing-rate columns', () => {
+  it('labels the bearing-rate column clearly', () => {
+    const ac = makeAircraft()
+    render(
+      <AdsbAircraftPanel
+        adsbAircraft={{ ABC123: ac }}
+        adsbAircraftHistory={[]}
+        focusedFreq={1090000000}
+      />
+    )
+    expect(screen.getAllByText('Brg Rate (°/s)')[0]).toBeInTheDocument()
+    expect(screen.queryByText('Δr (°/s)')).toBeNull()
+  })
+
   it('test_bearing_renders_045_for_45_2_degrees', () => {
     const ac = makeAircraft({ bearing_deg: 45.2, delta_r_deg_per_sec: 2.34 })
     render(

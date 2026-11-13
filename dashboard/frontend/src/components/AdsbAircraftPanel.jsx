@@ -150,7 +150,8 @@ export default function AdsbAircraftPanel({ adsbAircraft = {}, adsbAircraftHisto
                   <th style={{ textAlign: 'left', padding: '2px 4px' }}>Spd (kt)</th>
                   <th style={{ textAlign: 'left', padding: '2px 4px' }}>Track (°)</th>
                   <th style={{ textAlign: 'left', padding: '2px 4px' }}>Bearing (°)</th>
-                  <th style={{ textAlign: 'left', padding: '2px 4px' }}>Δr (°/s)</th>
+                  {/* BEARING rate from delta_r_deg_per_sec in °/s, not radar range rate Δr in nm/s (deltaRNmPerSec). */}
+                  <th style={{ textAlign: 'left', padding: '2px 4px' }}>Brg Rate (°/s)</th>
                   <th style={{ textAlign: 'left', padding: '2px 4px' }}>Last Seen</th>
                 </tr>
               </thead>
@@ -223,7 +224,7 @@ export default function AdsbAircraftPanel({ adsbAircraft = {}, adsbAircraftHisto
                     <th style={{ textAlign: 'left', padding: '2px 4px' }}>Spd (kt)</th>
                     <th style={{ textAlign: 'left', padding: '2px 4px' }}>Track (°)</th>
                     <th style={{ textAlign: 'left', padding: '2px 4px' }}>Bearing (°)</th>
-                    <th style={{ textAlign: 'left', padding: '2px 4px' }}>Δr (°/s)</th>
+                    <th style={{ textAlign: 'left', padding: '2px 4px' }}>Brg Rate (°/s)</th>
                     <th style={{ textAlign: 'left', padding: '2px 4px' }}>Last Seen</th>
                   </tr>
                 </thead>
