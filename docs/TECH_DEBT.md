@@ -162,7 +162,6 @@
 | `fingerprint_queue` orphaned in `capture_loop` | `capture_loop.py` writes fingerprints to `fingerprint_queue` every 20 frames but no production code consumes it; the live AI loop is fed via the parallel `ScanRunner._scan_loop` path. Pre-existing; operator-visible effect nil. |
 | SoapySDR `Device()` args must be strings | `SoapySDR.Device({"driver": "plutosdr", "uri": "usb:3.19.5"})` raises `make() no match`; the identical values as the string `"driver=plutosdr,uri=usb:3.19.5"` open the device. SWIG dict marshalling does not produce Kwargs matching what the plugin's `find()` returns; the string path uses the plugin's own parser. `hackrf_rx.py` has always used the string form — `pluto_rx.py` used a dict and never opened its device across all of Phase 35. Any new device wrapper must use the string form. Verified 2026-07-17. | Resolved — kept as environment fact |
 | Emit-rate flooding on dead bands (Phase 41, advisory) | The Phase 41 gate removes the LLM's incidental ~2.5s throttle. On a continuously-dead band, noise `scan_result` events now flow at ~4 Hz (gated only by `config.dwell_time_sec`), filling the 200-entry signal-history buffer (`useSocket.js` line 73) in ~50s, vs ~8 min before. The 200-cap is the existing safety net; behaviour was explicitly accepted by the task author ("do not add logic to suppress or hide these noise rows"). If operator feedback indicates this is too noisy, follow-up: apply the existing `llm_offline` 5-second rate-limit pattern (scanner.py lines 365-369) to consecutive identical deterministic noise emits. | Accepted — will-not-fix-until-reported |
-| `senior-dev` has unscoped `"bash": "allow"` (no allow-list) — the only agent in `opencode.json` without bash scoping | Deliberate, decided twice. First at the 2026-07-09 agent-roster restructure: senior-dev inherited old `main`'s full `edit: allow` + `bash: allow` specifically because it became the sole code-writer/test-runner (`main` was split off as a lite, edit:deny/bash:deny pure router in the same session). Re-confirmed on a later review prompted by tightening `memo-writer`'s bash scope: a narrow allow-list would constantly friction against senior-dev's genuinely broad tooling needs (pytest, npm, dev server, hardware diagnostics), and the safety net for this agent is process-level — plan-reviewer, security-analyst's pre-code gate, and dual code review — not sandbox-level restriction. Not an oversight; no action required unless the threat model changes. | Accepted — documented decision, not tech debt |
 | Mid-recording frequency change (Phase 68) is log-and-continue, not stopped or flagged in the saved file | A recording spanning a focus change is RF-meaningfully mislabelled — the SigMF file has a single `core:frequency` field but may contain samples from two different centre frequencies. Deliberate Prin design decision (avoid silent data loss from an unexpected auto-stop); recorded here as accepted tech debt rather than a defect. | Candidate fix: add a per-entry `freq_hz` key to `mimir:fingerprint_sequence` entries (additive, allowlist-safe, does not break the existing schema). Own phase. |
 
 ---
@@ -226,17 +225,6 @@
   Mimir. It produces NMEA text strings only and has no interaction with radio hardware.
   Documented as RX-only safe usage in `modules/ais/decoder.py` TX-Safety Note.
   Should be added to a future "Libraries with TX capability" tracking table in AGENTS.md.
-
-- **GitHub MCP toolset scoping** — The github MCP server registers many tools and may
-  bloat agent context windows in future. Deferred because it is not yet causing problems.
-  When addressed: add `"tools": { "github_*": false }` globally to `opencode.json` and
-  re-enable per-agent as needed. See MCP Servers section for the exact config block.
-
-- **GitHub PAT rotation reminder** — PAT expires in 90 days from date of creation.
-  When it expires: generate a new fine-grained PAT with identical scopes (Contents r/w,
-  Issues r/w, Metadata r/o, Pull requests r/o, Mimir repo only), update
-  `GITHUB_PERSONAL_ACCESS_TOKEN` in `~/.config/fish/config.fish`, restart OpenCode,
-  verify with `opencode mcp list`.
 
 - **ADS-B message.py stale comments (RESOLVED — PHASE-TECH-DEBT-1):** `modules/adsb/message.py`
   latitude/longitude field comments still reference "from position_with_ref()" which
@@ -361,3 +349,24 @@
   Deferred to next session when mascot assets and animation framework are ready.
 
 ---
+
+## Retired with OpenCode (2026-11-13)
+
+Moved here word for word when the OpenCode setup was replaced by Claude Code +
+Codex. They describe `opencode.json`, the `senior-dev` agent and the GitHub MCP
+server, none of which exist any more. Kept for history only.
+
+| Item | Detail |
+|---|---|
+| `senior-dev` has unscoped `"bash": "allow"` (no allow-list) — the only agent in `opencode.json` without bash scoping | Deliberate, decided twice. First at the 2026-07-09 agent-roster restructure: senior-dev inherited old `main`'s full `edit: allow` + `bash: allow` specifically because it became the sole code-writer/test-runner (`main` was split off as a lite, edit:deny/bash:deny pure router in the same session). Re-confirmed on a later review prompted by tightening `memo-writer`'s bash scope: a narrow allow-list would constantly friction against senior-dev's genuinely broad tooling needs (pytest, npm, dev server, hardware diagnostics), and the safety net for this agent is process-level — plan-reviewer, security-analyst's pre-code gate, and dual code review — not sandbox-level restriction. Not an oversight; no action required unless the threat model changes. | Accepted — documented decision, not tech debt |
+
+- **GitHub MCP toolset scoping** — The github MCP server registers many tools and may
+  bloat agent context windows in future. Deferred because it is not yet causing problems.
+  When addressed: add `"tools": { "github_*": false }` globally to `opencode.json` and
+  re-enable per-agent as needed. See MCP Servers section for the exact config block.
+
+- **GitHub PAT rotation reminder** — PAT expires in 90 days from date of creation.
+  When it expires: generate a new fine-grained PAT with identical scopes (Contents r/w,
+  Issues r/w, Metadata r/o, Pull requests r/o, Mimir repo only), update
+  `GITHUB_PERSONAL_ACCESS_TOKEN` in `~/.config/fish/config.fish`, restart OpenCode,
+  verify with `opencode mcp list`.

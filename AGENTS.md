@@ -139,8 +139,8 @@ and functions, what not to touch, the fix strategy (no code), and unknowns.
 
 ## Safety Gates
 
-- `AGENTS.md`, `CLAUDE.md`, `.mcp.json`, everything under `.claude/` and
-  `.codex/`, and `opencode.json` are edited by Prin only
+- `AGENTS.md`, `CLAUDE.md`, `.mcp.json`, and everything under `.claude/` and
+  `.codex/` are edited by Prin only
 - Governance docs: `docs/ROADMAP.md`, `docs/TECH_DEBT.md` and the two
   "Phase Tracker" summary lines in `README.md` are edited only by `pm`, only
   in `/finalise-build` or when Prin asks in the session, with targeted Edit

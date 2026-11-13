@@ -13,8 +13,8 @@ Prin asked for this commit. You still show the staged diff and wait for his
 1. **Stage**
    Stage only the files Prin named, or the files the `/finalise-build`
    COMMIT HANDOFF listed for this commit, with `git add -- <files>`. Code and
-   governance are separate commits. Never stage `.session-memos/`, `data/`,
-   `opencode.json` or a `.env` file. Then run `git status --short` and
+   governance are separate commits. Never stage `.session-memos/`, `data/`
+   or a `.env` file. Then run `git status --short` and
    `git diff --cached --name-only`. Anything unexpected staged → stop and ask.
 
 2. **TX safety check on the staged diff**

@@ -3,12 +3,14 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 *.egg-info/
-dist/
-build/
+/dist/
+/build/
 .env
 data/
 *.npy
 *.bin
+# Legacy OpenCode config (retired 2026-11-13). Still ignored so a leftover
+# local copy, which holds provider settings, can never be committed.
 opencode.json
 .session-memos/
 dashboard/static/
@@ -16,6 +18,7 @@ dashboard/static/
 node_modules/
 embeddings/chroma_store/
 .playwright-mcp/
+# Staging folder of the retired OpenCode wiki-drafter agent.
 .wiki-drafts/
 
 # Claude Code personal settings (per machine)

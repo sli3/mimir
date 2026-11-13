@@ -59,8 +59,7 @@ If unsure whether something is legal, say so explicitly as a ⚠️ WARNING.
 For every file the plan touches: in the SESSION FILE LIST → allowed;
 otherwise ❌ BLOCKER: <file> is outside confirmed session scope.
 Also ❌ BLOCKER if the plan writes to any protected file: `AGENTS.md`,
-`CLAUDE.md`, `README.md`, `.mcp.json`, `opencode.json`, `.claude/`, `.codex/`,
-`.opencode/`, `data/`, `docs/ROADMAP.md`, `docs/TECH_DEBT.md`.
+`CLAUDE.md`, `README.md`, `.mcp.json`, `.claude/`, `.codex/`, `data/`, `docs/ROADMAP.md`, `docs/TECH_DEBT.md`.
 
 ## STEP 5 — PLAN REVIEW (only if Steps 1 to 4 pass)
 

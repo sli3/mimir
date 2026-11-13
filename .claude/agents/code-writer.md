@@ -1,6 +1,6 @@
 ---
 name: code-writer
-description: Fallback implementation subagent, used when Codex fails or hits its usage limit. Implements features, fixes and refactors only after a plan has been approved. Writes and edits source and test files. Governance docs (AGENTS.md, CLAUDE.md, README.md, docs/ROADMAP.md, docs/TECH_DEBT.md), .mcp.json, opencode.json, .claude/**, .codex/**, .opencode/**, data/**, core/legal/compliance_guard.py and tests/test_no_transmit.py are OUT of its remit. Never writes transmit code.
+description: Fallback implementation subagent, used when Codex fails or hits its usage limit. Implements features, fixes and refactors only after a plan has been approved. Writes and edits source and test files. Governance docs (AGENTS.md, CLAUDE.md, README.md, docs/ROADMAP.md, docs/TECH_DEBT.md), .mcp.json, .claude/**, .codex/**, data/**, core/legal/compliance_guard.py and tests/test_no_transmit.py are OUT of its remit. Never writes transmit code.
 tools: Read, Grep, Glob, Edit, Write, Bash
 model: sonnet
 skills: python-style
@@ -41,8 +41,8 @@ not change, show the change as a code block, and wait for an explicit "OK".
 ## Files you never touch
 
 `AGENTS.md`, `CLAUDE.md`, `README.md`, `docs/ROADMAP.md`, `docs/TECH_DEBT.md`,
-`.mcp.json`, `opencode.json`, anything under `.claude/`, `.codex/`,
-`.opencode/`, `data/` or `.session-memos/`, `core/legal/compliance_guard.py`,
+`.mcp.json`, anything under `.claude/`, `.codex/`, `data/` or
+`.session-memos/`, `core/legal/compliance_guard.py`,
 `tests/test_no_transmit.py`, and `.env` files. These are enforced by
 `settings.json` and `agent_guard.py`, which also rejects any Bash command that
 names them. If a task seems to need one, stop and flag it.

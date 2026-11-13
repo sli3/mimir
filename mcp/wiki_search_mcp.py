@@ -6,16 +6,13 @@ it only queries a local ChromaDB vector store and a local embedding
 endpoint. Included here purely for consistency with the rest of Mimir's
 tooling conventions (docstrings, error messages).
 
-This is a direct translation of the existing .opencode/tool/wiki-search.js
-OpenCode custom tool into an MCP server, so the same search capability can
-be used outside OpenCode by any MCP-compatible client. The query logic,
-error messages, and result formatting are intentionally kept equivalent
-to the JS version — if one changes, update the other, or retire one in
-favour of the other to avoid drift between two implementations of the
-same tool.
+This began as a translation of the former OpenCode custom tool
+(.opencode/tool/wiki-search.js). That JS version was retired with OpenCode
+on 2026-11-13, so this server is now the only implementation. It is
+registered as the `wiki-search` server in the project's .mcp.json.
 
 Transport: stdio. This server is intended to be spawned as a local
-subprocess by a single MCP client (OpenCode) on the same machine — see
+subprocess by a single MCP client (Claude Code) on the same machine — see
 the project's design conversation for why stdio was chosen over
 Streamable HTTP: local, single-user, no auth/audit/multi-tenancy need.
 

@@ -48,8 +48,6 @@
       "Edit(/.mcp.json)",
       "Edit(/.claude/**)",
       "Edit(/.codex/**)",
-      "Edit(/opencode.json)",
-      "Edit(/.opencode/**)",
       "Edit(/data/**)",
       "Bash(git push *)",
       "Bash(git * --force*)",

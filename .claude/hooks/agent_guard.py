@@ -114,16 +114,15 @@ CODE_WRITER_DENY_NAMES = {
     "TECH_DEBT.md",
     "README.md",
     ".mcp.json",
-    "opencode.json",
     "compliance_guard.py",
     "test_no_transmit.py",
 }
 # Top-level directories code-writer must never edit.
-CODE_WRITER_DENY_DIRS = {".claude", ".codex", ".opencode", "data", ".session-memos"}
+CODE_WRITER_DENY_DIRS = {".claude", ".codex", "data", ".session-memos"}
 CODE_WRITER_BASH_DENY = re.compile(
-    r"AGENTS\.md|CLAUDE\.md|ROADMAP\.md|TECH_DEBT\.md|README\.md|\.mcp\.json|opencode\.json"
+    r"AGENTS\.md|CLAUDE\.md|ROADMAP\.md|TECH_DEBT\.md|README\.md|\.mcp\.json"
     r"|compliance_guard\.py|test_no_transmit\.py"
-    r"|\.claude/|\.codex/|\.opencode/|(?:^|[\s\"'=/])data/"
+    r"|\.claude/|\.codex/|(?:^|[\s\"'=/])data/"
 )
 
 # Radio hardware tools and the live scanner. Blocked for EVERY session when

@@ -137,8 +137,8 @@ Codex edits files from its own process, so `agent_guard.py` never sees those
 edits. After every writer run, run `git status --porcelain` and
 `git diff --stat`. Stop at once if any changed path is outside the
 `Scope confirmed:` list (ignore `.session-memos/`), or is `AGENTS.md`,
-`CLAUDE.md`, `README.md`, `.mcp.json`, `opencode.json`, anything under
-`.claude/`, `.codex/`, `.opencode/` or `data/`, `docs/ROADMAP.md`,
+`CLAUDE.md`, `README.md`, `.mcp.json`, anything under `.claude/`,
+`.codex/` or `data/`, `docs/ROADMAP.md`,
 `docs/TECH_DEBT.md`, `core/legal/compliance_guard.py` or
 `tests/test_no_transmit.py`. This is a hard stop: do not revert or fix it
 yourself; report the paths to Prin.
