@@ -46,7 +46,7 @@ Prin asked for this commit. You still show the staged diff and wait for his
    | `test` | Tests added or updated |
 
    End the subject with the build's Kanzo card id in brackets when there is
-   one, for example `(mimir#12)`. Any body goes in a further `-m` argument. Keep messages free of `;`, `&`,
+   one, exactly as the board shows it, for example `(rf#12)`. Any body goes in a further `-m` argument. Keep messages free of `;`, `&`,
    `|`, `<`, `>`, backticks and `$(`, which `agent_guard.py` rejects.
    `git commit` also prompts Prin once more (an `ask` rule): that is expected.
 

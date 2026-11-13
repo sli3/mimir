@@ -129,23 +129,43 @@ CODE_WRITER_DENY_NAMES = {
     ".mcp.json",
     "compliance_guard.py",
     "test_no_transmit.py",
+    "test_agent_guard.py",
 }
 # Top-level directories code-writer must never edit.
 CODE_WRITER_DENY_DIRS = {".claude", ".codex", "data", ".session-memos"}
 CODE_WRITER_BASH_DENY = re.compile(
     r"AGENTS\.md|CLAUDE\.md|ROADMAP\.md|TECH_DEBT\.md|README\.md|\.mcp\.json"
-    r"|compliance_guard\.py|test_no_transmit\.py"
+    r"|compliance_guard\.py|test_no_transmit\.py|test_agent_guard\.py"
     r"|\.claude/|\.codex/|(?:^|[\s\"'=/])data/"
 )
 
 # Radio hardware tools and the live scanner. Blocked for EVERY session when
 # they are the command being run (not when merely named, e.g. `git diff scan.py`).
 HARDWARE_TOOL = re.compile(r"^(?:hackrf_\w+|iio_\w+|SoapySDRUtil|rx_sdr|tx_sdr)$")
-COMMAND_PREFIXES = ("sudo", "env", "nohup", "exec", "command", "time", "nice", "stdbuf")
-PYTHON_RUNNERS = re.compile(r"^(?:python3?(?:\.\d+)?|uv run(?: --\S+)* python3?)$")
+# Wrappers that run another command. Their own flags and numeric arguments are
+# skipped too, so `sudo -n tool`, `env -i tool` and `timeout -k 5 10 tool` are seen.
+COMMAND_PREFIXES = frozenset({
+    "sudo", "doas", "env", "nohup", "exec", "command", "time", "nice", "ionice",
+    "stdbuf", "timeout", "xargs", "setsid", "chrt", "taskset", "unbuffer",
+})
+PYTHON = re.compile(r"^python(?:3(?:\.\d+)?)?$")
+# Scripts that open the SDR. Running them is live hardware work, which is Prin's.
+SDR_SCRIPTS = frozenset({
+    "scan.py",
+    "calibrate_thresholds.py",
+    "diagnose_threshold.py",
+    "capture_to_vectorstore.py",
+    "diagnose_pluto_gain.py",
+    "diagnose_fingerprints.py",
+    "compare_decode_rate.py",
+})
 SHELL_WRAPPER = re.compile(r"\b(?:ba|z|fi|da)?sh\s+-l?c\b")
 # Any agent touching data/ through Bash with a destructive verb.
-DATA_DESTRUCTIVE = re.compile(r"\b(?:rm|mv|cp|truncate|shred|dd|tee)\b[^;&|]*\bdata/")
+DATA_PATH = r"(?:\./)?data(?:/|\s|$)"
+DATA_DESTRUCTIVE = re.compile(
+    r"\b(?:rm|rmdir|mv|cp|rsync|install|ln|truncate|shred|dd|tee|chmod|chown|find)\b[^;&|]*(?:^|[\s=:'\"/])" + DATA_PATH
+)
+DATA_REDIRECT = re.compile(r">{1,2}\s*" + DATA_PATH)
 
 # Browser rules (Claude in Chrome and Playwright): pm only, local pages only,
 # never page code, typing or uploads.
@@ -193,7 +213,7 @@ PLAYWRIGHT_FILE_KEYS = ("filename", "path", "outputPath", "output_path")
 # Hindsight long-term memory (bank "mimir"). Nobody, in any session, may run a
 # destructive memory tool. Named agents: only pm, and only recall and retain.
 HINDSIGHT_PREFIX = "mcp__hindsight__"
-HINDSIGHT_DESTRUCTIVE = re.compile(r"^(?:delete_|clear_|update_bank$)")
+HINDSIGHT_DESTRUCTIVE = re.compile(r"^(?:delete_|clear_|invalidate_|update_)")
 HINDSIGHT_PM_ALLOWED = frozenset({"recall", "retain"})
 
 # Kanzo task board. Named agents: only pm. Nobody deletes cards or projects, and
@@ -262,7 +282,40 @@ CODEX_EXEC = re.compile(
     r'|-m gpt-6-astra )?-c model_reasoning_effort=(?:low|medium|high|xhigh) '
     r'"[^"\\$`;&|<>\n\r]+"'
 )
-CODEX_COMMAND = re.compile(r"(?:^|[\s;&|(/\"'=])codex(?:\s|$)|codex-companion")
+
+
+def command_words(segment: str) -> list[str]:
+    """Return a segment's words from the command it actually runs.
+
+    Drops VAR=value assignments and wrapper commands (sudo, env, timeout, xargs
+    and so on) together with their flags and numeric arguments.
+    """
+    words = segment.split()
+    while words:
+        head = words[0]
+        if "=" in head or head.rsplit("/", 1)[-1] in COMMAND_PREFIXES:
+            words = words[1:]
+            while words and (words[0].startswith("-") or re.fullmatch(r"[\d.]+[smhd]?", words[0])):
+                words = words[1:]
+            continue
+        break
+    return words
+
+
+def runs_codex(command: str) -> bool:
+    """Return True if any segment runs the codex CLI (not merely mentions it)."""
+    if "codex-companion" in command:
+        return True
+    segments, _ = split_shell(command)
+    for segment in segments:
+        words = command_words(re.sub(r"[\"']", " ", segment))
+        if words and words[0].rsplit("/", 1)[-1] == "codex":
+            return True
+        if words and words[0] in ("npx", "bunx", "pnpm", "yarn") and any(
+            re.search(r"(?:^|/)codex(?:@[\w.-]+)?$", w) for w in words[1:4]
+        ):
+            return True
+    return False
 
 
 def block(reason: str) -> None:
@@ -348,27 +401,29 @@ def names_secret(command: str) -> bool:
 
 
 def runs_hardware(command: str) -> bool:
-    """Return True if any segment of a shell command runs a radio tool or scan.py."""
+    """Return True if any segment runs a radio tool, the scanner or an SDR script."""
     flat = re.sub(r"[\"'\\]", " ", command)
     for segment in COMMAND_SEPARATORS.split(flat):
-        words = segment.split()
-        # Skip VAR=value assignments and wrappers such as sudo, env, timeout N.
-        while words and ("=" in words[0] or words[0] in COMMAND_PREFIXES or words[0] == "timeout"):
-            skip_number = words[0] == "timeout" and len(words) > 1
-            words = words[2:] if skip_number else words[1:]
+        words = command_words(segment)
         if not words:
             continue
-        if HARDWARE_TOOL.match(words[0].rsplit("/", 1)[-1]):
+        program = words[0].rsplit("/", 1)[-1]
+        if HARDWARE_TOOL.match(program) or program in SDR_SCRIPTS:
             return True
-        for cut in range(1, min(len(words), 5)):
-            runner = " ".join(words[:cut])
-            if PYTHON_RUNNERS.match(runner) and words[cut].rsplit("/", 1)[-1] == "scan.py":
-                return True
-        if words[0].rsplit("/", 1)[-1] == "scan.py":
-            return True
+        # Interpreters: python [flags] script.py, uv run [flags] [python [flags]] script.py
+        if PYTHON.match(program) or program == "uv":
+            for word in words[1:]:
+                if word.startswith("-") or word == "run" or PYTHON.match(word):
+                    continue
+                if word.rsplit("/", 1)[-1] in SDR_SCRIPTS:
+                    return True
+                break
     # `bash -c "<script>"`: be strict and look at every word of the script.
     if SHELL_WRAPPER.search(flat):
-        return any(HARDWARE_TOOL.match(w.rsplit("/", 1)[-1]) for w in flat.split()) or "scan.py" in flat
+        return any(
+            HARDWARE_TOOL.match(w.rsplit("/", 1)[-1]) or w.rsplit("/", 1)[-1] in SDR_SCRIPTS
+            for w in flat.split()
+        )
     return False
 
 
@@ -380,9 +435,10 @@ def check_every_session_bash(command: str) -> None:
             "no agent may run radio-hardware tools (hackrf_*, iio_*, SoapySDRUtil) or scan.py. "
             "Mimir is receive-only and live hardware checks are Prin's, by hand"
         )
-    if DATA_DESTRUCTIVE.search(flat):
+    _, unquoted = split_shell(command)
+    if DATA_DESTRUCTIVE.search(flat) or DATA_REDIRECT.search(unquoted):
         block("no agent may remove, move, copy over or overwrite anything under data/")
-    if CODEX_COMMAND.search(command) and not CODEX_EXEC.fullmatch(command.strip()):
+    if runs_codex(command) and not CODEX_EXEC.fullmatch(command.strip()):
         block(
             "Codex may run only as: codex exec [resume <session id> | -m gpt-6-astra] "
             '-c model_reasoning_effort=low|medium|high|xhigh "<one-line brief>", with no other '
@@ -396,7 +452,7 @@ def check_bash(agent: str, command: str) -> None:
         block(f"{agent} may not reach a .env file in Bash, by name, glob or quoting")
     if agent in CODEX_AGENT_NAMES:
         block("the Codex plugin agent is disabled: it skips Codex's sandbox; pm runs codex exec itself")
-    if CODEX_COMMAND.search(command):
+    if runs_codex(command):
         if agent != PM:
             block(f"{agent} may not run Codex; only pm may, with codex exec")
         return  # form already checked by check_every_session_bash
@@ -530,8 +586,8 @@ def check_browser(agent: str, tool: str, tool_input: dict) -> None:
 
 
 def check_playwright(agent: str, tool: str, tool_input: dict) -> None:
-    """Playwright: pm only, local pages only."""
-    if agent != PM:
+    """Playwright: local pages only for every session; of the named agents only pm."""
+    if agent and agent != PM:
         block(f"{agent or 'this session'} may not use the browser; only pm may, and only on local pages")
     reason = playwright_call_problem(tool.removeprefix(PLAYWRIGHT_PREFIX), tool_input)
     if reason:
@@ -550,10 +606,10 @@ def check_hindsight(agent: str, tool: str) -> None:
 
 
 def check_kanzo(agent: str, tool: str) -> None:
-    """Kanzo board: never delete, archive or auto-advance; named agents other than pm none."""
+    """Kanzo board: no session deletes, archives or auto-advances; of the named agents only pm."""
     short = tool.removeprefix(KANZO_PREFIX)
-    if KANZO_BLOCKED.search(short) and agent in (PM,) + TEAM + CODEX_AGENT_NAMES:
-        block(f"agents may not run Kanzo '{short}' (no deleting, archiving or next_task)")
+    if KANZO_BLOCKED.search(short):
+        block(f"no session may run Kanzo '{short}' (no deleting, archiving or next_task); Prin does that in the board")
     if agent in TEAM or agent in CODEX_AGENT_NAMES:
         block(f"{agent} may not use the Kanzo board; only pm may")
 
@@ -572,6 +628,10 @@ def main() -> None:
         return
     if tool.startswith(KANZO_PREFIX):
         check_kanzo(agent, tool)
+        return
+    if tool.startswith(PLAYWRIGHT_PREFIX):
+        # Playwright exists here only for checking the local dashboard.
+        check_playwright(agent, tool, tool_input)
         return
 
     if agent != PM and agent not in TEAM and agent not in CODEX_AGENT_NAMES:

@@ -15,10 +15,11 @@ description: Summarise the current session and save a timestamped memo to .sessi
    a fresh timestamp.
 
 3. **Write it with the Write tool** (not a shell redirect or heredoc), in
-   exactly this format, under 300 words:
+   exactly this format, under 300 words. Square brackets mark text to replace;
+   do not keep the brackets:
 
 ```markdown
-# Session Memo — [YYYY-MM-DD HH:MM]
+# Session Memo — YYYY-MM-DD HH:MM
 
 ## Type
 [Explore / Plan / Code / Review / Debug / Mixed]

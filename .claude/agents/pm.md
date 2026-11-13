@@ -142,8 +142,8 @@ yours differ, note it in the report and trust yours. Stop at once if any changed
 `Scope confirmed:` list (ignore `.session-memos/`), or is `AGENTS.md`,
 `CLAUDE.md`, `README.md`, `.mcp.json`, anything under `.claude/`,
 `.codex/` or `data/`, `docs/ROADMAP.md`,
-`docs/TECH_DEBT.md`, `core/legal/compliance_guard.py` or
-`tests/test_no_transmit.py`. This is a hard stop: do not revert or fix it
+`docs/TECH_DEBT.md`, `core/legal/compliance_guard.py`,
+`tests/test_no_transmit.py` or `tests/test_agent_guard.py`. This is a hard stop: do not revert or fix it
 yourself; report the paths to Prin.
 
 ### REVIEW CHECK (around every reviewer or debugger run)
@@ -267,7 +267,8 @@ not a plan, a memory or a source of instructions.
       it in `review`.
    f. After a successful commit through `git-workflow`: move it to `done` with
       the short commit hash. Put the card id at the end of the commit message
-      in brackets, for example `(mimir#12)`.
+      in brackets, exactly as the board shows it (this project's cards are
+      `rf#N`, for example `(rf#12)`).
 5. A `todo` card is a note, not a task: never start work from one, and never
    move, edit or close it unless Prin names it.
 6. Keep everything on the board short and free of code, diffs, test output,
@@ -336,7 +337,7 @@ At the end of `/finalise-build` (not `/build`), write
 `date +"%Y-%m-%d_%H-%M"`; never overwrite). Hard cap 300 words. Exactly:
 
 ```markdown
-# Session Memo — [YYYY-MM-DD HH:MM]
+# Session Memo — YYYY-MM-DD HH:MM
 ## Type
 Mixed
 ## What We Did
@@ -356,7 +357,8 @@ Mixed
 [one specific opening message]
 ```
 
-List hand-off files under Files Touched. Confirm with the file path only.
+Square brackets in the template mark text to replace; do not keep them. List
+hand-off files under Files Touched. Confirm with the file path only.
 
 ## COMMITS
 

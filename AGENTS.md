@@ -38,11 +38,15 @@ included, without exception.
 5. **`HardwareTransmitError` must be raised** on any call to a TX function.
    This is enforced in `core/legal/compliance_guard.py`, and
    `tests/test_no_transmit.py` fails the suite if any source file calls a TX
-   function, references `SOAPY_SDR_TX`, or leaves a TX stub unguarded.
-6. **Agents never touch the radio hardware.** No `hackrf_transfer`,
-   `hackrf_spiflash`, `hackrf_cpldjtag`, `iio_attr`, `iio_writedev` or
-   `SoapySDRUtil`, and no live `scan.py` run. Live hardware verification is
-   Prin's job, done by hand.
+   function, references `SOAPY_SDR_TX`, opens a stream in any direction but
+   RX, sets an RX-direction constant to anything but 1, or lets a TX stub do
+   anything except call `transmit_guard()`.
+6. **Agents never touch the radio hardware.** No `hackrf_*`, `iio_*`,
+   `SoapySDRUtil`, `rx_sdr` or `tx_sdr`, no `scan.py` run, and none of the tool
+   scripts that open the SDR (`calibrate_thresholds.py`, `diagnose_threshold.py`,
+   `capture_to_vectorstore.py`, `diagnose_pluto_gain.py`,
+   `diagnose_fingerprints.py`, `compare_decode_rate.py`). Live hardware
+   verification is Prin's job, done by hand.
 
 ### Australian frequencies legal to receive passively
 | Band | Frequency | Notes |
@@ -142,9 +146,10 @@ and functions, what not to touch, the fix strategy (no code), and unknowns.
 - `AGENTS.md`, `CLAUDE.md`, `.mcp.json`, and everything under `.claude/` and
   `.codex/` are edited by Prin only
 - Governance docs: `docs/ROADMAP.md`, `docs/TECH_DEBT.md` and the two
-  "Phase Tracker" summary lines in `README.md` are edited only by `pm`, only
-  in `/finalise-build` or when Prin asks in the session, with targeted Edit
-  calls (rules in `pm`'s own file). No other agent, and not Codex, edits them
+  "Phase Tracker" summary lines in `README.md` are edited by `pm` (in
+  `/finalise-build`, or when Prin asks in the session) or by the main Claude
+  Code session when Prin asks for that change, always with targeted Edit calls
+  (rules in `pm`'s own file). No subagent, and not Codex, edits them
 - `data/` holds Prin's IQ captures and vector stores. No agent writes,
   moves or deletes anything under it
 - Never `git push`. Never use `--force`. Never `git reset --hard`
@@ -382,10 +387,10 @@ Read `docs/TECH_DEBT.md` and the latest session memo before planning any build.
 |---|---|---|
 | `graft` | Repo context graph: locate code, signatures and callers with exact spans | All agents (read commands only) |
 | `context7` | Live library and API docs (ChromaDB, SoapySDR, pyModeS, pyais, Flask-SocketIO, React) | `plan-reviewer`, `pm` |
-| `playwright` | Headless browser for checking the dashboard on `localhost` | `pm` only, enforced by `agent_guard.py` |
+| `playwright` | Headless browser for checking the dashboard on `localhost` | `pm` among the named agents; every session is limited to `localhost` by `agent_guard.py` |
 | `wiki-search` | Read-only semantic search of the private mimir-wiki | `pm`, `plan-reviewer` |
 | `hindsight` | Long-term memory, bank `mimir` (decisions, gotchas, hardware findings) | `pm` recall and retain; nobody may delete or clear |
-| `kanzo` | Prin's local kanban board (user-level MCP, not in `.mcp.json`) | `pm`; nobody deletes, archives or calls `next_task` |
+| `kanzo` | Prin's local kanban board (user-level MCP, not in `.mcp.json`). Card ids look like `rf#12` | `pm`; no session deletes, archives or calls `next_task` |
 
 There is deliberately no filesystem MCP server and no GitHub MCP server: both
 were write paths around the permission rules in the July 2026 incident.

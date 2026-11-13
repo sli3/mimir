@@ -52,7 +52,6 @@
     "deny": [
       "Read(.env)",
       "Read(.env.*)",
-      "Read(!.env.example)",
       "Edit(/AGENTS.md)",
       "Edit(/CLAUDE.md)",
       "Edit(/.mcp.json)",

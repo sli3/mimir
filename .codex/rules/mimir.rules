@@ -1,11 +1,18 @@
 # Mimir command rules for Codex. Mimir is receive-only under the
 # Radiocommunications Act 1992 (Cth): Codex never touches the radio hardware,
-# never runs the live scanner, and never commits or pushes.
+# never runs the live scanner or the SDR tool scripts, and never commits or pushes.
+# These are prefix rules, so they cannot see every spelling (for example a flag
+# placed between python and the script). The Codex sandbox, pm's PROTECTED FILE
+# CHECK and tests/test_no_transmit.py are the backstops.
 # Check a command with:
 #   codex execpolicy check --pretty --rules .codex/rules/mimir.rules -- <command>
 
 prefix_rule(
-    pattern = [["hackrf_transfer", "hackrf_spiflash", "hackrf_cpldjtag", "hackrf_debug", "hackrf_sweep", "hackrf_info"]],
+    pattern = [[
+        "hackrf_transfer", "hackrf_sweep", "hackrf_info", "hackrf_spiflash",
+        "hackrf_cpldjtag", "hackrf_debug", "hackrf_clock", "hackrf_operacake",
+        "hackrf_biast", "hackrf_tcxo",
+    ]],
     decision = "forbidden",
     justification = "Mimir agents never touch the HackRF. hackrf_transfer can transmit; live hardware checks are Prin's.",
     match = ["hackrf_transfer -t file.iq -f 915000000", "hackrf_info"],
@@ -13,29 +20,46 @@ prefix_rule(
 )
 
 prefix_rule(
-    pattern = [["iio_attr", "iio_writedev", "iio_readdev", "SoapySDRUtil"]],
+    pattern = [[
+        "iio_attr", "iio_writedev", "iio_readdev", "iio_info", "iio_reg",
+        "iio_genxml", "SoapySDRUtil", "rx_sdr", "tx_sdr",
+    ]],
     decision = "forbidden",
-    justification = "Mimir agents never touch the Pluto or any SDR. iio_writedev can transmit.",
+    justification = "Mimir agents never touch the Pluto or any SDR. iio_writedev and tx_sdr can transmit.",
     match = ["iio_writedev -u usb:1.2.3 cf-ad9361-dds-core-lpc", "SoapySDRUtil --probe"],
 )
 
 prefix_rule(
-    pattern = [["python", "python3"], "scan.py"],
+    pattern = [["python", "python3"], [
+        "scan.py", "tools/calibrate_thresholds.py", "tools/diagnose_threshold.py",
+        "tools/capture_to_vectorstore.py", "tools/diagnose_pluto_gain.py",
+        "tools/diagnose_fingerprints.py", "tools/compare_decode_rate.py",
+    ]],
     decision = "forbidden",
-    justification = "The live scanner opens the SDR. Prin runs it himself.",
-    match = ["python scan.py --demo"],
+    justification = "The scanner and these tool scripts open the SDR. Prin runs them himself.",
+    match = ["python scan.py --demo", "python3 tools/diagnose_threshold.py"],
+    not_match = ["python3 tools/seed_chromadb.py"],
 )
 
 prefix_rule(
-    pattern = ["uv", "run", "python", "scan.py"],
+    pattern = [["python", "python3"], ["-u", "-B", "-O", "-X", "-W"]],
     decision = "forbidden",
-    justification = "The live scanner opens the SDR. Prin runs it himself.",
+    justification = "Interpreter flags hide which script runs; Codex runs Python without them.",
+    match = ["python -u scan.py"],
 )
 
 prefix_rule(
-    pattern = ["git", ["commit", "push", "reset", "rebase", "merge", "checkout", "switch", "stash", "tag"]],
+    pattern = ["uv", "run", ["scan.py", "python", "python3", "-q", "--quiet", "--with", "--frozen"]],
     decision = "forbidden",
-    justification = "Codex never changes git history or branches. pm and Prin handle git.",
-    match = ["git commit -m x", "git push origin main"],
+    justification = "Codex does not run the project's Python through uv: pm runs the test suites itself.",
+    match = ["uv run scan.py", "uv run -q python scan.py", "uv run python tools/diagnose_threshold.py"],
+    not_match = ["uv run pytest -q"],
+)
+
+prefix_rule(
+    pattern = ["git", ["commit", "push", "reset", "rebase", "merge", "checkout", "switch", "stash", "tag", "restore", "clean", "rm", "mv"]],
+    decision = "forbidden",
+    justification = "Codex never changes git history, branches or the index. pm and Prin handle git.",
+    match = ["git commit -m x", "git push origin main", "git clean -fdx"],
     not_match = ["git diff HEAD", "git status --short"],
 )

@@ -12,6 +12,7 @@ extends = ":workspace"
 [permissions.mimir.filesystem.":workspace_roots"]
 ".env" = "deny"
 ".mcp.json" = "read"
+"data" = "read"
 "data/captures" = "deny"
 "data/vectorstore" = "deny"
 "data/calibration_vectorstore" = "deny"
@@ -29,6 +30,7 @@ extends = ":workspace"
 "docs/au-legal-reference.md" = "read"
 "core/legal/compliance_guard.py" = "read"
 "tests/test_no_transmit.py" = "read"
+"tests/test_agent_guard.py" = "read"
 
 [shell_environment_policy]
 ignore_default_excludes = false

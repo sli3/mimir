@@ -121,25 +121,119 @@ def test_no_tx_direction_reference() -> None:
     assert not offenders, "TX direction referenced:\n" + "\n".join(offenders)
 
 
-def test_setup_stream_never_uses_direction_zero() -> None:
-    """setupStream() is never given the literal TX direction 0."""
+def _rx_direction_name(node: ast.AST) -> str | None:
+    """Return the name if the node is a Name or Attribute ending in RX_DIRECTION."""
+    name = node.id if isinstance(node, ast.Name) else node.attr if isinstance(node, ast.Attribute) else None
+    return name if name and name.endswith("RX_DIRECTION") else None
+
+
+def _assigned_names(node: ast.AST) -> list[tuple[str, ast.AST]]:
+    """Return (name, value) for each Name/Attribute target of an assignment node."""
+    pairs = []
+    if isinstance(node, ast.Assign):
+        for target in node.targets:
+            name = target.id if isinstance(target, ast.Name) else target.attr if isinstance(target, ast.Attribute) else None
+            if name:
+                pairs.append((name, node.value))
+    elif isinstance(node, ast.AnnAssign) and node.value is not None:
+        target = node.target
+        name = target.id if isinstance(target, ast.Name) else target.attr if isinstance(target, ast.Attribute) else None
+        if name:
+            pairs.append((name, node.value))
+    return pairs
+
+
+def _is_soapy_rx(node: ast.AST) -> bool:
+    """Return True for SoapySDR's own receive constant, SOAPY_SDR_RX."""
+    name = node.id if isinstance(node, ast.Name) else node.attr if isinstance(node, ast.Attribute) else None
+    return name == "SOAPY_SDR_RX"
+
+
+def test_setup_stream_direction_is_rx() -> None:
+    """setupStream() is only ever given an RX direction.
+
+    Accepted: the literal 1, SOAPY_SDR_RX, a *RX_DIRECTION constant, or a
+    variable (such as Pluto's self._rx) that every assignment in the same file
+    sets to SOAPY_SDR_RX (or None while closed). Anything else, including a variable that is ever set
+    to something else, fails.
+    """
     offenders = []
-    for path, node in ((p, n) for p, tree in TREES.items() for n in ast.walk(tree)):
-        if isinstance(node, ast.Call) and _called_name(node) == "setupStream" and node.args:
+    for path, tree in TREES.items():
+        values: dict[str, list[ast.AST]] = {}
+        for node in ast.walk(tree):
+            for name, value in _assigned_names(node):
+                values.setdefault(name, []).append(value)
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call) and _called_name(node) == "setupStream" and node.args):
+                continue
             first = node.args[0]
-            if isinstance(first, ast.Constant) and first.value == 0:
+            name = first.id if isinstance(first, ast.Name) else first.attr if isinstance(first, ast.Attribute) else None
+            ok = (
+                (isinstance(first, ast.Constant) and first.value == 1)
+                or _is_soapy_rx(first)
+                or bool(_rx_direction_name(first))
+                or (
+                    name in values
+                    and any(_is_soapy_rx(v) for v in values[name])
+                    and all(_is_soapy_rx(v) or (isinstance(v, ast.Constant) and v.value is None) for v in values[name])
+                )
+            )
+            if not ok:
                 offenders.append(f"{_rel(path)}:{node.lineno}")
-    assert not offenders, "setupStream called with direction 0 (TX):\n" + "\n".join(offenders)
+    assert not offenders, "setupStream direction is not provably RX:\n" + "\n".join(offenders)
+
+
+def test_rx_direction_constants_are_one() -> None:
+    """Every *RX_DIRECTION constant is assigned exactly 1 (SoapySDR RX); 0 would be TX."""
+    found, offenders = [], []
+    for path, node in ((p, n) for p, tree in TREES.items() for n in ast.walk(tree)):
+        targets = []
+        if isinstance(node, ast.Assign):
+            targets, value = node.targets, node.value
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            targets, value = [node.target], node.value
+        for target in targets:
+            if _rx_direction_name(target):
+                found.append(_rel(path))
+                if not (isinstance(value, ast.Constant) and value.value == 1):
+                    offenders.append(f"{_rel(path)}:{node.lineno}")
+    assert "core/device/hackrf_rx.py" in found, "expected HackRF's _SOAPY_RX_DIRECTION constant"
+    assert not offenders, "RX direction constant not set to 1:\n" + "\n".join(offenders)
+
+
+def _is_guard_import(node: ast.stmt) -> bool:
+    """Return True for `from core.legal.compliance_guard import transmit_guard`."""
+    return (
+        isinstance(node, ast.ImportFrom)
+        and node.module == "core.legal.compliance_guard"
+        and all(alias.name == "transmit_guard" for alias in node.names)
+    )
 
 
 def test_tx_named_methods_are_guarded() -> None:
-    """Every function with a TX name exists only to call transmit_guard()."""
+    """Every TX-named function does nothing except call transmit_guard().
+
+    Allowed body: a docstring, an import of transmit_guard, and one call to it.
+    Any other statement (even one placed before the guard) fails, so a stub can
+    never do real work before raising.
+    """
     offenders = []
     for path, node in ((p, n) for p, tree in TREES.items() for n in ast.walk(tree)):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in TX_NAMES:
-            if not any(_is_transmit_guard_call(child) for child in ast.walk(node)):
-                offenders.append(f"{_rel(path)}:{node.lineno} {node.name}() has no transmit_guard()")
-    assert not offenders, "Unguarded TX-named function:\n" + "\n".join(offenders)
+            body = [
+                s for s in node.body
+                if not (isinstance(s, ast.Expr) and isinstance(s.value, ast.Constant))
+                and not _is_guard_import(s)
+            ]
+            guarded = (
+                len(body) == 1
+                and isinstance(body[0], (ast.Expr, ast.Return))
+                and body[0].value is not None
+                and _is_transmit_guard_call(body[0].value)
+            )
+            if not guarded:
+                offenders.append(f"{_rel(path)}:{node.lineno} {node.name}() is not a pure transmit_guard() stub")
+    assert not offenders, "TX-named function does more than call transmit_guard():\n" + "\n".join(offenders)
 
 
 def test_no_hackrf_transfer_tx_command() -> None:
