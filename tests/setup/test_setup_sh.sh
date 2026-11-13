@@ -3,8 +3,8 @@
 # tests/setup/test_setup_sh.sh — Mock test suite for setup.sh
 #
 # This test stubs every real side-effect command (dnf, apt-get, pacman, zypper,
-# brew, git, cmake, make, sudo, nproc, sysctl) so the suite runs without
-# internet access, sudo, real package managers, or hardware.
+# brew, git, cmake, make, sudo, nproc, sysctl, uv and scanner Python) so the
+# suite runs without internet access, sudo, real package managers, or hardware.
 #
 # Run: bash tests/setup/test_setup_sh.sh
 # =============================================================================
@@ -55,6 +55,28 @@ brew() {
     return 0
 }
 
+# Record uv calls and create only fake venvs inside the scanner test fixture.
+# Export emits dummy requirements; no branch invokes the real uv executable.
+uv() {
+    record_call "uv $*"
+    case "$1" in
+        venv)
+            local venv_path="${@: -1}"
+            [[ "${venv_path}" == "${MIMIR_SETUP_DIR}/.venv-scan" ]] || return 1
+            mkdir -p "${venv_path}/bin" || return 1
+            cp "${MIMIR_SETUP_DIR}/stub-python" "${venv_path}/bin/python" || return 1
+            echo "include-system-site-packages = true" > "${venv_path}/pyvenv.cfg"
+            ;;
+        export)
+            echo "chromadb==${SCANNER_STUB_VERSION}"
+            ;;
+        pip)
+            [[ "$2" == "sync" ]] || return 1
+            ;;
+        *) return 1 ;;
+    esac
+}
+
 # Stubs for build tools
 git() {
     record_call "git $*"
@@ -86,6 +108,7 @@ sysctl() {
 # ── Source setup.sh ────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../../setup.sh"
+SETUP_LOCK_FILE="${SCRIPT_DIR}/../../uv.lock"
 
 set -euo pipefail
 
@@ -108,6 +131,32 @@ assert_fail() {
     local name="$1"
     echo "FAIL: $name"
     FAILED=$((FAILED + 1))
+}
+
+# Prepare an isolated project and executable shell stubs in each case's
+# subshell. Its EXIT trap removes the fixture even when setup exits early.
+prepare_scanner_fixture() {
+    MIMIR_SETUP_DIR="$(mktemp -d /tmp/mimir-test-scanner.XXXXXX)" || return 1
+    trap 'rm -rf "${MIMIR_SETUP_DIR}"' EXIT
+    MIMIR_SYSTEM_PYTHON="${MIMIR_SETUP_DIR}/system-python"
+    cp "${SETUP_LOCK_FILE}" "${MIMIR_SETUP_DIR}/uv.lock" || return 1
+    SCANNER_STUB_VERSION="$(awk '/^name = "chromadb"$/ {getline; gsub(/"/, "", $3); print $3; exit}' "${MIMIR_SETUP_DIR}/uv.lock")" || return 1
+    [[ -n "${SCANNER_STUB_VERSION}" ]] || return 1
+    export SCANNER_STUB_VERSION
+    export SCANNER_CALLS_FILE="${CALLS_FILE}"
+    # This interpreter is checked for executability but must never be run.
+    cat > "${MIMIR_SYSTEM_PYTHON}" <<'EOF'
+#!/usr/bin/env bash
+exit 99
+EOF
+    cat > "${MIMIR_SETUP_DIR}/stub-python" <<'EOF'
+#!/usr/bin/env bash
+# Mimic isolated import verification without invoking Python or SoapySDR.
+[[ "$1" == "-I" && "$2" == "-c" ]] || exit 98
+printf 'scanner-python %s\n' "$*" >> "${SCANNER_CALLS_FILE}"
+printf '%s\n' "${SCANNER_STUB_VERSION}" "${0%/bin/python}/lib/chromadb/__init__.py"
+EOF
+    chmod +x "${MIMIR_SYSTEM_PYTHON}" "${MIMIR_SETUP_DIR}/stub-python"
 }
 
 # ── Test 1: fedora installs correct packages ─────────────────────────────────
@@ -235,6 +284,68 @@ if call_contains "make -j4"; then
     assert_pass "build_acarsdec uses nproc -j4"
 else
     assert_fail "build_acarsdec uses nproc -j4"
+fi
+
+# ── Test 11: fresh scanner venv uses system packages and the frozen lock ─────
+clear_calls
+if (
+    prepare_scanner_fixture || exit 1
+    create_scanner_venv || exit 1
+    [[ "$(sed -n '1p' "${CALLS_FILE}")" == "uv venv --python ${MIMIR_SYSTEM_PYTHON} --system-site-packages ${MIMIR_SETUP_DIR}/.venv-scan" ]] || exit 1
+    [[ "$(sed -n '2p' "${CALLS_FILE}")" == "uv export --frozen --format requirements-txt --no-dev --all-extras" ]] || exit 1
+    [[ "$(sed -n '3p' "${CALLS_FILE}")" == "uv pip sync --python ${MIMIR_SETUP_DIR}/.venv-scan/bin/python "* ]] || exit 1
+    call_contains '^scanner-python -I -c ' || exit 1
+    requirements_file="$(awk '/^uv pip sync / {print $NF}' "${CALLS_FILE}")"
+    [[ -n "${requirements_file}" && ! -e "${requirements_file}" ]]
+) > /dev/null 2>&1; then
+    assert_pass "fresh scanner venv uses system packages and frozen dependencies"
+else
+    assert_fail "fresh scanner venv uses system packages and frozen dependencies"
+fi
+
+# ── Test 12: existing scanner venv is synced without recreation ─────────────
+clear_calls
+if (
+    prepare_scanner_fixture || exit 1
+    uv venv --python "${MIMIR_SYSTEM_PYTHON}" --system-site-packages "${MIMIR_SETUP_DIR}/.venv-scan" || exit 1
+    clear_calls
+    create_scanner_venv || exit 1
+    ! call_contains '^uv venv ' || exit 1
+    call_contains "^uv pip sync --python ${MIMIR_SETUP_DIR}/.venv-scan/bin/python "
+) > /dev/null 2>&1; then
+    assert_pass "existing scanner venv skips creation and still syncs"
+else
+    assert_fail "existing scanner venv skips creation and still syncs"
+fi
+
+# ── Test 13: missing system interpreter fails before any uv call ────────────
+clear_calls
+if (
+    prepare_scanner_fixture || exit 1
+    MIMIR_SYSTEM_PYTHON="${MIMIR_SETUP_DIR}/missing-python"
+    if (create_scanner_venv); then
+        exit 1
+    fi
+    ! call_contains '^uv '
+) > /dev/null 2>&1; then
+    assert_pass "missing scanner interpreter fails without calling uv"
+else
+    assert_fail "missing scanner interpreter fails without calling uv"
+fi
+
+# ── Test 14: imported ChromaDB must match the version in uv.lock ────────────
+clear_calls
+if (
+    prepare_scanner_fixture || exit 1
+    SCANNER_STUB_VERSION="0.0.0-mismatch"
+    if (create_scanner_venv); then
+        exit 1
+    fi
+    call_contains '^scanner-python -I -c '
+) > /dev/null 2>&1; then
+    assert_pass "scanner ChromaDB version mismatch fails verification"
+else
+    assert_fail "scanner ChromaDB version mismatch fails verification"
 fi
 
 # ── Cleanup ────────────────────────────────────────────────────────────────────

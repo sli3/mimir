@@ -382,9 +382,9 @@ check_uv() {
 }
 
 # ── Install Python dependencies (uv-managed venv) ─────────────────────────────
-# Installs from pyproject.toml via uv into a project-local .venv. This is what
-# the test suite (pytest, vitest-adjacent tooling) and dashboard/server.py run
-# under.
+# Installs from pyproject.toml via uv into a project-local .venv (Python 3.11)
+# for tests and dev tooling. The scanner, which starts the dashboard server,
+# runs from .venv-scan instead.
 install_python_deps() {
     info "Installing Python dependencies via uv (.venv)..."
 
@@ -395,50 +395,83 @@ install_python_deps() {
     success "Python dependencies installed into .venv via uv."
 }
 
-# ── Install Python dependencies into system Python (for scan.py) ─────────────
-# scan.py is launched directly with the system 'python' interpreter, not via
-# 'uv run' and not from the .venv — see AGENTS.md / project conventions. Its
-# internal modules (modules/ais, modules/adsb, dashboard/server, embeddings/*,
-# llm/*) transitively import most of the third-party packages listed in
-# pyproject.toml (pyais, pyModeS, chromadb, flask-socketio, etc.), so the full
-# dependency set needs to also be present in system Python, not just the venv.
+# ── Create the locked scanner venv on system Python ─────────────────────────
+# --system-site-packages exposes system packages (needed for SoapySDR) and
+# keeps the user site enabled, searched before the venv's locked packages.
+# Every scanner and tool launch must pass -s to ignore ~/.local packages;
+# the -I verification already excludes them. With the user site excluded,
+# the venv's locked packages take precedence over system packages.
+# SoapySDR has TX capability; verification only imports it and never opens
+# a device. Mimir uses RX only.
 #
-# pyproject.toml has no [build-system] table, so Mimir is not set up as an
-# installable package — `pip install .` would try to build a wheel and fail.
-# Instead, we ask uv to export the resolved dependency list as a flat
-# requirements list (straight from pyproject.toml/uv.lock — no separate
-# package list to maintain here, so this can't drift the way the old
-# requirements.txt did) and feed that to system pip directly.
+# The venv holds no data and is safe to delete and recreate. This function
+# never uninstalls anything from ~/.local or the system and never touches data/.
+# Export uv.lock and sync explicitly into .venv-scan: uv sync may recreate a
+# venv and drop --system-site-packages. Never recreate an existing venv here,
+# because uv venv (0.11) wipes an existing directory.
 #
-# PEP 668 ("externally managed environment") blocks plain pip installs on
-# modern distros — --break-system-packages is required and deliberate here.
-install_system_python_deps() {
-    info "Installing Python dependencies into system Python (required by scan.py)..."
+# MIMIR_SETUP_DIR allows mock tests to redirect the project into a temp dir.
+create_scanner_venv() {
+    local MIMIR_SYSTEM_PYTHON="${MIMIR_SYSTEM_PYTHON:-/usr/bin/python3}"
+    local SCRIPT_DIR="${MIMIR_SETUP_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+    local SCAN_VENV EXPORT_FILE EXPECTED_VERSION VERIFY_OUTPUT
 
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    cd "${SCRIPT_DIR}"
-
-    PIP_CMD="pip"
-    if ! command -v pip &>/dev/null && command -v pip3 &>/dev/null; then
-        PIP_CMD="pip3"
+    # This must be the interpreter that owns the system SoapySDR bindings
+    # (Fedora: /usr/lib64/python3.x/site-packages).
+    if [[ ! -x "${MIMIR_SYSTEM_PYTHON}" ]]; then
+        error "Scanner Python is not executable: ${MIMIR_SYSTEM_PYTHON}. Set MIMIR_SYSTEM_PYTHON to the interpreter with system SoapySDR bindings."
+        exit 1
     fi
 
-    EXPORT_FILE="$(mktemp /tmp/mimir-system-deps.XXXXXX.txt)"
-    trap 'rm -f "${EXPORT_FILE}"' RETURN
+    if ! cd "${SCRIPT_DIR}"; then
+        error "Could not enter the scanner project directory: ${SCRIPT_DIR}"
+        exit 1
+    fi
+    SCRIPT_DIR="$(pwd)"
+    SCAN_VENV="${SCRIPT_DIR}/.venv-scan"
 
-    if uv export --format requirements-txt --no-dev --all-extras > "${EXPORT_FILE}" 2>/dev/null; then
-        if "${PIP_CMD}" install --break-system-packages -r "${EXPORT_FILE}"; then
-            success "System Python dependencies installed (resolved from pyproject.toml via uv export)."
-        else
-            error "pip install into system Python failed. See output above."
-            error "Re-run manually: ${PIP_CMD} install --break-system-packages -r <(uv export --format requirements-txt --no-dev --all-extras)"
+    if [[ ! -f "${SCAN_VENV}/pyvenv.cfg" ]]; then
+        info "Creating scanner venv with system packages: ${SCAN_VENV}"
+        if ! uv venv --python "${MIMIR_SYSTEM_PYTHON}" --system-site-packages "${SCAN_VENV}"; then
+            error "Could not create the scanner venv. See output above."
             exit 1
         fi
     else
-        error "uv export failed — could not resolve dependency list from pyproject.toml."
-        error "Run 'uv sync --all-extras' first, then re-run this script."
+        info "Scanner venv already exists, skipping creation: ${SCAN_VENV}"
+    fi
+
+    if ! EXPORT_FILE="$(mktemp /tmp/mimir-scanner-deps.XXXXXX.txt)"; then
+        error "Could not create the temporary scanner requirements file."
         exit 1
     fi
+    if ! uv export --frozen --format requirements-txt --no-dev --all-extras > "${EXPORT_FILE}"; then
+        rm -f "${EXPORT_FILE}"
+        error "uv export failed. Could not export the locked scanner dependencies from uv.lock."
+        exit 1
+    fi
+    if ! uv pip sync --python "${SCAN_VENV}/bin/python" "${EXPORT_FILE}"; then
+        rm -f "${EXPORT_FILE}"
+        error "Could not install locked dependencies into the scanner venv. See output above."
+        exit 1
+    fi
+    rm -f "${EXPORT_FILE}"
+
+    if ! EXPECTED_VERSION="$(awk '/^name = "chromadb"$/ {getline; gsub(/"/, "", $3); print $3; exit}' "${SCRIPT_DIR}/uv.lock")" || [[ -z "${EXPECTED_VERSION}" ]]; then
+        error "Could not read the expected ChromaDB version from uv.lock."
+        exit 1
+    fi
+    # Isolated mode excludes the repo root and user site without opening SDRs.
+    if ! VERIFY_OUTPUT="$("${SCAN_VENV}/bin/python" -I -c 'import SoapySDR; import chromadb; print(chromadb.__version__); print(chromadb.__file__)')"; then
+        error "Scanner venv verification failed: could not import SoapySDR and ChromaDB."
+        exit 1
+    fi
+    info "Scanner ChromaDB version and path:"
+    echo "${VERIFY_OUTPUT}"
+    if [[ "${VERIFY_OUTPUT%%$'\n'*}" != "${EXPECTED_VERSION}" ]]; then
+        error "Scanner ChromaDB version mismatch: expected ${EXPECTED_VERSION} from uv.lock, got ${VERIFY_OUTPUT%%$'\n'*}."
+        exit 1
+    fi
+    success "Scanner venv ready with locked dependencies: ${SCAN_VENV}"
 }
 
 # ── Build React dashboard ─────────────────────────────────────────────────────
@@ -469,13 +502,13 @@ verify_hardware() {
     fi
 }
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+# ── Main: install environments and show scanner usage with user site excluded ──
 main() {
     install_system_packages
     configure_udev
     check_uv
     install_python_deps
-    install_system_python_deps
+    create_scanner_venv
     build_dashboard
     verify_hardware
 
@@ -486,11 +519,13 @@ main() {
     echo "  1. Plug in the HackRF One with antenna attached"
     echo "  2. Run: hackrf_info"
     echo "  3. Run tests (uv-managed venv): uv run pytest tests/core/test_rx_only_lock.py -v"
-    echo "  4. Run the scanner (system Python, needs PYTHONPATH=. to find Mimir's own"
-    echo "     packages — core/, modules/, dashboard/, embeddings/, llm/):"
-    echo "       PYTHONPATH=. python scan.py"
-    echo "  5. Diagnostic tools also need PYTHONPATH=., e.g.:"
-    echo "       PYTHONPATH=. python tools/diagnose_threshold.py"
+    echo "  4. Activate the scanner venv, then run from the project root:"
+    echo "       source .venv-scan/bin/activate"
+    echo "       PYTHONPATH=. python -s scan.py"
+    echo "     Without activation: PYTHONPATH=. .venv-scan/bin/python -s scan.py"
+    echo "  5. Diagnostic tools use the same activated venv and PYTHONPATH=., e.g.:"
+    echo "       PYTHONPATH=. python -s tools/diagnose_threshold.py"
+    echo "     -s keeps old ~/.local packages out."
     echo ""
     info "Dashboard: http://localhost:5000"
     echo ""
