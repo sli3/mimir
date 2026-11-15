@@ -26,6 +26,7 @@
       "Bash(git show *)",
       "Bash(git --no-pager show *)",
       "Bash(git add *)",
+      "Bash(git commit *)",
       "Bash(git reset -q -- *)",
       "Bash(git switch *)",
       "Bash(git checkout -b *)",
@@ -40,11 +41,11 @@
       "mcp__playwright",
       "mcp__claude-in-chrome",
       "mcp__hindsight__recall",
-      "Edit(/docs/ROADMAP.md)",
-      "Edit(/docs/TECH_DEBT.md)"
+      "mcp__hindsight__retain",
+      "Edit(/README.md)",
+      "Edit(/docs/**)"
     ],
     "ask": [
-      "Bash(git commit *)",
       "Bash(uv run python -c *)",
       "Bash(git branch -D *)",
       "Bash(git switch --discard-changes *)"

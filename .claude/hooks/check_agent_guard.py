@@ -1,18 +1,36 @@
 """Check agent_guard.py against expected allow/block cases. Run: python3 .claude/hooks/check_agent_guard.py"""
-import json, subprocess, sys, os
+import json, subprocess, sys, os, shutil, tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 G = os.path.join(HERE, "agent_guard.py")
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
-def run(agent, tool, inp):
-    data = {"agent_type": agent, "tool_name": tool, "tool_input": inp, "cwd": ROOT}
+def run(agent, tool, inp, root=ROOT):
+    data = {"agent_type": agent, "tool_name": tool, "tool_input": inp, "cwd": root}
     p = subprocess.run([sys.executable, G], input=json.dumps(data), text=True, capture_output=True,
-                       env={**os.environ, "CLAUDE_PROJECT_DIR": ROOT})
-    return p.returncode, p.stderr.strip()
+                       env={**os.environ, "CLAUDE_PROJECT_DIR": root})
+    return p.returncode, p.stdout, p.stderr.strip()
+def make_repo(staged):
+    """A throwaway git repo with exactly these paths staged, for pm's commit cases."""
+    d = tempfile.mkdtemp(prefix="guardcheck-")
+    subprocess.run(["git", "init", "-q", d], check=True)
+    for rel in staged:
+        path = os.path.join(d, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            f.write("x\n")
+        subprocess.run(["git", "-C", d, "add", "--", rel], check=True)
+    return d
+CLEAN = make_repo(["core/pipeline/fft.py", "README.md"])
+RAIL = make_repo(["core/pipeline/fft.py", ".claude/hooks/agent_guard.py"])
+TXTEST = make_repo(["tests/test_no_transmit.py"])
+MEMO = make_repo([".session-memos/2099-01-01_00-00.md"])
+ENV = make_repo([".env"])
+EMPTY = make_repo([])
+REPOS = (CLEAN, RAIL, TXTEST, MEMO, ENV, EMPTY)
 B = lambda c: ("Bash", {"command": c})
 E = lambda f, **k: ("Edit", {"file_path": f, **k})
 W = lambda f: ("Write", {"file_path": f, "content": "x"})
 cases = [
- # (agent, (tool,input), expect_block, label)
+ # (agent, (tool,input), expect, label[, repo root]); expect: True = block, False = allow, "ask" = prompt Prin
  ("", B("hackrf_transfer -t x.iq -f 915000000"), True, "main session: hackrf_transfer"),
  ("", B("sudo hackrf_spiflash -w fw.bin"), True, "main session: sudo hackrf_spiflash"),
  ("", B("python scan.py --demo"), True, "main session: scan.py"),
@@ -127,13 +145,57 @@ cases = [
  ("", ("mcp__playwright__browser_navigate", {"url": "https://example.com"}), True, "main: playwright internet"),
  ("", ("mcp__playwright__browser_navigate", {"url": "http://localhost:5173/"}), False, "main: playwright localhost"),
  ("", ("mcp__kanzo__create_task", {"title": "x"}), False, "main: kanzo create"),
+ # 2026-11-15 autonomous commit: nobody pushes, in any spelling
+ ("", B("git push origin main"), True, "main: push"),
+ ("", B("git -C . push origin main"), True, "main: git -C . push"),
+ ("", B("git -c push.default=current push"), True, "main: git -c ... push"),
+ ("", B("git 'push' origin main"), True, "main: quoted push"),
+ ("", B("bash -c 'git push'"), True, "main: bash -c git push"),
+ ("", B("sudo git push"), True, "main: sudo git push"),
+ ("pm", B("git --no-pager push"), True, "pm: git --no-pager push"),
+ ("", B("git log --grep push"), False, "main: git log --grep push (allowed)"),
+ # commits: plain sessions ask Prin; other named agents may not
+ ("", B('git commit -m "x"'), "ask", "main: commit asks Prin"),
+ ("", B("git -C . commit -m x"), "ask", "main: git -C . commit asks Prin"),
+ ("plan-reviewer", B("git commit -m x"), True, "plan-reviewer: commit"),
+ ("deep-bug-hunter", B("git commit -m x"), True, "dbh: commit"),
+ # pm commits on its own, -m only, explicit staging, never a guard rail
+ ("pm", B('git commit -m "fix: radar page test (rf#2)"'), False, "pm: commit, clean staged", CLEAN),
+ ("pm", B('git commit -q -m "a" -m "b"'), False, "pm: commit -q with two -m", CLEAN),
+ ("pm", B('git commit -m "ready to push later"'), False, "pm: message mentions push", CLEAN),
+ ("pm", B("git commit -m x"), True, "pm: commit with .claude staged", RAIL),
+ ("pm", B("git commit -m x"), True, "pm: commit with TX test staged", TXTEST),
+ ("pm", B("git commit -m x"), True, "pm: commit with memo staged", MEMO),
+ ("pm", B("git commit -m x"), True, "pm: commit with .env staged", ENV),
+ ("pm", B("git commit -m x"), True, "pm: commit with nothing staged", EMPTY),
+ ("pm", B("git commit -a -m x"), True, "pm: commit -a", CLEAN),
+ ("pm", B("git commit -am x"), True, "pm: commit -am", CLEAN),
+ ("pm", B("git commit --amend -m x"), True, "pm: commit --amend", CLEAN),
+ ("pm", B("git commit -m x .claude/hooks/agent_guard.py"), True, "pm: commit naming a path", CLEAN),
+ ("pm", B("git commit -m x -- README.md"), True, "pm: commit -- path", CLEAN),
+ ("pm", B("git commit"), True, "pm: commit with no message", CLEAN),
+ ("pm", B("git add core/pipeline/fft.py && git commit -m x"), True, "pm: add and commit together", CLEAN),
+ ("pm", B("git -C . commit -m x"), True, "pm: git -C commit (not on allowlist)", CLEAN),
+ ("pm", B("git add -- core/pipeline/fft.py README.md"), False, "pm: add explicit paths"),
+ ("pm", B("git add -A"), True, "pm: add -A"),
+ ("pm", B("git add ."), True, "pm: add ."),
+ ("pm", B("git add -u"), True, "pm: add -u"),
+ ("pm", B("git add '*.py'"), True, "pm: add glob"),
+ # pm docs: targeted Edit on README.md and docs/**/*.md; Write only for a new doc
+ ("pm", W("docs/2099-new-guide.md"), False, "pm: new doc under docs/"),
+ ("pm", W("README.md"), True, "pm: whole-file write README"),
+ ("pm", W("docs/notes.txt"), True, "pm: non-Markdown file in docs/"),
+ ("pm", E("docs/../AGENTS.md", old_string="# Mimir Agent Protocol", new_string="x"), True, "pm: AGENTS.md via docs/.."),
 ]
 fails = 0
-for agent, (tool, inp), expect, label in cases:
-    code, err = run(agent, tool, inp)
-    blocked = code == 2
-    ok = blocked == expect
+for agent, (tool, inp), expect, label, *root in cases:
+    code, out, err = run(agent, tool, inp, *root)
+    got = "BLOCK" if code == 2 else ("ask" if '"permissionDecision": "ask"' in out else "allow")
+    want = "BLOCK" if expect is True else ("ask" if expect == "ask" else "allow")
+    ok = got == want
     fails += not ok
-    print(("PASS" if ok else "FAIL"), f"{'BLOCK' if blocked else 'allow':5}", label, ("" if ok else f"  <- {err}"))
+    print(("PASS" if ok else "FAIL"), f"{got:5}", label, ("" if ok else f"  <- {err or out.strip()}"))
+for d in REPOS:
+    shutil.rmtree(d, ignore_errors=True)
 print(f"\n{len(cases)-fails}/{len(cases)} as expected")
 sys.exit(1 if fails else 0)

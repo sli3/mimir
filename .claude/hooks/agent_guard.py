@@ -8,10 +8,16 @@ main-thread agent's name when the session runs as a named agent (the `agent`
 setting or `claude --agent`). This script reads that field and blocks the
 calls each agent is not permitted to make.
 
-Two rules apply to EVERY session, named agent or not, because Mimir is
-receive-only under the Radiocommunications Act 1992 (Cth):
+These rules apply to EVERY session, named agent or not. The first two hold
+because Mimir is receive-only under the Radiocommunications Act 1992 (Cth):
   * no Bash command may run a radio-hardware tool or the live scanner;
-  * Codex may run only in pm's three safe `codex exec` forms.
+  * Codex may run only in pm's three safe `codex exec` forms;
+  * no session may run `git push`, in any spelling: Prin pushes by hand.
+
+Commits: pm commits on its own at the end of a build, but only with -m
+messages, only what it staged by explicit path, and never a guard-rail file
+(see COMMIT_GUARD_RAIL_*). Other named agents may not commit. A plain session
+(Prin's own `claude`) is handed back to Prin as a permission prompt.
 
 Exit 0 with no output leaves the call to the normal permission rules, so the
 global deny and ask rules in settings.json still apply on top of this guard.
@@ -26,6 +32,8 @@ pm's PROTECTED FILE CHECK, and tests/test_no_transmit.py.
 import json
 import os
 import re
+import shlex
+import subprocess
 import sys
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -47,12 +55,32 @@ ALLOWED_MODEL_OVERRIDES = {
     CODE_WRITER: ("haiku", "sonnet", "opus"),
 }
 
-# pm's write targets. Governance docs: targeted Edit only. Memos: new files only.
-ROADMAP = "docs/ROADMAP.md"
-TECH_DEBT = "docs/TECH_DEBT.md"
+# pm's write targets. Docs (README.md and docs/**/*.md): targeted Edit on an
+# existing file; Write only to create a new file under docs/. Memos: new files only.
 README = "README.md"
-PM_EDIT_ONLY = (ROADMAP, TECH_DEBT, README)
+DOCS_DIR = "docs/"
 MEMO_DIR = ".session-memos/"
+
+# Git. Global options that take a separate value, so the subcommand after them
+# is still found (`git -C . push`, `git -c x=y push`).
+GIT_GLOBAL_OPTS_WITH_ARG = frozenset({
+    "-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--super-prefix",
+})
+# Staged paths that stop pm's commit: Prin commits these himself.
+COMMIT_GUARD_RAIL_DIRS = (".claude/", ".codex/", "data/", MEMO_DIR)
+COMMIT_GUARD_RAIL_FILES = frozenset({
+    "AGENTS.md",
+    "CLAUDE.md",
+    ".mcp.json",
+    "core/legal/compliance_guard.py",
+    "tests/test_no_transmit.py",
+    "tests/test_agent_guard.py",
+})
+# `git add` arguments that stage more than named paths.
+PM_ADD_BROAD = frozenset({
+    "-A", "--all", "-u", "--update", ".", "./", ":/", ":", "-f", "--force",
+    "--ignore-removal", "--no-ignore-removal",
+})
 
 # Bash command prefixes each read-only or orchestrating agent may run. A
 # command matches a prefix when it equals it or continues with a space.
@@ -94,7 +122,7 @@ BASH_ALLOW = {
         "stat",
         "git add",
         "git reset -q --",  # unstage paths only; "--" makes any later word a path
-        "git commit",  # still prompts: "ask" rule in settings.json
+        "git commit",  # further limited by check_pm_git
         "git switch",
         "git checkout -b",
         "git branch",  # branch -D still prompts: "ask" rule in settings.json
@@ -324,6 +352,42 @@ def block(reason: str) -> None:
     sys.exit(2)
 
 
+def ask(reason: str) -> None:
+    """Hand the call to Prin as a permission prompt, whatever the allow rules say."""
+    print(json.dumps({"hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "ask",
+        "permissionDecisionReason": f"agent_guard: {reason}",
+    }}))
+    sys.exit(0)
+
+
+def git_subcommand(words: list[str]) -> str | None:
+    """Return the git subcommand a command's words run (push, commit...), or None if not git."""
+    if not words or words[0].rsplit("/", 1)[-1] != "git":
+        return None
+    i = 1
+    while i < len(words):
+        word = words[i]
+        if word in GIT_GLOBAL_OPTS_WITH_ARG:
+            i += 2
+        elif word.startswith("-"):
+            i += 1
+        else:
+            return word
+    return None
+
+
+def runs_git(command: str, subcommand: str) -> bool:
+    """Return True if any segment runs `git <subcommand>`, however it is spelt."""
+    flat = re.sub(r"[\"'\\]", " ", command)
+    for segment in COMMAND_SEPARATORS.split(flat):
+        if git_subcommand(command_words(segment)) == subcommand:
+            return True
+    # `bash -c "<script>"`: be strict, as runs_hardware is.
+    return bool(SHELL_WRAPPER.search(flat) and re.search(rf"\bgit\b[^;&|]*\b{subcommand}\b", flat))
+
+
 def project_relative(raw_path: str, project_dir: Path) -> str | None:
     """Return the path relative to the project root, or None if outside it."""
     path = Path(raw_path)
@@ -344,12 +408,17 @@ def code_writer_may_edit(rel: str) -> bool:
     return not (name == ".env" or (name.startswith(".env.") and name != ".env.example"))
 
 
-def governance_edit_problem(tool_input: dict, project_dir: Path, rel: str) -> str | None:
-    """Return a reason to block a pm governance-doc Edit, or None if it may go ahead.
+def is_pm_doc(rel: str) -> bool:
+    """Return True for the docs pm may change: README.md and Markdown under docs/."""
+    return rel == README or (rel.startswith(DOCS_DIR) and rel.endswith(".md"))
 
-    pm may change ROADMAP.md, TECH_DEBT.md and README.md only with targeted
-    Edit calls: a non-empty old_string that matches exactly once. Which parts it
-    may touch, and when, is governed by pm.md, not by this guard.
+
+def governance_edit_problem(tool_input: dict, project_dir: Path, rel: str) -> str | None:
+    """Return a reason to block a pm doc Edit, or None if it may go ahead.
+
+    pm may change README.md and docs/**/*.md only with targeted Edit calls: a
+    non-empty old_string that matches exactly once. Which parts it may touch,
+    and when, is governed by pm.md, not by this guard.
     """
     old = tool_input.get("old_string", "")
     if not old:
@@ -379,19 +448,23 @@ def check_file_tool(agent: str, tool: str, tool_input: dict, project_dir: Path) 
 
     if agent == PM:
         if rel is None:
-            block("pm may only write inside .session-memos/ and the governance docs")
+            block("pm may only write inside .session-memos/, README.md and docs/")
         if rel.startswith(MEMO_DIR) and tool in ("Edit", "Write"):
             if tool == "Write" and (project_dir / rel).exists():
                 block(f"{rel} already exists; never overwrite a session memo")
             return
-        if rel in PM_EDIT_ONLY:
+        if is_pm_doc(rel):
+            if tool == "Write":
+                if rel.startswith(DOCS_DIR) and not (project_dir / rel).exists():
+                    return  # a new doc
+                block(f"pm may change {rel} only with targeted Edit calls; Write only creates new files under docs/")
             if tool != "Edit":
-                block(f"pm may change {rel} only with targeted Edit calls, never a whole-file write")
+                block(f"pm may change {rel} only with targeted Edit calls")
             reason = governance_edit_problem(tool_input, project_dir, rel)
             if reason:
                 block(reason)
             return
-        block(f"pm may not edit {rel}; only .session-memos/, {', '.join(PM_EDIT_ONLY)}")
+        block(f"pm may not edit {rel}; only .session-memos/, README.md and docs/**/*.md")
 
 
 def names_secret(command: str) -> bool:
@@ -438,6 +511,8 @@ def check_every_session_bash(command: str) -> None:
     _, unquoted = split_shell(command)
     if DATA_DESTRUCTIVE.search(flat) or DATA_REDIRECT.search(unquoted):
         block("no agent may remove, move, copy over or overwrite anything under data/")
+    if runs_git(command, "push"):
+        block("no session may run git push; Prin pushes by hand")
     if runs_codex(command) and not CODEX_EXEC.fullmatch(command.strip()):
         block(
             "Codex may run only as: codex exec [resume <session id> | -m gpt-6-astra] "
@@ -446,7 +521,80 @@ def check_every_session_bash(command: str) -> None:
         )
 
 
-def check_bash(agent: str, command: str) -> None:
+def is_guard_rail(rel: str) -> bool:
+    """Return True for a path pm may never commit: Prin commits these himself."""
+    name = rel.rsplit("/", 1)[-1]
+    return (
+        rel.startswith(COMMIT_GUARD_RAIL_DIRS)
+        or rel in COMMIT_GUARD_RAIL_FILES
+        or name == ".env"
+        or (name.startswith(".env.") and name != ".env.example")
+    )
+
+
+def staged_paths(project_dir: Path) -> list[str]:
+    """List every staged path, both sides of a rename. Raises if git fails."""
+    result = subprocess.run(
+        ["git", "-C", str(project_dir), "diff", "--cached", "--name-only", "--no-renames", "-z"],
+        capture_output=True, text=True, timeout=5, check=True,
+    )
+    return [p for p in result.stdout.split("\0") if p]
+
+
+def check_commit_args(args: list[str]) -> None:
+    """pm commits with -m messages (and -q) only: no -a, --amend, paths or other options."""
+    has_message = False
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg in ("-m", "--message") and i + 1 < len(args):
+            has_message = True
+            i += 2
+        elif arg.startswith("--message="):
+            has_message = True
+            i += 1
+        elif arg in ("-q", "--quiet"):
+            i += 1
+        else:
+            block(
+                f"pm may commit only with -m messages and -q, not '{arg}' "
+                "(no -a, --amend, paths or other options; stage by explicit path first)"
+            )
+    if not has_message:
+        block("pm commits need a -m message")
+
+
+def check_pm_git(segments: list[str], project_dir: Path) -> None:
+    """pm stages by explicit path and commits on its own, never a guard-rail file."""
+    segments = [s for s in segments if s.strip()]
+    for segment in segments:
+        try:
+            words = shlex.split(segment)
+        except ValueError:
+            block("pm sent a git command that cannot be parsed")
+        if words[:2] == ["git", "add"]:
+            broad = [w for w in words[2:] if w in PM_ADD_BROAD or any(c in w for c in "*?[")]
+            if broad:
+                block(f"pm must stage by explicit path, not {' '.join(broad)}")
+        if words[:2] == ["git", "commit"]:
+            if len(segments) != 1:
+                block("pm must commit in a call of its own, so the staged paths can be checked")
+            check_commit_args(words[2:])
+            try:
+                staged = staged_paths(project_dir)
+            except (OSError, subprocess.SubprocessError):
+                block("could not read the staged paths; refusing to commit")
+            if not staged:
+                block("nothing is staged; stage the build's files by explicit path first")
+            rails = [p for p in staged if is_guard_rail(p)]
+            if rails:
+                block(
+                    f"guard-rail paths are staged ({', '.join(rails)}); unstage them with "
+                    "git reset -q -- <path> and leave them for Prin"
+                )
+
+
+def check_bash(agent: str, command: str, project_dir: Path) -> None:
     """Apply the per-agent Bash rules."""
     if names_secret(command):
         block(f"{agent} may not reach a .env file in Bash, by name, glob or quoting")
@@ -487,6 +635,8 @@ def check_bash(agent: str, command: str) -> None:
             continue
         if not any(segment == p or segment.startswith(p + " ") for p in allowed):
             block(f"{agent} may not run '{segment}' (not on its Bash allowlist)")
+    if agent == PM:
+        check_pm_git(segments, project_dir)
 
 
 def check_agent(agent: str, tool_input: dict) -> None:
@@ -636,14 +786,17 @@ def main() -> None:
 
     if agent != PM and agent not in TEAM and agent not in CODEX_AGENT_NAMES:
         # Plain sessions (Prin's own `claude`) keep the normal permission rules,
-        # plus the every-session Bash rules above.
+        # plus the every-session Bash rules above. settings.json lets git commit
+        # run unprompted for pm, so a plain session's commit asks Prin here.
+        if tool == "Bash" and runs_git(str(tool_input.get("command", "")), "commit"):
+            ask("commits outside pm need Prin's OK")
         return
     project_dir = Path(os.environ.get("CLAUDE_PROJECT_DIR") or data.get("cwd") or ".")
 
     if tool in FILE_TOOLS:
         check_file_tool(agent, tool, tool_input, project_dir)
     elif tool == "Bash":
-        check_bash(agent, str(tool_input.get("command", "")))
+        check_bash(agent, str(tool_input.get("command", "")), project_dir)
     elif tool == "Agent":
         check_agent(agent, tool_input)
     elif tool.startswith(BROWSER_PREFIX):
