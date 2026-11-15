@@ -236,9 +236,13 @@ before it landed). Therefore:
   `npx vitest` from the repo root: `npx` can pull a different cached Vitest,
   which breaks the jsdom setup and produces false failures (BUG-05)
 - Tool scripts: `PYTHONPATH=. uv run python tools/<script>.py`
-- The scanner itself runs on system Python (`python scan.py`) because the
-  SoapySDR bindings are system packages. Agents never run it against
-  hardware. Demo mode (`python scan.py --demo --demo-files <sigmf-file>`)
+- The scanner runs from `.venv-scan`, a venv on system Python built by
+  `setup.sh` with `--system-site-packages` (for the system SoapySDR
+  bindings) and filled from `uv.lock`. Always launch it with `-s`, or the
+  stale user-site packages in `~/.local` load first:
+  `env PYTHONPATH=. .venv-scan/bin/python -s scan.py`. Agents never run it
+  against hardware. Demo mode
+  (`env PYTHONPATH=. .venv-scan/bin/python -s scan.py --demo --demo-files <sigmf-file>`)
   needs no SDR and is what browser checks look at; Prin starts it himself
 - System dependencies UV cannot manage: `hackrf`, `SoapySDR`,
   `python3-SoapySDR` (dnf). SoapyHackRF and acarsdec are built from source

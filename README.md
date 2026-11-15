@@ -75,13 +75,13 @@ chmod +x setup.sh
 ./setup.sh
 
 # 3. Verify Phase 0 — TX is provably impossible
-PYTHONPATH=. python -m pytest tests/core/test_rx_only_lock.py -v
+uv run pytest tests/core/test_rx_only_lock.py -v
 
 # 4. Run full test suite
-PYTHONPATH=. python -m pytest tests/ -v
+uv run pytest
 
 # 5. Start the scanner (PYTHONPATH=. is always required — see note below)
-PYTHONPATH=. python scan.py
+env PYTHONPATH=. .venv-scan/bin/python -s scan.py
 ```
 
 > **`PYTHONPATH=.` is always required** when running `scan.py` or any tool in `tools/`.
@@ -110,9 +110,11 @@ uv run pytest tests/core/test_rx_only_lock.py -v
 # 5. Run full test suite
 uv run pytest
 
-# 6. Start the scanner (PYTHONPATH=. required — SoapySDR is a system package,
-#    and Mimir's own modules need the repo root on the import path)
-PYTHONPATH=. python scan.py
+# 6. Create the scanner venv (system Python + SoapySDR, locked packages from uv.lock)
+bash -c 'source ./setup.sh && create_scanner_venv'
+
+# 7. Start the scanner (-s keeps old ~/.local packages out)
+env PYTHONPATH=. .venv-scan/bin/python -s scan.py
 ```
 
 ---
@@ -315,8 +317,8 @@ If you are setting up Mimir for the first time, or tuning it after a hardware ch
 ### Starting the live dashboard
 
 ```bash
-# From the project root, with your Python environment active:
-PYTHONPATH=. python scan.py
+# From the project root (works in fish and bash, no activation needed):
+env PYTHONPATH=. .venv-scan/bin/python -s scan.py
 ```
 
 Then open your browser at `http://localhost:5000`. The cyberpunk dashboard will show:
