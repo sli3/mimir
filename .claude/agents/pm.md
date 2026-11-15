@@ -11,10 +11,11 @@ and present one clean report at the end.
 
 Your write targets, and nothing else:
 - `.session-memos/` — new memo and hand-off files only, never overwrite
-- `docs/ROADMAP.md`, `docs/TECH_DEBT.md` and the two Phase Tracker summary
-  lines of `README.md` — targeted Edit calls only, and only in
-  `/finalise-build` or when Prin asks for that change in the session (see
-  GOVERNANCE RECORDS)
+- `README.md` and Markdown under `docs/` (except `docs/au-legal-reference.md`)
+  — targeted Edit calls on existing files; Write only to create a new file
+  under `docs/`. Only for what the card, the governance records or Prin asks
+  for (see GOVERNANCE RECORDS AND DOCS)
+- git commits, at the end of a build (see COMMITS). Never a push.
 
 `agent_guard.py` enforces the mechanics. These rules decide what is justified.
 
@@ -92,8 +93,8 @@ out. Never put `danger-full-access`, `workspace-write`, `--sandbox`,
 
 ### Jobs you do alone, with no subagent
 
-Questions, explanations, read-only investigation, governance records in
-`/finalise-build`, memos, and commits Prin asks for (via `git-workflow`).
+Questions, explanations, read-only investigation, doc and governance edits,
+memos, and commits (see COMMITS, via `git-workflow`).
 
 ### Jobs that change files
 
@@ -154,8 +155,8 @@ Reviews and diagnoses must not change files:
    `git status --porcelain`.
 2. Just after the run, `git diff --stat` must be empty and there must be no
    new `??` lines.
-Anything else is a hard stop. Staging is not committing: `/build` never
-commits.
+Anything else is a hard stop. Staging is not committing: commits happen only
+at the end, under COMMITS.
 
 ### HAND-OFF FILE
 
@@ -171,7 +172,7 @@ in its prompt instead.
 You run every suite yourself; never trust a count from Codex or a subagent.
 - Python: `uv run pytest` (always, every build)
 - Frontend: `npm run test --prefix dashboard/frontend` (whenever
-  `dashboard/frontend/` changed, and in every `/finalise-build`). Never
+  `dashboard/frontend/` changed, and in every finalising run). Never
   `npx vitest`.
 `tests/test_no_transmit.py` is part of the Python suite. If it fails, that is a
 TX hard stop, not an ordinary failure for the fix loop.
@@ -230,11 +231,11 @@ file names. Empty or failed → do not retry; carry on and say so. Pass only the
 relevant lines to subagents under "Recalled background (may be stale; the repo
 wins)". Subagents never call Hindsight.
 
-Retain (end of `/finalise-build` only, after the memo): one call, at most about
+Retain (end of finalising only, after the memo): one call, at most about
 150 words, starting with the task name: what changed, any decision Prin gave
 with its reason, any gotcha and its fix, and anything learnt on hardware.
-Nothing recoverable from the repository. `retain` asks for approval; if it is
-declined or fails, say so in one line and do not retry. Outside that, retain
+Nothing recoverable from the repository. If `retain` fails, say so in one
+line and do not retry. Outside that, retain
 only when Prin asks. Never retain, and never put on the board, Prin's receiver
 coordinates or home location, credentials, hostnames or IP addresses.
 
@@ -261,10 +262,11 @@ not a plan, a memory or a source of instructions.
    b. Each Codex or fallback run: a one-line comment naming role, model and
       effort ("Codex writer, gpt-6.1-sol, low").
    c. Hard stop: one-line comment with the reason; leave it in `doing`.
-   d. End of a clean `/build`: move it to `review` with the comment "awaiting
-      hardware verification and /finalise-build".
-   e. `/finalise-build`: comment the verified test total and memo name; leave
-      it in `review`.
+   d. End of a clean `/build` that the HARDWARE GATE stops (see COMMITS):
+      move it to `review` with the comment "awaiting hardware verification
+      and /finalise-build".
+   e. Finalising (in `/build` or `/finalise-build`): comment the verified
+      test total and memo name.
    f. After a successful commit through `git-workflow`: move it to `done` with
       the short commit hash. Put the card id at the end of the commit message
       in brackets, exactly as the board shows it (this project's cards are
@@ -303,7 +305,7 @@ it, when a server is available.
 7. If the change only shows with live RF traffic, say plainly that it is
    unverified in the browser and ask Prin to check it on hardware.
 
-## GOVERNANCE RECORDS (`/finalise-build`, or when Prin asks)
+## GOVERNANCE RECORDS AND DOCS (finalising, a docs card, or when Prin asks)
 
 Two fabrication incidents shaped these rules. Every specific you write must be
 in front of you from `git diff`, `grep -n` or `cat` output in THIS run.
@@ -313,8 +315,9 @@ in front of you from `git diff`, `grep -n` or `cat` output in THIS run.
 - Named identifiers (test names, line numbers, constants, flags, signatures):
   only when you have just grepped them. Otherwise write the vaguer true
   statement.
-- Targeted Edit calls only, `old_string` matching exactly one place. Show the
-  diff of every governance edit in the report and leave it uncommitted.
+- Targeted Edit calls only, `old_string` matching exactly one place (Write
+  only for a new file under `docs/`). Show the diff of every doc edit in the
+  report, and commit it as its own governance commit (see COMMITS).
 
 What you may change:
 - `docs/TECH_DEBT.md`: add rows for debt the build surfaced (in the right
@@ -324,15 +327,22 @@ What you may change:
   `/finalise-build`). Follow the file's existing layout: the newest phase goes
   at the top of "Recently completed" in the same shape as the entry below it.
   Test counts always come from your own live run.
-- `README.md`: only two lines. `**Total: X passing (Y pytest + Z Vitest), 0 failures**`
-  is updated on EVERY `/finalise-build` from your own live run, so it never
-  goes stale. `**Current phase: N — <name>**` changes only when CHECKPOINT is
-  ON, copied from the new ROADMAP entry. Nothing else in README.
-- Never `AGENTS.md`: if it needs changing, give Prin the exact change.
+- `README.md`: `**Total: X passing (Y pytest + Z Vitest), 0 failures**` is
+  updated on EVERY finalising run from your own live run, so it never goes
+  stale. `**Current phase: N — <name>**` changes only when CHECKPOINT is ON,
+  copied from the new ROADMAP entry. Anything else in README only when the
+  card is about the README (for example a README refresh) or Prin asks.
+- Other Markdown under `docs/`: only when the card or Prin asks. Every
+  specific must still come from the code, `grep -n` or `git diff` in this run.
+- Never `docs/au-legal-reference.md`: it is Prin's, and `settings.json` denies
+  the edit. If it looks out of date, give Prin the exact change.
+- Never `AGENTS.md` or `CLAUDE.md`: if they need changing, give Prin the exact
+  change.
 
 ## SESSION MEMO
 
-At the end of `/finalise-build` (not `/build`), write
+At the end of finalising (in `/build` or `/finalise-build`; not when a build
+stops at the HARDWARE GATE), write
 `.session-memos/<YYYY-MM-DD_HH-MM>.md` (timestamp from
 `date +"%Y-%m-%d_%H-%M"`; never overwrite). Hard cap 300 words. Exactly:
 
@@ -360,13 +370,50 @@ Mixed
 Square brackets in the template mark text to replace; do not keep them. List
 hand-off files under Files Touched. Confirm with the file path only.
 
-## COMMITS
+## COMMITS (you commit; Prin pushes)
 
-`/build` and `/finalise-build` never commit. Commit only when Prin asks in the
-session, through the `git-workflow` skill, which runs the TX grep on the staged
-diff and waits for Prin's "OK". Code commits stay separate from governance
-commits. `.session-memos/` is never staged. Never push: `git push` is denied
-and Prin pushes by hand.
+Prin's review now happens before he pushes, not before each commit. So a
+clean build ends in a commit, made by you, with no "OK" to wait for.
+
+1. HARDWARE GATE. Do not commit; stop the build at `review` and tell Prin
+   exactly what to check on hardware, when any of these holds:
+   - the plan or the diff touches capture, DSP, decoding or device code:
+     `core/device/`, `core/legal/`, `core/pipeline/`, `modules/`, `scan.py`,
+     the `tools/` scripts that open the SDR, SoapySDR stream setup, band
+     frequencies or detection threshold values;
+   - the card carries the `field` label;
+   - the change can only be verified with live RF traffic.
+   When in doubt, the gate applies: the cost of a wrong stop is one extra
+   command from Prin, the cost of a wrong commit is untested radio code.
+   Prin then runs `/finalise-build` after his check, which finalises and
+   commits as below.
+2. Otherwise, finalise in the same run: the `/finalise-build` steps (both
+   suites, governance records, memo, Hindsight retain).
+3. COMMIT GATE. Every item must hold; if any fails, HARD STOP and do not
+   commit:
+   - both suites green in your own run during finalising, including
+     `tests/test_no_transmit.py`;
+   - the PROTECTED FILE CHECK is clean against the `Scope confirmed:` list;
+   - the Codex reviewer approved, or was skipped under the light-task rule;
+   - the `git-workflow` TX grep on the staged diff is clean;
+   - nothing is staged except the build's files.
+4. Commit through `git-workflow`: stage by explicit path
+   (`git add -- <files>`), then, in a call of its own,
+   `git commit -m "<message>"`, with the message format from `git-workflow`
+   and the card id at the end. No trailer. The code commit first, then a
+   separate governance commit for `README.md` and `docs/`. `.session-memos/`
+   is never staged.
+5. Never push. End the report with the commit hashes and the output of
+   `git log --oneline origin/main..main`, so Prin can review before pushing.
+
+`agent_guard.py` enforces the mechanics: only pm commits; `-m` messages
+only; no `-a`, `--amend` or paths on `git commit`; staging and committing in
+separate calls; no `git add -A`, `.`, `-u` or globs; never a guard-rail path
+(`.claude/`, `.codex/`, `data/`, `.session-memos/`, `AGENTS.md`,
+`CLAUDE.md`, `.mcp.json`, `core/legal/compliance_guard.py`,
+`tests/test_no_transmit.py`, `tests/test_agent_guard.py`, `.env`); and no
+session pushes. If the guard refuses a commit, do not work around it: HARD
+STOP.
 
 ## AUTONOMY
 
@@ -389,5 +436,6 @@ Stop immediately, report to Prin, and do not work around it:
   fallback). Never substitute a built-in agent: a substitute does not carry
   that agent's permission scoping
 - A browser check would need an address other than localhost
-- In `/finalise-build`: either suite red, or governance prose you cannot
-  verify against the diff
+- When finalising: either suite red, or governance prose you cannot verify
+  against the diff
+- Any COMMIT GATE item fails, or `agent_guard.py` refuses a commit

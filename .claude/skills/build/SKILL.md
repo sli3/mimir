@@ -2,11 +2,12 @@
 name: build
 description: >
   Autonomous build cycle for Mimir. Runs plan → code → fix loop → code review →
-  browser check (frontend builds) → PM audit → report, with no user
-  intervention. Writes code and tests only: no governance docs, no memo, no
-  commit. Prin then verifies on real hardware and runs /finalise-build.
+  browser check (frontend builds) → PM audit, with no user intervention. Then
+  it either stops for Prin's hardware check (capture, DSP, decoding and device
+  changes), after which Prin runs /finalise-build, or it finalises and commits
+  by itself. Never pushes: Prin reviews the commits and pushes by hand.
   Usage: /build "<task>" (add CHECKPOINT_MODE: ON in the task text if this
-  build should advance the phase tracker at finalise time).
+  build should advance the phase tracker when it is finalised).
 argument-hint: '"<task>"'
 disable-model-invocation: true
 ---
@@ -31,8 +32,9 @@ If this is empty or unintelligible, that is the one exception to "no
 clarifying questions": stop and ask Prin.
 
 Note whether the task text contains `CHECKPOINT_MODE: ON` (case-insensitive).
-It does nothing in this build; you only carry it into the report so Prin
-passes it to `/finalise-build`.
+If the build finalises itself (Step 7B), apply it there. If it stops at the
+HARDWARE GATE (Step 7A), carry it into the report so Prin passes it to
+`/finalise-build`.
 
 ---
 
@@ -57,8 +59,9 @@ definition (JOB SIZING AND ROUTING). Follow it exactly.
 As listed in your agent definition. In particular: any TX or AU-law finding,
 `tests/test_no_transmit.py` failing, a ❌ BLOCKER from `@plan-reviewer`, a
 protected-file or review-check violation, tests failing after 3 fix-loop
-iterations, or a required agent that cannot be invoked. Do not work around a
-hard stop. Surface it clearly.
+iterations, a required agent that cannot be invoked, a COMMIT GATE item that
+fails, or a commit that `agent_guard.py` refuses. Do not work around a hard
+stop. Surface it clearly.
 
 ---
 
@@ -76,7 +79,10 @@ Before calling it, establish prior session context:
    Hindsight `recall` (MEMORY in your agent definition).
 3a. Claim or create the build's card and move it to `doing` (KANZO BOARD 4a).
 4. `git status --porcelain`: note files already changed before the build.
-   They are Prin's work; the build never stages them.
+   They are Prin's work; the build never stages them. Then
+   `git diff --cached --name-only`: if anything is already staged, hard stop
+   now, before any work, and tell Prin to commit or unstage it. The build's
+   commit would otherwise sweep it in.
 5. Orient with graft (GRAFT in your agent definition): freshness check, then
    locate the task's code and trace callers. Then read the actual source at
    the cited spans. Never plan from a summary.
@@ -88,6 +94,13 @@ file the build will touch. Wait. A ❌ BLOCKER → hard stop.
 ### STEP 2 — CODE
 
 If the approved plan changes no files (`Task size: none`), skip to Step 5.
+
+If the `Scope confirmed:` list holds only `README.md` and Markdown under
+`docs/` (a docs card), run no Codex. Make the edits yourself under GOVERNANCE
+RECORDS AND DOCS in your agent definition: targeted Edit calls, Write only for
+a new file under `docs/`, never `docs/au-legal-reference.md`, and every
+specific checked against the code or `git diff` before you write it. Then
+skip to Step 5.
 
 Otherwise run the Codex writer as a new task with the effort for the task size.
 The brief carries the approved plan and the `Scope confirmed:` list and asks
@@ -148,7 +161,13 @@ Before reporting, check:
 Clean → Step 6. Flagged → re-enter only the affected step, once. Still
 unresolved → hard stop.
 
-### STEP 6 — REPORT (to chat only, never to a file)
+### STEP 6 — HARDWARE GATE
+
+Apply HARDWARE GATE (in COMMITS in your agent definition) to the approved plan
+and the final diff. A docs-only build never triggers it. Gate hit → Step 7A.
+Gate not hit → Step 7B. Say in the report which one applied and why.
+
+### STEP 7A — REPORT AND STOP FOR PRIN (HARDWARE GATE hit; report to chat only)
 
 1. Run the suites one final time and use these live counts only.
 2. Unstage the files the build staged for its review checks, exactly
@@ -173,11 +192,32 @@ unresolved → hard stop.
    - A checklist with ✅ / ❌ / ⚠️ under BACKEND CODE, TESTS, CONSTRAINTS
      (TX scan, AU law, protected files) and GOVERNANCE (must read "not
      touched, by design")
-4. End with NEXT STEP FOR PRIN: verify on real hardware where the change
-   touches capture, DSP, decoding or device code (say exactly what to check),
-   then run:
+4. End with NEXT STEP FOR PRIN: name the HARDWARE GATE trigger that fired,
+   say exactly what to check on real hardware, then give him:
    `/finalise-build "<one-line summary of this build>"`
    with `CHECKPOINT_MODE: ON` inside the quoted summary if this build should
-   advance the phase tracker. Give a ready-to-paste summary line.
+   advance the phase tracker. Give a ready-to-paste summary line. Say that
+   `/finalise-build` will finalise and commit, and that he pushes by hand.
 
-Never commit, never push, never write a governance doc or memo in `/build`.
+At this stop: no commit, no push, no governance record, no memo.
+
+### STEP 7B — FINALISE AND COMMIT (HARDWARE GATE not hit)
+
+1. Read `.claude/skills/finalise-build/SKILL.md` and carry out its STEP 0 to
+   STEP 7 yourself, in this run. Write the one-line summary from the approved
+   plan. CHECKPOINT is ON only if the task text carried it. The build's files
+   are the `Scope confirmed:` list. Its Step 1 (both suites, live) is the
+   final test run, so do not run a separate one first.
+2. Its COMMIT step applies the COMMIT GATE (in COMMITS in your agent
+   definition). Any item failing is a hard stop: report it, leave the changes
+   uncommitted (unstage only what the build staged) and leave the card in
+   `doing`.
+3. The report is `/finalise-build`'s Step 7 plus what Step 7A lists that it
+   does not: what was built, fix-loop summary, models, code-review findings,
+   browser check, PM audit, graft and memory lines. The GOVERNANCE checklist
+   line lists the files changed instead of "not touched".
+4. End with the commit hashes and `git log --oneline origin/main..main`, then:
+   "Review the log above, then push by hand: `git push origin <branch>`."
+   No hardware check is asked for, because the gate was not hit.
+
+Never push in `/build`.

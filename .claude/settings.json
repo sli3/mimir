@@ -59,6 +59,7 @@
       "Edit(/.claude/**)",
       "Edit(/.codex/**)",
       "Edit(/data/**)",
+      "Edit(/docs/au-legal-reference.md)",
       "Bash(git push *)",
       "Bash(git * --force*)",
       "Bash(git * -f)",

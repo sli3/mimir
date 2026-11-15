@@ -85,10 +85,13 @@ it directly.
 | `code-writer` | subagent | Fallback writer when Codex fails or hits its limit |
 | `deep-bug-hunter` | subagent | Fallback reviewer and debugger when Codex fails or hits its limit |
 
-Skills: `/build "<task>"` runs the autonomous build cycle and stops before any
-documentation or commit. `/finalise-build "<summary>"` runs after Prin has
-verified the build on real hardware. `/multi @agent ...` runs several agents
-in parallel. `git-workflow` commits, only when Prin asks.
+Skills: `/build "<task>"` runs the autonomous build cycle. A clean build that
+touches no capture, DSP, decoding or device code finalises and commits by
+itself. One that does stops after its report for Prin's hardware check.
+`/finalise-build "<summary>"` then runs after Prin has verified that build on
+real hardware, and finalises and commits it. `/multi @agent ...` runs several
+agents in parallel. `git-workflow` is how `pm` commits: it checks the staged
+diff for TX patterns first, and it never pushes.
 
 Only the agents in the table above exist. If a skill, memo or document tells
 you to invoke any other agent (for example `@senior-dev`, `@analyst`,
@@ -144,18 +147,21 @@ and functions, what not to touch, the fix strategy (no code), and unknowns.
 ## Safety Gates
 
 - `AGENTS.md`, `CLAUDE.md`, `.mcp.json`, and everything under `.claude/` and
-  `.codex/` are edited by Prin only
-- Governance docs: `docs/ROADMAP.md`, `docs/TECH_DEBT.md` and the two
-  "Phase Tracker" summary lines in `README.md` are edited by `pm` (in
-  `/finalise-build`, or when Prin asks in the session) or by the main Claude
-  Code session when Prin asks for that change, always with targeted Edit calls
-  (rules in `pm`'s own file). No subagent, and not Codex, edits them
+  `.codex/` are edited, and committed, by Prin only
+- Docs: `pm` edits `README.md` and Markdown under `docs/` with targeted Edit
+  calls (Write only to create a new file under `docs/`), at finalise, for a
+  docs card, or when Prin asks in the session. The main Claude Code session
+  may do the same when Prin asks. Rules for what to write are in `pm`'s own
+  file. No subagent, and not Codex, edits them. `docs/au-legal-reference.md`
+  is Prin's: `pm` may not edit it
 - `data/` holds Prin's IQ captures and vector stores. No agent writes,
   moves or deletes anything under it
 - Never `git push`. Never use `--force`. Never `git reset --hard`
-- Agents never commit, with one exception: `pm` may commit through the
-  `git-workflow` skill when Prin asks in the session and then types "OK" to
-  the staged diff
+- Agents never commit, with one exception: `pm` commits through the
+  `git-workflow` skill at the end of a build that passes its COMMIT GATE (in
+  `pm`'s own file), or when Prin asks, with no "OK" step. `agent_guard.py`
+  enforces it: `-m` messages only, explicit staging, and never a guard-rail
+  file. Prin reviews `git log origin/main..main` and pushes by hand
 - Never modify a file without first reading its current contents
 - Never work around a permission deny, hook block or `ask` prompt: no string
   building, encoding, `python -c` wrappers, subprocess calls, MCP tools or
@@ -379,9 +385,10 @@ dashboard/                      Cyberpunk React dashboard + Flask-SocketIO
 |---|---|---|
 | `docs/ROADMAP.md` | Phase tracker and build history (single source of truth) | `pm` (finalise) |
 | `docs/TECH_DEBT.md` | Known tech debt, accepted items, deferred items, resolved archive | `pm` (finalise) |
-| `docs/au-legal-reference.md` | ACMA legal reference | Prin |
+| `docs/au-legal-reference.md` | ACMA legal reference | Prin only |
+| Other Markdown under `docs/` | Supporting documentation | `pm`, when a card or Prin asks |
 | `.session-memos/` | Session memos, gitignored and local only | `pm` |
-| `README.md` | Public overview. Only its two Phase Tracker summary lines are `pm`'s | Prin, `pm` |
+| `README.md` | Public overview. `pm` keeps its Total and Current phase lines current at finalise, and edits the rest only when a card or Prin asks | Prin, `pm` |
 
 Read `docs/TECH_DEBT.md` and the latest session memo before planning any build.
 
