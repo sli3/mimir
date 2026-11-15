@@ -21,6 +21,9 @@ dashboard connects to. Serves two roles:
    entries with optional query-parameter filtering (min_mhz, max_mhz,
    tagged_only).
 
+Pure helpers live in dashboard/adsb_field_tracker.py,
+dashboard/reason_validation.py and dashboard/capture_listing.py.
+
 CONSTRAINTS
 ───────────
 - async_mode='threading' — do not change to eventlet or gevent.
@@ -37,7 +40,6 @@ import re
 import threading
 import time
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import sigmf
@@ -47,15 +49,30 @@ from flask_socketio import SocketIO
 from core.pipeline.frequency import freq_matches
 from core.pipeline.replay import ReplayBusyError, ReplayFileError, replay_capture
 from core.pipeline.scan_result import ScanResult
+from dashboard.adsb_field_tracker import AdsbFieldTracker
+# Re-export moved helpers for existing importers and the contract test.
+from dashboard.reason_validation import (
+    _REASON_CALLSIGN_RE,  # noqa: F401
+    _REASON_SQUAWK_RE,  # noqa: F401
+    _REASON_ICAO_RE,  # noqa: F401
+    _REASON_NUMERIC_RANGES,  # noqa: F401
+    _REASON_NULLABLE_NUMERIC_RANGES,  # noqa: F401
+    _coerce_finite_float,  # noqa: F401
+    _validate_reason_payload,
+)
+from dashboard.capture_listing import (
+    _CAPTURE_FILENAME_RE,  # noqa: F401
+    _parse_capture_meta_entry,
+    _parse_capture_timestamp,  # noqa: F401
+    _capture_sort_key,
+)
 from embeddings.store import SignalStore
 from llm.path_reasoner import PathReasoner
 from modules.acars.message import AcarsMessage
 from modules.adsb.message import AdsbMessage
 from modules.adsb.constants import (
-    AIRCRAFT_EXPIRY_SEC,
     AU_ADSB_FREQUENCY_HZ,
     FREQ_TOLERANCE_HZ,
-    MAX_AIRCRAFT,
 )
 from modules.ais.message import AisMessage
 import dashboard.shared_state as shared_state
@@ -63,103 +80,6 @@ import dashboard.shared_state as shared_state
 from pyModeS import decode
 
 logger = logging.getLogger(__name__)
-
-
-class AdsbFieldTracker:
-    """Per-ICAO merge of the disjoint field sets carried by ADS-B frames.
-
-    ADS-B frames carry disjoint field sets by typecode: a typecode 4 frame
-    carries only a callsign, a typecode 19 frame carries velocity (no
-    callsign or altitude), and typecodes 9-18 carry position and altitude
-    only.  Building the AI Reasoning string from the single triggering
-    frame therefore reported "unknown" for fields an earlier frame for the
-    same aircraft had already resolved.  This tracker keeps the last known
-    non-None value of each field per ICAO so the reasoning string can be
-    built from the merged view, matching what the dashboard's own ADS-B
-    AIRCRAFT table already shows (merged on the frontend by BUG-06 /
-    mergeAircraftRecord.js).
-
-    Merge semantics: any non-None field on an incoming message overwrites
-    the stored value; any None field leaves the stored value untouched.
-
-    Retention discipline mirrors ``modules/adsb/bearing_tracker.py``:
-    entries older than ``AIRCRAFT_EXPIRY_SEC`` are swept lazily on each
-    ``update()`` call (no separate timer), and if the table reaches
-    ``MAX_AIRCRAFT`` the oldest entry (by stored timestamp) is dropped on
-    the next insert of an untracked ICAO.  On tied timestamps the eviction
-    choice depends on dict insertion order; acceptable for a display aid.
-
-    Single-producer assumption: in steady state ``emit_adsb_scan_result()``
-    is only called from AdsbSubscriber's decode thread. The shutdown
-    flush in ``AdsbSubscriber.stop()`` runs on the caller's thread and can
-    briefly overlap the decode thread for a small window — the same
-    pre-existing pattern as TD-48-1 for BearingTracker. No lock is taken:
-    the overlap is benign (display aid, GIL-atomic dict ops, the two
-    threads typically target different ICAOs).
-
-    If a 7th field is ever tracked, both ``_FIELDS`` (used by ``update()``)
-    and any consumer of the returned dict must be extended in lockstep:
-    same pattern-divergence risk as TD-45-3.
-    """
-
-    # Tracked field names on AdsbMessage.  vertical_rate is merged here but
-    # intentionally not shown in the reasoning string (per Phase 50 plan).
-    # squawk (Phase 54) is merged and shown: DF5 identity replies carry it.
-    _FIELDS = ("callsign", "altitude_ft", "groundspeed", "track", "vertical_rate", "squawk")
-
-    def __init__(self) -> None:
-        # icao_key -> {field_name: last_known_value, "_ts": datetime}
-        self._state: dict[str, dict[str, Any]] = {}
-
-    def update(self, msg: AdsbMessage) -> dict[str, Any]:
-        """Merge one decoded ADS-B message into the stored per-ICAO view.
-
-        Args:
-            msg: Decoded ADS-B message from AdsbDecoder.
-
-        Returns:
-            The current merged view for the message's ICAO: a dict with
-            keys ``icao`` (normalised: stripped, upper-cased) plus one key
-            per tracked field, each holding the last known non-None value
-            or None if that field has never been resolved for this ICAO.
-        """
-        # Eviction-first ensures an expired ICAO's next message is treated
-        # as a fresh aircraft (see test_expired_aircraft_treated_as_fresh).
-        self._evict_stale(msg.timestamp)
-
-        icao_key = str(msg.icao).strip().upper()
-        entry = self._state.get(icao_key)
-        if entry is None:
-            if len(self._state) >= MAX_AIRCRAFT:
-                oldest_key = min(self._state, key=lambda k: self._state[k]["_ts"])
-                del self._state[oldest_key]
-            entry = {field: None for field in self._FIELDS}
-            self._state[icao_key] = entry
-
-        for field in self._FIELDS:
-            value = getattr(msg, field, None)
-            if value is not None:
-                entry[field] = value
-        entry["_ts"] = msg.timestamp
-
-        merged: dict[str, Any] = {"icao": icao_key}
-        for field in self._FIELDS:
-            merged[field] = entry[field]
-        return merged
-
-    def _evict_stale(self, now) -> None:
-        """Sweep entries older than ``AIRCRAFT_EXPIRY_SEC``.
-
-        Called lazily from ``update()`` so a stale ICAO's next message is
-        treated as a fresh aircraft.  No separate timer is used.
-        """
-        stale = [
-            key
-            for key, entry in self._state.items()
-            if (now - entry["_ts"]).total_seconds() > AIRCRAFT_EXPIRY_SEC
-        ]
-        for key in stale:
-            del self._state[key]
 
 
 app = Flask(__name__, static_folder="static", static_url_path="")
@@ -203,7 +123,7 @@ _path_reasoner = None
 _path_reasoner_lock = threading.Lock()
 
 # Per-ICAO ADS-B field-merge tracker for the AI Reasoning panel.  See
-# AdsbFieldTracker docstring; mirrors the design of
+# AdsbFieldTracker in dashboard/adsb_field_tracker.py; mirrors the design of
 # modules/adsb/bearing_tracker.py:BearingTracker.  Lightweight in-memory
 # dict, so direct instantiation with no lazy-with-lock needed.
 _field_tracker = AdsbFieldTracker()
@@ -259,125 +179,6 @@ def _get_path_reasoner() -> PathReasoner:
                     )
                     _path_reasoner = PathReasoner()
     return _path_reasoner
-
-
-# ── /api/radar/reason payload validation (Phase 53) ──────────────────────────
-# Whitelist charsets and numeric ranges applied BEFORE any value is
-# interpolated into an LLM prompt. Anything outside the whitelist is a 400;
-# nothing the operator (or a crafted request) sends can reach the LLM raw.
-
-_REASON_CALLSIGN_RE = re.compile(r"^[A-Z0-9 ]{1,8}$")
-_REASON_SQUAWK_RE = re.compile(r"^[0-7]{4}$")
-_REASON_ICAO_RE = re.compile(r"^[0-9A-Fa-f]{6}$")
-
-# Numeric fields that must always be present and finite: (min, max).
-_REASON_NUMERIC_RANGES = {
-    "bearing_deg": (0.0, 360.0),
-    "range_nm": (0.0, 1000.0),
-    # Widened from ±30 to ±90 in Phase 55: this bound's job is
-    # prompt-injection defence, not physical plausibility filtering —
-    # ±90 discharges that duty identically while removing the
-    # false-positive risk on a legitimate close overhead pass (computed:
-    # >30°/s occurs inside ~0.16 nm at 300kt groundspeed). Do not widen
-    # any other bound without separate review.
-    "theta_deg_per_sec": (-90.0, 90.0),
-    "delta_r_nm_per_sec": (-1.0, 1.0),
-    "projected_bearing_deg": (0.0, 360.0),
-    "projected_range_nm": (0.0, 1000.0),
-}
-# Per-frame ADS-B fields that legitimately arrive as null (velocity and
-# position travel in disjoint Mode S typecodes). Null passes through; a
-# non-null value must be finite and in range.
-_REASON_NULLABLE_NUMERIC_RANGES = {
-    "altitude_ft": (-1000.0, 100000.0),
-    "groundspeed": (0.0, 700.0),
-    "track": (0.0, 360.0),
-    "vertical_rate": (-12000.0, 12000.0),
-}
-
-
-def _coerce_finite_float(value):
-    """Coerce to a finite float, or return None on any failure.
-
-    Rejects NaN and Infinity (json.loads accepts both by default, so they
-    CAN arrive over the wire), booleans, non-numeric strings, and None.
-    """
-    if isinstance(value, bool):
-        return None
-    try:
-        result = float(value)
-    except (TypeError, ValueError):
-        return None
-    if not (result == result) or result in (float("inf"), float("-inf")):
-        return None
-    return result
-
-
-def _validate_reason_payload(data: dict) -> tuple[dict, str | None]:
-    """Validate and clean a POST /api/radar/reason JSON body.
-
-    Returns:
-        (cleaned, None) on success — cleaned holds only the known keys,
-        coerced to their expected types.
-        ({}, error_message) on any validation failure — the route turns
-        this into a 400 with the message.
-    """
-    icao = data.get("icao")
-    if not isinstance(icao, str) or not _REASON_ICAO_RE.fullmatch(icao):
-        return {}, "Invalid icao (want 6 hex characters)"
-
-    callsign = data.get("callsign")
-    if callsign is None:
-        # No callsign frame decoded yet for this ICAO — valid real state.
-        callsign = None
-    elif isinstance(callsign, str) and _REASON_CALLSIGN_RE.fullmatch(callsign.upper()):
-        callsign = callsign.upper()
-    else:
-        return {}, "Invalid callsign (want 1-8 chars of A-Z, 0-9, space)"
-
-    squawk = data.get("squawk")
-    if squawk is not None:
-        if not isinstance(squawk, str) or not _REASON_SQUAWK_RE.fullmatch(squawk):
-            return {}, "Invalid squawk (want 4 octal digits)"
-
-    cleaned: dict[str, Any] = {
-        "icao": icao.upper(),
-        "callsign": callsign,
-        "squawk": squawk,
-    }
-
-    for field, (lo, hi) in _REASON_NUMERIC_RANGES.items():
-        value = _coerce_finite_float(data.get(field))
-        if value is None:
-            return {}, f"Invalid {field} (want a finite number)"
-        if not (lo <= value <= hi):
-            return {}, f"Invalid {field} (out of range {lo}..{hi})"
-        cleaned[field] = value
-
-    for field, (lo, hi) in _REASON_NULLABLE_NUMERIC_RANGES.items():
-        raw = data.get(field)
-        if raw is None:
-            cleaned[field] = None
-            continue
-        value = _coerce_finite_float(raw)
-        if value is None:
-            return {}, f"Invalid {field} (want a finite number or null)"
-        if not (lo <= value <= hi):
-            return {}, f"Invalid {field} (out of range {lo}..{hi})"
-        cleaned[field] = value
-
-    trail_raw = data.get("trail_length")
-    if isinstance(trail_raw, bool):
-        return {}, "Invalid trail_length (want an integer)"
-    try:
-        trail_length = int(float(trail_raw))
-    except (TypeError, ValueError):
-        return {}, "Invalid trail_length (want an integer)"
-    if not (0 <= trail_length <= 1000):
-        return {}, "Invalid trail_length (out of range 0..1000)"
-    cleaned["trail_length"] = trail_length
-
-    return cleaned, None
 
 
 @socketio.on("set_focus_frequency")
@@ -1080,7 +881,7 @@ def api_radar_reason():
     - icao / callsign / squawk must match their whitelist charsets.
     - Numeric fields must coerce to finite floats (NaN/Infinity rejected)
       and sit inside their documented ranges (see _REASON_NUMERIC_RANGES
-      and _REASON_NULLABLE_NUMERIC_RANGES).
+      and _REASON_NULLABLE_NUMERIC_RANGES in dashboard/reason_validation.py).
 
     LLM failures NEVER produce a 500: PathReasoner.reason() never raises,
     and any failure arrives here as status="unavailable" with a cause.
@@ -1444,13 +1245,6 @@ def api_replay():
     return jsonify(result), 200
 
 
-# Timestamp used to age-sort captures; group matches YYYYMMDD_HHMMSS in
-# capture_<freq>hz_YYYYMMDD_HHMMSS.sigmf-meta filenames.
-_CAPTURE_FILENAME_RE = re.compile(
-    r"capture_(\d+)hz_(\d{8})_(\d{6})\.sigmf-meta$"
-)
-
-
 @app.route("/api/captures", methods=["GET"])
 def api_captures():
     """List saved SigMF captures in data/captures/.
@@ -1539,86 +1333,6 @@ def api_captures():
         return jsonify({"error": "internal_error", "detail": str(exc)}), 500
 
     return jsonify({"captures": captures}), 200
-
-
-def _parse_capture_meta_entry(path):
-    """Parse a single .sigmf-meta file into the api_captures entry dict.
-
-    Uses json.load() so the .sigmf-data sibling is never touched.
-    Any failure produces an "unknown" entry with an "error" key.
-    """
-    entry = {
-        "filename": path.name,
-        "mode": "unknown",
-        "chunk_count": 0,
-        "core_frequency_hz": None,
-        "device": None,
-        "timestamp": _parse_capture_timestamp(path.name),
-    }
-
-    try:
-        with path.open("r", encoding="utf-8") as fh:
-            meta = json.load(fh)
-    except Exception as exc:  # broad, per spec: JSON, Unicode, OSError...
-        entry["error"] = f"could not read metadata: {exc}"
-        logger.warning("Capture metadata unreadable: %s — %s", path.name, exc)
-        return entry
-
-    try:
-        global_fields = meta.get("global", {}) if isinstance(meta, dict) else {}
-        captures = meta.get("captures", []) if isinstance(meta, dict) else []
-        capture_record = captures[0] if captures else {}
-        if not isinstance(capture_record, dict):
-            capture_record = {}
-
-        if "mimir:fingerprint_sequence" in global_fields:
-            sequence = global_fields["mimir:fingerprint_sequence"]
-            if isinstance(sequence, list):
-                entry["mode"] = "record"
-                entry["chunk_count"] = len(sequence)
-            else:
-                entry["error"] = "mimir:fingerprint_sequence is not a list"
-        elif "mimir:fingerprint" in global_fields:
-            entry["mode"] = "oneshot"
-            entry["chunk_count"] = 1
-
-        core_freq = capture_record.get("core:frequency")
-        if core_freq is not None:
-            try:
-                entry["core_frequency_hz"] = float(core_freq)
-            except (TypeError, ValueError):
-                entry["core_frequency_hz"] = None
-
-        device = global_fields.get("mimir:device_profile")
-        if device is not None:
-            entry["device"] = str(device)
-    except Exception as exc:
-        entry["error"] = f"metadata parse error: {exc}"
-        logger.warning("Capture metadata parse error: %s — %s", path.name, exc)
-
-    return entry
-
-
-def _parse_capture_timestamp(filename):
-    """Return an ISO timestamp string from a capture filename, or None."""
-    match = _CAPTURE_FILENAME_RE.search(filename)
-    if not match:
-        return None
-    date_part, time_part = match.group(2), match.group(3)
-    return (
-        f"{date_part[:4]}-{date_part[4:6]}-{date_part[6:8]}"
-        f"T{time_part[:2]}:{time_part[2:4]}:{time_part[4:6]}"
-    )
-
-
-def _capture_sort_key(entry):
-    """Sort key for api_captures: timestamp desc with filename fallback.
-
-    Entries without a timestamp are pushed to the end by using an
-    empty string for the primary key. Filename provides a stable
-    secondary sort.
-    """
-    return (entry.get("timestamp") or "", entry.get("filename") or "")
 
 
 @app.route("/vectordb")
