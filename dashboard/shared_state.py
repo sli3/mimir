@@ -1,26 +1,19 @@
 """
-Shared state module for the Mimir dashboard threads.
+Shared settings and state for the Mimir dashboard and scan pipeline.
 
-This module holds all data that needs to be shared between two separate
-threads: Thread A (capture_loop) and Thread B (ai_loop).
+This module holds band profiles, the selected band settings, the active
+device and per-band auto-capture trigger state. Helper functions look up band
+settings, check which bands a device supports, provide device display names,
+and safely read or update trigger state. Locks protect shared data, including
+the active device, by allowing one thread at a time to access it.
 
-Why do we need this?
---------------------
-In Python, each thread has its own memory space by default. If we want
-Thread A to send signal fingerprints to Thread B for AI classification,
-we need a way for them to communicate. We use:
-
-1. A queue - like a conveyor belt where Thread A puts items and Thread B takes them
-2. A lock - like a doorman that ensures only one thread touches shared data at a time
-3. An event - like an alarm that tells both threads when to shut down
-4. A dict with defaults - to store the latest AI annotation so the dashboard can display it
-
-No classes here - everything is at module level for simplicity.
+It also retains annotation defaults, shutdown and band-change events, and a
+WebSocket connection set for later cleanup. Some of this state currently has
+no production user. Everything is at module level for simplicity.
 """
 
 import logging
 import threading
-from queue import Queue
 
 logger = logging.getLogger(__name__)
 
@@ -28,18 +21,6 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # SHARED STATE VARIABLES
 # =============================================================================
-
-# -----------------------------------------------------------------------------
-# fingerprint_queue
-# -----------------------------------------------------------------------------
-# Type: queue.Queue
-# Purpose: Thread-safe queue that passes signal fingerprints from capture_loop
-#          (Thread A) to ai_loop (Thread B).
-# How it works: Thread A puts() fingerprints here after extracting features.
-#               Thread B gets() them one by one and sends to the AI for classification.
-# Why a queue?: It's FIFO (first-in-first-out), handles backpressure if ai_loop
-#               falls behind, and is thread-safe so no locking is needed.
-fingerprint_queue = Queue()
 
 # -----------------------------------------------------------------------------
 # annotation_lock
@@ -79,10 +60,8 @@ latest_annotation = {
 # shutdown_event
 # -----------------------------------------------------------------------------
 # Type: threading.Event
-# Purpose: Signals both threads to stop when the dashboard should close.
-# How it works: When set(), thread loops check this and exit gracefully.
-#               The dashboard server sets this on shutdown so capture_loop
-#               and ai_loop don't keep running in the background.
+# Purpose: Reserved shutdown signal; currently has no production user.
+# How it works: A thread can check whether the event is set before continuing.
 # Why an event?: It's a simple, standard way to coordinate shutdown across
 #                multiple threads without complex locking or shared flags.
 shutdown_event = threading.Event()
@@ -91,14 +70,13 @@ shutdown_event = threading.Event()
 # WEBSOCKET CLIENT MANAGEMENT
 # =============================================================================
 
-# Set of active browser WebSocket connections.
-# The capture loop broadcasts to every ws in this set.
+# Reserved set of browser WebSocket connections.
+# Currently has no production user.
 # Protected by spectrum_clients_lock.
 spectrum_clients: set = set()
 spectrum_clients_lock = threading.Lock()
 
-# Band switching — event set by /ws/command when user clicks a band button.
-# The capture loop checks this every frame and restarts on the new band.
+# Reserved band-change signal; currently has no production user.
 band_change_event = threading.Event()
 
 # Per-band gain and threshold profiles for the live waterfall dashboard.
