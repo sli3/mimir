@@ -7,32 +7,6 @@ import {
   formatDeltaR,
 } from '../utils/aircraftFormat.js'
 
-/**
- * Convert a hex string to space-separated 8-bit binary groups.
- * Example: "A3D4" -> "10100011 11010100"
- * Used in the RAW DECODE view's binary mode to show the Mode S
- * frame bits at a glance.
- * @param {string} hex - Hex string (e.g. "A3D4F0")
- * @returns {string} Space-separated 8-bit binary groups
- */
-function hexToBin(hex) {
-  return hex.match(/.{1,2}/g)
-    .map((byte) => parseInt(byte, 16).toString(2).padStart(8, '0'))
-    .join(' ')
-}
-
-/**
- * Format a hex string as uppercase space-separated byte pairs.
- * Example: "a3d4" -> "A3 D4"
- * Used in the RAW DECODE view's hex mode to make the Mode S frame
- * readable at a glance.
- * @param {string} hex - Hex string (e.g. "A3D4F0")
- * @returns {string} Uppercase space-separated byte pairs
- */
-function hexToSpaced(hex) {
-  return hex.match(/.{1,2}/g).join(' ').toUpperCase()
-}
-
 const MAX_AIRCRAFT = 30
 
 // formatAltitude / formatSpeed / formatTrack / formatBearing /
@@ -45,28 +19,17 @@ function elapsedSeconds(receivedAt) {
 }
 
 /**
- * ADS-B aircraft tracking panel with raw decode view and frame inspector.
- * Shows active aircraft in a table, previously-seen aircraft below, and a
- * two-column layout when tuned to 1090 MHz:
- *   - Left: RAW DECODE view showing recent Mode S frames (hex/binary toggle)
- *   - Right: FRAME INSPECTOR showing parsed frame data from /api/adsb/parse
+ * ADS-B aircraft tracking panel.
+ * Shows active aircraft in a table with previously-seen aircraft below.
+ * When both lists are empty, shows a listening or not-tuned message based
+ * on the currently tuned frequency. Refreshes elapsed seconds every second.
  *
  * @param {Object} adsbAircraft - Map of ICAO address -> aircraft state
  * @param {Array}  adsbAircraftHistory - Recently departed aircraft (ring buffer)
  * @param {number|null} focusedFreq - Currently tuned frequency in Hz
- * @param {Array}  adsbRawLog - Recent raw Mode S frames {icao, raw_hex}
- * @param {string|null} pinnedFrame - Hex string of currently pinned frame, or null
- * @param {Object|null} frameData - Parsed frame data from /api/adsb/parse, or null
- * @param {Function} setPinnedFrame - Function to set pinned frame state
- * @param {Function} setFrameData - Function to set frame data state
- * @param {string} rawView - Current view mode ('hex' or 'bin')
- * @param {Function} setRawView - Function to set raw view mode
  */
-export default function AdsbAircraftPanel({ adsbAircraft = {}, adsbAircraftHistory = [], focusedFreq, adsbRawLog = [] }) {
+export default function AdsbAircraftPanel({ adsbAircraft = {}, adsbAircraftHistory = [], focusedFreq }) {
   const [now, setNow] = useState(Date.now())
-  const [rawView, setRawView] = useState('hex')
-  const [pinnedFrame, setPinnedFrame] = useState(null)
-  const [frameData, setFrameData] = useState(null)
   const isAdsbFreq = focusedFreq && (
     Math.abs(focusedFreq - 1_090_000_000) <= 2_000_000
   )
@@ -75,20 +38,6 @@ export default function AdsbAircraftPanel({ adsbAircraft = {}, adsbAircraftHisto
     const timer = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(timer)
   }, [])
-
-  const targetHex = pinnedFrame ? pinnedFrame.raw_hex : adsbRawLog[0]?.raw_hex ?? null
-
-  useEffect(() => {
-    if (targetHex === null) {
-      setFrameData(null)
-      return
-    }
-
-    fetch(`/api/adsb/parse?hex=${targetHex}`)
-      .then((r) => r.json())
-      .then(setFrameData)
-      .catch(() => setFrameData(null))
-  }, [targetHex])
 
   const aircraftList = Object.values(adsbAircraft)
     .sort((a, b) => (b.receivedAt || 0) - (a.receivedAt || 0))

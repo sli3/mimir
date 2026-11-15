@@ -329,24 +329,8 @@ body.radar-page::before {
   padding: 0 12px;
 }
 
-.radar-prediction-llm-pending {
-  /* Visually distinct from real data: dimmer colour, smaller font,
-     and italic to read as "not implemented yet" not "empty data". */
-  color: var(--text-dim, #4A7A90);
-  font-size: 11px;
-  font-style: italic;
-  letter-spacing: 1px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-  text-align: right;
-}
-
 /* --- LlmReasoningPanel (Phase 53; restyled Phase 55; reflowed 58-FIX) --- */
-/* The .radar-prediction-llm-pending rule below is superseded by these
-   styles but kept for one release in case of a rollback. All colours
-   reuse the existing cyberpunk custom properties; no new hardcoded
+/* All colours reuse the existing cyberpunk custom properties; no new hardcoded
    palette entries. Everything fits inside the panel's fixed 400px row
    (raised from 70px in Phase 55). Phase 58-FIX moved the prediction
    glyph OUT of this component into the main column as a sibling, so

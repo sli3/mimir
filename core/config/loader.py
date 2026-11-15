@@ -35,19 +35,6 @@ class MimirConfig:
     unchanged_emit_interval_sec: float = 5.0  # min seconds between repeat emissions of an UNCHANGED verdict for the same frequency; changes always emit immediately
 
 
-_EXPECTED_KEYS: dict[str, type] = {
-    "frequencies_hz": list,
-    "dwell_time_sec": (int, float),
-    "num_samples": int,
-    "lna_gain_db": (int, float),
-    "vga_gain_db": (int, float),
-    "amp_enable": bool,
-    "queue_maxsize": int,
-    "host": str,
-    "port": int,
-}
-
-
 def load_config(path: str = "config/mimir.yaml") -> MimirConfig:
     if not os.path.isfile(path):
         raise ConfigError(f"Config file not found: {path}")

@@ -232,7 +232,7 @@ def handle_set_capture_trigger(data):
     """Arm or disarm the SNR-edge auto-capture trigger for a band.
 
     Independent of set_focus_frequency: this handler does NOT touch
-    shared_state.current_band, band_change_event, or the scanner focus.
+    shared_state.current_band or the scanner focus.
     It only flips the per-band armed flag in shared_state. The scan loop
     (core/pipeline/scanner.py) consults that flag on every cycle and,
     when the band's measured SNR crosses its calibrated

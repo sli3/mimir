@@ -7,9 +7,8 @@ settings, check which bands a device supports, provide device display names,
 and safely read or update trigger state. Locks protect shared data, including
 the active device, by allowing one thread at a time to access it.
 
-It also retains annotation defaults, shutdown and band-change events, and a
-WebSocket connection set for later cleanup. Some of this state currently has
-no production user. Everything is at module level for simplicity.
+Settings and shared state are kept at module level for use by the dashboard
+and scan pipeline.
 """
 
 import logging
@@ -21,63 +20,6 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # SHARED STATE VARIABLES
 # =============================================================================
-
-# -----------------------------------------------------------------------------
-# annotation_lock
-# -----------------------------------------------------------------------------
-# Type: threading.Lock
-# Purpose: Ensures only one thread can modify latest_annotation at a time.
-# How it works: Before reading or writing to latest_annotation, a thread must
-#               acquire this lock. After it's done, it releases the lock.
-# Why we need it: The dict below is shared between threads. Without a lock,
-#                 two threads modifying it simultaneously could corrupt data.
-annotation_lock = threading.Lock()
-
-# -----------------------------------------------------------------------------
-# latest_annotation
-# -----------------------------------------------------------------------------
-# Type: dict (with default values)
-# Purpose: Stores the most recent AI classification result so the dashboard
-#          can display it immediately without waiting for a new fingerprint.
-# Keys explained:
-#   - label: The AI's predicted signal type (e.g., "FM broadcast", "noise")
-#   - confidence: How sure the AI is (0.0 to 1.0), or None if not classified yet
-#   - snr_db: Signal-to-noise ratio in decibels, or None
-#   - distance: Estimated distance from source in metres, or None
-#   - timestamp: When this annotation was created, as a datetime object
-# Why defaults?: So the dashboard always has something to show even before
-#                the AI has processed any signals. "Scanning..." tells the user
-#                what's happening while we wait for data.
-latest_annotation = {
-    "label": "Scanning...",
-    "confidence": None,
-    "snr_db": None,
-    "distance": None,
-    "timestamp": None,
-}
-
-# -----------------------------------------------------------------------------
-# shutdown_event
-# -----------------------------------------------------------------------------
-# Type: threading.Event
-# Purpose: Reserved shutdown signal; currently has no production user.
-# How it works: A thread can check whether the event is set before continuing.
-# Why an event?: It's a simple, standard way to coordinate shutdown across
-#                multiple threads without complex locking or shared flags.
-shutdown_event = threading.Event()
-
-# =============================================================================
-# WEBSOCKET CLIENT MANAGEMENT
-# =============================================================================
-
-# Reserved set of browser WebSocket connections.
-# Currently has no production user.
-# Protected by spectrum_clients_lock.
-spectrum_clients: set = set()
-spectrum_clients_lock = threading.Lock()
-
-# Reserved band-change signal; currently has no production user.
-band_change_event = threading.Event()
 
 # Per-band gain and threshold profiles for the live waterfall dashboard.
 # These are independent of the main scan pipeline gain set in
@@ -465,8 +407,7 @@ TRIGGER_ARMABLE_BANDS: frozenset[str] = frozenset(
 # How it works: Both dicts carry one entry per TRIGGER_ARMABLE_BANDS key,
 #               armed=False / snr=None initially. They are always read and
 #               written under trigger_state_lock (one lock is sufficient
-#               because the two dicts are updated together in practice),
-#               mirroring the existing annotation_lock pattern above.
+#               because the two dicts are updated together in practice).
 # Why the leading underscore on _trigger_last_snr: external callers
 #               should only touch it through get_last_trigger_snr() and
 #               set_last_trigger_snr() below, which take the lock.
@@ -777,8 +718,8 @@ def unsupported_bands_for_device(device: str) -> dict[str, str]:
     This is a pure, read-only helper. It takes no locks and mutates
     nothing. Used by ``dashboard/server.py`` ``emit_stats()`` to populate
     the ``unsupported_bands`` field of the system_stats payload, which the
-    frontend ``FrequencyList`` and App band buttons consume to grey out
-    rows the active device cannot receive.
+    App band buttons consume to grey out bands the active device cannot
+    receive.
 
     Args:
         device: A DEVICE_PROFILES driver key ("hackrf" / "plutosdr").
