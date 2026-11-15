@@ -54,6 +54,11 @@ built to solve.
 
 ## Sequencing (do these roughly in order)
 
+**Feature freeze (from 2026-11-15):** no new features until the server.py
+and App.jsx splits and the field calibration session are done. At most one
+feature card in progress at a time after that, and every feature must pass a
+hardware check before it moves to done.
+
 1. **Receiver reference position fix** — `modules/adsb/constants.py` `ADELAIDE_LAT`/`ADELAIDE_LON`
    are still a CBD placeholder at 2dp, not the actual receiver location. Wrong origin for
    all bearing/range/θ math downstream. Must ship *before* the anomaly flag strip below,
