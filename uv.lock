@@ -1379,13 +1379,10 @@ dependencies = [
     { name = "chromadb" },
     { name = "flask" },
     { name = "flask-socketio" },
-    { name = "httpx" },
     { name = "huggingface-hub" },
-    { name = "mcp", extra = ["cli"] },
     { name = "numpy" },
     { name = "pyais" },
     { name = "pymodes" },
-    { name = "python-engineio" },
     { name = "python-socketio", extra = ["client"] },
     { name = "pyyaml" },
     { name = "requests" },
@@ -1399,21 +1396,24 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
 ]
+mcp = [
+    { name = "httpx" },
+    { name = "mcp", extra = ["cli"] },
+]
 
 [package.metadata]
 requires-dist = [
     { name = "chromadb", specifier = ">=0.5.0" },
     { name = "flask", specifier = ">=3.0.0" },
     { name = "flask-socketio", specifier = ">=5.3.0" },
-    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "httpx", marker = "extra == 'mcp'", specifier = ">=0.28.1" },
     { name = "huggingface-hub", specifier = ">=0.24.0" },
-    { name = "mcp", extras = ["cli"], specifier = ">=2.0.0" },
+    { name = "mcp", extras = ["cli"], marker = "extra == 'mcp'", specifier = ">=2.0.0" },
     { name = "numpy", specifier = ">=1.26.0" },
     { name = "pyais", specifier = ">=3.0.0" },
     { name = "pymodes", specifier = "==3.3.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0.0" },
-    { name = "python-engineio", specifier = ">=4.8.0" },
     { name = "python-socketio", extras = ["client"], specifier = ">=5.11.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "requests", specifier = ">=2.31.0" },
@@ -1421,7 +1421,7 @@ requires-dist = [
     { name = "scipy", specifier = ">=1.12.0" },
     { name = "sigmf", specifier = ">=1.11.0" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["dev", "mcp"]
 
 [[package]]
 name = "mmh3"
