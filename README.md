@@ -430,7 +430,7 @@ mimir/
 ├── CLAUDE.md                          ← Imports AGENTS.md for Claude Code
 ├── .claude/                           ← Claude Code agents, skills, hooks, settings
 ├── .codex/                            ← Codex sandbox config and command rules
-├── .mcp.json                          ← MCP servers (context7, playwright, wiki-search)
+├── .mcp.json                          ← MCP servers (graft, playwright, hindsight)
 ├── README.md
 ├── scan.py                            ← Entry point — starts scanner + dashboard
 ├── setup.sh                           ← Auto-detecting install + React build

@@ -8,14 +8,14 @@
 ## Where phase history lives now
 
 Full history for every completed phase (Phase 0 through Phase 66, plus BUG-03/BUG-04)
-has moved to the `mimir-wiki` repo, under `03 - Legacy/docs/` — one file per phase,
-indexed and searchable via the `wiki-search` MCP server. This file only tracks
-what's actually still ahead.
+has moved to the `mimir-wiki` repo, under `03 - Legacy/docs/` — one file per phase.
+That repo is Prin's private archive; Mimir no longer has a search tool for it (the
+`wiki-search` MCP server was removed in rf#31). This file only tracks what's
+actually still ahead.
 
-Looking for what shipped, when, or the detail behind a past phase? Ask `wiki-search`
-(e.g. *"what happened in Phase 65"*, *"Pluto gain calibration findings"*) rather than
-scrolling a long file — that's exactly the retrieval problem the wiki-RAG system was
-built to solve.
+Agents now keep decisions, gotchas and hardware findings in Hindsight (bank `mimir`),
+which holds the knowledge migrated from the wiki on 2026-11-16. The repository wins
+over any recalled memory.
 
 ---
 
@@ -65,7 +65,7 @@ hardware check before it moves to done.
    since that work depends on correct positions. Fix = real coords at 5dp + rewrite the
    stale comment block + consider renaming to `RECEIVER_LAT`/`RECEIVER_LON`.
 
-2. **Anomaly flag strip** — design already locked (see wiki: continuous anomaly flag
+2. **Anomaly flag strip** — design already locked (see the private mimir-wiki archive: continuous anomaly flag
    strip note). Three flags v1: emergency squawk, high turn rate, rapid altitude change.
    Blocked on item 1 above.
 
