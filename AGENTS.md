@@ -406,7 +406,6 @@ Read `docs/TECH_DEBT.md` and the latest session memo before planning any build.
 | `graft` | Repo context graph: locate code, signatures and callers with exact spans | All agents (read commands only) |
 | `context7` | Live library and API docs (ChromaDB, SoapySDR, pyModeS, pyais, Flask-SocketIO, React) | `plan-reviewer`, `pm` |
 | `playwright` | Headless browser for checking the dashboard on `localhost` | `pm` among the named agents; every session is limited to `localhost` by `agent_guard.py` |
-| `wiki-search` | Read-only semantic search of the private mimir-wiki | `pm`, `plan-reviewer` |
 | `hindsight` | Long-term memory, bank `mimir` (decisions, gotchas, hardware findings) | `pm` recall and retain; nobody may delete or clear |
 | `kanzo` | Prin's local kanban board (user-level MCP, not in `.mcp.json`). Card ids look like `rf#12` | `pm`; no session deletes, archives or calls `next_task` |
 

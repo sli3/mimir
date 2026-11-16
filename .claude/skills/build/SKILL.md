@@ -75,8 +75,7 @@ Before calling it, establish prior session context:
 1. Newest memo: `ls -t .session-memos/`, skipping `handoff-*` files. Read it.
 2. Read `docs/TECH_DEBT.md` for rows touching this task's area, and
    `docs/ROADMAP.md`'s "Recently completed" and "Sequencing" sections.
-3. One `mcp__wiki-search__wikisearch` call for the task's area, and one
-   Hindsight `recall` (MEMORY in your agent definition).
+3. One Hindsight `recall` (MEMORY in your agent definition).
 3a. Claim or create the build's card and move it to `doing` (KANZO BOARD 4a).
 4. `git status --porcelain`: note files already changed before the build.
    They are Prin's work; the build never stages them. Then

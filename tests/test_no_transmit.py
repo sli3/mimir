@@ -20,7 +20,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # Production code only. Tests deliberately call the blocked stubs to prove
 # they raise, so tests/ is excluded.
-SOURCE_DIRS = ("core", "modules", "llm", "embeddings", "dashboard", "tools", "mcp")
+SOURCE_DIRS = ("core", "modules", "llm", "embeddings", "dashboard", "tools")
 SOURCE_FILES = ("scan.py",)
 SKIP_PARTS = {"node_modules", "static", "__pycache__", ".venv", "frontend"}
 
