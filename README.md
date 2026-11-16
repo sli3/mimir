@@ -152,7 +152,7 @@ single source of truth for phase status and test counts. This section shows
 only a quick-glance summary — update `docs/ROADMAP.md` first, then sync this block.
 
 **Current phase: 76 — Demo Mode (--demo flag) for scan.py, Complete Arc**
-**Total: 1541 passing (1077 pytest + 464 Vitest), 0 failures**
+**Total: 1544 passing (1080 pytest + 464 Vitest), 0 failures**
 
 > **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector
 > store (`data/vectorstore/`) must be re-seeded after deploying this build.
