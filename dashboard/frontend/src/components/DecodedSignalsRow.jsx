@@ -3,10 +3,26 @@ import AisVesselPanel from './AisVesselPanel.jsx'
 import AdsbAircraftPanel from './AdsbAircraftPanel.jsx'
 import RawDecodePanel from './RawDecodePanel.jsx'
 import FrameInspectorPanel from './FrameInspectorPanel.jsx'
+import PanelHeader from './PanelHeader.jsx'
 import { isAcarsTuned, isAisTuned, isAdsbTuned } from '../utils/tuning.js'
 
+/** Render the notice for a band without an available decoder. */
+function NoDecoderNotice() {
+  return (
+    <div style={{
+      padding: '16px 10px',
+      fontSize: '11px',
+      color: 'var(--text-dim)',
+      fontFamily: 'var(--font-data)',
+      letterSpacing: '1px',
+    }}>
+      NO DECODER FOR THIS BAND
+    </div>
+  )
+}
+
 /**
- * Render the DecodedSignalsRow section.
+ * Render tuned decoder panels with shared column headers and fallback notices.
  * Props: focusedFreq, anyDecoderTuned, adsbAircraft, adsbAircraftHistory,
  * acarsMessages, acarsRawLog, aisVessels, aisRawLog, adsbRawLog, rawView, setRawView,
  * pinnedFrame, setPinnedFrame, frameData.
@@ -45,24 +61,7 @@ export default function DecodedSignalsRow({
         overflow: 'hidden',
         borderRight: '1px solid var(--border)',
       }}>
-        <div style={{
-          height: '28px',
-          flexShrink: 0,
-          background: 'var(--bg-header)',
-          borderBottom: '1px solid var(--border)',
-          padding: '0 10px',
-          display: 'flex',
-          alignItems: 'center',
-        }}>
-          <span style={{
-            fontSize: '11px',
-            color: 'var(--neon-amber)',
-            letterSpacing: '2px',
-            fontFamily: 'var(--font-data)',
-          }}>
-            SIGNAL INTERCEPT
-          </span>
-        </div>
+        <PanelHeader title="SIGNAL INTERCEPT" colour={'var(--neon-amber)'} />
         <div style={{
           flex: 1,
           overflowY: 'auto',
@@ -232,15 +231,7 @@ export default function DecodedSignalsRow({
           )}
 
           {!anyDecoderTuned && (
-            <div style={{
-              padding: '16px 10px',
-              fontSize: '11px',
-              color: 'var(--text-dim)',
-              fontFamily: 'var(--font-data)',
-              letterSpacing: '1px',
-            }}>
-              NO DECODER FOR THIS BAND
-            </div>
+            <NoDecoderNotice />
           )}
         </div>
       </div>
@@ -264,33 +255,8 @@ export default function DecodedSignalsRow({
           />
         ) : (
           <>
-            <div style={{
-              height: '28px',
-              flexShrink: 0,
-              background: 'var(--bg-header)',
-              borderBottom: '1px solid var(--border)',
-              padding: '0 10px',
-              display: 'flex',
-              alignItems: 'center',
-            }}>
-              <span style={{
-                fontSize: '11px',
-                color: 'var(--neon-cyan)',
-                letterSpacing: '2px',
-                fontFamily: 'var(--font-data)',
-              }}>
-                RAW DECODE
-              </span>
-            </div>
-            <div style={{
-              padding: '16px 10px',
-              fontSize: '11px',
-              color: 'var(--text-dim)',
-              fontFamily: 'var(--font-data)',
-              letterSpacing: '1px',
-            }}>
-              NO DECODER FOR THIS BAND
-            </div>
+            <PanelHeader title="RAW DECODE" colour={'var(--neon-cyan)'} />
+            <NoDecoderNotice />
           </>
         )}
       </div>
@@ -311,33 +277,8 @@ export default function DecodedSignalsRow({
           />
         ) : (
           <>
-            <div style={{
-              height: '28px',
-              flexShrink: 0,
-              background: 'var(--bg-header)',
-              borderBottom: '1px solid var(--border)',
-              padding: '0 10px',
-              display: 'flex',
-              alignItems: 'center',
-            }}>
-              <span style={{
-                fontSize: '11px',
-                color: 'var(--neon-cyan)',
-                letterSpacing: '2px',
-                fontFamily: 'var(--font-data)',
-              }}>
-                FRAME INSPECTOR
-              </span>
-            </div>
-            <div style={{
-              padding: '16px 10px',
-              fontSize: '11px',
-              color: 'var(--text-dim)',
-              fontFamily: 'var(--font-data)',
-              letterSpacing: '1px',
-            }}>
-              NO DECODER FOR THIS BAND
-            </div>
+            <PanelHeader title="FRAME INSPECTOR" colour={'var(--neon-cyan)'} />
+            <NoDecoderNotice />
           </>
         )}
       </div>

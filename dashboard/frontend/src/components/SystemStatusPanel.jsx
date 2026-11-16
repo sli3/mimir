@@ -1,3 +1,5 @@
+import StatCell from './StatCell.jsx'
+
 /** Return the display colour for the SDR connection status. */
 function getSdrColour(status) {
   if (status === 'CONNECTED') return 'var(--neon-green)'
@@ -6,7 +8,7 @@ function getSdrColour(status) {
 }
 
 /**
- * Render the SystemStatusPanel section.
+ * Render system statistics in three rows of labelled stat cells.
  * Props: systemStats.
  */
 export default function SystemStatusPanel({ systemStats }) {
@@ -40,200 +42,53 @@ export default function SystemStatusPanel({ systemStats }) {
         }}>
           {/* Row 1 — SDR STATUS | ACTIVE FREQ */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px' }}>
-            <div style={{
-              border: '1px solid var(--border)',
-              background: 'rgba(0,255,255,0.03)',
-              borderRadius: '2px',
-              padding: '2px 6px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '1px',
-            }}>
-              <span style={{
-                fontFamily: 'var(--font-display)',
-                fontSize: '9px',
-                color: 'var(--text-dim)',
-                letterSpacing: '1px',
-                textTransform: 'uppercase',
-              }}>
-                SDR STATUS
-              </span>
-              <span style={{
-                fontFamily: 'var(--font-data)',
-                fontSize: '11px',
-                color: getSdrColour(systemStats?.hackrf_status),
-              }}>
-                {systemStats?.hackrf_status?.replace(/_/g, ' ') || 'DISCONNECTED'}
-              </span>
-            </div>
-            <div style={{
-              border: '1px solid var(--border)',
-              background: 'rgba(0,255,255,0.03)',
-              borderRadius: '2px',
-              padding: '2px 6px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '1px',
-            }}>
-              <span style={{
-                fontFamily: 'var(--font-display)',
-                fontSize: '9px',
-                color: 'var(--text-dim)',
-                letterSpacing: '1px',
-                textTransform: 'uppercase',
-              }}>
-                ACTIVE FREQ
-              </span>
-              <span style={{
-                fontFamily: 'var(--font-data)',
-                fontSize: '11px',
-                color: 'var(--neon-cyan)',
-              }}>
-                {systemStats?.active_frequency_hz
+            <StatCell
+              label="SDR STATUS"
+              value={systemStats?.hackrf_status?.replace(/_/g, ' ') || 'DISCONNECTED'}
+              colour={getSdrColour(systemStats?.hackrf_status)}
+            />
+            <StatCell
+              label="ACTIVE FREQ"
+              value={systemStats?.active_frequency_hz
                   ? (systemStats.active_frequency_hz / 1e6).toFixed(3) + ' MHz'
                   : '---'}
-              </span>
-            </div>
+              colour={'var(--neon-cyan)'}
+            />
           </div>
 
           {/* Row 2 — SCAN COUNT | BACKLOG | IN QUEUE */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '4px' }}>
-            <div style={{
-              border: '1px solid var(--border)',
-              background: 'rgba(0,255,255,0.03)',
-              borderRadius: '2px',
-              padding: '2px 6px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '1px',
-            }}>
-              <span style={{
-                fontFamily: 'var(--font-display)',
-                fontSize: '9px',
-                color: 'var(--text-dim)',
-                letterSpacing: '1px',
-                textTransform: 'uppercase',
-              }}>
-                SCAN COUNT
-              </span>
-              <span style={{
-                fontFamily: 'var(--font-data)',
-                fontSize: '11px',
-                color: 'var(--neon-amber)',
-              }}>
-                {String(systemStats?.scan_count ?? 0).padStart(5, '0')}
-              </span>
-            </div>
-            <div style={{
-              border: '1px solid var(--border)',
-              background: 'rgba(0,255,255,0.03)',
-              borderRadius: '2px',
-              padding: '2px 6px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '1px',
-            }}>
-              <span style={{
-                fontFamily: 'var(--font-display)',
-                fontSize: '9px',
-                color: 'var(--text-dim)',
-                letterSpacing: '1px',
-                textTransform: 'uppercase',
-              }}>
-                BACKLOG
-              </span>
-              <span style={{
-                fontFamily: 'var(--font-data)',
-                fontSize: '11px',
-                color: 'var(--neon-amber)',
-              }}>
-                {String(systemStats?.last_backlog ?? 0).padStart(3, '0')}
-              </span>
-            </div>
-            <div style={{
-              border: '1px solid var(--border)',
-              background: 'rgba(0,255,255,0.03)',
-              borderRadius: '2px',
-              padding: '2px 6px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '1px',
-            }}>
-              <span style={{
-                fontFamily: 'var(--font-display)',
-                fontSize: '9px',
-                color: 'var(--text-dim)',
-                letterSpacing: '1px',
-                textTransform: 'uppercase',
-              }}>
-                IN QUEUE
-              </span>
-              <span style={{
-                fontFamily: 'var(--font-data)',
-                fontSize: '11px',
-                color: 'var(--neon-amber)',
-              }}>
-                {String(systemStats?.queue_depth ?? 0).padStart(3, '0')}
-              </span>
-            </div>
+            <StatCell
+              label="SCAN COUNT"
+              value={String(systemStats?.scan_count ?? 0).padStart(5, '0')}
+              colour={'var(--neon-amber)'}
+            />
+            <StatCell
+              label="BACKLOG"
+              value={String(systemStats?.last_backlog ?? 0).padStart(3, '0')}
+              colour={'var(--neon-amber)'}
+            />
+            <StatCell
+              label="IN QUEUE"
+              value={String(systemStats?.queue_depth ?? 0).padStart(3, '0')}
+              colour={'var(--neon-amber)'}
+            />
           </div>
 
           {/* Row 3 — LLM INFERENCE | CLASSIFIED */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px' }}>
-            <div style={{
-              border: '1px solid var(--border)',
-              background: 'rgba(0,255,255,0.03)',
-              borderRadius: '2px',
-              padding: '2px 6px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '1px',
-            }}>
-              <span style={{
-                fontFamily: 'var(--font-display)',
-                fontSize: '9px',
-                color: 'var(--text-dim)',
-                letterSpacing: '1px',
-                textTransform: 'uppercase',
-              }}>
-                LLM INFERENCE
-              </span>
-              <span style={{
-                fontFamily: 'var(--font-data)',
-                fontSize: '11px',
-                color: 'var(--neon-magenta)',
-              }}>
-                {systemStats?.llm_last_inference_ms != null
+            <StatCell
+              label="LLM INFERENCE"
+              value={systemStats?.llm_last_inference_ms != null
                   ? Math.round(systemStats.llm_last_inference_ms) + ' ms'
                   : '--- ms'}
-              </span>
-            </div>
-            <div style={{
-              border: '1px solid var(--border)',
-              background: 'rgba(0,255,255,0.03)',
-              borderRadius: '2px',
-              padding: '2px 6px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '1px',
-            }}>
-              <span style={{
-                fontFamily: 'var(--font-display)',
-                fontSize: '9px',
-                color: 'var(--text-dim)',
-                letterSpacing: '1px',
-                textTransform: 'uppercase',
-              }}>
-                CLASSIFIED
-              </span>
-              <span style={{
-                fontFamily: 'var(--font-data)',
-                fontSize: '11px',
-                color: 'var(--neon-magenta)',
-              }}>
-                {String(systemStats?.llm_call_count ?? 0).padStart(5, '0')}
-              </span>
-            </div>
+              colour={'var(--neon-magenta)'}
+            />
+            <StatCell
+              label="CLASSIFIED"
+              value={String(systemStats?.llm_call_count ?? 0).padStart(5, '0')}
+              colour={'var(--neon-magenta)'}
+            />
           </div>
         </div>
       </div>
