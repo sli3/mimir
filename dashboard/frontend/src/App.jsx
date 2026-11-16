@@ -1,8 +1,7 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useCallback } from 'react'
 import { useSocket } from './hooks/useSocket.js'
-import useCapture from './hooks/useCapture.js'
-import useRecording from './hooks/useRecording.js'
-import useWaterfallMarkers from './hooks/useWaterfallMarkers.js'
+import useFrameInspector from './hooks/useFrameInspector.js'
+import useCaptureControls from './hooks/useCaptureControls.js'
 import WaterfallPanel from './components/WaterfallPanel.jsx'
 import SpectrometerBar from './components/SpectrometerBar.jsx'
 import AcarsMessagePanel from './components/AcarsMessagePanel.jsx'
@@ -73,26 +72,7 @@ export default function App() {
   const operatorConfig = OPERATOR_STATE_CONFIG[operatorState]
   const pinnedTimestamp = pinnedReasoning ? pinnedReasoning.timestamp : null
 
-  // UI-OVERHAUL (Change 6): RAW DECODE / FRAME INSPECTOR state lifted out of
-  // AdsbAircraftPanel so the two new standalone column panels share it.
-  // The /api/adsb/parse effect below previously lived in AdsbAircraftPanel.
-  const [rawView, setRawView] = useState('hex')
-  const [pinnedFrame, setPinnedFrame] = useState(null)
-  const [frameData, setFrameData] = useState(null)
-
-  const targetHex = pinnedFrame ? pinnedFrame.raw_hex : adsbRawLog?.[0]?.raw_hex ?? null
-
-  useEffect(() => {
-    if (targetHex === null) {
-      setFrameData(null)
-      return
-    }
-
-    fetch(`/api/adsb/parse?hex=${targetHex}`)
-      .then((r) => r.json())
-      .then(setFrameData)
-      .catch(() => setFrameData(null))
-  }, [targetHex])
+  const { rawView, setRawView, pinnedFrame, setPinnedFrame, frameData } = useFrameInspector(adsbRawLog)
 
   const handlePinReasoning = useCallback((entry) => {
     setPinnedReasoning((prev) => {
@@ -128,70 +108,18 @@ export default function App() {
     }
   }, [handleTune])
 
-  const { state: captureState, pending: capturePending, handleClick: rawHandleCaptureClick } = useCapture()
-
-  // Phase 68 "Record": long-lived operator-controlled capture. Fully
-  // separate mechanism from the single-shot capture above — separate
-  // hook, separate endpoints, separate button. The click handler
-  // decides start vs stop from the recording state.
   const {
+    captureState,
+    capturePending,
+    handleCaptureClick,
     recording,
-    elapsedSec: recordElapsedSec,
-    warning: recordWarning,
+    recordElapsedSec,
+    recordWarning,
     recordResult,
-    startRecording,
-    stopRecording,
-  } = useRecording()
-
-  // Phase 69: waterfall event markers
-  const {
+    handleRecordClick,
     markers,
-    addCaptureMarker,
-    addRecordStartMarker,
-    addRecordStopMarker,
     tickAndPrune,
-  } = useWaterfallMarkers()
-
-  // Phase 69: capture the freq at click time so a fast band-switch
-  // between click and async response does not misattribute the marker.
-  const pendingCaptureFreqRef = useRef(null)
-  const pendingRecordFreqRef = useRef(null)
-
-  const handleCaptureClick = useCallback(() => {
-    pendingCaptureFreqRef.current = focusedFreq
-    rawHandleCaptureClick()
-  }, [focusedFreq, rawHandleCaptureClick])
-
-  const handleRecordClick = useCallback(() => {
-    if (recording) {
-      stopRecording()
-    } else {
-      pendingRecordFreqRef.current = focusedFreq
-      startRecording()
-    }
-  }, [recording, focusedFreq, startRecording, stopRecording])
-
-  // Phase 69: fire markers on capture/record state transitions.
-  useEffect(() => {
-    if (captureState.status === 'ok') {
-      addCaptureMarker(pendingCaptureFreqRef.current ?? focusedFreq)
-      pendingCaptureFreqRef.current = null
-    }
-  }, [captureState.status])
-
-  useEffect(() => {
-    if (recording) {
-      addRecordStartMarker(pendingRecordFreqRef.current ?? focusedFreq)
-      // Do NOT clear the ref — the upcoming stop uses the same freq.
-    }
-  }, [recording])
-
-  useEffect(() => {
-    if (recordResult?.status === 'ok') {
-      addRecordStopMarker(pendingRecordFreqRef.current ?? focusedFreq)
-      pendingRecordFreqRef.current = null
-    }
-  }, [recordResult])
+  } = useCaptureControls(focusedFreq)
 
   const adsbAircraftList = Object.values(adsbAircraft || {})
   const anyDecoderTuned = isAdsbTuned(focusedFreq)
