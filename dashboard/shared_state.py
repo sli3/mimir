@@ -181,7 +181,7 @@ def get_band_for_freq(freq_hz: float | None) -> dict | None:
     """Return a copy of the BAND_PROFILES entry whose center_freq_hz matches
     freq_hz exactly, or None if no profile matches.
 
-    Used by handle_set_focus (dashboard/server.py) to update current_band
+    Used by handle_set_focus (dashboard/socket_handlers.py) to update current_band
     when the user switches to a known band frequency. Returns a dict copy
     so callers cannot mutate the canonical profile.
 
@@ -211,7 +211,7 @@ def get_nearest_band_for_freq(freq_hz: float | None) -> dict | None:
     """Return a copy of the BAND_PROFILES entry whose center_freq_hz is
     closest to freq_hz, excluding the noise_floor profile.
 
-    Used as a fallback by handle_set_focus (dashboard/server.py) when
+    Used as a fallback by handle_set_focus (dashboard/socket_handlers.py) when
     get_band_for_freq() returns None — i.e. when the user tunes to a custom
     frequency that is not a canonical band centre. Returns the nearest band
     so the correct signal_threshold_db is applied to the waterfall.

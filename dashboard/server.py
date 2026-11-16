@@ -7,7 +7,7 @@ Legal: Receive-only. Radiocommunications Act 1992 (Cth).
 WHAT THIS FILE DOES
 ───────────────────
 Provides the HTTP and WebSocket backend that the cyberpunk React
-dashboard connects to. Serves two roles:
+dashboard connects to. Serves three roles:
 
 1. Static file serving — the Vite build output in dashboard/static/
    is served at the root URL.
@@ -23,6 +23,12 @@ dashboard connects to. Serves two roles:
    dashboard/routes_radar.py, dashboard/routes_capture.py,
    dashboard/routes_replay.py and dashboard/routes_vectorstore.py. The import
    at the bottom of this file registers those routes on app.
+
+The ACARS, AIS and ADS-B aircraft emitters live in dashboard/emitters.py
+and the SocketIO handlers in dashboard/socket_handlers.py. The import block
+at the bottom of this file registers the handlers and re-exports the emitters
+and handlers. start_server (with emit_stats and broadcast),
+emit_adsb_scan_result and /api/frequencies stay here.
 
 Pure helpers live in dashboard/adsb_field_tracker.py,
 dashboard/reason_validation.py and dashboard/capture_listing.py.
@@ -66,13 +72,11 @@ from dashboard.capture_listing import (
 )
 from embeddings.store import SignalStore
 from llm.path_reasoner import PathReasoner
-from modules.acars.message import AcarsMessage
 from modules.adsb.message import AdsbMessage
 from modules.adsb.constants import (
     AU_ADSB_FREQUENCY_HZ,
     FREQ_TOLERANCE_HZ,
 )
-from modules.ais.message import AisMessage
 import dashboard.shared_state as shared_state
 
 logger = logging.getLogger(__name__)
@@ -175,103 +179,6 @@ def _get_path_reasoner() -> PathReasoner:
                     )
                     _path_reasoner = PathReasoner()
     return _path_reasoner
-
-
-@socketio.on("set_focus_frequency")
-def handle_set_focus(data):
-    """Set or clear the focused frequency filter for scan_result emissions.
-
-    Coerces freq_hz to float. Non-numeric or missing values clear the focus
-    (set to None, meaning all frequencies pass through). When a scanner
-    reference is available, also calls scanner.set_focus_frequency() to
-    retune the HackRF and flush any queued results.
-
-    Also updates shared_state.current_band to the matching band profile
-    resolved for the active device (via shared_state.resolve_band_profile)
-    when freq_hz corresponds to a known band, so the scan loop applies the
-    correct per-band signal_threshold_db without a restart. When freq_hz
-    is None, current_band is left untouched.
-
-    Args:
-        data: Dict from the browser with key "freq_hz". Values accepted:
-              numeric (int/float), string numeric, None (clear focus),
-              or missing key (clear focus).
-    """
-    global _focused_freq_hz
-    raw = data.get("freq_hz")
-    try:
-        freq_hz = float(raw) if raw is not None else None
-    except (TypeError, ValueError):
-        freq_hz = None
-    with _focused_freq_lock:
-        _focused_freq_hz = freq_hz
-    band_key = shared_state.band_key_for_freq(freq_hz)
-    if band_key is not None:
-        # Resolve the band profile for the ACTIVE device (Phase 65,
-        # Finding A): on Pluto sessions this overlays Pluto's calibrated
-        # signal_threshold_db/gain_db onto the BAND_PROFILES base; on
-        # HackRF it returns the BAND_PROFILES copy unchanged. Device read
-        # under current_device_lock, mirroring emit_stats below.
-        with shared_state.current_device_lock:
-            active_device = shared_state.current_device
-        band_profile = shared_state.resolve_band_profile(
-            band_key, active_device
-        )
-        with shared_state.current_band_lock:
-            shared_state.current_band = band_profile
-    if _scanner_ref is not None:
-        _scanner_ref.set_focus_frequency(freq_hz)
-
-
-@socketio.on("set_capture_trigger")
-def handle_set_capture_trigger(data):
-    """Arm or disarm the SNR-edge auto-capture trigger for a band.
-
-    Independent of set_focus_frequency: this handler does NOT touch
-    shared_state.current_band or the scanner focus.
-    It only flips the per-band armed flag in shared_state. The scan loop
-    (core/pipeline/scanner.py) consults that flag on every cycle and,
-    when the band's measured SNR crosses its calibrated
-    signal_threshold_db from below, saves a SigMF capture of the raw IQ
-    samples.
-
-    Defensive by design, mirroring handle_set_focus: a malformed browser
-    message must never crash the socket thread. An unknown or
-    non-armable band logs a warning and returns without raising. Only an
-    explicit bool is honoured for "armed"; any other type (string, int,
-    list, None, missing key) coerces to False, because disarm is the
-    safe direction for a malformed message.
-
-    Args:
-        data: Dict from the browser with keys "band" (a
-              TRIGGER_ARMABLE_BANDS key, e.g. "adsb") and "armed"
-              (bool). Non-dict payloads and missing keys are tolerated.
-    """
-    try:
-        band = data.get("band")
-    except AttributeError:
-        # Non-dict payload (e.g. a bare string) - nothing to parse.
-        logger.warning(
-            "Ignoring malformed set_capture_trigger payload: %r", data
-        )
-        return
-    # isinstance guard first: `in` on a frozenset raises TypeError for
-    # unhashable types (e.g. a list), and this handler must never raise.
-    if not isinstance(band, str) or band not in shared_state.TRIGGER_ARMABLE_BANDS:
-        logger.warning(
-            "Ignoring set_capture_trigger for unknown or non-armable band %r",
-            band,
-        )
-        return
-    raw = data.get("armed")
-    try:
-        # Strict coercion: only an explicit bool passes through. Any
-        # other type coerces to False (disarm) rather than raising -
-        # mirroring handle_set_focus's "unparseable clears" style.
-        armed = raw if isinstance(raw, bool) else False
-    except (TypeError, ValueError):
-        armed = False
-    shared_state.set_trigger_armed(band, armed)
 
 
 def record_hw_error() -> None:
@@ -450,99 +357,6 @@ def start_server(host: str, port: int, device=None, scanner=None):
     return broadcast
 
 
-def emit_acars_message(msg: AcarsMessage) -> None:
-    """Broadcast a decoded ACARS message to all connected browsers.
-
-    Emits the ``acars_message`` SocketIO event with the decoded ACARS
-    fields and a ``raw`` field containing the decoded ASCII message text
-    (same as ``text``). The frontend ``useSocket`` hook extracts ``raw``
-    into the ``acarsRawLog`` ring buffer, which the RAW DECODE section
-    of the ACARS sub-panel renders as a scrollable monospace log.
-
-    Payload fields:
-        timestamp  — ISO-8601 string
-        freq_hz    — receive frequency in Hz
-        registration — aircraft registration (e.g. "VH-ABC")
-        label      — ACARS label code
-        block_id   — block identifier
-        text       — decoded ACARS message text
-        crc_ok     — whether the CRC-16 check passed
-        raw        — raw decoded text shown in RAW DECODE panel
-    """
-    socketio.emit("acars_message", {
-        "timestamp": msg.timestamp.isoformat(),
-        "freq_hz": msg.freq_hz,
-        "registration": msg.registration.strip(),
-        "label": msg.label,
-        "block_id": msg.block_id,
-        "text": msg.text,
-        "crc_ok": msg.crc_ok,
-        "raw": msg.text,
-    })
-
-
-def emit_ais_message(msg: AisMessage) -> None:
-    """Broadcast a decoded AIS message to all connected browsers.
-
-    Emits the ``ais_message`` SocketIO event with the decoded AIS vessel
-    fields and a ``raw`` field containing the original NMEA-0183 sentence
-    text (e.g. ``!AIVDM,...``). The frontend ``useSocket`` hook extracts
-    ``raw`` into the ``aisRawLog`` ring buffer, which the RAW DECODE
-    section of the AIS sub-panel renders as a scrollable monospace log.
-
-    Payload fields:
-        timestamp    — ISO-8601 string (or raw if not datetime-parseable)
-        mmsi         — Maritime Mobile Service Identity (9-digit)
-        vessel_name  — decoded vessel name (falls back to "---")
-        lat          — latitude in decimal degrees (or "---")
-        lon          — longitude in decimal degrees (or "---")
-        speed        — speed over ground in knots (or "---")
-        course       — course over ground in degrees (or "---")
-        channel      — AIS channel (A or B)
-        raw          — NMEA-0183 sentence shown in RAW DECODE panel
-    """
-    socketio.emit("ais_message", {
-        "timestamp": msg.timestamp.isoformat() if hasattr(msg.timestamp, "isoformat") else msg.timestamp,
-        "mmsi": msg.mmsi,
-        "vessel_name": msg.vessel_name or "---",
-        "lat": msg.lat if msg.lat is not None else "---",
-        "lon": msg.lon if msg.lon is not None else "---",
-        "speed": msg.speed if msg.speed is not None else "---",
-        "course": msg.course if msg.course is not None else "---",
-        "channel": msg.channel,
-        "raw": msg.raw_nmea,
-    })
-
-
-def emit_adsb_aircraft(msg: AdsbMessage) -> None:
-    """Broadcast a decoded ADS-B aircraft message via SocketIO.
-
-    Payload includes all decoded fields plus the raw hex Mode S frame
-    for diagnostic display in the ADS-B panel. The raw_hex field
-    carries the original DF17/DF18 frame as a hex string, enabling
-    the frontend to show both hex and binary representations in the
-    raw decode view. The range_nm field (great-circle distance from
-    the receiver, computed by the backend BearingTracker) feeds the
-    Phase 49 radar scope panel.
-    """
-    socketio.emit("adsb_aircraft", {
-        "icao": msg.icao,
-        "callsign": msg.callsign,
-        "altitude_ft": msg.altitude_ft,
-        "latitude": msg.latitude,
-        "longitude": msg.longitude,
-        "groundspeed": msg.groundspeed,
-        "track": msg.track,
-        "vertical_rate": msg.vertical_rate,
-        "squawk": msg.squawk,
-        "bearing_deg": getattr(msg, "bearing_deg", None),
-        "delta_r_deg_per_sec": getattr(msg, "delta_r_deg_per_sec", None),
-        "range_nm": getattr(msg, "range_nm", None),
-        "timestamp": msg.timestamp.isoformat(),
-        "raw_hex": msg.raw_hex,
-    })
-
-
 def emit_adsb_scan_result(msg: AdsbMessage) -> None:
     """Emit a scan_result event for a confirmed ADS-B decode.
 
@@ -681,6 +495,9 @@ def api_frequencies():
 _REPLAY_CAPTURES_DIR = Path("data/captures").resolve()
 
 
-# Register the routes on app. Keep this import at the bottom because the route
-# modules import this module to access shared state at call time.
+# Register HTTP routes and SocketIO handlers, and re-export the moved emitters
+# and handlers for scan.py and existing importers. Keep this block at the
+# bottom because these modules import this module.
 from dashboard import routes_pages, routes_radar, routes_capture, routes_replay, routes_vectorstore  # noqa: E402,F401
+from dashboard.emitters import emit_acars_message, emit_ais_message, emit_adsb_aircraft  # noqa: E402,F401
+from dashboard.socket_handlers import handle_set_focus, handle_set_capture_trigger  # noqa: E402,F401
