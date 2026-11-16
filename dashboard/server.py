@@ -295,6 +295,9 @@ def start_server(host: str, port: int, device=None, scanner=None):
     """
     Start the Flask-SocketIO dashboard server in a background thread.
 
+    Werkzeug is allowed to run without a TTY so background and demo launches
+    serve the dashboard, and the bind address comes from config, loopback by default.
+
     Args:
         host    : Bind address (e.g. "0.0.0.0" for all interfaces).
         port    : Port number (e.g. 5000).
@@ -313,8 +316,12 @@ def start_server(host: str, port: int, device=None, scanner=None):
     _device_ref = device
     _scanner_ref = scanner
 
-    def run_flask():
-        socketio.run(app, host=host, port=port, debug=False, use_reloader=False)
+    def run_flask() -> None:
+        """Run the dashboard server for foreground and background launches."""
+        socketio.run(
+            app, host=host, port=port, debug=False, use_reloader=False,
+            allow_unsafe_werkzeug=True,
+        )
 
     t = threading.Thread(target=run_flask, daemon=True)
     t.start()
