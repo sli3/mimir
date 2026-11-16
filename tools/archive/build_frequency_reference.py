@@ -1,5 +1,6 @@
 """
-tools/build_frequency_reference.py
+tools/archive/build_frequency_reference.py
+Archived on 2026-11-16 (rf#28), kept for reference, not used by other code.
 
 Converts the raw pdfplumber extraction of the ACMA Radiofrequency Spectrum Plan
 into a clean, structured frequency_reference_raw.json file.
@@ -8,7 +9,7 @@ This is a one-off data pipeline script. Run it once, review the output,
 then copy the reviewed file to data/frequency_reference.json.
 
 Usage:
-    python tools/build_frequency_reference.py \\
+    python tools/archive/build_frequency_reference.py \\
         acma_tables_plumber.json \\
         data/frequency_reference_raw.json
 
@@ -304,7 +305,7 @@ def validate(entries):
 def main():
     if len(sys.argv) < 3:
         print(
-            "Usage: python tools/build_frequency_reference.py "
+            "Usage: python tools/archive/build_frequency_reference.py "
             "<acma_tables_plumber.json> <output.json>"
         )
         sys.exit(1)

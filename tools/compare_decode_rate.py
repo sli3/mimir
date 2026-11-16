@@ -18,12 +18,14 @@ WHAT THIS TOOL DOES
 ───────────────────
 Answers one narrow question that three prior threshold-based A/B attempts could
 not settle: given the same antenna and the same sky, which device delivers more
-VALID ADS-B frames to pyModeS?
+frames accepted by the production decoder (DF4/5/17/18)?
 
 It deliberately avoids PSD thresholds, SNR, kurtosis, or any interpretation. It
 runs each device's raw IQ through Mimir's real production decode path
-(AdsbDemodulator → AdsbDecoder) and counts how many frames come back as a
-CRC-valid DF17/18 extended squitter with a valid ICAO — i.e. a real decode.
+(AdsbDemodulator → AdsbDecoder) and counts every frame the decoder accepts:
+CRC-valid DF17/18 extended squitters, plus DF4/DF5 surveillance replies whose
+ICAO the decoder's trust gate has recently confirmed from DF17/18 traffic.
+The count is a DF4/5/17/18 total, not a per-type breakdown.
 
 WHY THIS IS A FAIR COMPARISON
 ─────────────────────────────
@@ -115,7 +117,7 @@ def _run_capture(
     device_name: str,
     duration_sec: float,
 ) -> DecodeStats:
-    """Capture from an already-configured device and count valid ADS-B frames.
+    """Capture and count frames the production decoder accepts (DF4/5/17/18).
 
     The device must already be open and tuned. This function only reads samples
     and feeds them through the production decode path — it never changes tuning
@@ -216,10 +218,13 @@ def _capture_pluto(duration_sec: float, gain_db: float) -> DecodeStats:
 
 
 def _print_summary(hackrf: DecodeStats, pluto: DecodeStats) -> None:
-    """Print the side-by-side comparison and a plain-language verdict."""
+    """Print the side-by-side comparison and a plain-language verdict.
+
+    Counts combine DF4/5/17/18 frames accepted by the production decoder.
+    """
     line = "=" * 66
     print(f"\n{line}")
-    print("  ADS-B DECODE-RATE COMPARISON — valid pyModeS frames")
+    print("  ADS-B DECODE-RATE COMPARISON — valid frames (DF4/5/17/18)")
     print(f"{line}")
     header = f"  {'Metric':<26}{'HackRF One':>18}{'ADALM-PLUTO':>18}"
     print(header)

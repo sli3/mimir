@@ -1,5 +1,6 @@
 """
-tools/check_thresholds_cli.py
+tools/archive/check_thresholds_cli.py
+Archived on 2026-11-16 (rf#28), kept for reference, not used by other code.
 Mimir RF Scanner — threshold-guard CLI harness.
 
 Exercises the PURE derive_thresholds() guard logic from
@@ -20,8 +21,8 @@ hardware access. Receive-only project; this file touches no radio at all.
 Jurisdiction AU/SA, ACMA, Radiocommunications Act 1992 (Cth).
 
 Usage:
-    PYTHONPATH=. python tools/check_thresholds_cli.py
-    PYTHONPATH=. python tools/check_thresholds_cli.py --eval 0.0006 0.0124
+    PYTHONPATH=. python tools/archive/check_thresholds_cli.py
+    PYTHONPATH=. python tools/archive/check_thresholds_cli.py --eval 0.0006 0.0124
 """
 
 import argparse
@@ -40,7 +41,7 @@ except ImportError as exc:  # pragma: no cover - environment guard
     print(
         "ERROR: could not import tools.calibrate_thresholds.\n"
         "Run from the repo root with:  PYTHONPATH=. python "
-        "tools/check_thresholds_cli.py\n"
+        "tools/archive/check_thresholds_cli.py\n"
         f"Underlying import error: {exc}",
         file=sys.stderr,
     )
