@@ -42,11 +42,14 @@ included, without exception.
    RX, sets an RX-direction constant to anything but 1, or lets a TX stub do
    anything except call `transmit_guard()`.
 6. **Agents never touch the radio hardware.** No `hackrf_*`, `iio_*`,
-   `SoapySDRUtil`, `rx_sdr` or `tx_sdr`, no `scan.py` run, and none of the tool
-   scripts that open the SDR (`calibrate_thresholds.py`, `diagnose_threshold.py`,
-   `capture_to_vectorstore.py`, `diagnose_pluto_gain.py`,
-   `diagnose_fingerprints.py`, `compare_decode_rate.py`). Live hardware
-   verification is Prin's job, done by hand.
+   `SoapySDRUtil`, `rx_sdr` or `tx_sdr`, no `scan.py` run (one exception:
+   `pm` may start demo mode in the command form `agent_guard.py` allows,
+   which replays files from `data/captures/` and opens no device), and none
+   of the tool scripts that open the SDR (`calibrate_thresholds.py`,
+   `diagnose_threshold.py`, `capture_to_vectorstore.py`,
+   `diagnose_pluto_gain.py`, `diagnose_fingerprints.py`,
+   `compare_decode_rate.py`). Live hardware verification is Prin's job, done
+   by hand.
 
 ### Australian frequencies legal to receive passively
 | Band | Frequency | Notes |
@@ -249,7 +252,8 @@ before it landed). Therefore:
   `env PYTHONPATH=. .venv-scan/bin/python -s scan.py`. Agents never run it
   against hardware. Demo mode
   (`env PYTHONPATH=. .venv-scan/bin/python -s scan.py --demo --demo-files <sigmf-file>`)
-  needs no SDR and is what browser checks look at; Prin starts it himself
+  needs no SDR and is what browser checks look at; `pm` may start it for a
+  browser check (see `.claude/agents/pm.md`), otherwise Prin starts it
 - System dependencies UV cannot manage: `hackrf`, `SoapySDR`,
   `python3-SoapySDR` (dnf). SoapyHackRF and acarsdec are built from source
   (`setup.sh` handles acarsdec). They are not in the Fedora repos

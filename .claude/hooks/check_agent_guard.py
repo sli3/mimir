@@ -29,6 +29,11 @@ REPOS = (CLEAN, RAIL, TXTEST, MEMO, ENV, EMPTY)
 B = lambda c: ("Bash", {"command": c})
 E = lambda f, **k: ("Edit", {"file_path": f, **k})
 W = lambda f: ("Write", {"file_path": f, "content": "x"})
+# Sample strings only: the guard checks the command's shape and never opens
+# these files, so they need not exist in data/captures/.
+DEMO = ("env PYTHONPATH=. .venv-scan/bin/python -s scan.py --demo "
+        "--demo-files data/captures/capture_100000000hz_20990101_000000.sigmf-meta")
+ADSB = " --demo-files-adsb data/captures/capture_1090000000hz_20990101_000001.sigmf-meta"
 cases = [
  # (agent, (tool,input), expect, label[, repo root]); expect: True = block, False = allow, "ask" = prompt Prin
  ("", B("hackrf_transfer -t x.iq -f 915000000"), True, "main session: hackrf_transfer"),
@@ -183,6 +188,26 @@ cases = [
  ("pm", B("git add '*.py'"), True, "pm: add glob"),
  # pm docs: targeted Edit on README.md and docs/**/*.md; Write only for a new doc
  ("pm", W("docs/2099-new-guide.md"), False, "pm: new doc under docs/"),
+ # 2026-11-16 pm starts servers: frontend exact, demo in one fixed form only
+ ("pm", B("npm run dev --prefix dashboard/frontend"), False, "pm: start frontend dev server"),
+ ("pm", B("npm run dev --prefix dashboard/frontend -- --host 0.0.0.0"), True, "pm: dev server with extra args"),
+ ("pm", B(DEMO), False, "pm: demo backend"),
+ ("pm", B(DEMO + ADSB), False, "pm: demo backend with ADS-B file"),
+ ("pm", B(DEMO.replace(" --demo ", " ")), True, "pm: scan.py without --demo"),
+ ("pm", B(DEMO + " --device plutosdr"), True, "pm: demo with --device"),
+ ("pm", B(DEMO.replace("--demo ", "--demo --device plutosdr ")), True, "pm: --device before files"),
+ ("pm", B(DEMO + " data/captures/capture_200000000hz_20990101_000002.sigmf-meta"), True, "pm: second demo file"),
+ ("pm", B(DEMO.replace("data/captures/", "data/captures/../../")), True, "pm: path traversal"),
+ ("pm", B(DEMO.replace("data/captures/", "/tmp/")), True, "pm: file outside data/captures"),
+ ("pm", B(DEMO + "; hackrf_info"), True, "pm: demo then ; hackrf_info"),
+ ("pm", B(DEMO + " && rm -rf data"), True, "pm: demo then && rm data"),
+ ("pm", B(DEMO + "\nhackrf_info"), True, "pm: demo then newline hackrf_info"),
+ ("pm", B("env PYTHONPATH=. .venv-scan/bin/python -s scan.py"), True, "pm: plain scan.py"),
+ ("pm", B("python scan.py --demo --demo-files data/captures/capture_100000000hz_20990101_000000.sigmf-meta"), True, "pm: demo in another form"),
+ ("", B(DEMO), True, "main session: demo backend"),
+ ("code-writer", B(DEMO), True, "code-writer: demo backend"),
+ ("deep-bug-hunter", B(DEMO), True, "dbh: demo backend"),
+ ("plan-reviewer", B(DEMO), True, "plan-reviewer: demo backend"),
  ("pm", W("README.md"), True, "pm: whole-file write README"),
  ("pm", W("docs/notes.txt"), True, "pm: non-Markdown file in docs/"),
  ("pm", E("docs/../AGENTS.md", old_string="# Mimir Agent Protocol", new_string="x"), True, "pm: AGENTS.md via docs/.."),

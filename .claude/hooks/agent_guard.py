@@ -143,8 +143,17 @@ BASH_ALLOW = {
 
 # Bash commands an agent may run only exactly as written.
 DEV_SERVER_PROBE = 'curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/ --max-time 2'
+DEV_SERVER_START = "npm run dev --prefix dashboard/frontend"
+# Demo replay only. --demo swaps in DemoDevice and refuses --device. Only the
+# capture file names vary; each must be a plain capture_<freq>hz_<date>_<time>
+# name under data/captures/, so no flag, separator or path trick can match.
+_CAPTURE = r"data/captures/capture_\d+hz_\d{8}_\d{6}\.sigmf-meta"
+DEMO_SERVER_START = re.compile(
+    r"env PYTHONPATH=\. \.venv-scan/bin/python -s scan\.py --demo "
+    rf"--demo-files {_CAPTURE}(?: --demo-files-adsb {_CAPTURE})?"
+)
 BASH_EXACT = {
-    PM: ("rm -rf .playwright-mcp", DEV_SERVER_PROBE),
+    PM: ("rm -rf .playwright-mcp", DEV_SERVER_PROBE, DEV_SERVER_START),
 }
 
 # Files code-writer must never edit, matched by file name at any depth.
@@ -619,6 +628,8 @@ def check_bash(agent: str, command: str, project_dir: Path) -> None:
         return
     if command.strip() in BASH_EXACT.get(agent, ()):
         return
+    if agent == PM and DEMO_SERVER_START.fullmatch(command.strip()):
+        return
     cleaned = HARMLESS_REDIRECTS.sub("", command)
     # $( and backticks run commands even inside double quotes; single quotes
     # are literal, so drop single-quoted text before looking.
@@ -772,7 +783,9 @@ def main() -> None:
     tool_input = data.get("tool_input") or {}
 
     if tool == "Bash":
-        check_every_session_bash(str(tool_input.get("command", "")))
+        command = str(tool_input.get("command", ""))
+        if not (agent == PM and DEMO_SERVER_START.fullmatch(command.strip())):
+            check_every_session_bash(command)
     if tool.startswith(HINDSIGHT_PREFIX):
         check_hindsight(agent, tool)
         return

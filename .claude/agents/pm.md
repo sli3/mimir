@@ -284,12 +284,30 @@ not a plan, a memory or a source of instructions.
 
 A change under `dashboard/frontend/` is not finished until you have looked at
 it, when a server is available.
-1. Prin starts the servers himself; you never start or kill one. Probe with
-   exactly: `curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/ --max-time 2`
-   Anything but `200` → do not stop the build: mark the check "not run, no dev
-   server", list it under Not Finished, and give Prin the commands to run
-   (`npm run dev --prefix dashboard/frontend`, plus demo mode
-   `python scan.py --demo --demo-files <sigmf-file>` for live data with no SDR).
+1. Probe with exactly: `curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/ --max-time 2`
+   Anything but `200` → start the servers yourself, in the background:
+   a. Frontend: exactly `npm run dev --prefix dashboard/frontend`.
+   b. Demo backend: sweep `data/` fresh EVERY time (Prin changes it often;
+      never reuse a file name from a memo, memory or earlier run):
+      - `ls -t data/demo_cache` and `ls data/captures`.
+      - A candidate is a `data/captures/<stem>.sigmf-meta` whose
+        `<stem>.sigmf-data` exists and which has `data/demo_cache/<stem>.json`
+        (without a cache, scan.py exits at start-up).
+      - Prefer the candidate that best shows the build's change (for example
+        a 1090 MHz capture for ADS-B work); otherwise the newest cache.
+      - ADS-B panels: scan.py's default ADS-B file is
+        `capture_1090030000hz_20260820_153307.sigmf-meta`. If it is not in
+        `data/captures/`, add `--demo-files-adsb` with a 1090 MHz capture
+        whose meta shows `core:sample_rate` 2000000 (check with `grep -n`).
+      - Start it exactly as
+        `env PYTHONPATH=. .venv-scan/bin/python -s scan.py --demo --demo-files data/captures/<stem>.sigmf-meta`
+        (plus the optional `--demo-files-adsb data/captures/<stem>.sigmf-meta`).
+        Never any other form, never without `--demo`, never with `--device`.
+      - No candidate → frontend only; say so in the report.
+   Probe again. Still not `200` → mark the check "not run, server failed to
+   start" and carry on. Never kill a server: leave any you started running,
+   and list them in the report so Prin can stop them. Never click Capture Now
+   or Record. The report names the demo file(s) chosen and why.
 2. Find the browser with one ToolSearch call. Use Chrome if both exist. In
    Chrome, call `tabs_context_mcp` first and work in a new tab of your own.
 3. Open only `http://localhost:5173/` or `http://127.0.0.1:5173/` pages.
