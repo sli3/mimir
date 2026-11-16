@@ -119,7 +119,8 @@
             "type": "command",
             "command": "python3",
             "args": [
-              "${CLAUDE_PROJECT_DIR}/.claude/hooks/agent_guard.py"
+              "-I",
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/run_guard.py"
             ],
             "timeout": 10
           }
