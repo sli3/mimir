@@ -126,6 +126,15 @@ BASH_ALLOW = {
         "git switch",
         "git checkout -b",
         "git branch",  # branch -D still prompts: "ask" rule in settings.json
+        "gh issue create",
+        "gh issue edit",
+        "gh issue comment",
+        "gh issue close",
+        "gh issue reopen",
+        "gh issue list",
+        "gh issue view",
+        "gh label list",
+        "gh label create",
         "mkdir -p .session-memos",
         "date",
     ),
@@ -257,6 +266,9 @@ HINDSIGHT_PM_ALLOWED = frozenset({"recall", "retain"})
 # next_task is refused because it moves the top todo card to doing by itself.
 KANZO_PREFIX = "mcp__kanzo__"
 KANZO_BLOCKED = re.compile(r"(?:^|_)(?:delete|archive|remove)(?:_|$)|^next_task$")
+# GitHub issues mirror the Kanzo board. pm may use gh issue only, with inline
+# text: no reading a file into an issue, no other repo, no browser.
+GH_BLOCKED_FLAGS = ("--body-file", "-F", "--repo", "-R", "--web", "-w", "--template", "-T")
 
 # Shell constructs that could write files or run hidden commands.
 UNSAFE_SHELL = re.compile(r"[<>`]|\$\(")
@@ -573,6 +585,22 @@ def check_commit_args(args: list[str]) -> None:
         block("pm commits need a -m message")
 
 
+def check_pm_gh(segments: list[str]) -> None:
+    """pm files and updates issues on this repo only, with inline text, never from files."""
+    for segment in segments:
+        try:
+            words = shlex.split(segment)
+        except ValueError:
+            block("pm sent a gh command that cannot be parsed")
+        if words[:1] != ["gh"]:
+            continue
+        if len(segments) != 1:
+            block("pm must run gh in a call of its own")
+        bad = [w for w in words[2:] if w.split("=", 1)[0] in GH_BLOCKED_FLAGS]
+        if bad:
+            block(f"pm may not pass {' '.join(bad)} to gh")
+
+
 def check_pm_git(segments: list[str], project_dir: Path) -> None:
     """pm stages by explicit path and commits on its own, never a guard-rail file."""
     segments = [s for s in segments if s.strip()]
@@ -648,6 +676,7 @@ def check_bash(agent: str, command: str, project_dir: Path) -> None:
             block(f"{agent} may not run '{segment}' (not on its Bash allowlist)")
     if agent == PM:
         check_pm_git(segments, project_dir)
+        check_pm_gh(segments)
 
 
 def check_agent(agent: str, tool_input: dict) -> None:

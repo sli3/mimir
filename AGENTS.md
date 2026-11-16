@@ -160,6 +160,9 @@ and functions, what not to touch, the fix strategy (no code), and unknowns.
 - `data/` holds Prin's IQ captures and vector stores. No agent writes,
   moves or deletes anything under it
 - Never `git push`. Never use `--force`. Never `git reset --hard`
+- `pm` may create, edit, comment on and close GitHub issues on this
+  repository with the `gh issue` CLI only, to mirror Kanzo cards. Never pull
+  requests, `gh api`, pushes or code
 - Agents never commit, with one exception: `pm` commits through the
   `git-workflow` skill at the end of a build that passes its COMMIT GATE (in
   `pm`'s own file), or when Prin asks, with no "OK" step. `agent_guard.py`
