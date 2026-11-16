@@ -67,7 +67,7 @@ function drawMarker(ctx, marker, canvasWidth, canvasHeight) {
  *  the per-band waterfall canvas and by SpectrometerBar for
  *  frequency snapping.  Ordered by frequency ascending.
  *
- *  NOTE: STRIP_CONFIGS, BAND_GROUPS in App.jsx, OVERVIEW_BANDS
+ *  NOTE: STRIP_CONFIGS, BAND_GROUPS in constants/bands.js, OVERVIEW_BANDS
  *  in App.jsx, and FREQ_COLOUR_MAP in SignalHistoryLog.jsx are all
  *  in sync at 162.000 MHz for AIS (Phase 15b — dual-channel centre). */
 export const STRIP_CONFIGS = [

@@ -15,188 +15,19 @@ import AIReasoningPanel from './components/AIReasoningPanel.jsx'
 import CaptureButton from './components/CaptureButton.jsx'
 import RecordButton from './components/RecordButton.jsx'
 import CaptureResultPanel from './components/CaptureResultPanel.jsx'
+import { BAND_GROUPS } from './constants/bands.js'
+import { INITIAL_AI_REASONING } from './constants/aiReasoning.js'
+import { isAcarsTuned, isAisTuned, isAdsbTuned } from './utils/tuning.js'
+import { OPERATOR_STATE_CONFIG, getOperatorState } from './utils/operatorState.js'
+import useClock from './hooks/useClock.js'
+import useFrozenDisplay from './hooks/useFrozenDisplay.js'
 
-const INITIAL_AI_REASONING = {
-  freq_hz: null,
-  signal_type: null,
-  confidence: null,
-  confidence_score: null,
-  au_legal_status: null,
-  reasoning: null,
-  timestamp: null,
-  peak_power_db: null,
-  peak_bin_power_db: null,
-  snr_db: null,
-  bandwidth_hz: null,
-  spectral_flatness: null,
-  chroma_distance: null,
-  signal_threshold_db: null,
-  snr_margin_db: null,
-  novel: null,
-}
-
-const BAND_GROUPS = [
-  {
-    label: 'BROADCAST',
-    bands: [
-      { name: 'FM BROADCAST', freq_hz: 98000000, label: 'FM', band_key: 'fm_broadcast' },
-    ],
-  },
-  {
-    label: 'AVIATION BAND',
-    bands: [
-      { name: 'AVIATION', freq_hz: 127000000, label: 'AVIATION', band_key: 'aviation' },
-      { name: 'ACARS', freq_hz: 129125000, label: 'ACARS', band_key: 'acars' },
-      { name: 'ADS-B', freq_hz: 1090000000, label: 'ADS-B', band_key: 'adsb' },
-    ],
-  },
-  {
-    label: 'MARITIME',
-    bands: [
-      { name: 'AIS', freq_hz: 162000000, label: 'AIS', band_key: 'ais' },  // 162.000 MHz dual-channel centre
-    ],
-  },
-  {
-    label: 'DATA / IoT',
-    bands: [
-      { name: 'APRS', freq_hz: 145175000, label: 'APRS', band_key: 'aprs' },
-      { name: 'ISM', freq_hz: 915000000, label: 'ISM', band_key: 'ism' },
-    ],
-  },
-]
-
-function useClock() {
-  const [time, setTime] = useState(new Date())
-  useEffect(() => {
-    const timer = setInterval(() => setTime(new Date()), 1000)
-    return () => clearInterval(timer)
-  }, [])
-  return time.toLocaleTimeString('en-AU', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
-}
-
-function useFrozenDisplay(aiReasoning) {
-  const frozenRef = useRef(null)
-  const timerRef = useRef(null)
-  const [displayed, setDisplayed] = useState(INITIAL_AI_REASONING)
-
-  useEffect(() => {
-    if (!aiReasoning || aiReasoning.signal_type === null) {
-      return
-    }
-
-    const shouldUpdate =
-      aiReasoning.signal_type !== frozenRef.current?.signal_type ||
-      timerRef.current === null
-
-    if (shouldUpdate) {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current)
-      }
-      frozenRef.current = aiReasoning
-      setDisplayed(aiReasoning)
-      timerRef.current = setTimeout(() => {
-        timerRef.current = null
-      }, 8000)
-    }
-
-    return () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current)
-        timerRef.current = null
-      }
-    }
-  }, [aiReasoning])
-
-  return displayed
-}
+export { getOperatorState } from './utils/operatorState.js'
 
 function getSdrColour(status) {
   if (status === 'CONNECTED') return 'var(--neon-green)'
   if (status === 'NOT_RESPONDING') return 'var(--neon-amber)'
   return 'var(--neon-red)'
-}
-
-/** Check whether the current focus frequency is tuned to a specific band.
- *  Returns true when freq is within margin of target. Default margin is
- *  2 MHz (suitable for most bands). AIS uses a tighter 100 kHz margin
- *  because the dual-channel centre (162.000 MHz) sits between CH1
- *  (161.975 MHz) and CH2 (162.025 MHz) -- 100 kHz covers both channels
- *  while excluding nearby marine VHF allocations.
- *  @param {number|null} freq - current focus frequency in Hz
- *  @param {number} target - band centre frequency in Hz
- *  @param {number} margin - tolerance in Hz (default 2 MHz)
- *  @returns {boolean} */
-function isTuned(freq, target, margin = 2_000_000) {
-  return freq != null && Math.abs(freq - target) <= margin
-}
-
-/** ACARS has two AU frequencies: 129.125 MHz and 130.025 MHz.
- *  Both use 5 kHz tolerance matching the FFSK deviation. Either match
- *  counts as "tuned" for the ACARS sub-panel display.
- *  @param {number|null} freq - current focus frequency in Hz
- *  @returns {boolean} */
-function isAcarsTuned(freq) {
-  return isTuned(freq, 129125000, 5000) || isTuned(freq, 130025000, 5000)
-}
-
-/** AIS dual-channel centre is 162.000 MHz. 100 kHz tolerance covers both
- *  CH1 (161.975 MHz) and CH2 (162.025 MHz).
- *  @param {number|null} freq - current focus frequency in Hz
- *  @returns {boolean} */
-function isAisTuned(freq) {
-  return isTuned(freq, 162000000, 100000)
-}
-
-/** ADS-B at 1090 MHz uses the default 2 MHz margin. Unlike ACARS/AIS, ADS-B
- *  intentionally keeps the wide default so the sub-panel stays visible across
- *  the broader tuning neighbourhood. No explicit margin argument is passed,
- *  preserving the existing isTuned() default behaviour (2_000_000 Hz).
- *  @param {number|null} freq - current focus frequency in Hz
- *  @returns {boolean} */
-function isAdsbTuned(freq) {
-  return isTuned(freq, 1090000000)
-}
-
-/** Colour and label configuration for the OPERATOR status badge.
- *  Each state maps to a display colour and a tooltip label shown in the
- *  body of the SIGNAL DETAILS panel. The `color` is used for the
- *  badge text; `opColor` outlines the OP icon.
- *  @type {{ MONITORING: {...}, NORMAL: {...}, VERIFY: {...}, ANOMALY: {...} }} */
-const OPERATOR_STATE_CONFIG = {
-  MONITORING: {
-    label: 'OPERATOR — MONITORING',
-    color: 'var(--text-dim)',
-    opColor: 'var(--neon-cyan)',
-  },
-  NORMAL: {
-    label: 'OPERATOR — NORMAL',
-    color: '#00D9FF',
-    opColor: '#00D9FF',
-  },
-  VERIFY: {
-    label: 'OPERATOR — VERIFY',
-    color: '#FFB020',
-    opColor: '#FFB020',
-  },
-  ANOMALY: {
-    label: 'OPERATOR — ANOMALY',
-    color: '#FF2840',
-    opColor: '#FF2840',
-  },
-}
-
-/** Derive the OPERATOR status from the current AI reasoning slot.
- *  The state machine is evaluated in order: no signal (MONITORING), then
- *  novel/unseen (ANOMALY), then explicitly legal (NORMAL), otherwise
- *  VERIFY. Used by the OPERATOR badge in the SIGNAL DETAILS panel and
- *  the ANOMALY warning indicator.
- *  @param {object|null} aiReasoning - current AI reasoning slot from useSocket
- *  @returns {'MONITORING'|'NORMAL'|'VERIFY'|'ANOMALY'} */
-export function getOperatorState(aiReasoning) {
-  if (aiReasoning?.freq_hz === null) return 'MONITORING'
-  if (aiReasoning?.novel === true) return 'ANOMALY'
-  if (aiReasoning?.novel === false && aiReasoning?.au_legal_status === 'legal_rx') return 'NORMAL'
-  return 'VERIFY'
 }
 
 function getFirstSeen(signalType, scanResults) {
