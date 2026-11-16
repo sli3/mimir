@@ -524,6 +524,12 @@ def runs_hardware(command: str) -> bool:
 def check_every_session_bash(command: str) -> None:
     """Rules that apply to every session, named agent or not."""
     flat = re.sub(r"[\"'\\]", "", command)
+    if runs_codex(command) and not CODEX_EXEC.fullmatch(command.strip()):
+        block(
+            "Codex may run only as: codex exec [resume <session id> | -m gpt-6-astra] "
+            '-c model_reasoning_effort=low|medium|high|xhigh "<one-line brief>", with no other '
+            "flags, and no double quote, backslash, $, backticks, ; & | < > or line breaks in the brief"
+        )
     if runs_hardware(command):
         block(
             "no agent may run radio-hardware tools (hackrf_*, iio_*, SoapySDRUtil) or scan.py. "
@@ -534,12 +540,6 @@ def check_every_session_bash(command: str) -> None:
         block("no agent may remove, move, copy over or overwrite anything under data/")
     if runs_git(command, "push"):
         block("no session may run git push; Prin pushes by hand")
-    if runs_codex(command) and not CODEX_EXEC.fullmatch(command.strip()):
-        block(
-            "Codex may run only as: codex exec [resume <session id> | -m gpt-6-astra] "
-            '-c model_reasoning_effort=low|medium|high|xhigh "<one-line brief>", with no other '
-            "flags, and no double quote, backslash, $, backticks, ; & | < > or line breaks in the brief"
-        )
 
 
 def is_guard_rail(rel: str) -> bool:
