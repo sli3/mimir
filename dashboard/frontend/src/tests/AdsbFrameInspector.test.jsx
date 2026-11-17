@@ -6,8 +6,9 @@ import FrameInspectorPanel from '../components/FrameInspectorPanel.jsx'
 
 // UI-OVERHAUL (Change 6): the FRAME INSPECTOR block was extracted from
 // AdsbAircraftPanel into FrameInspectorPanel, and the pinnedFrame /
-// frameData state plus the /api/adsb/parse effect were lifted to App.jsx.
-// The harness below replicates that App-level wiring (including the fetch
+// frameData state plus the /api/adsb/parse effect live in
+// hooks/useFrameInspector.js, used by pages/DashboardPage.jsx.
+// The harness below replicates that dashboard-level wiring (including the fetch
 // effect) so the pin/unpin and auto-fetch behaviours are tested through
 // the same state flow the real dashboard uses.
 

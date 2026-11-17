@@ -6,8 +6,9 @@ import React from 'react'
  * Extracted from AdsbAircraftPanel so the parsed Mode S frame view lives in
  * its own independently scrolling dashboard column. Rendering logic is
  * preserved verbatim from the original AdsbAircraftPanel FRAME INSPECTOR
- * block; the pinnedFrame / frameData state is now lifted to App.jsx and
- * passed in as props so RawDecodePanel can share it.
+ * block; the pinnedFrame / frameData state lives in hooks/useFrameInspector.js,
+ * used by pages/DashboardPage.jsx and passed as props through DecodedSignalsRow
+ * so RawDecodePanel can share the frame-inspector state.
  *
  * The adsbRawLog prop is required (beyond the original spec's prop list)
  * because the preserved placeholder logic distinguishes "no frames yet"

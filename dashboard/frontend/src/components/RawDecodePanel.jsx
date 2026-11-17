@@ -32,8 +32,9 @@ function hexToSpaced(hex) {
  * Extracted from AdsbAircraftPanel so the raw Mode S frame list lives in
  * its own independently scrolling dashboard column. Rendering logic is
  * preserved verbatim from the original AdsbAircraftPanel RAW DECODE block;
- * the rawView / pinnedFrame state is now lifted to App.jsx and passed in
- * as props so FrameInspectorPanel can share it.
+ * the rawView / pinnedFrame state lives in hooks/useFrameInspector.js, used by
+ * pages/DashboardPage.jsx and passed as props through DecodedSignalsRow
+ * so FrameInspectorPanel can share it.
  *
  * Passive receive display only — no TX capability.
  *

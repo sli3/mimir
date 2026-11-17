@@ -60,8 +60,9 @@ afterEach(() => {
 
 /**
  * TestHarness — exercises CaptureButton + CaptureResultPanel through the
- * real production useCapture hook, the same wiring App.jsx uses now that
- * the state machine has been extracted. End-to-end component tests
+ * real production useCapture hook, matching the dashboard's shared capture
+ * state wiring in pages/DashboardPage.jsx through hooks/useCaptureControls.js.
+ * End-to-end component tests
  * continue to drive both surfaces via one shared state source.
  */
 function TestHarness() {

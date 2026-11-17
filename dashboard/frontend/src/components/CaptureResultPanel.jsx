@@ -12,7 +12,7 @@ export { VERDICT_WIDE, VERDICT_NARROW, VERDICT_BURST, VERDICT_FALLBACK }
 /**
  * Capture result panel.
  *
- * Header style mirrors the SIGNAL DETAILS header at App.jsx:952-1002
+ * Header style mirrors the SIGNAL DETAILS header in components/SignalDetailsPanel.jsx
  * (height 28px, var(--bg-header) bg, border-bottom 1px solid var(--border),
  * padding 0 10px, fontSize 11px, letterSpacing 2px, var(--font-data), title
  * color var(--neon-cyan)) so the panel reads as part of the same

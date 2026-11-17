@@ -67,8 +67,8 @@ function drawMarker(ctx, marker, canvasWidth, canvasHeight) {
  *  the per-band waterfall canvas and by SpectrometerBar for
  *  frequency snapping.  Ordered by frequency ascending.
  *
- *  NOTE: STRIP_CONFIGS, BAND_GROUPS in constants/bands.js, OVERVIEW_BANDS
- *  in App.jsx, and FREQ_COLOUR_MAP in SignalHistoryLog.jsx are all
+ *  NOTE: STRIP_CONFIGS, BAND_GROUPS in constants/bands.js, and
+ *  FREQ_COLOUR_MAP in SignalHistoryLog.jsx are all
  *  in sync at 162.000 MHz for AIS (Phase 15b — dual-channel centre). */
 export const STRIP_CONFIGS = [
   { freq_hz: 98000000,   label: '98.0 MHz',    name: 'FM BROADCAST', colourVar: '--neon-cyan'    },
@@ -262,7 +262,7 @@ export default function WaterfallPanel({ focusedFreq, focusFrequency, singleBand
   // Without skipInitialRetune, this hook's stale 98MHz default would emit
   // set_focus_frequency on every socket connect and silently overwrite the
   // server's single global focus state whenever its resync fires last after
-  // App.jsx's real focus-control instance. Most visibly broken in --demo mode
+  // pages/DashboardPage.jsx's real focus-control instance. Most visibly broken in --demo mode
   // where it caused ALL classification results to be filtered out of the
   // dashboard because the server's focus kept getting reset to FM.
   const { spectrumUpdates, device } = useSocket({ skipInitialRetune: true })

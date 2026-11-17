@@ -29,8 +29,9 @@ function confidenceColour(confidence) {
  *    reasoning, timestamp, source, plus fingerprint fields such as snr_db,
  *    bandwidth_hz, spectral_flatness, chroma_distance, and per-band thresholds)
  *  @param {boolean} [props.isPinned=false] — if true and signal_type is set,
- *    renders a boxed ◆ PINNED badge with timestamp in amber, and the component
- *    key in App.jsx forces remount on pin toggle */
+ *    renders a boxed ◆ PINNED badge with timestamp in amber.
+ *    pages/DashboardPage.jsx renders the panel without a key, so a pin toggle
+ *    updates the same instance. */
 export default function AIReasoningPanel({ aiReasoning, isPinned = false, onUnpin }) {
   const [opacity, setOpacity] = useState(1)
   const [displayData, setDisplayData] = useState(null)

@@ -20,9 +20,10 @@ afterEach(() => {
 
 /**
  * TestHarness — exercises RecordButton through the real production
- * useRecording hook, the same wiring App.jsx uses. The parent owns the
- * click handler (start vs stop decided from the recording state) and
- * renders the minimal inline result readout, mirroring App.jsx.
+ * useRecording hook, matching the dashboard's recording wiring in
+ * pages/DashboardPage.jsx through hooks/useCaptureControls.js. The parent
+ * owns the click handler (start vs stop decided from the recording state)
+ * and renders the minimal inline result readout, mirroring the dashboard.
  */
 function TestHarness() {
   const {

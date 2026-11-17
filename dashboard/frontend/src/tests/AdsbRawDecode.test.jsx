@@ -5,10 +5,11 @@ import RawDecodePanel from '../components/RawDecodePanel.jsx'
 
 // UI-OVERHAUL (Change 6): the RAW DECODE block was extracted from
 // AdsbAircraftPanel into RawDecodePanel. The rawView / pinnedFrame state
-// is now lifted to App.jsx, so these tests drive the panel through a
-// small stateful harness that mirrors the App-level wiring. The panel
-// itself performs no fetch — the /api/adsb/parse effect moved to App.jsx
-// with the state — so the old fetch stub and "Decoding..." waitFor
+// lives in hooks/useFrameInspector.js, used by pages/DashboardPage.jsx,
+// so these tests drive the panel through a small stateful harness that
+// mirrors the dashboard-level wiring. The panel itself performs no fetch.
+// The /api/adsb/parse effect lives in the same hook as the state, so the
+// old fetch stub and "Decoding..." waitFor
 // synchronisation points are gone (they belonged to the FRAME INSPECTOR
 // side of the old combined component).
 
