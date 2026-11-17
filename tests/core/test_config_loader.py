@@ -9,6 +9,8 @@ import copy
 import os
 import sys
 import tempfile
+from dataclasses import fields
+from pathlib import Path
 
 import pytest
 import yaml
@@ -20,6 +22,28 @@ from core.config.loader import ConfigError, MimirConfig, load_config
 
 class TestMimirConfigDefaults:
     """Tests for MimirConfig dataclass defaults."""
+
+    def test_llm_url_default_is_empty(self) -> None:
+        """MimirConfig.llm_url has no default network endpoint."""
+        assert MimirConfig().llm_url == ""
+
+    def test_defaults_match_repo_config(self) -> None:
+        """Guard deliberately coupled dataclass defaults and repo config.
+
+        The dataclass defaults and the scanner and dashboard sections of
+        config/mimir.yaml are deliberately coupled, so changing one means
+        changing the other. This test also proves the repo config still loads.
+        llm_url is excluded because it has no default endpoint.
+        """
+        path = Path(__file__).resolve().parents[2] / "config" / "mimir.yaml"
+        loaded = load_config(str(path))
+        defaults = MimirConfig()
+        for config_field in fields(MimirConfig):
+            if config_field.name == "llm_url":
+                continue
+            assert getattr(defaults, config_field.name) == getattr(
+                loaded, config_field.name
+            ), config_field.name
 
     def test_lna_gain_default_is_calibrated(self):
         """MimirConfig.lna_gain_db default must be 24.0 after calibration."""

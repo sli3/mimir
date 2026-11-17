@@ -13,19 +13,23 @@ class ConfigError(Exception):
 class MimirConfig:
     """Mimir runtime configuration.
 
+    Defaults mirror config/mimir.yaml. Production always loads through
+    load_config, which requires scanner.llm_url; llm_url has no default
+    endpoint.
+
     Gain defaults (lna=24.0, vga=26.0) are calibrated for the telescopic
     whip SMA antenna (~1 GHz optimised). Poor coupling at FM wavelengths
     requires gain to compensate. Confirmed safe on live hardware with
     Adelaide FM signals (no ADC saturation).
     """
-    frequencies_hz: list[float] = field(default_factory=lambda: [98_000_000, 145_175_000, 915_000_000, 1_090_000_000])
-    dwell_time_sec: float = 2.0
-    num_samples: int = 2_000_000
+    frequencies_hz: list[float] = field(default_factory=lambda: [98_000_000, 129_125_000, 145_175_000, 162_000_000, 915_000_000, 1_090_000_000])
+    dwell_time_sec: float = 0.0
+    num_samples: int = 131_072
     lna_gain_db: float = 24.0
     vga_gain_db: float = 26.0
     amp_enable: bool = False
     queue_maxsize: int = 20
-    llm_url: str = "http://192.168.0.66:8080/v1"
+    llm_url: str = ""
     llm_cooldown_sec: float = 60.0  # seconds to suppress LLM retries after connection failure
     llm_connect_timeout_sec: float = 5.0  # timeout in seconds for the startup health-check probe
     llm_reason_timeout_sec: float = 45.0  # per-request timeout for the /radar LLM reasoning button (Phase 53)
