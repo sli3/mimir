@@ -4,7 +4,7 @@
  * WHY THIS HELPER EXISTS (Phase 53-HOTFIX):
  *
  * The backend emits `timestamp` as an ISO 8601 STRING (see
- * dashboard/server.py:666, `msg.timestamp.isoformat()`). RadarScopePanel's
+ * dashboard/emitters.py emit_adsb_aircraft(), `msg.timestamp.isoformat()`). RadarScopePanel's
  * trail buffer does arithmetic on stored timestamps: `ts - last.ts >
  * TRAIL_STALE_MS` in the component, and `newest.ts - oldest.ts` inside
  * derivePredictionVector (utils/pathPrediction.js). Mixed string-vs-number
@@ -15,7 +15,7 @@
  * buffer ever sees it.
  *
  * The ISO string wire format is load-bearing across many other consumers
- * (AisVesselPanel, AcarsMessagePanel, App.jsx "LAST SEEN",
+ * (AisVesselPanel, AcarsMessagePanel, SignalDetailsPanel "LAST SEEN",
  * AIReasoningPanel, SignalHistoryLog, VectorSpacePage), all of which pass
  * it to `new Date(...)` or a string formatter. Do NOT change the payload;
  * normalise only at the point of arithmetic use.

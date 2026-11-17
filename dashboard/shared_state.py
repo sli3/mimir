@@ -430,9 +430,11 @@ def set_trigger_armed(band: str, armed: bool) -> None:
     Only bands in TRIGGER_ARMABLE_BANDS may be armed. The restriction
     exists because the trigger fires when the measured SNR crosses the
     band's signal_threshold_db, and that threshold is only meaningful on
-    the field-calibrated bands (fm_broadcast, aprs, ism); adsb is
-    field-calibrated on the Pluto only. The HackRF adsb threshold is still
-    a placeholder (see docs/TECH_DEBT.md HIGH-01). On
+    the field-calibrated bands. fm_broadcast and aprs are field-calibrated:
+    only the HackRF reaches them, below the Pluto's 325 MHz floor. ism is
+    field-calibrated on the HackRF only; the Pluto ism value is still
+    provisional. adsb is field-calibrated on the Pluto only; the HackRF
+    adsb value is a placeholder (see docs/TECH_DEBT.md HIGH-01). On
     the uncalibrated bands (aviation, acars, ais) the threshold is an
     unverified estimate, so an edge crossing there could be a false or
     meaningless trigger that writes a capture file for pure noise.
