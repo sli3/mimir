@@ -207,8 +207,9 @@ class TestDemoProducerThread:
     """Tests for DemoProducer.start() / stop() and the _run() thread body."""
 
     def test_start_stop_cleanly_terminates(
-        self, tmp_path: Path, embedder
+        self, tmp_path: Path, embedder: SpectrumEmbedder
     ) -> None:
+        """Allow the replay thread to start, then verify bounded shutdown."""
         meta_path = _build_one_shot(tmp_path)
         scanner = _FakeScanner()
         config = _demo_config(dwell_time_sec=0.01)
@@ -220,6 +221,7 @@ class TestDemoProducerThread:
         )
 
         producer.start()
+        # Keep a short delay to exercise stopping a running replay thread.
         time.sleep(0.05)
         producer.stop()
         if producer._thread is not None:
@@ -465,20 +467,25 @@ class TestDemoProducerThread:
             assert "psd_db" in item
 
     def test_produce_chunk_pacing_uses_demo_constant_not_config_dwell(
-        self, embedder, monkeypatch, tmp_path,
+        self,
+        embedder: SpectrumEmbedder,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         """Regression test for Phase 76 fix (Part B).
 
         Phase 76's DemoProducer used config.dwell_time_sec as the pacing
         value. With the live config setting dwell_time_sec=0.0, the demo
         flooded the queue. This pins the per-chunk pacing to the dedicated
-        DEMO_CHUNK_INTERVAL_SEC constant.
+        DEMO_CHUNK_INTERVAL_SEC constant. Produce one chunk synchronously
+        because the sleep patch affects the shared time module.
         """
         meta_path = _build_one_shot(tmp_path)
 
         sleep_calls = []
 
-        def counting_sleep(seconds):
+        def counting_sleep(seconds: float) -> None:
+            """Record the pacing value requested by the synchronous producer."""
             sleep_calls.append(seconds)
 
         monkeypatch.setattr(
@@ -494,13 +501,17 @@ class TestDemoProducerThread:
             scanner=scanner,
             config=config,
         )
-        producer.start()
-        try:
-            scanner._queue.get(timeout=5.0)
-        finally:
-            producer.stop()
-            if producer._thread is not None:
-                producer._thread.join(timeout=2.0)
+        info = producer._file_infos[meta_path]
+        producer._produce_chunk(
+            meta=info["meta"],
+            file_id=info["file_id"],
+            chunk_idx="0",
+            sample_start=None,
+            sample_count=-1,
+            q=scanner._queue,
+            embedder=embedder,
+        )
+        scanner._queue.get(timeout=5.0)
 
         from core.pipeline.demo_producer import DEMO_CHUNK_INTERVAL_SEC
 

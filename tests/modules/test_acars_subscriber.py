@@ -11,6 +11,7 @@ from core.config.loader import MimirConfig
 from core.pipeline.scanner import ScanRunner
 from modules.acars import AcarsSubscriber
 from modules.acars.constants import AU_ACARS_FREQUENCIES_HZ
+from tests.wait_helpers import wait_until
 
 
 class MockDevice:
@@ -79,13 +80,14 @@ class TestAcarsSubscriber:
         sub.receive(np.zeros(100, dtype=np.complex64), 129_125_000.0, 2_000_000.0)
         assert sub._queue.qsize() == 32
 
-    def test_subscriber_lifecycle_start_stop(self):
-        """start() spawns a thread; stop() terminates it cleanly."""
+    def test_subscriber_lifecycle_start_stop(self) -> None:
+        """Start a worker and allow a short shutdown grace period."""
         sub = AcarsSubscriber(broadcast_fn=lambda m: None)
         sub.start()
         assert sub._thread is not None
         assert sub._thread.is_alive()
         sub.stop()
+        # Keep a short grace period for the lifecycle shutdown assertion.
         time.sleep(0.1)
         assert not sub._thread.is_alive()
 
@@ -109,8 +111,8 @@ class TestAcarsSubscriber:
         scanner.register_iq_subscriber(sub)
         assert sub in scanner._iq_subscribers
 
-    def test_scan_loop_broadcasts_to_subscriber(self):
-        """ScanRunner._scan_loop calls subscriber.receive with samples."""
+    def test_scan_loop_broadcasts_to_subscriber(self) -> None:
+        """Wait for the expected sample tuple from the scan loop."""
         samples = np.ones(100, dtype=np.complex64)
         device = MockDevice(samples=samples)
         config = MimirConfig(
@@ -134,12 +136,19 @@ class TestAcarsSubscriber:
 
         scanner.register_iq_subscriber(SpySubscriber())
         scanner._running = True
-        # Run _scan_loop in a thread so we can stop it after one iteration
+        # Stop once the subscriber has received the expected sample tuple.
         thread = threading.Thread(target=scanner._scan_loop)
         thread.start()
-        time.sleep(0.15)
-        scanner._running = False
-        thread.join(timeout=2.0)
+        try:
+            wait_until(
+                lambda: len(received) >= 1
+                and np.array_equal(received[0][0], samples)
+                and received[0][1] == 129_125_000.0
+                and received[0][2] == 2_000_000.0
+            )
+        finally:
+            scanner.stop()
+            thread.join(timeout=3)
         assert len(received) >= 1
         assert np.array_equal(received[0][0], samples)
         assert received[0][1] == 129_125_000.0

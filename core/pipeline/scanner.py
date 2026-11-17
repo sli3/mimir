@@ -524,9 +524,10 @@ class ScanRunner:
         broadcast failure (e.g. no connected dashboard) does not prevent the scan
         loop from continuing or the fingerprint from reaching the AI pipeline.
 
-        The outer error handler logs any exception that escapes a scan cycle and
-        pauses for the fixed ``_SCAN_ERROR_BACKOFF_SEC`` before retrying. This
-        sleep is not interruptible, so ``stop()`` can lag by up to the back-off.
+        The outer error handler logs any exception that escapes a scan cycle,
+        using the frequency read at the start of that cycle, and pauses for the
+        fixed ``_SCAN_ERROR_BACKOFF_SEC`` before retrying. This sleep is not
+        interruptible, so ``stop()`` can lag by up to the back-off.
 
         "Latest wins" queue behaviour:
         Before inserting a fingerprint, the queue is drained completely. Because LLM
@@ -545,9 +546,9 @@ class ScanRunner:
         while self._running:
             if not self._running:
                 return
+            with self._focus_lock:
+                freq_hz = self._focus_freq_hz
             try:
-                with self._focus_lock:
-                    freq_hz = self._focus_freq_hz
                 if self._device_driver != "hackrf":
                     # The raw frequency range is the authoritative gate:
                     # band_key_for_freq() resolves any unmatched freq to the

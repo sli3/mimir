@@ -11,6 +11,7 @@ from core.pipeline.scanner import ScanRunner
 from modules.adsb import AdsbSubscriber
 from modules.adsb.constants import AU_ADSB_FREQUENCY_HZ
 from modules.adsb.message import AdsbMessage
+from tests.wait_helpers import wait_until
 
 
 class MockDevice:
@@ -81,13 +82,14 @@ class TestAdsbSubscriber:
         sub.receive(np.zeros(100, dtype=np.complex64), 1_090_000_000.0, 2_000_000.0)
         assert sub._queue.qsize() == 64
 
-    def test_subscriber_lifecycle_start_stop(self):
-        """start() spawns a thread; stop() terminates it cleanly."""
+    def test_subscriber_lifecycle_start_stop(self) -> None:
+        """Start a worker and allow a short shutdown grace period."""
         sub = AdsbSubscriber(broadcast_fn=lambda m: None)
         sub.start()
         assert sub._thread is not None
         assert sub._thread.is_alive()
         sub.stop()
+        # Keep a short grace period for the lifecycle shutdown assertion.
         time.sleep(0.1)
         assert not sub._thread.is_alive()
 
@@ -111,8 +113,8 @@ class TestAdsbSubscriber:
         scanner.register_iq_subscriber(sub)
         assert sub in scanner._iq_subscribers
 
-    def test_scan_loop_broadcasts_to_subscriber(self):
-        """ScanRunner._scan_loop calls subscriber.receive with samples."""
+    def test_scan_loop_broadcasts_to_subscriber(self) -> None:
+        """Wait for the expected sample tuple from the scan loop."""
         samples = np.ones(100, dtype=np.complex64)
         device = MockDevice(samples=samples)
         config = MimirConfig(
@@ -138,9 +140,16 @@ class TestAdsbSubscriber:
         scanner._running = True
         thread = threading.Thread(target=scanner._scan_loop)
         thread.start()
-        time.sleep(0.15)
-        scanner._running = False
-        thread.join(timeout=2.0)
+        try:
+            wait_until(
+                lambda: len(received) >= 1
+                and np.array_equal(received[0][0], samples)
+                and received[0][1] == 1_090_000_000.0
+                and received[0][2] == 2_000_000.0
+            )
+        finally:
+            scanner.stop()
+            thread.join(timeout=3)
         assert len(received) >= 1
         assert np.array_equal(received[0][0], samples)
         assert received[0][1] == 1_090_000_000.0
@@ -174,8 +183,8 @@ class TestAdsbSubscriber:
         sub.stop()
         assert len(harvested) == 0
 
-    def test_scan_result_fn_called_on_successful_decode(self):
-        """scan_result_fn callback is invoked on each successful decode."""
+    def test_scan_result_fn_called_on_successful_decode(self) -> None:
+        """Wait for the decoded ICAO to arrive through scan_result_fn."""
         broadcast_messages = []
         scan_result_messages = []
 
@@ -209,14 +218,19 @@ class TestAdsbSubscriber:
         sub.receive(iq_chunk, AU_ADSB_FREQUENCY_HZ, 2_000_000.0)
 
         sub.start()
-        time.sleep(0.2)
-        sub.stop()
+        try:
+            wait_until(
+                lambda: len(scan_result_messages) >= 1
+                and scan_result_messages[0].icao == "7C4B4C"
+            )
+        finally:
+            sub.stop()
 
         assert len(scan_result_messages) >= 1
         assert scan_result_messages[0].icao == "7C4B4C"
 
-    def test_scan_result_fn_not_required(self):
-        """AdsbSubscriber works without scan_result_fn (backward compatible)."""
+    def test_scan_result_fn_not_required(self) -> None:
+        """Wait for a broadcast when no scan_result_fn callback is supplied."""
         broadcast_messages = []
 
         def broadcast_spy(msg):
@@ -243,8 +257,10 @@ class TestAdsbSubscriber:
         sub.receive(iq_chunk, AU_ADSB_FREQUENCY_HZ, 2_000_000.0)
 
         sub.start()
-        time.sleep(0.2)
-        sub.stop()
+        try:
+            wait_until(lambda: len(broadcast_messages) >= 1)
+        finally:
+            sub.stop()
 
         assert len(broadcast_messages) >= 1
 
@@ -275,8 +291,8 @@ class TestAdsbSubscriber:
         assert len(harvested_scan) == 1
         assert harvested_scan[0].icao == "7C4B4C"
 
-    def test_decode_loop_attaches_bearing_report(self):
-        """Decode loop attaches bearing_deg (delta_r None on first sighting)."""
+    def test_decode_loop_attaches_bearing_report(self) -> None:
+        """Wait for a first bearing report with no bearing rate yet."""
         broadcast_messages = []
 
         def broadcast_spy(msg):
@@ -303,15 +319,21 @@ class TestAdsbSubscriber:
         sub.receive(iq_chunk, AU_ADSB_FREQUENCY_HZ, 2_000_000.0)
 
         sub.start()
-        time.sleep(0.2)
-        sub.stop()
+        try:
+            wait_until(
+                lambda: len(broadcast_messages) >= 1
+                and isinstance(broadcast_messages[0].bearing_deg, float)
+                and broadcast_messages[0].delta_r_deg_per_sec is None
+            )
+        finally:
+            sub.stop()
 
         assert len(broadcast_messages) >= 1
         assert isinstance(broadcast_messages[0].bearing_deg, float)
         assert broadcast_messages[0].delta_r_deg_per_sec is None
 
-    def test_decode_loop_computes_delta_r_on_second_message(self):
-        """Second position report for the same ICAO yields a delta_r rate."""
+    def test_decode_loop_computes_delta_r_on_second_message(self) -> None:
+        """Wait for the second report to carry a bearing rate in degrees/s."""
         broadcast_messages = []
 
         def broadcast_spy(msg):
@@ -352,8 +374,15 @@ class TestAdsbSubscriber:
         sub.receive(iq_chunk, AU_ADSB_FREQUENCY_HZ, 2_000_000.0)
 
         sub.start()
-        time.sleep(0.3)
-        sub.stop()
+        try:
+            wait_until(
+                lambda: len(broadcast_messages) >= 2
+                and isinstance(
+                    broadcast_messages[1].delta_r_deg_per_sec, float
+                )
+            )
+        finally:
+            sub.stop()
 
         assert len(broadcast_messages) >= 2
         assert broadcast_messages[1].delta_r_deg_per_sec is not None
@@ -373,8 +402,8 @@ class TestAdsbSubscriber:
         assert len(harvested) == 1
         assert harvested[0].bearing_deg is not None
 
-    def test_decode_loop_attaches_range_nm(self):
-        """A successful decode attaches range_nm onto the message."""
+    def test_decode_loop_attaches_range_nm(self) -> None:
+        """Wait for a decoded report with a positive range in nautical miles."""
         broadcast_messages = []
 
         def broadcast_spy(msg):
@@ -401,8 +430,14 @@ class TestAdsbSubscriber:
         sub.receive(iq_chunk, AU_ADSB_FREQUENCY_HZ, 2_000_000.0)
 
         sub.start()
-        time.sleep(0.2)
-        sub.stop()
+        try:
+            wait_until(
+                lambda: len(broadcast_messages) >= 1
+                and isinstance(broadcast_messages[0].range_nm, float)
+                and broadcast_messages[0].range_nm > 0.0
+            )
+        finally:
+            sub.stop()
 
         assert len(broadcast_messages) >= 1
         assert isinstance(broadcast_messages[0].range_nm, float)
@@ -422,8 +457,8 @@ class TestAdsbSubscriber:
         assert len(harvested) == 1
         assert isinstance(harvested[0].range_nm, float)
 
-    def test_decode_loop_handles_message_with_no_position(self):
-        """Messages with unresolved position carry None bearing fields."""
+    def test_decode_loop_handles_message_with_no_position(self) -> None:
+        """Wait for a report with empty position, bearing and range fields."""
         broadcast_messages = []
 
         def broadcast_spy(msg):
@@ -450,8 +485,15 @@ class TestAdsbSubscriber:
         sub.receive(iq_chunk, AU_ADSB_FREQUENCY_HZ, 2_000_000.0)
 
         sub.start()
-        time.sleep(0.2)
-        sub.stop()
+        try:
+            wait_until(
+                lambda: len(broadcast_messages) >= 1
+                and broadcast_messages[0].bearing_deg is None
+                and broadcast_messages[0].delta_r_deg_per_sec is None
+                and broadcast_messages[0].range_nm is None
+            )
+        finally:
+            sub.stop()
 
         assert len(broadcast_messages) >= 1
         assert broadcast_messages[0].bearing_deg is None
@@ -507,18 +549,19 @@ class TestAdsbSubscriber:
         assert len(scan_result_messages) == 1
         assert scan_result_messages[0].icao == "ABC123"
 
-    def test_periodic_harvest_does_not_fire_every_iteration(self):
+    def test_periodic_harvest_does_not_fire_every_iteration(self) -> None:
         """The timer gate is real: flush is not called on every loop iteration.
 
-        Runs the loop for ~0.4 s (several queue-timeout iterations) with the
-        real 5 s FLUSH_INTERVAL_SEC and asserts flush is never called until
-        stop() performs its final harvest.
+        Keeps a 0.4 s absence-check window across queue-timeout iterations
+        with the real 5 s FLUSH_INTERVAL_SEC. Asserts flush is never called
+        until stop() performs its final harvest.
         """
         flush_calls = []
         sub = AdsbSubscriber(broadcast_fn=lambda m: None)
         sub._decoder.flush = lambda: flush_calls.append(time.monotonic()) or []
 
         sub.start()
+        # Keep the window to prove harvest stays absent across iterations.
         time.sleep(0.4)
         assert len(flush_calls) == 0
         sub.stop()

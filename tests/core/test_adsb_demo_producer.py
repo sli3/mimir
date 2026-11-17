@@ -45,6 +45,7 @@ from modules.adsb.constants import (
 )
 from modules.adsb.message import AdsbMessage
 from modules.adsb.subscriber import AdsbSubscriber
+from tests.wait_helpers import wait_until
 
 
 # Known-good DF17 ADS-B identification message from the decoder test suite.
@@ -278,18 +279,15 @@ class TestAdsbDemoProducerLoop:
         assert sample_rate_hz == 2_000_000.0
 
     def test_start_stop_cleanly_terminates(
-        self, tmp_path: Path, monkeypatch
+        self, tmp_path: Path
     ) -> None:
+        """Allow real thread pacing before checking bounded replay shutdown."""
         path = _build_synthetic_adsb_sigmf(tmp_path, AU_ADSB_FREQUENCY_HZ)
         subscriber = MagicMock(spec=AdsbSubscriber)
         producer = AdsbDemoProducer(path, subscriber)
 
-        monkeypatch.setattr(
-            "core.pipeline.adsb_demo_producer.time.sleep",
-            lambda _s: None,
-        )
-
         producer.start()
+        # Keep a short delay to exercise stopping a running replay thread.
         time.sleep(0.05)
         producer.stop()
         producer.join(timeout=0.5)
@@ -390,8 +388,9 @@ class TestAdsbDemoProducerIntegration:
     """Prove the producer feeds real decoded aircraft to the subscriber."""
 
     def test_synthetic_sigmf_decodes_known_icao(
-        self, tmp_path: Path, monkeypatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Replay one chunk and wait for the expected ICAO broadcast."""
         path = _build_synthetic_adsb_sigmf(tmp_path, AU_ADSB_FREQUENCY_HZ)
         broadcast_messages: list[AdsbMessage] = []
 
@@ -405,11 +404,6 @@ class TestAdsbDemoProducerIntegration:
         subscriber.start()
 
         producer = AdsbDemoProducer(path, subscriber)
-        monkeypatch.setattr(
-            "core.pipeline.adsb_demo_producer.time.sleep",
-            lambda _s: None,
-        )
-
         # Run one chunk, then stop the producer immediately.
         real_receive = subscriber.receive
 
@@ -423,10 +417,13 @@ class TestAdsbDemoProducerIntegration:
             receive_once_and_stop,
         )
 
-        producer._run()
-        # Give the subscriber's decode thread time to demodulate/decode.
-        time.sleep(0.3)
-        subscriber.stop()
+        try:
+            producer._run()
+            wait_until(
+                lambda: any(msg.icao == "406B90" for msg in broadcast_messages)
+            )
+        finally:
+            subscriber.stop()
 
         assert len(broadcast_messages) >= 1
         assert any(msg.icao == "406B90" for msg in broadcast_messages), (

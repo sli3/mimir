@@ -11,6 +11,7 @@ import os
 import sys
 import threading
 import time
+from collections.abc import Callable
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -27,6 +28,7 @@ from core.pipeline.scanner import (
 )
 import dashboard.shared_state as shared_state
 from llm.classifier import ClassificationResult
+from tests.wait_helpers import wait_until
 
 
 @pytest.fixture
@@ -101,25 +103,35 @@ def scanner(config, mock_device, mock_embedder, mock_store, mock_classifier):
 
 class TestScanRunner:
     def test_single_cycle_emits_scan_result(
-        self, scanner, mock_device, mock_embedder, mock_store, mock_classifier
-    ):
+        self,
+        scanner: ScanRunner,
+        mock_device: MagicMock,
+        mock_embedder: MagicMock,
+        mock_store: MagicMock,
+        mock_classifier: MagicMock,
+    ) -> None:
+        """Wait for a ScanResult broadcast before stopping the workers."""
         emitted = []
         scanner._broadcast_fn = lambda sr: emitted.append(sr)
 
         t = threading.Thread(target=scanner.run, daemon=True)
         t.start()
-        time.sleep(0.6)
-        scanner.stop()
-        t.join(timeout=3)
+        try:
+            wait_until(lambda: len(emitted) >= 1)
+        finally:
+            scanner.stop()
+            t.join(timeout=3)
 
         assert len(emitted) >= 1
         assert isinstance(emitted[0], ScanResult)
 
-    def test_latest_wins_drains_stale_items(self, scanner):
+    def test_latest_wins_drains_stale_items(self, scanner: ScanRunner) -> None:
         """
         Verify that when the queue is pre-filled with stale items, running the scan
-        loop for one cycle results in queue depth of exactly 1 (the fresh item),
+        loop until a cycle completes leaves at most one fresh queued item,
         not the pre-filled stale count.
+
+        Wait for a completed scan and a queue depth of at most one.
         """
         maxsize = scanner._queue.maxsize
         for i in range(maxsize):
@@ -129,63 +141,95 @@ class TestScanRunner:
         scanner._running = True
         t = threading.Thread(target=scanner._scan_loop, daemon=True)
         t.start()
-        time.sleep(0.4)
-        scanner.stop()
-        t.join(timeout=3)
+        try:
+            wait_until(
+                lambda: scanner._scan_count >= 1
+                and scanner._queue.qsize() <= 1
+            )
+        finally:
+            scanner.stop()
+            t.join(timeout=3)
 
         assert scanner._queue.qsize() <= 1
 
-    def test_latest_wins_queue_never_saturates(self, scanner):
+    def test_latest_wins_queue_never_saturates(
+        self,
+        scanner: ScanRunner,
+    ) -> None:
         """
-        Verify that after running the scanner for a sustained period (1 second),
+        Verify that after at least ten completed scan cycles,
         the queue depth never reaches maxsize — the drain-before-insert prevents
         permanent saturation.
+
+        Wait for ten completed cycles before checking the final queue depth.
         """
         scanner._broadcast_fn = lambda sr: None
         t = threading.Thread(target=scanner.run, daemon=True)
         t.start()
-        time.sleep(1.0)
-        scanner.stop()
-        t.join(timeout=3)
+        try:
+            wait_until(
+                lambda: scanner._scan_count >= 10
+                and scanner._queue.qsize() <= 1
+            )
+        finally:
+            scanner.stop()
+            t.join(timeout=3)
 
         assert scanner._queue.qsize() <= 1
 
-    def test_stop_joins_both_threads(self, scanner):
+    def test_stop_joins_both_threads(self, scanner: ScanRunner) -> None:
+        """Allow worker startup before checking that stop joins the threads."""
         t = threading.Thread(target=scanner.run, daemon=True)
         t.start()
+        # Keep a short delay to exercise stopping after both workers start.
         time.sleep(0.05)
         scanner.stop()
         t.join(timeout=3)
         assert not t.is_alive()
 
-    def test_scan_loop_stays_on_focus_frequency(self, scanner, mock_device):
+    def test_scan_loop_stays_on_focus_frequency(
+        self,
+        scanner: ScanRunner,
+        mock_device: MagicMock,
+    ) -> None:
+        """Wait for five cycles before checking every tuned frequency."""
         t = threading.Thread(target=scanner.run, daemon=True)
         t.start()
-        time.sleep(0.5)
-        scanner.stop()
-        t.join(timeout=3)
+        try:
+            wait_until(lambda: scanner._scan_count >= 5)
+        finally:
+            scanner.stop()
+            t.join(timeout=3)
 
         calls = mock_device.set_center_frequency.call_args_list
         assert len(calls) >= 1
         for call in calls:
             assert call[0][0] == 98_000_000.0
 
-    def test_scan_loop_skips_redundant_retune(self, scanner, mock_device):
+    def test_scan_loop_skips_redundant_retune(
+        self,
+        scanner: ScanRunner,
+        mock_device: MagicMock,
+    ) -> None:
         """set_center_frequency must be called once, not on every iteration.
 
         With the frequency cache, a steady-state scan loop running N cycles
         at the same focus frequency should call set_center_frequency exactly
         once (the initial tune), not N times.
+
+        Wait for five completed cycles before checking the single retune.
         """
         t = threading.Thread(target=scanner.run, daemon=True)
         t.start()
-        time.sleep(0.5)  # allow several scan cycles at dwell_time=0.01s
-        scanner.stop()
-        t.join(timeout=3)
+        try:
+            wait_until(lambda: scanner._scan_count >= 5)
+        finally:
+            scanner.stop()
+            t.join(timeout=3)
 
         calls = mock_device.set_center_frequency.call_args_list
         # Must be called at least once (initial tune) but NOT once per cycle.
-        # With 0.01s dwell and 0.5s run time, uncached code would call ~40x.
+        # After five cycles, uncached code would retune at least five times.
         # Cached code must call exactly once for a single focus frequency.
         assert len(calls) == 1
         assert calls[0][0][0] == 98_000_000.0
@@ -234,17 +278,25 @@ class TestScanRunner:
         assert scanner._is_demo_device is True
 
     def test_read_error_calls_record_hw_error(
-        self, config, mock_device, mock_embedder, mock_store, mock_classifier
-    ):
+        self,
+        config: MimirConfig,
+        mock_device: MagicMock,
+        mock_embedder: MagicMock,
+        mock_store: MagicMock,
+        mock_classifier: MagicMock,
+    ) -> None:
+        """Wait for hardware-error accounting before stopping the workers."""
         mock_device.read_samples.side_effect = RuntimeError("USB timeout")
         scanner = ScanRunner(mock_device, mock_embedder, mock_store, mock_classifier, config)
 
         with patch("core.pipeline.scanner.record_hw_error") as mock_record:
             t = threading.Thread(target=scanner.run, daemon=True)
             t.start()
-            time.sleep(0.3)
-            scanner.stop()
-            t.join(timeout=3)
+            try:
+                wait_until(lambda: mock_record.call_count >= 1)
+            finally:
+                scanner.stop()
+                t.join(timeout=3)
 
             mock_record.assert_called()
 
@@ -276,9 +328,40 @@ class TestScanRunner:
                 mock_sleep.assert_called_once_with(_SCAN_ERROR_BACKOFF_SEC)
                 mock_record.assert_called_once()
 
+    def test_retune_error_logs_cycle_frequency_and_backs_off_once(
+        self,
+        scanner: ScanRunner,
+        mock_device: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A failed initial retune logs its frequency and backs off once."""
+        scanner.set_focus_frequency(98_000_000.0)
+        mock_device.set_center_frequency.side_effect = RuntimeError(
+            "Retune failed"
+        )
+
+        def stop_after_error(_seconds: float) -> None:
+            """Stop the synchronous scan loop at its error back-off."""
+            scanner._running = False
+
+        with caplog.at_level(logging.ERROR, logger="core.pipeline.scanner"):
+            with patch("core.pipeline.scanner.record_hw_error"), patch(
+                "core.pipeline.scanner.time.sleep",
+                side_effect=stop_after_error,
+            ) as mock_sleep:
+                scanner._running = True
+                scanner._scan_loop()
+
+        assert "Scan loop error at 98.000 MHz" in caplog.text
+        mock_sleep.assert_called_once_with(_SCAN_ERROR_BACKOFF_SEC)
+
     def test_ai_thread_classifies_queued_item(
-        self, scanner, mock_store, mock_classifier
-    ):
+        self,
+        scanner: ScanRunner,
+        mock_store: MagicMock,
+        mock_classifier: MagicMock,
+    ) -> None:
+        """Wait for classification before checking its input fingerprint."""
         scanner._running = True
         scanner._queue.put_nowait({
             "freq_hz": 98_000_000.0,
@@ -288,9 +371,11 @@ class TestScanRunner:
 
         t = threading.Thread(target=scanner._ai_loop, daemon=True)
         t.start()
-        time.sleep(0.1)
-        scanner.stop()
-        t.join(timeout=3)
+        try:
+            wait_until(lambda: scanner._llm_call_count == 1)
+        finally:
+            scanner.stop()
+            t.join(timeout=3)
 
         mock_classifier.classify.assert_called_once()
         call_args = mock_classifier.classify.call_args[0]
@@ -312,17 +397,23 @@ class TestScanRunner:
         assert "last_backlog" in scanner.get_stats()
         assert scanner.get_stats()["last_backlog"] == 0
 
-    def test_last_backlog_populated_after_ai_loop(self, scanner):
+    def test_last_backlog_populated_after_ai_loop(
+        self,
+        scanner: ScanRunner,
+    ) -> None:
         """
-        Verify _last_backlog is set after the AI loop processes one item,
-        and _scan_count_since_llm resets to 0.
+        Verify both backlog counters remain non-negative after classification.
+
+        Wait for classification before checking the backlog counters.
         """
         scanner._broadcast_fn = lambda sr: None
         t = threading.Thread(target=scanner.run, daemon=True)
         t.start()
-        time.sleep(1.0)
-        scanner.stop()
-        t.join(timeout=3)
+        try:
+            wait_until(lambda: scanner._llm_call_count >= 1)
+        finally:
+            scanner.stop()
+            t.join(timeout=3)
 
         assert scanner.get_stats()["last_backlog"] >= 0
         assert scanner._scan_count_since_llm >= 0
@@ -333,35 +424,58 @@ class TestScanRunner:
         """
         assert scanner.get_stats()["llm_call_count"] == 0
 
-    def test_llm_call_count_increments_after_classify(self, scanner):
+    def test_llm_call_count_increments_after_classify(
+        self,
+        scanner: ScanRunner,
+    ) -> None:
         """
         Verify llm_call_count increments after the AI loop successfully classifies.
+
+        Wait for the first counted classification before stopping the workers.
         """
         scanner._broadcast_fn = lambda sr: None
         t = threading.Thread(target=scanner.run, daemon=True)
         t.start()
-        time.sleep(1.0)
-        scanner.stop()
-        t.join(timeout=3)
+        try:
+            wait_until(lambda: scanner.get_stats()["llm_call_count"] >= 1)
+        finally:
+            scanner.stop()
+            t.join(timeout=3)
 
         assert scanner.get_stats()["llm_call_count"] >= 1
 
-    def test_scan_count_increments_after_run(self, scanner):
+    def test_scan_count_increments_after_run(
+        self,
+        scanner: ScanRunner,
+    ) -> None:
+        """Wait for a completed scan before checking its count."""
         scanner._broadcast_fn = lambda sr: None
         t = threading.Thread(target=scanner.run, daemon=True)
         t.start()
-        time.sleep(0.5)
-        scanner.stop()
-        t.join(timeout=3)
+        try:
+            wait_until(lambda: scanner.get_stats()["scan_count"] > 0)
+        finally:
+            scanner.stop()
+            t.join(timeout=3)
         assert scanner.get_stats()["scan_count"] > 0
 
-    def test_active_freq_hz_set_after_run(self, scanner, config):
+    def test_active_freq_hz_set_after_run(
+        self,
+        scanner: ScanRunner,
+        config: MimirConfig,
+    ) -> None:
+        """Wait until a configured frequency becomes active."""
         scanner._broadcast_fn = lambda sr: None
         t = threading.Thread(target=scanner.run, daemon=True)
         t.start()
-        time.sleep(0.5)
-        scanner.stop()
-        t.join(timeout=3)
+        try:
+            wait_until(
+                lambda: scanner.get_stats()["active_frequency_hz"]
+                in config.frequencies_hz
+            )
+        finally:
+            scanner.stop()
+            t.join(timeout=3)
         assert scanner.get_stats()["active_frequency_hz"] in config.frequencies_hz
 
     def test_queue_depth_is_non_negative(self, scanner):
@@ -370,25 +484,40 @@ class TestScanRunner:
     def test_last_llm_ms_non_negative(self, scanner):
         assert scanner.get_stats()["last_llm_ms"] >= 0.0
 
-    def test_last_llm_ms_populated_after_ai_loop(self, scanner):
+    def test_last_llm_ms_populated_after_ai_loop(
+        self,
+        scanner: ScanRunner,
+    ) -> None:
+        """Wait for classification before checking the inference time."""
         scanner._broadcast_fn = lambda sr: None
         t = threading.Thread(target=scanner.run, daemon=True)
         t.start()
-        time.sleep(0.5)
-        scanner.stop()
-        t.join(timeout=3)
+        try:
+            wait_until(lambda: scanner._llm_call_count >= 1)
+        finally:
+            scanner.stop()
+            t.join(timeout=3)
         assert scanner.get_stats()["last_llm_ms"] >= 0.0
 
-    def test_scan_loop_broadcasts_spectrum(self, scanner, config):
-        """_broadcast_spectrum_fn must be called from _scan_loop, not _ai_loop."""
+    def test_scan_loop_broadcasts_spectrum(
+        self,
+        scanner: ScanRunner,
+        config: MimirConfig,
+    ) -> None:
+        """_broadcast_spectrum_fn must be called from _scan_loop, not _ai_loop.
+
+        Wait for a spectrum broadcast before checking its shape and bounds.
+        """
         emitted = []
         scanner._broadcast_spectrum_fn = lambda *args: emitted.append(args)
         scanner._running = True
         t = threading.Thread(target=scanner._scan_loop, daemon=True)
         t.start()
-        time.sleep(0.15)
-        scanner.stop()
-        t.join(timeout=3)
+        try:
+            wait_until(lambda: len(emitted) >= 1)
+        finally:
+            scanner.stop()
+            t.join(timeout=3)
 
         assert len(emitted) >= 1
         psd_db, center, freq_min, freq_max = emitted[0]
@@ -428,9 +557,16 @@ class TestScanRunner:
         assert scan_results[0] is scan_result
         assert len(spectrum_calls) == 0
 
-    def test_ai_loop_suppresses_rapid_offline_emits(self, scanner, mock_classifier):
+    def test_ai_loop_suppresses_rapid_offline_emits(
+        self,
+        scanner: ScanRunner,
+        mock_classifier: MagicMock,
+    ) -> None:
         """If an llm_offline result arrives within the 5-second emit window, it must
-        not be emitted and _last_offline_emit must remain unchanged."""
+        not be emitted and _last_offline_emit must remain unchanged.
+
+        Wait for classification, then join before checking suppression.
+        """
         mock_classifier.classify.return_value = ClassificationResult(
             signal_type="llm_offline",
             confidence="low",
@@ -453,17 +589,26 @@ class TestScanRunner:
         with patch.object(scanner, "_emit_result") as mock_emit:
             t = threading.Thread(target=scanner._ai_loop, daemon=True)
             t.start()
-            time.sleep(0.1)
-            scanner.stop()
-            t.join(timeout=3)
+            try:
+                wait_until(lambda: scanner._llm_call_count == 1)
+            finally:
+                scanner.stop()
+                t.join(timeout=3)
 
             mock_emit.assert_not_called()
 
         assert scanner._last_offline_emit == original_last_emit
 
-    def test_ai_loop_emits_offline_after_interval(self, scanner, mock_classifier):
+    def test_ai_loop_emits_offline_after_interval(
+        self,
+        scanner: ScanRunner,
+        mock_classifier: MagicMock,
+    ) -> None:
         """If the 5-second emit window has expired, an llm_offline result must be
-        emitted and _last_offline_emit updated to approximately now."""
+        emitted and _last_offline_emit updated to approximately now.
+
+        Wait for the offline emission before checking its updated timestamp.
+        """
         mock_classifier.classify.return_value = ClassificationResult(
             signal_type="llm_offline",
             confidence="low",
@@ -485,17 +630,26 @@ class TestScanRunner:
         with patch.object(scanner, "_emit_result") as mock_emit:
             t = threading.Thread(target=scanner._ai_loop, daemon=True)
             t.start()
-            time.sleep(0.1)
-            scanner.stop()
-            t.join(timeout=3)
+            try:
+                wait_until(lambda: mock_emit.call_count == 1)
+            finally:
+                scanner.stop()
+                t.join(timeout=3)
 
             mock_emit.assert_called_once()
 
         assert scanner._last_offline_emit > time.time() - 2.0
 
-    def test_ai_loop_normal_results_always_emitted(self, scanner, mock_classifier):
+    def test_ai_loop_normal_results_always_emitted(
+        self,
+        scanner: ScanRunner,
+        mock_classifier: MagicMock,
+    ) -> None:
         """The llm_offline rate-limit gate must never suppress normal
-        classification results, even when the offline emit window is active."""
+        classification results, even when the offline emit window is active.
+
+        Wait for the normal emission before checking the call count.
+        """
         mock_classifier.classify.return_value = ClassificationResult(
             signal_type="fm_broadcast",
             confidence="high",
@@ -517,13 +671,18 @@ class TestScanRunner:
         with patch.object(scanner, "_emit_result") as mock_emit:
             t = threading.Thread(target=scanner._ai_loop, daemon=True)
             t.start()
-            time.sleep(0.1)
-            scanner.stop()
-            t.join(timeout=3)
+            try:
+                wait_until(lambda: mock_emit.call_count == 1)
+            finally:
+                scanner.stop()
+                t.join(timeout=3)
 
             mock_emit.assert_called_once()
 
-    def test_scan_loop_forwards_crop_half_width_hz(self, scanner):
+    def test_scan_loop_forwards_crop_half_width_hz(
+        self,
+        scanner: ScanRunner,
+    ) -> None:
         """_scan_loop must read band['crop_half_width_hz'] from shared_state
         and forward it to fingerprint_spectrum() (Phase 30).
 
@@ -531,6 +690,8 @@ class TestScanRunner:
         drives the scan loop for one cycle on the fm_broadcast band, and
         asserts the forwarded crop_half_width_hz matches the BAND_PROFILES
         value (112_500 for fm_broadcast).
+
+        Wait for the expected crop width to reach fingerprint_spectrum().
         """
         import dashboard.shared_state as shared_state
 
@@ -567,9 +728,13 @@ class TestScanRunner:
                 scanner._running = True
                 t = threading.Thread(target=scanner._scan_loop, daemon=True)
                 t.start()
-                time.sleep(0.3)
-                scanner.stop()
-                t.join(timeout=3)
+                try:
+                    wait_until(
+                        lambda: captured.get("crop_half_width_hz") == 112_500
+                    )
+                finally:
+                    scanner.stop()
+                    t.join(timeout=3)
 
             assert captured.get("crop_half_width_hz") == 112_500
         finally:
@@ -589,8 +754,13 @@ class TestScanLoopTraceKey:
     must keep the 'psd_db' default.
     """
 
-    def _run_loop_and_capture_trace_key(self, scanner, band_key, freq_hz):
-        """Drive the scan loop briefly on freq_hz with current_band set to
+    def _run_loop_and_capture_trace_key(
+        self,
+        scanner: ScanRunner,
+        band_key: str,
+        freq_hz: float,
+    ) -> str | None:
+        """Wait for the expected trace key on freq_hz with current_band set to
         BAND_PROFILES[band_key] and return the trace_key kwarg that was
         forwarded to fingerprint_spectrum()."""
         with shared_state.current_band_lock:
@@ -626,9 +796,16 @@ class TestScanLoopTraceKey:
                 scanner._running = True
                 t = threading.Thread(target=scanner._scan_loop, daemon=True)
                 t.start()
-                time.sleep(0.3)
-                scanner.stop()
-                t.join(timeout=3)
+                try:
+                    wait_until(
+                        lambda: captured.get("trace_key")
+                        == shared_state.BAND_PROFILES[band_key].get(
+                            "fingerprint_trace_key", "psd_db"
+                        )
+                    )
+                finally:
+                    scanner.stop()
+                    t.join(timeout=3)
             return captured.get("trace_key")
         finally:
             with shared_state.current_band_lock:
@@ -697,13 +874,15 @@ class TestAiLoopNoiseGate:
             "vector": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.3],
         })
 
-    def _drive_ai_loop(self, scanner):
-        """Run _ai_loop briefly in a daemon thread and stop it."""
+    def _drive_ai_loop(self, scanner: ScanRunner) -> None:
+        """Wait for the mocked emitter before stopping the AI loop."""
         t = threading.Thread(target=scanner._ai_loop, daemon=True)
         t.start()
-        time.sleep(0.1)
-        scanner.stop()
-        t.join(timeout=3)
+        try:
+            wait_until(lambda: scanner._emit_result.call_count >= 1)
+        finally:
+            scanner.stop()
+            t.join(timeout=3)
 
     def test_noise_shaped_skips_chroma_query(
         self, scanner, mock_store, mock_classifier
@@ -795,66 +974,132 @@ class TestScanLoopDeviceGuard:
     correctly.
     """
 
-    def _run_briefly(self, scanner, seconds=0.3):
+    def _run_briefly(
+        self,
+        scanner: ScanRunner,
+        predicate: Callable[[], bool],
+        observation_sec: float = 0.0,
+    ) -> None:
+        """Wait for a scan or skip outcome, then stop and join the workers.
+
+        Negative device-call and repeated-warning checks retain their original
+        bounded observation windows after the first skip has been confirmed.
+        """
         t = threading.Thread(target=scanner.run, daemon=True)
         t.start()
-        time.sleep(seconds)
-        scanner.stop()
-        t.join(timeout=3)
+        try:
+            wait_until(predicate)
+            if observation_sec:
+                # Keep the window to detect forbidden calls or repeat warnings.
+                threading.Event().wait(observation_sec)
+        finally:
+            scanner.stop()
+            t.join(timeout=3)
 
-    def test_scan_loop_hackrf_default_skips_guard(self, config, mock_device,
-                                                  mock_embedder, mock_store,
-                                                  mock_classifier):
+    def test_scan_loop_hackrf_default_skips_guard(
+        self,
+        config: MimirConfig,
+        mock_device: MagicMock,
+        mock_embedder: MagicMock,
+        mock_store: MagicMock,
+        mock_classifier: MagicMock,
+    ) -> None:
         """Default device_driver="hackrf" tunes and reads as before — the
-        guard adds no behavioural change on the HackRF path."""
+        guard adds no behavioural change on the HackRF path.
+
+        Wait for five completed scan cycles before checking device calls.
+        """
         scanner = ScanRunner(mock_device, mock_embedder, mock_store,
                              mock_classifier, config)
-        self._run_briefly(scanner, 0.3)
+        self._run_briefly(scanner, lambda: scanner._scan_count >= 5)
         mock_device.set_center_frequency.assert_called_with(98_000_000.0)
         mock_device.read_samples.assert_called()
 
-    def test_scan_loop_plutosdr_skips_unsupported_band(self, config, mock_device,
-                                                       mock_embedder, mock_store,
-                                                       mock_classifier):
+    def test_scan_loop_plutosdr_skips_unsupported_band(
+        self,
+        config: MimirConfig,
+        mock_device: MagicMock,
+        mock_embedder: MagicMock,
+        mock_store: MagicMock,
+        mock_classifier: MagicMock,
+    ) -> None:
         """Pluto focused on 98 MHz (below its 325 MHz floor) must never
-        tune or read samples."""
+        tune or read samples.
+
+        Confirm a skip, then keep a bounded window to detect forbidden calls.
+        """
         scanner = ScanRunner(mock_device, mock_embedder, mock_store,
                              mock_classifier, config,
                              device_driver="plutosdr")
-        self._run_briefly(scanner, 0.3)
+        self._run_briefly(
+            scanner,
+            lambda: scanner._last_unsupported_log_hz == scanner._focus_freq_hz,
+            observation_sec=0.3,
+        )
         mock_device.set_center_frequency.assert_not_called()
         mock_device.read_samples.assert_not_called()
 
-    def test_scan_loop_plutosdr_tunes_supported_band(self, config, mock_device,
-                                                     mock_embedder, mock_store,
-                                                     mock_classifier):
-        """Pluto focused on 1090 MHz (ADS-B, supported) tunes and reads."""
+    def test_scan_loop_plutosdr_tunes_supported_band(
+        self,
+        config: MimirConfig,
+        mock_device: MagicMock,
+        mock_embedder: MagicMock,
+        mock_store: MagicMock,
+        mock_classifier: MagicMock,
+    ) -> None:
+        """Pluto focused on 1090 MHz (ADS-B, supported) tunes and reads.
+
+        Wait for five completed scan cycles before checking device calls.
+        """
         scanner = ScanRunner(mock_device, mock_embedder, mock_store,
                              mock_classifier, config,
                              device_driver="plutosdr")
         scanner.set_focus_frequency(1_090_000_000.0)
-        self._run_briefly(scanner, 0.3)
+        self._run_briefly(scanner, lambda: scanner._scan_count >= 5)
         mock_device.set_center_frequency.assert_called_with(1_090_000_000.0)
         mock_device.read_samples.assert_called()
 
-    def test_scan_loop_plutosdr_logs_once_per_focus_change(self, config, mock_device,
-                                                           mock_embedder, mock_store,
-                                                           mock_classifier, caplog):
+    def test_scan_loop_plutosdr_logs_once_per_focus_change(
+        self,
+        config: MimirConfig,
+        mock_device: MagicMock,
+        mock_embedder: MagicMock,
+        mock_store: MagicMock,
+        mock_classifier: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
         """Dwelling on an unsupported band logs the skip warning exactly
-        once, not once per scan iteration."""
+        once, not once per scan iteration.
+
+        Confirm a skip, then keep the warning-suppression observation window.
+        """
         scanner = ScanRunner(mock_device, mock_embedder, mock_store,
                              mock_classifier, config,
                              device_driver="plutosdr")
         with caplog.at_level(logging.WARNING, logger="core.pipeline.scanner"):
-            self._run_briefly(scanner, 0.5)
+            self._run_briefly(
+                scanner,
+                lambda: scanner._last_unsupported_log_hz
+                == scanner._focus_freq_hz,
+                observation_sec=0.5,
+            )
         skipping = [r for r in caplog.records if "Skipping" in r.getMessage()]
         assert len(skipping) == 1
 
     def test_scan_loop_plutosdr_resets_log_gate_on_supported_focus(
-            self, config, mock_device, mock_embedder, mock_store,
-            mock_classifier, caplog):
+        self,
+        config: MimirConfig,
+        mock_device: MagicMock,
+        mock_embedder: MagicMock,
+        mock_store: MagicMock,
+        mock_classifier: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
         """Leaving an unsupported band for a supported one resets the log
-        gate, so returning to the unsupported band logs again."""
+        gate, so returning to the unsupported band logs again.
+
+        Wait for each skip, supported scan, and return warning in sequence.
+        """
         scanner = ScanRunner(mock_device, mock_embedder, mock_store,
                              mock_classifier, config,
                              device_driver="plutosdr")
@@ -862,28 +1107,51 @@ class TestScanLoopDeviceGuard:
             scanner._running = True
             t = threading.Thread(target=scanner._scan_loop, daemon=True)
             t.start()
-            time.sleep(0.2)  # first visit to 98 MHz — logs once
-            scanner.set_focus_frequency(1_090_000_000.0)
-            time.sleep(0.2)  # supported visit — resets the gate
-            scanner.set_focus_frequency(98_000_000.0)
-            time.sleep(0.2)  # second visit to 98 MHz — logs again
-            scanner.stop()
-            t.join(timeout=3)
+            try:
+                wait_until(
+                    lambda: scanner._last_unsupported_log_hz == 98_000_000.0
+                )
+                scanner.set_focus_frequency(1_090_000_000.0)
+                wait_until(
+                    lambda: scanner._scan_count >= 1
+                    and scanner._last_unsupported_log_hz is None
+                )
+                scanner.set_focus_frequency(98_000_000.0)
+                wait_until(
+                    lambda: sum(
+                        "Skipping" in r.getMessage() for r in caplog.records
+                    ) == 2
+                )
+            finally:
+                scanner.stop()
+                t.join(timeout=3)
         skipping = [r for r in caplog.records if "Skipping" in r.getMessage()]
         assert len(skipping) == 2
 
-    def test_scan_loop_plutosdr_skips_out_of_range_freq(self, config, mock_device,
-                                                         mock_embedder, mock_store,
-                                                         mock_classifier):
+    def test_scan_loop_plutosdr_skips_out_of_range_freq(
+        self,
+        config: MimirConfig,
+        mock_device: MagicMock,
+        mock_embedder: MagicMock,
+        mock_store: MagicMock,
+        mock_classifier: MagicMock,
+    ) -> None:
         """Pluto focused on 4 GHz — above its 3.8 GHz ceiling — must never
         tune or read samples, even though the nearest-band lookup resolves
         it to "adsb" (a Pluto-supported band). HIGH-01: the raw frequency
-        range check is the authoritative gate, not the band lookup."""
+        range check is the authoritative gate, not the band lookup.
+
+        Confirm a skip, then keep a bounded window to detect forbidden calls.
+        """
         scanner = ScanRunner(mock_device, mock_embedder, mock_store,
                              mock_classifier, config,
                              device_driver="plutosdr")
         scanner.set_focus_frequency(4_000_000_000.0)
-        self._run_briefly(scanner, 0.3)
+        self._run_briefly(
+            scanner,
+            lambda: scanner._last_unsupported_log_hz == scanner._focus_freq_hz,
+            observation_sec=0.3,
+        )
         mock_device.set_center_frequency.assert_not_called()
         mock_device.read_samples.assert_not_called()
 
@@ -897,17 +1165,26 @@ class TestScanLoopRetuneDiscard:
     fire when the frequency is unchanged.
     """
 
-    def test_discard_read_immediately_follows_retune(self, scanner, mock_device):
+    def test_discard_read_immediately_follows_retune(
+        self,
+        scanner: ScanRunner,
+        mock_device: MagicMock,
+    ) -> None:
         """T6: the first set_center_frequency must be followed directly by
-        a read_samples (the discard), with nothing in between."""
+        a read_samples (the discard), with nothing in between.
+
+        Wait for a read before checking the ordered device calls.
+        """
         manager = MagicMock()
         manager.attach_mock(mock_device.set_center_frequency, "set_center_frequency")
         manager.attach_mock(mock_device.read_samples, "read_samples")
         t = threading.Thread(target=scanner.run, daemon=True)
         t.start()
-        time.sleep(0.3)
-        scanner.stop()
-        t.join(timeout=3)
+        try:
+            wait_until(lambda: mock_device.read_samples.call_count >= 1)
+        finally:
+            scanner.stop()
+            t.join(timeout=3)
         calls = [c[0] for c in manager.mock_calls]
         # First retune must be immediately followed by a discard read
         assert "set_center_frequency" in calls, "set_center_frequency was never called"
@@ -918,18 +1195,27 @@ class TestScanLoopRetuneDiscard:
             f"but got: {calls[retune_idx:retune_idx+3]}"
         )
 
-    def test_no_discard_read_when_freq_unchanged(self, scanner, mock_device):
+    def test_no_discard_read_when_freq_unchanged(
+        self,
+        scanner: ScanRunner,
+        mock_device: MagicMock,
+    ) -> None:
         """T7: across many steady-state cycles there is exactly ONE
         read_samples immediately preceded by set_center_frequency — the
-        single discard after the single initial retune."""
+        single discard after the single initial retune.
+
+        Wait for three completed cycles before counting discard reads.
+        """
         manager = MagicMock()
         manager.attach_mock(mock_device.set_center_frequency, "set_center_frequency")
         manager.attach_mock(mock_device.read_samples, "read_samples")
         t = threading.Thread(target=scanner.run, daemon=True)
         t.start()
-        time.sleep(0.5)  # many scan cycles at dwell_time=0.01s
-        scanner.stop()
-        t.join(timeout=3)
+        try:
+            wait_until(lambda: scanner._scan_count >= 3)
+        finally:
+            scanner.stop()
+            t.join(timeout=3)
         calls = [c[0] for c in manager.mock_calls]
         # Count the number of "read_samples immediately after set_center_frequency"
         retune_then_read = sum(
@@ -1195,10 +1481,16 @@ class TestScanLoopCaptureTrigger:
             "spectral_flatness": 0.5,
         }
 
-    def _drive_scan_loop(self, scanner, low_snr, high_snr, seconds=0.4):
-        """Run _scan_loop briefly: first cycle returns low_snr, every
+    def _drive_scan_loop(
+        self,
+        scanner: ScanRunner,
+        low_snr: float,
+        high_snr: float,
+    ) -> None:
+        """Wait for three completed scan cycles: first returns low_snr, every
         later cycle returns high_snr (fm_broadcast threshold is 21.0 dB,
         so low=10.0 / high=25.0 describes a single rising edge)."""
+        start_count = scanner._scan_count
         low = self._fingerprint(low_snr)
         high = self._fingerprint(high_snr)
         calls = {"n": 0}
@@ -1214,9 +1506,11 @@ class TestScanLoopCaptureTrigger:
             scanner._running = True
             t = threading.Thread(target=scanner._scan_loop, daemon=True)
             t.start()
-            time.sleep(seconds)
-            scanner.stop()
-            t.join(timeout=3)
+            try:
+                wait_until(lambda: scanner._scan_count >= start_count + 3)
+            finally:
+                scanner.stop()
+                t.join(timeout=3)
         assert calls["n"] >= 2, "scan loop did not complete enough cycles"
 
     def test_armed_band_saves_once_on_snr_crossing(self, scanner):
@@ -1275,13 +1569,15 @@ class TestScanLoopCaptureTrigger:
         assert shared_state.get_last_trigger_snr("fm_broadcast") == 25.0
 
     def test_missing_threshold_key_uses_shared_fallback_on_both_paths(
-        self, scanner
-    ):
+        self, scanner: ScanRunner
+    ) -> None:
         """EDGE-03: a current_band dict missing signal_threshold_db must
         resolve to features.SIGNAL_THRESHOLD_DB on BOTH the fingerprinting
         path and the trigger-check path. The scan loop computes one
         `threshold` local with the fallback and reuses it for both, so
         the two paths can never diverge on a band dict lacking the key.
+
+        Wait for both paths to capture the shared fallback threshold.
         """
         with shared_state.current_band_lock:
             shared_state.current_band.clear()
@@ -1311,9 +1607,16 @@ class TestScanLoopCaptureTrigger:
             scanner._running = True
             t = threading.Thread(target=scanner._scan_loop, daemon=True)
             t.start()
-            time.sleep(0.4)
-            scanner.stop()
-            t.join(timeout=3)
+            try:
+                wait_until(
+                    lambda: captured.get("fingerprint_threshold")
+                    == features.SIGNAL_THRESHOLD_DB
+                    and captured.get("trigger_threshold")
+                    == features.SIGNAL_THRESHOLD_DB
+                )
+            finally:
+                scanner.stop()
+                t.join(timeout=3)
 
         # Both paths ran (armed fm_broadcast at 98 MHz) and both saw the
         # module-level fallback, not a divergent None from a bare .get().
@@ -1651,8 +1954,8 @@ class TestRecording:
         mock_save.assert_not_called()
 
     def test_recording_accumulates_samples_and_fingerprints_across_cycles(
-        self, scanner, mock_device
-    ):
+        self, scanner: ScanRunner, mock_device: MagicMock
+    ) -> None:
         """Integration: with recording active, the scan loop appends each
         cycle's samples to the buffer and one per-cycle fingerprint entry;
         stop_recording() calls save_recording exactly ONCE with the
@@ -1662,6 +1965,8 @@ class TestRecording:
         The mocked device returns alternating 1024/2048-sample constant-
         filled arrays (fill value = read index), so the concatenation
         order is verifiable against the recorded chunk boundaries.
+
+        Wait for two recorded fingerprints before stopping the recording.
         """
         import numpy as np
         from core.pipeline.capture import _FINGERPRINT_METADATA_KEYS
@@ -1687,11 +1992,13 @@ class TestRecording:
             scanner._running = True
             t = threading.Thread(target=scanner._scan_loop, daemon=True)
             t.start()
-            assert scanner.start_recording() == {"status": "ok"}
-            time.sleep(0.4)
-            result = scanner.stop_recording()
-            scanner.stop()
-            t.join(timeout=3)
+            try:
+                assert scanner.start_recording() == {"status": "ok"}
+                wait_until(lambda: len(scanner._record_fingerprints) >= 2)
+                result = scanner.stop_recording()
+            finally:
+                scanner.stop()
+                t.join(timeout=3)
 
         assert result["status"] == "ok"
         mock_save_rec.assert_called_once()
@@ -1737,13 +2044,19 @@ class TestRecording:
             prev_read_index = read_index
             offset += entry["sample_count"]
 
-    def test_trigger_suppressed_during_recording(self, scanner):
+    def test_trigger_suppressed_during_recording(
+        self,
+        scanner: ScanRunner,
+    ) -> None:
         """With fm_broadcast armed, an SNR crossing that would normally
         fire the auto-trigger must NOT call save_capture while a recording
         is active (the samples are already being accumulated). After the
         recording stops, a fresh crossing fires normally — proving
         check_and_update_trigger_state() kept prev_snr current throughout
-        (no spurious fire on the first cycle after the stop)."""
+        (no spurious fire on the first cycle after the stop).
+
+        Wait for recorded cycles, then a saved crossing and a later cycle.
+        """
         shared_state.set_trigger_armed("fm_broadcast", True)
         low = self._fingerprint(10.0)
         high = self._fingerprint(25.0)
@@ -1767,26 +2080,31 @@ class TestRecording:
             scanner._running = True
             t = threading.Thread(target=scanner._scan_loop, daemon=True)
             t.start()
-            time.sleep(0.4)
-            assert scanner._recording is True
-            assert len(scanner._record_fingerprints) >= 2
-            mock_save_cap.assert_not_called()
+            try:
+                wait_until(lambda: len(scanner._record_fingerprints) >= 2)
+                assert scanner._recording is True
+                assert len(scanner._record_fingerprints) >= 2
+                mock_save_cap.assert_not_called()
 
-            # Stop the recording; the mocked save_recording means no
-            # disk write happens.
-            result = scanner.stop_recording()
-            assert result["status"] == "ok"
-            mock_save_rec.assert_called_once()
+                # Stop the recording; the mocked save_recording means no
+                # disk write happens.
+                result = scanner.stop_recording()
+                assert result["status"] == "ok"
+                mock_save_rec.assert_called_once()
 
-            # Phase 2: recording over — a fresh crossing fires normally.
-            # prev_snr is 25 from phase 1 (kept current throughout the
-            # recording); the reset sequence starts low again, so the
-            # trigger sees 25 -> 10 (no fire, falling) then 10 -> 25
-            # (fires exactly once).
-            calls["n"] = 0
-            time.sleep(0.4)
-            scanner.stop()
-            t.join(timeout=3)
+                # Phase 2: recording over — a fresh crossing fires normally.
+                # prev_snr is 25 from phase 1 (kept current throughout the
+                # recording); the reset sequence starts low again, so the
+                # trigger sees 25 -> 10 (no fire, falling) then 10 -> 25
+                # (fires exactly once).
+                calls["n"] = 0
+                wait_until(
+                    lambda: mock_save_cap.call_count == 1
+                    and calls["n"] >= 3
+                )
+            finally:
+                scanner.stop()
+                t.join(timeout=3)
 
         assert mock_save_cap.call_count == 1
 
@@ -1825,8 +2143,14 @@ class TestStartAiOnly:
     as ``None``.
     """
 
-    def test_start_ai_only_runs_ai_thread_only(self, scanner):
-        """start_ai_only() starts the AI thread and joins until stop()."""
+    def test_start_ai_only_runs_ai_thread_only(
+        self,
+        scanner: ScanRunner,
+    ) -> None:
+        """start_ai_only() starts the AI thread and joins until stop().
+
+        Keep a short startup delay in the stopping helper.
+        """
         scanner._running = True
         # Pre-fill the queue so the AI loop processes something and then
         # waits, giving us time to stop it cleanly.
@@ -1836,7 +2160,9 @@ class TestStartAiOnly:
             "vector": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.3],
         })
 
-        def stop_after_delay():
+        def stop_after_delay() -> None:
+            """Allow AI-only startup briefly, then stop it."""
+            # Keep a short delay so start_ai_only() can start before stop().
             time.sleep(0.05)
             scanner.stop()
 
@@ -1849,8 +2175,14 @@ class TestStartAiOnly:
         assert not scanner._ai_thread.is_alive()
         assert scanner._scan_thread is None
 
-    def test_start_ai_only_does_not_start_scan_thread(self, scanner):
-        """After start_ai_only() returns, no scan thread was ever created."""
+    def test_start_ai_only_does_not_start_scan_thread(
+        self,
+        scanner: ScanRunner,
+    ) -> None:
+        """After start_ai_only() returns, no scan thread was ever created.
+
+        Keep a short startup delay in the stopping helper.
+        """
         scanner._running = True
         scanner._queue.put_nowait({
             "freq_hz": 98_000_000.0,
@@ -1858,7 +2190,9 @@ class TestStartAiOnly:
             "vector": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.3],
         })
 
-        def stop_after_delay():
+        def stop_after_delay() -> None:
+            """Allow AI-only startup briefly, then stop it."""
+            # Keep a short delay so start_ai_only() can start before stop().
             time.sleep(0.05)
             scanner.stop()
 
