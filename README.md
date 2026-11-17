@@ -136,12 +136,13 @@ The dashboard displays offline status in the AI Reasoning panel (amber "LLM OFFL
 To verify the live pipeline is emitting events correctly (requires `scan.py` running):
 
 ```bash
-python tools/diagnose_live.py --duration 60 --url http://localhost:5000
+PYTHONPATH=. python tools/diagnose_live.py --duration 60 --url http://localhost:5000
 ```
 
 Output shows live `[spectrum_update]` and `[scan_result]` events per band,
-event rate, gap detection, and a PASS/FAIL summary. Use `--duration 60` minimum
-— the scanner cycles all four AU bands sequentially and the cycle time is long.
+event rate, gap detection, and a PASS/FAIL summary. Use `--duration 60` minimum.
+The scanner stays on the band selected in the dashboard, so the events shown
+are for that band.
 
 ---
 
@@ -484,9 +485,17 @@ mimir/
 ├── tools/
 │   ├── calibrate_thresholds.py        ← ChromaDB threshold calibration
 │   ├── capture_to_vectorstore.py      ← Live capture → production vector store
+│   ├── compare_decode_rate.py         ← HackRF vs Pluto ADS-B decode-rate comparison
+│   ├── delete_low_snr.py              ← Delete low-SNR vectors for one label
 │   ├── diagnose_fingerprints.py       ← Fingerprint diagnostics
+│   ├── diagnose_live.py               ← Live pipeline diagnostic (CLI)
+│   ├── diagnose_pluto_gain.py         ← Pluto gain calibration diagnostic
 │   ├── diagnose_threshold.py          ← Threshold diagnostics
-│   └── diagnose_live.py               ← Live pipeline diagnostic (CLI)
+│   ├── generate_demo_cache.py         ← Demo-mode LLM response cache
+│   ├── inspect_snr.py                 ← Read-only SNR inspection of stored vectors
+│   ├── replay_capture.py              ← Replay a saved SigMF capture (no hardware)
+│   ├── seed_chromadb.py               ← Seed ChromaDB with the RTL-ML dataset
+│   └── archive/                       ← Archived tools
 ├── config/
 │   └── mimir.yaml                     ← Runtime configuration
 ├── tests/
