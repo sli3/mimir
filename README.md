@@ -25,7 +25,7 @@ See `docs/au-legal-reference.md` for full details.
 
 ## Hardware
 
-- **SDR**: HackRF One (receive only — NEVER transmit)
+- **SDR**: HackRF One (1 MHz to 6 GHz) or ADALM-PLUTO (325 MHz to 3.8 GHz), both receive only — NEVER transmit. One device at a time: `scan.py` prefers the Pluto when both are connected, and the HackRF is needed for the bands below 325 MHz. Force a device with `--device hackrf` or `--device plutosdr`.
 - **Primary OS**: Linux Fedora 44
 - **Secondary OS**: macOS Intel iMac
 - **Intelligence**: Local LLM server (OpenAI-compatible API)
@@ -162,7 +162,7 @@ only a quick-glance summary — update `docs/ROADMAP.md` first, then sync this b
 
 ## Diagnostic Tools
 
-Mimir ships with four standalone tools in `tools/`. These are run manually from the project root — they require the HackRF to be plugged in with an antenna attached, and the Python environment to be active.
+Mimir ships with standalone tools in `tools/`. These are run manually from the project root with the Python environment active. The live-capture tools below need an SDR plugged in with an antenna attached; `replay_capture.py` works on saved files only and needs no hardware.
 
 All tools are receive-only. No transmission occurs. Jurisdiction: AU/SA — Radiocommunications Act 1992 (Cth).
 
@@ -196,9 +196,12 @@ PYTHONPATH=. python tools/diagnose_threshold.py
 
 # Sweep a single band
 PYTHONPATH=. python tools/diagnose_threshold.py --band adsb
+
+# Sweep with the Pluto instead of the HackRF
+PYTHONPATH=. python tools/diagnose_threshold.py --device pluto --band ism
 ```
 
-Valid `--band` values: `fm_broadcast`, `aviation_vhf`, `acars`, `aprs`, `ism_lora`, `ads_b`.
+Valid `--band` values with the default `--device hackrf`: `fm_broadcast`, `aviation`, `acars`, `aprs`, `ism`, `adsb`. With `--device pluto`: `ism` and `adsb` only.
 
 Output: per-band tables of threshold → bandwidth → bins, a recommended value for each band, and a summary table. Take the recommended values and update `signal_threshold_db` in `BAND_PROFILES` (dashboard/shared_state.py).
 
@@ -326,9 +329,8 @@ Then open your browser at `http://localhost:5000`. The cyberpunk dashboard will 
 - **Waterfall** — live spectrum activity across all seven monitored AU frequency bands (FM, APRS, Aviation VHF, ACARS, ISM/LoRa, AIS, ADS-B)
 - **AI Reasoning** — LLM classification output for the most recent signal
 - **Signal History** — a scrolling log of all detected signals this session
-- **Frequency List** — the bands Mimir is currently monitoring
 - **System Stats** — scanner status, connection state, and hardware info
-- **Character Panel** — visual indicator of current activity level (idle / low / high / anomaly)
+- **CAPTURE NOW / RECORD** — CAPTURE NOW saves the current samples as a one-shot SigMF capture; RECORD starts a recording and a second press stops it and saves one SigMF file. Both save under `data/captures/`.
 - **Decoded Signals** — decoder sub-panels for the currently focused band (ADS-B aircraft, ACARS messages, AIS vessels). Only the relevant panel for the tuned band is shown; a "NO DECODER FOR THIS BAND" placeholder appears for non-decoder bands (FM, APRS, Aviation VHF, ISM/LoRa).
 
 The scanner starts automatically when the server starts. It cycles through the configured frequency bands continuously.
@@ -340,6 +342,26 @@ If no supported SDR is connected, `scan.py` logs a clear error message and exits
 A separate vector space visualisation page is available at `http://localhost:5000/vectordb`. This page provides an interactive 3D scatter plot of all stored ChromaDB embeddings, helping you explore the structure of signal fingerprints and identify clustering patterns. The page is isolated from the main dashboard to avoid clutter and provides a focused view of the vector space.
 
 **Note:** The vector space page requires scikit-learn and React Three.js dependencies. These are automatically installed when running `uv sync --all-extras` or `setup.sh`.
+
+### Radar page
+
+`http://localhost:5000/radar` shows decoded ADS-B aircraft on a radar scope, with an aircraft detail panel and a path prediction panel. It fills from ADS-B decodes, so it needs the scanner on 1090 MHz with aircraft in range.
+
+### Replay page
+
+`http://localhost:5000/replay` lists the saved SigMF captures in `data/captures/`. Pick one to replay it through the fingerprint pipeline and compare the saved and replayed fingerprint fields, chunk by chunk. No hardware is used.
+
+### Demo mode
+
+Demo mode replays saved SigMF captures through the classifier pipeline with cached LLM responses. It opens no SDR and calls no live LLM.
+
+```bash
+env PYTHONPATH=. .venv-scan/bin/python -s scan.py --demo --demo-files data/captures/<stem>.sigmf-meta
+```
+
+- The cache `data/demo_cache/<stem>.json` must exist (named after the first `--demo-files` file); `--demo-cache` points at a different one. `tools/generate_demo_cache.py` builds cache files.
+- `--demo-files-adsb` optionally names a 2 MSa/s, 1090 MHz capture to feed the ADS-B decoder.
+- `--demo` cannot be combined with `--device`.
 
 ### Dependencies
 
@@ -437,6 +459,7 @@ mimir/
 ├── core/
 │   ├── device/
 │   │   ├── hackrf_rx.py               ← RX-only HackRF wrapper (TX hard blocked)
+│   │   ├── pluto_rx.py                ← RX-only ADALM-PLUTO wrapper (TX hard blocked)
 │   │   └── device_base.py             ← Abstract device interface
 │   ├── legal/
 │   │   └── compliance_guard.py        ← HardwareTransmitError TX block
@@ -444,6 +467,7 @@ mimir/
 │       ├── capture.py                 ← IQ capture + save to disk
 │       ├── fft.py                     ← FFT + PSD computation
 │       ├── features.py                ← fingerprint_spectrum()
+│       ├── scanner.py                 ← ScanRunner scan and AI loops
 │       └── scan_result.py             ← ScanResult dataclass
 ├── embeddings/
 │   ├── embedder.py                    ← SpectrumEmbedder
@@ -456,7 +480,6 @@ mimir/
 │   └── adsb/                          ← ADS-B decoder (Phase 9F)
 ├── dashboard/
 │   ├── server.py                      ← Flask + Socket.IO server
-│   ├── scanner.py                     ← Scan loop + event emission
 │   └── static/                        ← Vite build output (generated)
 ├── tools/
 │   ├── calibrate_thresholds.py        ← ChromaDB threshold calibration
