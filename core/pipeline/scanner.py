@@ -31,6 +31,10 @@ from llm.acma_reference import AcmaReference
 logger = logging.getLogger(__name__)
 
 _SAMPLE_RATE_HZ = 2_000_000
+# Pause after a failed scan cycle so a persistent device or pipeline error
+# cannot spin the loop and flood the log. Deliberately not config.dwell_time_sec,
+# which is 0.0 in config/mimir.yaml.
+_SCAN_ERROR_BACKOFF_SEC: float = 1.0
 
 
 def _should_fire_trigger(
@@ -520,6 +524,10 @@ class ScanRunner:
         broadcast failure (e.g. no connected dashboard) does not prevent the scan
         loop from continuing or the fingerprint from reaching the AI pipeline.
 
+        The outer error handler logs any exception that escapes a scan cycle and
+        pauses for the fixed ``_SCAN_ERROR_BACKOFF_SEC`` before retrying. This
+        sleep is not interruptible, so ``stop()`` can lag by up to the back-off.
+
         "Latest wins" queue behaviour:
         Before inserting a fingerprint, the queue is drained completely. Because LLM
         inference (~2500 ms) is slower than the scan rate (~260 ms), a FIFO queue would
@@ -833,6 +841,7 @@ class ScanRunner:
                 self._scan_count += 1
             except Exception:
                 logger.exception("Scan loop error at %.3f MHz", freq_hz / 1e6)
+                time.sleep(_SCAN_ERROR_BACKOFF_SEC)
 
     def _ai_loop(self) -> None:
         """AI classification loop.

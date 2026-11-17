@@ -20,7 +20,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from core.config.loader import MimirConfig
 from core.pipeline import features
 from core.pipeline.scan_result import ScanResult
-from core.pipeline.scanner import ScanRunner, _should_fire_trigger
+from core.pipeline.scanner import (
+    ScanRunner,
+    _SCAN_ERROR_BACKOFF_SEC,
+    _should_fire_trigger,
+)
 import dashboard.shared_state as shared_state
 from llm.classifier import ClassificationResult
 
@@ -243,6 +247,34 @@ class TestScanRunner:
             t.join(timeout=3)
 
             mock_record.assert_called()
+
+    def test_read_error_backs_off_once(
+        self,
+        config: MimirConfig,
+        mock_device: MagicMock,
+        mock_embedder: MagicMock,
+        mock_store: MagicMock,
+        mock_classifier: MagicMock,
+    ) -> None:
+        """A failed read records one hardware error and uses the fixed back-off."""
+        mock_device.read_samples.side_effect = RuntimeError("USB timeout")
+        scanner = ScanRunner(
+            mock_device, mock_embedder, mock_store, mock_classifier, config
+        )
+
+        def stop_after_error(_seconds: float) -> None:
+            """Stop the synchronous scan loop when it reaches the back-off."""
+            scanner._running = False
+
+        with patch("core.pipeline.scanner.record_hw_error") as mock_record:
+            with patch(
+                "core.pipeline.scanner.time.sleep", side_effect=stop_after_error
+            ) as mock_sleep:
+                scanner._running = True
+                scanner._scan_loop()
+
+                mock_sleep.assert_called_once_with(_SCAN_ERROR_BACKOFF_SEC)
+                mock_record.assert_called_once()
 
     def test_ai_thread_classifies_queued_item(
         self, scanner, mock_store, mock_classifier
