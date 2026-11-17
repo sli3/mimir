@@ -111,7 +111,10 @@ BAND_PROFILES: dict = {
         "center_freq_hz":      1_090_000_000,
         "lna_gain_db":         24,  # 1090 MHz ADS-B moderate strength
         "vga_gain_db":         24,
-        "signal_threshold_db": 3.0,    # Calibrated live ADS-B 1090 MHz, diagnose_threshold.py x3 runs
+        # HackRF threshold is a placeholder, not calibrated: the 2026-08-17
+        # HackRF field session was inconclusive. See docs/TECH_DEBT.md HIGH-01.
+        # Pluto uses 10.0 dB.
+        "signal_threshold_db": 3.0,
         "crop_half_width_hz":  900_000,
         # ADS-B is the only burst-flagged band: squitters are ~120 us
         # pulses at roughly 1% duty cycle, so the averaged trace
@@ -427,7 +430,9 @@ def set_trigger_armed(band: str, armed: bool) -> None:
     Only bands in TRIGGER_ARMABLE_BANDS may be armed. The restriction
     exists because the trigger fires when the measured SNR crosses the
     band's signal_threshold_db, and that threshold is only meaningful on
-    the four field-calibrated bands (fm_broadcast, aprs, ism, adsb). On
+    the field-calibrated bands (fm_broadcast, aprs, ism); adsb is
+    field-calibrated on the Pluto only. The HackRF adsb threshold is still
+    a placeholder (see docs/TECH_DEBT.md HIGH-01). On
     the uncalibrated bands (aviation, acars, ais) the threshold is an
     unverified estimate, so an edge crossing there could be a false or
     meaningless trigger that writes a capture file for pure noise.
