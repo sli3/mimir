@@ -29,6 +29,18 @@ How Bash is checked (2026-11-16 hardening, after Fable's bypass review):
     blocked; a plain session gets a permission prompt instead.
   * The hook runs through run_guard.py, which turns any failure of this file
     (including one that no longer parses) into a block.
+  * Second review of 323319a (also Fable): no line breaks at all, no pytest
+    @file arguments, an 8000-character cap so every check finishes far inside
+    the 10 s hook timeout, quote-aware every-session rules (a commit message
+    naming "(scan.py ...)" is prose, not a command), git send-pack counted as a
+    push, git read commands and recursive grep kept inside the project and off
+    .env, Monitor checked like Bash, and pm's browser keys limited to
+    navigation keys.
+
+Known limits, left to the permission prompt: a plain session can still run
+code it builds at run time (echo hackrf_info | bash, ${h}_info, python -c);
+code-writer writes tests that the suite then runs (review and
+tests/test_no_transmit.py are the defence there).
 
 Commits: pm commits on its own at the end of a build, but only with -m
 messages, only what it staged by explicit path, and never a guard-rail file
@@ -65,6 +77,8 @@ CODEX_AGENT_NAMES = ("codex:codex-rescue", "codex-rescue")
 SPAWNABLE = TEAM
 
 FILE_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
+# Tools that run a shell command. Monitor streams a command's output; it runs it the same way.
+SHELL_TOOLS = ("Bash", "Monitor")
 
 # Per-call model overrides pm may pass, by subagent.
 ALLOWED_MODEL_OVERRIDES = {
@@ -75,6 +89,7 @@ ALLOWED_MODEL_OVERRIDES = {
 # existing file; Write only to create a new file under docs/. Memos: new files only.
 README = "README.md"
 DOCS_DIR = "docs/"
+LEGAL_REFERENCE = "docs/au-legal-reference.md"
 MEMO_DIR = ".session-memos/"
 
 # Git. Global options that take a separate value, so the subcommand after them
@@ -189,11 +204,11 @@ CODE_WRITER_DENY_NAMES = {
     "test_agent_guard.py",
 }
 # Top-level directories code-writer must never edit.
-CODE_WRITER_DENY_DIRS = {".claude", ".codex", "data", ".session-memos"}
+CODE_WRITER_DENY_DIRS = {".claude", ".codex", "data", ".session-memos", ".git"}
 CODE_WRITER_BASH_DENY = re.compile(
     r"AGENTS\.md|CLAUDE\.md|ROADMAP\.md|TECH_DEBT\.md|README\.md|\.mcp\.json"
     r"|compliance_guard\.py|test_no_transmit\.py|test_agent_guard\.py"
-    r"|\.claude/|\.codex/|(?:^|[\s\"'=/])data/"
+    r"|\.claude/|\.codex/|\.git/|(?:^|[\s\"'=/])data/"
 )
 
 # Radio hardware tools and the live scanner. Blocked for EVERY session when
@@ -254,6 +269,12 @@ BROWSER_COMPUTER_ACTIONS = frozenset({
     "screenshot", "zoom", "scroll", "scroll_to", "hover", "wait",
     "left_click", "double_click", "triple_click", "key",
 })
+# The only keys pm may press: navigation, never characters (which would type).
+BROWSER_ALLOWED_KEYS = frozenset({
+    "enter", "return", "escape", "esc", "tab", "pagedown", "pageup", "page_down",
+    "page_up", "home", "end", "arrowup", "arrowdown", "arrowleft", "arrowright",
+    "up", "down", "left", "right",
+})
 BROWSER_BLOCKED_KEYS = re.compile(r"(?i)\b(ctrl|control|cmd|command|meta|alt|win|windows|super)\b|\+|\bf\d{1,2}\b")
 
 PLAYWRIGHT_PREFIX = "mcp__playwright__"
@@ -296,7 +317,9 @@ SAFE_UNQUOTED = frozenset(
 # A quoted section may start a word, or follow `--opt=` or `+` (date formats).
 QUOTE_PREFIX = re.compile(r"(?:[-\w.]*=[\w:]*|\+)?")  # also --pretty=format:"..."
 # Characters never allowed inside double quotes (they expand or escape).
-DOUBLE_QUOTE_BANNED = frozenset('$`\\\n\r')
+DOUBLE_QUOTE_BANNED = frozenset('$`\n\r')
+# A backslash in double quotes is literal unless it escapes one of these.
+DOUBLE_QUOTE_ESCAPED = frozenset('"$`\\\n')
 
 
 class Unparseable(Exception):
@@ -309,8 +332,24 @@ LOOSE_WRAPPERS = frozenset({
     "sudo", "doas", "env", "nohup", "exec", "command", "builtin", "time", "nice",
     "ionice", "stdbuf", "timeout", "xargs", "setsid", "chrt", "taskset",
     "unbuffer", "eval", "source", ".", "bash", "sh", "zsh", "fish", "dash", "ksh",
-    "watch", "flock", "then", "do", "else", "!",
+    "watch", "flock", "then", "do", "else", "!", "coproc", "npx", "bunx",
+    "strace", "ltrace", "script", "valgrind", "gdb", "perf", "unshare", "firejail",
+    "systemd-run", "runuser", "su", "pkexec", "busybox", "parallel", "nsenter",
+    "chroot", "setarch", "catchsegv", "xdg-open",
 })
+# find actions that run a command or delete what find matched.
+FIND_ACTIONS = frozenset({"-exec", "-execdir", "-ok", "-okdir", "-delete"})
+# Every hardware tool name, so a glob such as hackrf_inf? can be matched against them.
+HARDWARE_NAMES = (
+    "hackrf_info", "hackrf_transfer", "hackrf_sweep", "hackrf_spiflash", "hackrf_cpldjtag",
+    "hackrf_debug", "hackrf_clock", "hackrf_operacake", "iio_info", "iio_attr",
+    "iio_readdev", "iio_writedev", "iio_reg", "SoapySDRUtil", "rx_sdr", "tx_sdr",
+)
+# Git subcommands that send commits to a remote.
+GIT_PUSH_SUBCOMMANDS = frozenset({"push", "send-pack", "http-push"})
+# Longest Bash command any session may send: the guard's checks must finish
+# well inside the 10 s hook timeout.
+MAX_COMMAND_CHARS = 8000
 # Module names that open the SDR when run with python -m.
 SDR_MODULES = frozenset({"scan"} | {"tools." + name.removesuffix(".py") for name in SDR_SCRIPTS})
 REDIRECT_WORD = re.compile(r"^\d*(?:>>?|<)&?\d*$|^\d*>&\d+$|^&>")
@@ -359,7 +398,8 @@ LABEL_NAME = re.compile(r"^[\w.:-]+$")
 READ_COMMANDS = frozenset({"cat", "head", "tail", "grep", "stat", "ls", "wc"})
 
 UNSAFE_SHELL = re.compile(r"[<>`]|\$\(")
-HARMLESS_REDIRECTS = re.compile(r"\s2>&1|\s2>/dev/null")
+# [ \t] not \s: \s would also swallow a newline and hide a second command (Fable, 323319a).
+HARMLESS_REDIRECTS = re.compile(r"[ \t]2>&1|[ \t]2>/dev/null")
 COMMAND_SEPARATORS = re.compile(r"&&|\|\||[;|&\n]")
 
 
@@ -441,15 +481,10 @@ def runs_codex(command: str) -> bool:
     """Return True if any segment runs the codex CLI (not merely mentions it)."""
     if "codex-companion" in command:
         return True
-    segments, _ = split_shell(command)
-    for segment in segments:
-        words = command_words(re.sub(r"[\"']", " ", segment))
-        if words and words[0].rsplit("/", 1)[-1] == "codex":
-            return True
-        if words and words[0] in ("npx", "bunx", "pnpm", "yarn") and any(
-            re.search(r"(?:^|/)codex(?:@[\w.-]+)?$", w) for w in words[1:4]
-        ):
-            return True
+    for words in rule_segments(command)[0]:
+        for start in command_starts(words):
+            if re.search(r"(?:^|/)codex(?:@[\w.-]+)?$", words[start]):
+                return True
     return False
 
 
@@ -480,6 +515,8 @@ def strict_lex(command: str) -> list[list[str]]:
     exactly the words bash would run. The harmless 2>&1 and 2>/dev/null are
     removed first.
     """
+    if "\n" in command or "\r" in command:
+        raise Unparseable("a line break (one command per call)")
     text = HARMLESS_REDIRECTS.sub("", command)
     segments: list[list[str]] = [[]]
     i, n = 0, len(text)
@@ -512,10 +549,15 @@ def strict_lex(command: str) -> list[list[str]]:
                 if end == -1:
                     raise Unparseable("an unterminated quote")
                 body = text[i + 1:end]
+                if ch == '"' and any(
+                    body[k] == "\\" and (k + 1 == len(body) or body[k + 1] in DOUBLE_QUOTE_ESCAPED)
+                    for k in range(len(body))
+                ):
+                    raise Unparseable("a backslash escape inside double quotes")
                 if "\n" in body or "\r" in body:
                     raise Unparseable("a line break inside quotes")
                 if ch == '"' and any(c in DOUBLE_QUOTE_BANNED for c in body):
-                    raise Unparseable("$, a backtick or a backslash inside double quotes")
+                    raise Unparseable("$ or a backtick inside double quotes")
                 word.append(body)
                 i = end + 1
                 if i < n and text[i] not in " \t;|&":
@@ -533,6 +575,20 @@ def strict_lex(command: str) -> list[list[str]]:
     return segments
 
 
+BRACE = re.compile(r"\{([^{}]*,[^{}]*)\}")
+
+
+def expand_braces(word: str, limit: int = 64) -> list[str]:
+    """Expand bash brace lists (da{t,}a -> data daa), so built-up names are seen."""
+    match = BRACE.search(word)
+    if not match or limit <= 0:
+        return [word]
+    out = []
+    for part in match.group(1).split(","):
+        out.extend(expand_braces(word[:match.start()] + part + word[match.end():], limit // 2))
+    return out[:limit]
+
+
 def loose_segments(command: str) -> list[list[str]]:
     """Split any command into word lists for the every-session checks.
 
@@ -541,6 +597,7 @@ def loose_segments(command: str) -> list[list[str]]:
     words are dropped (so `git 2>&1 push` reads as git push).
     """
     flat = re.sub(r"[\"'\\]", "", command)
+    flat = " ".join(w for token in flat.split(" ") for w in expand_braces(token))
     flat = re.sub(r"\$\(|`|[(){}]|<\(|>\(", ";", flat)
     # Redirections that contain & (2>&1, >&2, &>file) must go before splitting on &.
     flat = re.sub(r"\d*>&\d*|&>>?", " ", flat)
@@ -550,6 +607,29 @@ def loose_segments(command: str) -> list[list[str]]:
         if words:
             result.append(words)
     return result
+
+
+def rule_segments(command: str) -> tuple[list[list[str]], bool]:
+    """Word lists for the every-session rules, and whether the command lexed strictly.
+
+    When strict_lex succeeds, quoted text stays one word, so a commit message
+    or a Codex brief that mentions (scan.py ...) or "find ... data/" is prose,
+    not a command. A segment that runs a wrapper (bash -c, eval, env...) is
+    re-read loosely, because the wrapper's argument is itself a command. When
+    strict_lex fails, everything is read loosely.
+    """
+    try:
+        strict = strict_lex(command)
+    except Unparseable:
+        return loose_segments(command), False
+    result = []
+    for words in strict:
+        starts = command_starts(words)
+        if len(starts) > 1 or (starts and starts[0] > 0 and words[starts[0] - 1] in LOOSE_WRAPPERS):
+            result.extend(loose_segments(" ".join(words)))
+        else:
+            result.append(words)
+    return result, True
 
 
 def command_starts(words: list[str]) -> list[int]:
@@ -564,9 +644,25 @@ def command_starts(words: list[str]) -> list[int]:
         i += 1
     if i >= len(words):
         return []
-    if words[i].rsplit("/", 1)[-1] in LOOSE_WRAPPERS:
+    head = words[i].rsplit("/", 1)[-1]
+    rest = words[i + 1:]
+    if (
+        head in LOOSE_WRAPPERS
+        or (head == "uv" and rest[:1] == ["run"])                       # uv run <anything>
+        or (head == "npm" and rest[:1] in (["exec"], ["x"]))            # npm exec <pkg>
+        or (head in ("pnpm", "yarn") and rest[:1] in (["dlx"], ["exec"]))
+        or (head == "find" and any(w in FIND_ACTIONS for w in rest))    # find -exec <cmd>
+    ):
         return list(range(i + 1, len(words)))
     return [i]
+
+
+def command_heads(words: list[str]) -> list[int]:
+    """Like command_starts, but always including the segment's own command (find, uv...)."""
+    i = 0
+    while i < len(words) and re.match(r"^[A-Za-z_]\w*=", words[i]):
+        i += 1
+    return sorted({i, *command_starts(words)}) if i < len(words) else []
 
 
 def git_subcommand(words: list[str]) -> str | None:
@@ -585,22 +681,40 @@ def git_subcommand(words: list[str]) -> str | None:
     return None
 
 
-def runs_git(command: str, subcommand: str) -> bool:
+def runs_git(command: str, subcommand: str | frozenset) -> bool:
     """Return True if any segment runs `git <subcommand>`, however it is spelt or wrapped."""
-    for words in loose_segments(command):
+    wanted = {subcommand} if isinstance(subcommand, str) else subcommand
+    for words in rule_segments(command)[0]:
         for start in command_starts(words):
-            if git_subcommand(words[start:]) == subcommand:
+            if git_subcommand(words[start:]) in wanted:
                 return True
     return False
 
 
 def points_at_data(arg: str) -> bool:
-    """Return True if an argument's first path part is data, or a glob that matches data."""
-    first = arg.split("=", 1)[-1]
-    while first.startswith("./"):
-        first = first[2:]
-    first = first.split("/", 1)[0]
+    """Return True if an argument's first path part is data, or a glob that matches data.
+
+    Absolute and ~ paths into the project count too (~/Repository/mimir/dat*).
+    """
+    path = os.path.expanduser(arg.split("=", 1)[-1])
+    root = os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+    if path.startswith("/"):
+        root = root.rstrip("/") + "/"
+        if not path.startswith(root):
+            # Outside this checkout (another clone, a moved repo): any data folder counts.
+            return any(fnmatch.fnmatchcase("data", part) for part in path.split("/") if part)
+        path = path[len(root):]
+    while path.startswith("./"):
+        path = path[2:]
+    first = path.split("/", 1)[0]
     return bool(first) and fnmatch.fnmatchcase("data", first)
+
+
+def searches_project_root(arg: str) -> bool:
+    """Return True if a path is the project root itself (., ./, the absolute path)."""
+    root = (os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()).rstrip("/")
+    path = os.path.expanduser(arg).rstrip("/") or "/"
+    return path in (".", "", root) or os.path.normpath(path) == "."
 
 
 def touches_data_destructively(command: str) -> bool:
@@ -611,15 +725,28 @@ def touches_data_destructively(command: str) -> bool:
     ignored files and so all of data/.
     """
     in_data = False
-    for words in loose_segments(command):
-        for start in command_starts(words):
+    for words in rule_segments(command)[0]:
+        for start in command_heads(words):
             verb = words[start].rsplit("/", 1)[-1]
             args = words[start + 1:]
             if verb in ("cd", "pushd") and args and points_at_data(args[-1]):
                 in_data = True
-            if verb in DATA_DESTRUCTIVE_VERBS:
+            if verb == "find" and any(a in FIND_ACTIONS for a in args):
+                roots = [a for a in args[:next((k for k, a in enumerate(args) if a.startswith("-")), len(args))]]
+                if in_data or not roots or any(points_at_data(a) or searches_project_root(a) for a in roots):
+                    return True
+            if verb in DATA_DESTRUCTIVE_VERBS and verb != "find":
                 if in_data or any(points_at_data(a) for a in args):
                     return True
+            if verb in ("sed", "perl") and any(a.startswith("-i") for a in args):
+                if in_data or any(points_at_data(a) for a in args):
+                    return True
+            if is_python(words[start]) and "-c" in args:
+                code = " ".join(args[args.index("-c") + 1:])
+                if re.search(r"rmtree|remove|unlink|rename|replace|truncate", code) and re.search(r"\bdata\b", code):
+                    return True
+            if git_subcommand(words[start:]) == "stash" and any(a in ("-a", "--all") for a in args):
+                return True
             if git_subcommand(words[start:]) == "clean":
                 flags = "".join(a[1:] for a in args if a.startswith("-") and not a.startswith("--"))
                 if "x" in flags.lower() or any(a.startswith("--") and "ignored" in a for a in args):
@@ -629,7 +756,7 @@ def touches_data_destructively(command: str) -> bool:
 
 def defines_git_alias(command: str) -> bool:
     """Return True if a git command defines an alias inline (git -c alias.p=push p)."""
-    for words in loose_segments(command):
+    for words in rule_segments(command)[0]:
         for start in command_starts(words):
             if git_subcommand(words[start:]) is None:
                 continue
@@ -661,6 +788,8 @@ def code_writer_may_edit(rel: str) -> bool:
 
 def is_pm_doc(rel: str) -> bool:
     """Return True for the docs pm may change: README.md and Markdown under docs/."""
+    if rel == LEGAL_REFERENCE:
+        return False  # Prin's, by AGENTS.md; settings.json denies it too
     return rel == README or (rel.startswith(DOCS_DIR) and rel.endswith(".md"))
 
 
@@ -721,9 +850,22 @@ def check_file_tool(agent: str, tool: str, tool_input: dict, project_dir: Path) 
 
 
 def names_secret(command: str) -> bool:
-    """Return True if a Bash command names a .env file (other than .env.example)."""
-    flat = re.sub(r"[\"'\\]", "", command)
-    return bool(SECRET_FILES.search(flat)) or bool(re.search(r"\.env\*|\.e\*|\.\*env", flat))
+    """Return True if a Bash command names a .env file (other than .env.example).
+
+    Quoted prose (a word with spaces: a commit message, a brief) may mention
+    .env; a word that is a path, or a glob that could match .env, may not.
+    """
+    segments, strict = rule_segments(command)
+    if not strict:
+        flat = re.sub(r"[\"'\\]", "", command)
+        return bool(SECRET_FILES.search(flat)) or bool(re.search(r"\.e[\w*?\[\]]*[*?\[]|\.[*?]env", flat))
+    for words in segments:
+        for word in words:
+            if " " in word:
+                continue
+            if SECRET_FILES.search(word) or re.search(r"\.e[\w*?\[\]]*[*?\[]|\.[*?\[]", word):
+                return True
+    return False
 
 
 def is_python(word: str) -> bool:
@@ -746,6 +888,8 @@ def python_runs_sdr(args: list[str]) -> bool:
             module = args[k + 1]
         elif word.startswith("-m") and len(word) > 2 and not word.startswith("--"):
             module = word[2:]
+        if module == "py_compile":
+            return False  # compiles the files named after it; runs none of them
         if module in SDR_MODULES:
             return True
         # -c code: loose_segments has removed its quotes, so read all that follows.
@@ -762,10 +906,19 @@ def runs_hardware(command: str) -> bool:
     Works on loose_segments, so quotes, brackets, substitution, redirection and
     wrappers (env -u X, timeout -k 5 10, eval, bash -c...) do not hide the tool.
     """
-    for words in loose_segments(command):
+    for words in rule_segments(command)[0]:
+        # Files named after `-m py_compile` are compiled, not run.
+        compiled_from = next(
+            (k + 2 for k in range(len(words) - 1) if words[k] == "-m" and words[k + 1] == "py_compile"),
+            len(words),
+        )
         for start in command_starts(words):
             program = words[start].rsplit("/", 1)[-1]
-            if HARDWARE_TOOL.match(program) or program in SDR_SCRIPTS:
+            if HARDWARE_TOOL.match(program) or (program in SDR_SCRIPTS and start < compiled_from):
+                return True
+            if any(c in program for c in "*?[") and any(
+                fnmatch.fnmatchcase(name, program) for name in (*HARDWARE_NAMES, *SDR_SCRIPTS)
+            ):
                 return True
             if is_python(words[start]) and python_runs_sdr(words[start + 1:]):
                 return True
@@ -774,7 +927,10 @@ def runs_hardware(command: str) -> bool:
 
 def check_every_session_bash(command: str) -> None:
     """Rules that apply to every session, named agent or not."""
+    if len(command) > MAX_COMMAND_CHARS:
+        block(f"command longer than {MAX_COMMAND_CHARS} characters; split it up")
     flat = re.sub(r"[\"'\\]", "", command)
+    strict = rule_segments(command)[1]
     if runs_codex(command) and not CODEX_EXEC.fullmatch(command.strip()):
         block(
             "Codex may run only as: codex exec [resume <session id> | -m gpt-6-astra] "
@@ -786,13 +942,16 @@ def check_every_session_bash(command: str) -> None:
             "no agent may run radio-hardware tools (hackrf_*, iio_*, SoapySDRUtil) or scan.py. "
             "Mimir is receive-only and live hardware checks are Prin's, by hand"
         )
-    _, unquoted = split_shell(command)
-    if DATA_DESTRUCTIVE.search(flat) or DATA_REDIRECT.search(unquoted):
-        block("no agent may remove, move, copy over or overwrite anything under data/")
+    # The broad regex nets read quoted prose as commands, so they run only when
+    # the command could not be lexed strictly (a strict command has no redirection).
+    if not strict:
+        # flat, not split_shell's unquoted text: a quoted target ("data/x") is still a target.
+        if DATA_DESTRUCTIVE.search(flat) or DATA_REDIRECT.search(flat):
+            block("no agent may remove, move, copy over or overwrite anything under data/")
     if touches_data_destructively(command):
         block("no session may remove, move, compress or overwrite anything under data/")
-    if runs_git(command, "push"):
-        block("no session may run git push; Prin pushes by hand")
+    if runs_git(command, GIT_PUSH_SUBCOMMANDS):
+        block("no session may push (git push, send-pack, http-push); Prin pushes by hand")
     if defines_git_alias(command):
         block("no session may define a git alias inline (-c alias.*)")
 
@@ -856,30 +1015,40 @@ def pytest_problem(args: list[str], project_dir: Path) -> str | None:
         if arg in PYTEST_FLAGS:
             i += 1
             continue
+        if arg.startswith("@"):
+            return "pytest may not read arguments from a file (@file)"
         if name in PYTEST_FLAGS_WITH_VALUE:
             if not eq:
                 if i + 1 >= len(args):
                     return f"pytest {name} needs a value"
                 value = args[i + 1]
                 i += 1
+            if value.startswith("@"):
+                return "pytest may not read arguments from a file (@file)"
             if name == "-p" and not value.startswith("no:"):
                 return "pytest -p may only disable a plugin (-p no:<name>)"
             i += 1
             continue
         if arg.startswith("-"):
             return f"pytest option {arg} is not allowed (it can write files or load code)"
-        path = arg.split("::", 1)[0]
-        if not TEST_PATH.match(arg) or ".." in path.split("/") or not inside_project(path, project_dir):
+        path = arg.split("::", 1)[0].rstrip("/") or arg
+        if not TEST_PATH.match(arg.rstrip("/")) or ".." in path.split("/") or not inside_project(path, project_dir):
             return f"pytest may only run paths under tests/, not {arg}"
         i += 1
     return None
 
 
-def git_read_problem(args: list[str]) -> str | None:
-    """git status/diff/log/show: refuse options that write a file or run a program."""
+def git_read_problem(args: list[str], project_dir: Path) -> str | None:
+    """git status/diff/log/show: refuse options that write a file or run a program,
+    and paths outside the project (git diff then reads them with an implied --no-index)."""
     for arg in args:
         if arg.startswith(GIT_READ_BAD_PREFIXES):
             return f"git option {arg} is not allowed (it writes a file, reads outside the repo or runs a program)"
+        if arg.startswith(("/", "~")) or ".." in arg.split("/"):
+            if ".." in arg and re.match(r"^[\w./-]*\.\.\.?[\w./-]*$", arg) and not arg.startswith(("/", "~", "../")):
+                continue  # a revision range such as origin/main..main
+            if not inside_project(arg, project_dir):
+                return f"git may only read inside the project, not {arg}"
     return None
 
 
@@ -979,7 +1148,7 @@ def auto_allowed_problem(words: list[str], project_dir: Path) -> str | None:
             rest = rest[1:]
         sub, args = (rest[0], rest[1:]) if rest else ("", [])
         if sub in ("status", "diff", "log", "show"):
-            return git_read_problem(args)
+            return git_read_problem(args, project_dir)
         if sub == "add":
             return git_add_problem(args, project_dir)
         if sub == "reset":
@@ -1000,8 +1169,51 @@ def auto_allowed_problem(words: list[str], project_dir: Path) -> str | None:
     return None
 
 
+GREP_OPTS_WITH_VALUE = frozenset({"-e", "-f", "-m", "-A", "-B", "-C", "-d", "-D", "--regexp", "--file"})
+
+
+def grep_problem(words: list[str]) -> str | None:
+    """A recursive grep must name a subfolder or file: from the root it would read .env."""
+    args = words[1:]
+    recursive, pattern_given, paths = False, False, []
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--":
+            paths.extend(args[i + 1:])
+            break
+        if arg.startswith("--"):
+            name, _, value = arg.partition("=")
+            if name in ("--recursive", "--dereference-recursive") or (name == "--directories" and value == "recurse"):
+                recursive = True
+            if name in ("--regexp", "--file"):
+                pattern_given = True
+        elif arg.startswith("-") and len(arg) > 1:
+            letters = arg[1:]
+            if "r" in letters or "R" in letters:
+                recursive = True
+            if letters[-1] in "efmABCdD" and len(letters) == 1 or arg in GREP_OPTS_WITH_VALUE:
+                if arg in ("-e", "-f"):
+                    pattern_given = True
+                if arg == "-d" and i + 1 < len(args) and args[i + 1] == "recurse":
+                    recursive = True
+                i += 1
+        elif not pattern_given:
+            pattern_given = True
+        else:
+            paths.append(arg)
+        i += 1
+    if recursive and (not paths or any(searches_project_root(p) for p in paths)):
+        return "a recursive grep must name a folder or file, not the project root (it would read .env)"
+    return None
+
+
 def read_path_problem(words: list[str], project_dir: Path) -> str | None:
     """cat, grep, ls and friends: every path-like argument must stay inside the project."""
+    if words[0] == "grep":
+        problem = grep_problem(words)
+        if problem:
+            return problem
     for word in words[1:]:
         candidate = word.partition("=")[2] if word.startswith("-") else word
         if not candidate:
@@ -1074,8 +1286,13 @@ def check_bash(agent: str, command: str, project_dir: Path) -> None:
             block("code-writer may not name protected files or data/ in Bash; use Read to read them")
         for words in segments:
             program = words[0].rsplit("/", 1)[-1]
-            if re.match(r"^[A-Za-z_]\w*=", words[0]):
-                block("code-writer may not set variables in front of a command")
+            if re.match(r"^[A-Za-z_]\w*=", words[0]) and words[0] != "PYTHONPATH=.":
+                block("code-writer may not set variables in front of a command (PYTHONPATH=. is fine)")
+            if words[0] == "PYTHONPATH=.":
+                words = words[1:] or [""]
+                program = words[0].rsplit("/", 1)[-1]
+            if program == "find" and any(w in FIND_ACTIONS for w in words):
+                block("code-writer may not use find -exec, -ok or -delete; use Read, Edit and plain commands")
             if program in LOOSE_WRAPPERS:
                 block("code-writer may not run commands through env, sudo, eval or a shell; run them directly")
             if program in ("cd", "pushd", "popd"):
@@ -1158,6 +1375,12 @@ def local_url_problem(url: str, ports: frozenset | None = None) -> str | None:
     return None
 
 
+def browser_key_ok(text: str) -> bool:
+    """Return True for one navigation key (Enter, Tab, PageDown...): never characters or shortcuts."""
+    key = text.strip().lower()
+    return key in BROWSER_ALLOWED_KEYS and not BROWSER_BLOCKED_KEYS.search(key)
+
+
 def browser_call_problem(tool: str, tool_input: dict) -> str | None:
     """Return a reason to refuse one pm Chrome call, or None if it is allowed."""
     if tool == "browser_batch":
@@ -1184,7 +1407,7 @@ def browser_call_problem(tool: str, tool_input: dict) -> str | None:
             return f"pm may not use the browser action '{action}'"
         if tool_input.get("modifiers"):
             return "pm may not click with modifier keys"
-        if action == "key" and BROWSER_BLOCKED_KEYS.search(str(tool_input.get("text", ""))):
+        if action == "key" and not browser_key_ok(str(tool_input.get("text", ""))):
             return "pm may not press shortcut or function keys in the browser"
     return None
 
@@ -1206,7 +1429,7 @@ def playwright_call_problem(tool: str, tool_input: dict, ports: frozenset | None
                 f"pm may not choose where Playwright saves a file ('{key}'); omit it so "
                 "output goes to .playwright-mcp/, which is deleted after the check"
             )
-    if tool == "browser_press_key" and BROWSER_BLOCKED_KEYS.search(str(tool_input.get("key", ""))):
+    if tool == "browser_press_key" and not browser_key_ok(str(tool_input.get("key", ""))):
         return "pm may not press shortcut or function keys in the browser"
     return None
 
@@ -1258,7 +1481,7 @@ def main() -> None:
     tool = data.get("tool_name", "")
     tool_input = data.get("tool_input") or {}
 
-    if tool == "Bash":
+    if tool in SHELL_TOOLS:
         command = str(tool_input.get("command", ""))
         if not (agent == PM and DEMO_SERVER_START.fullmatch(command.strip())):
             check_every_session_bash(command)
@@ -1279,13 +1502,13 @@ def main() -> None:
         # plus the every-session Bash rules above. Where settings.json would
         # run a command with no prompt, but its arguments go beyond safe use,
         # or the command cannot be parsed safely, Prin gets a prompt instead.
-        if tool == "Bash":
+        if tool in SHELL_TOOLS:
             check_plain_session_bash(str(tool_input.get("command", "")), project_dir)
         return
 
     if tool in FILE_TOOLS:
         check_file_tool(agent, tool, tool_input, project_dir)
-    elif tool == "Bash":
+    elif tool in SHELL_TOOLS:
         check_bash(agent, str(tool_input.get("command", "")), project_dir)
     elif tool == "Agent":
         check_agent(agent, tool_input)

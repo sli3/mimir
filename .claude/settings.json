@@ -69,6 +69,7 @@
       "Edit(/.claude/**)",
       "Edit(/.codex/**)",
       "Edit(/data/**)",
+      "Edit(/.git/**)",
       "Edit(/docs/au-legal-reference.md)",
       "Bash(git push *)",
       "Bash(git * --force*)",
@@ -113,7 +114,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|Agent|mcp__claude-in-chrome__.*|mcp__playwright__.*|mcp__hindsight__.*|mcp__kanzo__.*",
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|Monitor|Agent|mcp__claude-in-chrome__.*|mcp__playwright__.*|mcp__hindsight__.*|mcp__kanzo__.*",
         "hooks": [
           {
             "type": "command",
