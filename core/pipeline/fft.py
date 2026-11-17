@@ -29,8 +29,9 @@ def compute_psd(
     Hann window to reduce spectral leakage, splits samples into chunks, and
     averages the power across all chunks for a smoother estimate.
 
-    The output shows absolute frequencies (not offsets from center), starting
-    from 0 Hz up to the Nyquist frequency (sample_rate_hz / 2).
+    The output shows absolute frequencies: center_freq_hz plus fftshifted
+    fftfreq offsets, from about centre minus sample_rate_hz / 2 up to centre
+    plus sample_rate_hz / 2, lowest frequency first.
 
     Args:
         samples: Array of complex IQ samples. Length must be at least nfft.
@@ -57,7 +58,9 @@ def compute_psd(
           - center_freq_hz: The centre frequency parameter (passed through)
           - sample_rate_hz: The sample rate parameter (passed through)
           - nfft: FFT size parameter (passed through)
-          - num_chunks: Number of chunks that were averaged
+          - num_chunks: Number of chunks that were averaged; 0 on empty-result paths
+          - chunk_peak_db: Hottest single-chunk peak power in dBFS before averaging;
+                           0.0 on empty-result paths
 
     Note:
         dBFS is decibels relative to full scale. 0 dBFS represents the ADC

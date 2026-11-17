@@ -30,10 +30,11 @@ Sign convention for ``delta_r_deg_per_sec``:
     mathematically inherent, not a code bug — UI consumers should cap or
     smooth this.
 
-    Naming note: ``delta_r`` is the public API field name for bearing angular
-    rate. In radar terminology, "delta-r" denotes range rate, not bearing rate.
-    Consider a future rename to ``bearing_rate_deg_per_sec`` if/ever wired to
-    UI to avoid confusion.
+    Naming note: ``delta_r_deg_per_sec`` is emitted to the dashboard by
+    ``dashboard/emitters.py`` and displayed in ``AdsbAircraftPanel``. The field
+    name is kept for API compatibility; a rename to ``bearing_rate_deg_per_sec``
+    is tracked as tech debt TD-47-4. This is bearing rate in deg/s, while the
+    frontend ``deltaRNmPerSec`` is range rate in nm/s.
 
 Design note:
     The inner trigonometric functions (``initial_bearing_deg`` and

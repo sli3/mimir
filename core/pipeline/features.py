@@ -65,8 +65,9 @@ def fingerprint_spectrum(
     background noise floor, and compute derived metrics such as SNR
     and occupied bandwidth.
 
-    The noise floor is estimated using the 10th percentile of all PSD
-    values, which ignores strong signals and gives a stable estimate
+    The noise floor is estimated using the 10th percentile of the full,
+    uncropped trace selected by ``trace_key`` (``psd_db`` by default),
+    which ignores strong signals and gives a stable estimate
     of the background noise level. Signal bins are identified as those
     exceeding the noise floor by at least the effective threshold.
 
@@ -91,9 +92,10 @@ def fingerprint_spectrum(
                             reported bandwidth or stealing the peak bin
                             (Phase 30). When ``None`` (default), full-span
                             behaviour is preserved — identical to pre-Phase 30.
-                            The noise floor is ALWAYS computed on the full,
-                            uncropped ``psd_db`` so a narrow window does not
-                            bias it upward.
+                            The noise floor is always computed as the 10th
+                            percentile of the full, uncropped trace selected by
+                            ``trace_key`` (``psd_db`` by default) so a narrow
+                            window does not bias it upward.
         burst_use_wide_window: When True AND ``crop_half_width_hz`` is not None,
                                the burst metric is computed by summing linear power
                                across all bins in the crop window for both the
@@ -113,7 +115,8 @@ def fingerprint_spectrum(
           - center_freq_hz: Centre frequency (passed through)
           - peak_freq_hz: Frequency of the strongest spectral bin
           - peak_power_db: Power at the peak bin (dBFS)
-          - noise_floor_db: Estimated noise floor (10th percentile of psd_db)
+          - noise_floor_db: 10th percentile of the full, uncropped trace selected
+                            by trace_key (psd_db by default)
           - snr_db: Signal-to-noise ratio (peak_power_db - noise_floor_db)
           - bandwidth_hz: Occupied bandwidth above noise floor + effective threshold
           - occupied_bins: Number of bins above noise floor + effective threshold
@@ -176,8 +179,9 @@ def fingerprint_spectrum(
 
     # Crop mask (Phase 30) — restrict peak search and occupied-bin counting
     # to a per-band window around the tuned centre frequency. The noise
-    # floor calculation further down still uses the full, uncropped psd_db
-    # — a narrow window would bias it upward since it would be dominated
+    # floor calculation further down uses the 10th percentile of the full,
+    # uncropped trace selected by trace_key (psd_db by default). A narrow
+    # window would bias it upward since it would be dominated
     # by signal-adjacent bins, not by open noise.
     crop_mask = None
     if crop_half_width_hz is not None:
@@ -295,7 +299,8 @@ def fingerprint_spectrum(
         is_burst = bool(burst_ratio_db - expected_noise_ratio_db > BURST_MARGIN_DB)
     burst_excess_db = float(burst_ratio_db - expected_noise_ratio_db)
 
-    # Noise floor — 10th percentile of all psd_db values
+    # Noise floor: 10th percentile of the full, uncropped trace selected by
+    # trace_key (psd_db by default).
     noise_floor_db = float(np.percentile(psd_db, NOISE_FLOOR_PERCENTILE))
 
     # Signal-to-noise ratio
