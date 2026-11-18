@@ -14,18 +14,22 @@ import logging
 
 import dashboard.server as _server
 import dashboard.shared_state as shared_state
+from core.device.profiles import DEVICE_PROFILES
 
 logger = logging.getLogger(__name__)
 
 
 @_server.socketio.on("set_focus_frequency")
-def handle_set_focus(data):
+def handle_set_focus(data: dict) -> None:
     """Set or clear the focused frequency filter for scan_result emissions.
 
     Coerces freq_hz to float. Non-numeric or missing values clear the focus
     (set to None, meaning all frequencies pass through). When a scanner
     reference is available, also calls scanner.set_focus_frequency() to
-    retune the HackRF and flush any queued results.
+    retune the SDR and flush any queued results. Known non-HackRF devices
+    reject frequencies outside their tuning range or unsupported bands
+    before changing focus, the band profile or the scanner. Unknown device
+    keys retain the existing behaviour, and clearing focus is always allowed.
 
     Also updates shared_state.current_band to the matching band profile
     resolved for the active device (via shared_state.resolve_band_profile)
@@ -43,6 +47,32 @@ def handle_set_focus(data):
         freq_hz = float(raw) if raw is not None else None
     except (TypeError, ValueError):
         freq_hz = None
+    if freq_hz is not None:
+        with shared_state.current_device_lock:
+            active_device = shared_state.current_device
+        if active_device != "hackrf" and active_device in DEVICE_PROFILES:
+            # Mirror the scan loop: range first, then device band support.
+            device_profile = DEVICE_PROFILES[active_device]
+            in_range = (
+                device_profile["min_freq_hz"]
+                <= freq_hz
+                <= device_profile["max_freq_hz"]
+            )
+            band_key = (
+                shared_state.band_key_for_freq(freq_hz) if in_range else None
+            )
+            if (
+                not in_range
+                or band_key is None
+                or not shared_state.band_supported_by_device(
+                    band_key, active_device
+                )
+            ):
+                logger.warning(
+                    "Ignoring focus request for %.3f MHz: not receivable on %s",
+                    freq_hz / 1e6, active_device,
+                )
+                return
     with _server._focused_freq_lock:
         _server._focused_freq_hz = freq_hz
     band_key = shared_state.band_key_for_freq(freq_hz)
@@ -50,10 +80,8 @@ def handle_set_focus(data):
         # Resolve the band profile for the ACTIVE device (Phase 65,
         # Finding A): on Pluto sessions this overlays Pluto's calibrated
         # signal_threshold_db/gain_db onto the BAND_PROFILES base; on
-        # HackRF it returns the BAND_PROFILES copy unchanged. Device read
-        # under current_device_lock, mirroring emit_stats in dashboard/server.py.
-        with shared_state.current_device_lock:
-            active_device = shared_state.current_device
+        # HackRF it returns the BAND_PROFILES copy unchanged. Use the same
+        # locked device snapshot as the focus gate above.
         band_profile = shared_state.resolve_band_profile(
             band_key, active_device
         )

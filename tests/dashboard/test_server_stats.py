@@ -171,6 +171,85 @@ class TestFocusFrequencyFilter:
         finally:
             server._focused_freq_hz = saved
 
+    @pytest.mark.parametrize(
+        ("device", "freq_hz", "accepted"),
+        [
+            ("plutosdr", 98e6, False),
+            ("plutosdr", 915e6, True),
+            ("plutosdr", 4e9, False),
+            ("hackrf", 98e6, True),
+            ("plutosdr", None, True),
+            ("mystery", 98e6, True),
+        ],
+    )
+    def test_handle_set_focus_respects_device_support(
+        self, device: str, freq_hz: float | None, accepted: bool,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Reject unsupported Pluto focus without changing live state.
+
+        Supported requests, clearing focus, HackRF and unknown devices
+        retain their existing behaviour. Restore all shared state per case.
+        """
+        with server._focused_freq_lock:
+            saved_focus = server._focused_freq_hz
+        saved_scanner = server._scanner_ref
+        with ss.current_device_lock:
+            saved_device = ss.current_device
+        with ss.current_band_lock:
+            saved_band = ss.current_band
+        scanner = MagicMock()
+        initial_band = dict(ss.BAND_PROFILES["adsb"])
+        try:
+            with server._focused_freq_lock:
+                server._focused_freq_hz = 1_090e6
+            server._scanner_ref = scanner
+            with ss.current_device_lock:
+                ss.current_device = device
+            with ss.current_band_lock:
+                ss.current_band = initial_band
+
+            with caplog.at_level("WARNING", logger="dashboard.socket_handlers"):
+                handle_set_focus({"freq_hz": freq_hz})
+
+            with server._focused_freq_lock:
+                assert server._focused_freq_hz == (
+                    freq_hz if accepted else 1_090e6
+                )
+            if accepted:
+                scanner.set_focus_frequency.assert_called_once_with(freq_hz)
+                with ss.current_band_lock:
+                    if freq_hz is None:
+                        assert ss.current_band is initial_band
+                    else:
+                        band_key = ss.band_key_for_freq(freq_hz)
+                        assert ss.current_band == ss.resolve_band_profile(
+                            band_key, device
+                        )
+            else:
+                assert scanner.mock_calls == []
+                with ss.current_band_lock:
+                    assert ss.current_band is initial_band
+                    assert ss.current_band == ss.BAND_PROFILES["adsb"]
+                warnings = [
+                    record for record in caplog.records
+                    if record.name == "dashboard.socket_handlers"
+                    and record.levelname == "WARNING"
+                ]
+                assert len(warnings) == 1
+                assert warnings[0].getMessage() == (
+                    f"Ignoring focus request for {freq_hz / 1e6:.3f} MHz: "
+                    f"not receivable on {device}"
+                )
+        finally:
+            with server._focused_freq_lock:
+                server._focused_freq_hz = saved_focus
+            server._scanner_ref = saved_scanner
+            with ss.current_device_lock:
+                ss.current_device = saved_device
+            with ss.current_band_lock:
+                ss.current_band = saved_band
+
     def _start_server_with_mocks(self):
         mock_device = MagicMock()
         with (

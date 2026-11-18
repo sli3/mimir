@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { io } from 'socket.io-client'
 import { mergeAircraftRecord } from '../utils/mergeAircraftRecord.js'
 import { freqMatches } from '../utils/frequency.js'
+import { BAND_GROUPS } from '../constants/bands.js'
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000'
 
@@ -37,10 +38,13 @@ const INITIAL_AI_REASONING = {
 
 /**
  * Subscribe to the Mimir SocketIO event stream.
+ * Adopt the scanner's active frequency locally when stats report that the
+ * focused band is unsupported, without emitting another retune request.
  *
  * @param {Object} [options] - Hook options.
  * @param {boolean} [options.skipInitialRetune=false] - If true, do not emit
- *   `set_focus_frequency` on socket connect. Used by read-only display pages
+ *   `set_focus_frequency` on socket connect or adopt focus from stats.
+ *   Used by read-only display pages
  *   (e.g. /radar) that should observe the stream without controlling the SDR.
  * @returns {Object} The full socket state object.
  */
@@ -128,6 +132,19 @@ export function useSocket({ skipInitialRetune = false } = {}) {
 
     socket.on('system_stats', (data) => {
       setSystemStats(data)
+      const activeFrequency = data.active_frequency_hz
+      if (skipInitialRetune || typeof activeFrequency !== 'number'
+        || !(activeFrequency > 0) || freqMatches(activeFrequency, focusedFreqRef.current)) return
+
+      const unsupportedBands = data.unsupported_bands
+        && typeof data.unsupported_bands === 'object' ? data.unsupported_bands : {}
+      const focusedBand = BAND_GROUPS.flatMap((group) => group.bands)
+        .find((band) => freqMatches(band.freq_hz, focusedFreqRef.current))
+      // Correct an unsupported focus locally; the scanner is already tuned.
+      if (focusedBand && Object.prototype.hasOwnProperty.call(unsupportedBands, focusedBand.band_key)) {
+        setFocusedFreq(activeFrequency)
+        focusedFreqRef.current = activeFrequency
+      }
     })
 
     socket.on('acars_message', (data) => {

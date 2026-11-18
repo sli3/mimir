@@ -115,6 +115,69 @@ describe('useSocket', () => {
     expect(result.current.systemStats).toEqual({ hackrf_status: 'CONNECTED', active_frequency_hz: 98000000, scan_count: 42 })
   })
 
+  it('adopts the active frequency for an unsupported focus without another retune', () => {
+    const { result } = renderHook(() => useSocket())
+    act(() => eventHandlers['connect'][0]())
+    expect(mockSocket.emit).toHaveBeenCalledTimes(1)
+
+    act(() => eventHandlers['system_stats'][0]({
+      active_frequency_hz: 915000000,
+      unsupported_bands: { fm_broadcast: 'Below tuning range' },
+    }))
+
+    expect(result.current.focusedFreq).toBe(915000000)
+    expect(mockSocket.emit).toHaveBeenCalledTimes(1)
+    // Reconnecting must use the adopted ref as well as the rendered state.
+    act(() => eventHandlers['connect'][0]())
+    expect(mockSocket.emit).toHaveBeenLastCalledWith('set_focus_frequency', { freq_hz: 915000000 })
+  })
+
+  it.each([{}, undefined, null, 'invalid'])(
+    'preserves focus when unsupported_bands is empty or malformed (%j)', (unsupportedBands) => {
+      const { result } = renderHook(() => useSocket())
+      act(() => eventHandlers['system_stats'][0]({
+        active_frequency_hz: 915000000,
+        unsupported_bands: unsupportedBands,
+      }))
+      expect(result.current.focusedFreq).toBe(98000000)
+      expect(mockSocket.emit).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each([0, -1, '915000000', null, NaN])('ignores an invalid active frequency (%s)', (activeFrequency) => {
+    const { result } = renderHook(() => useSocket())
+    act(() => eventHandlers['system_stats'][0]({
+      active_frequency_hz: activeFrequency,
+      unsupported_bands: { fm_broadcast: 'Below tuning range' },
+    }))
+    expect(result.current.focusedFreq).toBe(98000000)
+    expect(mockSocket.emit).not.toHaveBeenCalled()
+  })
+
+  it('preserves a user focus on a supported band', () => {
+    const { result } = renderHook(() => useSocket())
+    act(() => result.current.focusFrequency(1090000000))
+    mockSocket.emit.mockClear()
+    act(() => eventHandlers['system_stats'][0]({
+      active_frequency_hz: 915000000,
+      unsupported_bands: { fm_broadcast: 'Below tuning range' },
+    }))
+    expect(result.current.focusedFreq).toBe(1090000000)
+    expect(mockSocket.emit).not.toHaveBeenCalled()
+  })
+
+  it('does not adopt focus from stats when skipInitialRetune is true', () => {
+    const { result } = renderHook(() => useSocket({ skipInitialRetune: true }))
+    const stats = {
+      active_frequency_hz: 915000000,
+      unsupported_bands: { fm_broadcast: 'Below tuning range' },
+    }
+    act(() => eventHandlers['system_stats'][0](stats))
+    expect(result.current.systemStats).toEqual(stats)
+    expect(result.current.focusedFreq).toBe(98000000)
+    expect(mockSocket.emit).not.toHaveBeenCalled()
+  })
+
   it('focusFrequency resets aiReasoning to initial state', () => {
     const { result } = renderHook(() => useSocket())
     act(() => {
