@@ -247,7 +247,9 @@ before it landed). Therefore:
 - Frontend tests: `npm run test --prefix dashboard/frontend`. Never
   `npx vitest` from the repo root: `npx` can pull a different cached Vitest,
   which breaks the jsdom setup and produces false failures (BUG-05)
-- Tool scripts: `PYTHONPATH=. uv run python tools/<script>.py`
+- Tool scripts: Prin runs them with `./mimir tool <script> [args]`, which runs
+  `env PYTHONPATH=. .venv-scan/bin/python -s tools/<script>.py`. Agents never
+  run `./mimir`: it can start `scan.py` and the SDR tools
 - The scanner runs from `.venv-scan`, a venv on system Python built by
   `setup.sh` with `--system-site-packages` (for the system SoapySDR
   bindings) and filled from `uv.lock`. Always launch it with `-s`, or the
