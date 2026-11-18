@@ -24,6 +24,7 @@ from core.pipeline.scan_result import ScanResult
 from core.pipeline.scanner import (
     ScanRunner,
     _SCAN_ERROR_BACKOFF_SEC,
+    _SDR_OUTAGE_REMINDER_SEC,
     _should_fire_trigger,
 )
 import dashboard.shared_state as shared_state
@@ -327,6 +328,197 @@ class TestScanRunner:
 
                 mock_sleep.assert_called_once_with(_SCAN_ERROR_BACKOFF_SEC)
                 mock_record.assert_called_once()
+
+    def test_first_read_error_logs_advice_and_debug_traceback(
+        self,
+        scanner: ScanRunner,
+        mock_device: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """The first failed main read separates advice from exception details."""
+        scanner.set_focus_frequency(98_000_000.0)
+        # The initial retune's discard succeeds before the main read fails.
+        mock_device.read_samples.side_effect = [
+            mock_device.read_samples.return_value,
+            RuntimeError("USB timeout"),
+        ]
+
+        def stop_after_error(_seconds: float) -> None:
+            """Stop at the first failed main read's back-off."""
+            scanner._running = False
+
+        with caplog.at_level(logging.DEBUG, logger="core.pipeline.scanner"):
+            with patch("core.pipeline.scanner.record_hw_error") as mock_record, patch(
+                "core.pipeline.scanner.time.sleep", side_effect=stop_after_error
+            ) as mock_sleep:
+                scanner._running = True
+                scanner._scan_loop()
+
+        records = [r for r in caplog.records if r.name == "core.pipeline.scanner"]
+        errors = [r for r in records if r.levelno == logging.ERROR]
+        assert len(errors) == 1
+        assert "HackRF One" in errors[0].getMessage()
+        assert "98.000 MHz" in errors[0].getMessage()
+        assert "Check the USB cable" in errors[0].getMessage()
+        assert "./mimir scan" in errors[0].getMessage()
+        assert "USB timeout" not in errors[0].getMessage()
+        assert errors[0].exc_info is None
+        details = [r for r in records if r.levelno == logging.DEBUG]
+        assert len(details) == 1
+        assert "USB timeout" in details[0].getMessage()
+        assert details[0].exc_info is not None
+        assert not any("Scan loop error" in r.getMessage() for r in records)
+        mock_record.assert_called_once()
+        mock_sleep.assert_called_once_with(_SCAN_ERROR_BACKOFF_SEC)
+
+    def test_repeated_read_errors_inside_reminder_window_are_quiet(
+        self,
+        scanner: ScanRunner,
+        mock_device: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Every failed main read counts, but one outage logs advice only once."""
+        scanner.set_focus_frequency(98_000_000.0)
+        mock_device.read_samples.side_effect = [
+            mock_device.read_samples.return_value,
+            *[RuntimeError("USB timeout") for _ in range(3)],
+        ]
+        clock = [1000.0]
+        failures = 0
+
+        def stop_after_errors(_seconds: float) -> None:
+            """Advance within the reminder window and stop after three failures."""
+            nonlocal failures
+            failures += 1
+            clock[0] += _SDR_OUTAGE_REMINDER_SEC / 4
+            if failures == 3:
+                scanner._running = False
+
+        with caplog.at_level(logging.DEBUG, logger="core.pipeline.scanner"):
+            with patch("time.monotonic", side_effect=lambda: clock[0]), patch(
+                "core.pipeline.scanner.record_hw_error"
+            ) as mock_record, patch(
+                "core.pipeline.scanner.time.sleep", side_effect=stop_after_errors
+            ) as mock_sleep:
+                scanner._running = True
+                scanner._scan_loop()
+
+        records = [r for r in caplog.records if r.name == "core.pipeline.scanner"]
+        assert [r.levelno for r in records] == [logging.ERROR, logging.DEBUG]
+        assert mock_record.call_count == 3
+        assert mock_sleep.call_count == 3
+        assert all(
+            call.args == (_SCAN_ERROR_BACKOFF_SEC,)
+            for call in mock_sleep.call_args_list
+        )
+        assert scanner._sdr_unresponsive is True
+        assert scanner._sdr_unresponsive_last_log == 1000.0
+
+    def test_read_outage_reminder_waits_for_interval_since_last_log(
+        self,
+        scanner: ScanRunner,
+        mock_device: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A reminder fires at the interval and starts a fresh quiet window."""
+        scanner.set_focus_frequency(98_000_000.0)
+        mock_device.read_samples.side_effect = [
+            mock_device.read_samples.return_value,
+            *[RuntimeError("USB timeout") for _ in range(4)],
+        ]
+        clock = [1000.0]
+        failures = 0
+
+        def advance_clock_or_stop(_seconds: float) -> None:
+            """Cross the reminder boundary once, then stop inside its new window."""
+            nonlocal failures
+            failures += 1
+            if failures == 1:
+                clock[0] += _SDR_OUTAGE_REMINDER_SEC - 1
+            elif failures == 2:
+                clock[0] += 1
+            elif failures == 3:
+                clock[0] += 1
+            else:
+                scanner._running = False
+
+        with caplog.at_level(logging.DEBUG, logger="core.pipeline.scanner"):
+            with patch("time.monotonic", side_effect=lambda: clock[0]), patch(
+                "core.pipeline.scanner.record_hw_error"
+            ) as mock_record, patch(
+                "core.pipeline.scanner.time.sleep", side_effect=advance_clock_or_stop
+            ):
+                scanner._running = True
+                scanner._scan_loop()
+
+        records = [r for r in caplog.records if r.name == "core.pipeline.scanner"]
+        assert [r.levelno for r in records] == [
+            logging.ERROR, logging.DEBUG, logging.WARNING,
+        ]
+        assert records[-1].getMessage() == (
+            "SDR still not responding at 98.000 MHz. Check the USB cable, "
+            "then restart with ./mimir scan."
+        )
+        assert records[-1].exc_info is None
+        assert mock_record.call_count == 4
+        assert scanner._sdr_unresponsive_last_log == (
+            1000.0 + _SDR_OUTAGE_REMINDER_SEC
+        )
+
+    def test_good_main_read_clears_outage_and_later_failure_logs_again(
+        self,
+        scanner: ScanRunner,
+        mock_device: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """The public outage flag follows failures, recovery and a fresh outage."""
+        assert scanner.sdr_unresponsive is False
+        scanner.set_focus_frequency(98_000_000.0)
+        samples = mock_device.read_samples.return_value
+        mock_device.read_samples.side_effect = [
+            samples,  # Initial retune's discard read.
+            RuntimeError("USB timeout"),
+            samples,
+            RuntimeError("USB timeout again"),
+        ]
+        clock = [1000.0]
+        states: list[tuple[bool, float | None]] = []
+
+        def stop_after_second_outage(_seconds: float) -> None:
+            """Observe the public flag and log time after failure and recovery."""
+            states.append((
+                scanner.sdr_unresponsive, scanner._sdr_unresponsive_last_log
+            ))
+            clock[0] += 1
+            if len(states) == 3:
+                scanner._running = False
+
+        with caplog.at_level(logging.DEBUG, logger="core.pipeline.scanner"):
+            with patch("time.monotonic", side_effect=lambda: clock[0]), patch(
+                "core.pipeline.scanner.record_hw_error"
+            ) as mock_record, patch(
+                "core.pipeline.scanner.time.sleep",
+                side_effect=stop_after_second_outage,
+            ) as mock_sleep:
+                scanner._running = True
+                scanner._scan_loop()
+
+        records = [r for r in caplog.records if r.name == "core.pipeline.scanner"]
+        assert [r.levelno for r in records] == [
+            logging.ERROR, logging.DEBUG, logging.INFO,
+            logging.ERROR, logging.DEBUG,
+        ]
+        assert records[2].getMessage() == "SDR responding again at 98.000 MHz"
+        assert states == [(True, 1000.0), (False, None), (True, 1002.0)]
+        assert scanner._scan_count == 1
+        assert scanner._queue.qsize() == 1
+        assert mock_device.read_samples.call_count == 4
+        assert mock_record.call_count == 2
+        assert [call.args for call in mock_sleep.call_args_list] == [
+            (_SCAN_ERROR_BACKOFF_SEC,),
+            (scanner._config.dwell_time_sec,),
+            (_SCAN_ERROR_BACKOFF_SEC,),
+        ]
 
     def test_retune_error_logs_cycle_frequency_and_backs_off_once(
         self,

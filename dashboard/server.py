@@ -182,13 +182,25 @@ def _get_path_reasoner() -> PathReasoner:
 
 
 def record_hw_error() -> None:
+    """Record the current time for the dashboard's hardware-error window."""
     global _last_hw_error_time
     _last_hw_error_time = time.time()
 
 
 def _compute_hackrf_status() -> str:
+    """Return DISCONNECTED, NOT_RESPONDING or CONNECTED for the SDR.
+
+    A missing or closed device is DISCONNECTED. An open device is
+    NOT_RESPONDING while the scanner reports a read outage or a hardware
+    error occurred within the last five seconds; otherwise it is CONNECTED.
+    """
     if _device_ref is None or not _device_ref.is_open:
         return "DISCONNECTED"
+    if (
+        _scanner_ref is not None
+        and getattr(_scanner_ref, "sdr_unresponsive", False) is True
+    ):
+        return "NOT_RESPONDING"
     if time.time() - _last_hw_error_time < 5.0:
         return "NOT_RESPONDING"
     return "CONNECTED"

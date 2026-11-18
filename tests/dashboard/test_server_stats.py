@@ -71,6 +71,52 @@ class TestComputeHackrfStatus:
         ):
             assert _compute_hackrf_status() == "CONNECTED"
 
+    def test_not_responding_while_scanner_outage_exceeds_error_window(self) -> None:
+        """An ongoing read outage stays NOT_RESPONDING after the error expires."""
+        with (
+            patch("dashboard.server._device_ref", MagicMock(is_open=True)),
+            patch(
+                "dashboard.server._scanner_ref", MagicMock(sdr_unresponsive=True)
+            ),
+            patch("dashboard.server._last_hw_error_time", 1000.0),
+            patch("dashboard.server.time.time", return_value=1060.0),
+        ):
+            assert _compute_hackrf_status() == "NOT_RESPONDING"
+
+    def test_connected_when_scanner_responding_and_error_expired(self) -> None:
+        """A cleared outage flag permits CONNECTED once the error has expired."""
+        with (
+            patch("dashboard.server._device_ref", MagicMock(is_open=True)),
+            patch(
+                "dashboard.server._scanner_ref", MagicMock(sdr_unresponsive=False)
+            ),
+            patch("dashboard.server._last_hw_error_time", 1000.0),
+            patch("dashboard.server.time.time", return_value=1060.0),
+        ):
+            assert _compute_hackrf_status() == "CONNECTED"
+
+    def test_disconnected_when_device_closed_during_scanner_outage(self) -> None:
+        """A closed device takes precedence over an ongoing scanner outage."""
+        with (
+            patch("dashboard.server._device_ref", MagicMock(is_open=False)),
+            patch(
+                "dashboard.server._scanner_ref", MagicMock(sdr_unresponsive=True)
+            ),
+            patch("dashboard.server._last_hw_error_time", 1000.0),
+            patch("dashboard.server.time.time", return_value=1060.0),
+        ):
+            assert _compute_hackrf_status() == "DISCONNECTED"
+
+    def test_bare_mock_scanner_does_not_imply_read_outage(self) -> None:
+        """A mock attribute must be literal True to force NOT_RESPONDING."""
+        with (
+            patch("dashboard.server._device_ref", MagicMock(is_open=True)),
+            patch("dashboard.server._scanner_ref", MagicMock()),
+            patch("dashboard.server._last_hw_error_time", 1000.0),
+            patch("dashboard.server.time.time", return_value=1060.0),
+        ):
+            assert _compute_hackrf_status() == "CONNECTED"
+
 
 class TestFocusFrequencyFilter:
     def _make_scan_result(self, freq_hz: float, fingerprint: dict | None = None) -> ScanResult:

@@ -35,6 +35,8 @@ _SAMPLE_RATE_HZ = 2_000_000
 # cannot spin the loop and flood the log. Deliberately not config.dwell_time_sec,
 # which is 0.0 in config/mimir.yaml.
 _SCAN_ERROR_BACKOFF_SEC: float = 1.0
+# Minimum interval between short reminders during one SDR read outage.
+_SDR_OUTAGE_REMINDER_SEC: float = 60.0
 
 
 def _should_fire_trigger(
@@ -144,6 +146,11 @@ class ScanRunner:
         rate-limit offline results to one every 5 seconds to avoid SocketIO
         flooding.
 
+        _sdr_unresponsive and _sdr_unresponsive_last_log track a sample-read
+        outage and its last operator message in monotonic seconds. A good
+        main read clears both so a later outage gets a fresh error message.
+        The dashboard reads the flag through the sdr_unresponsive property.
+
         device_driver — the DEVICE_PROFILES driver key ("hackrf" / "plutosdr")
         of the attached device. Used by the scan loop's unsupported-band guard:
         non-HackRF devices with a narrower tuning range (e.g. Pluto, 325 MHz
@@ -190,6 +197,8 @@ class ScanRunner:
         self._active_freq_hz: float = 0.0
         self._last_llm_ms: float = 0.0
         self._last_offline_emit: float = 0.0
+        self._sdr_unresponsive: bool = False
+        self._sdr_unresponsive_last_log: float | None = None
         # Per-frequency emit throttle state: freq_hz -> (signal_type, monotonic
         # timestamp of last emit). Consulted at the top of _emit_result().
         self._last_emit_by_freq: dict[float, tuple[str, float]] = {}
@@ -236,6 +245,15 @@ class ScanRunner:
         self._record_sample_offset: int = 0
         self._record_freq_hz: float | None = None
         self._record_lock: threading.Lock = threading.Lock()
+
+    @property
+    def sdr_unresponsive(self) -> bool:
+        """Return True from an outage's first failed main read until a good read.
+
+        Only the scan thread writes the flag; the dashboard's stats thread
+        reads it here. A single bool read needs no lock.
+        """
+        return self._sdr_unresponsive
 
     def run(self) -> None:
         self._running = True
@@ -524,10 +542,14 @@ class ScanRunner:
         broadcast failure (e.g. no connected dashboard) does not prevent the scan
         loop from continuing or the fingerprint from reaching the AI pipeline.
 
-        The outer error handler logs any exception that escapes a scan cycle,
-        using the frequency read at the start of that cycle, and pauses for the
-        fixed ``_SCAN_ERROR_BACKOFF_SEC`` before retrying. This sleep is not
-        interruptible, so ``stop()`` can lag by up to the back-off.
+        Main sample-read failures log one short error per outage, a reminder
+        every ``_SDR_OUTAGE_REMINDER_SEC``, and exception details with a
+        traceback at debug level on the first failure. A good main read logs
+        recovery and clears the outage state. Read failures pause for the
+        fixed ``_SCAN_ERROR_BACKOFF_SEC`` before the next cycle. The outer
+        handler still logs a full traceback for any other exception escaping
+        a scan cycle, using that cycle's frequency and the same back-off.
+        This sleep is not interruptible, so ``stop()`` can lag by up to it.
 
         "Latest wins" queue behaviour:
         Before inserting a fingerprint, the queue is drained completely. Because LLM
@@ -594,9 +616,44 @@ class ScanRunner:
                 self._active_freq_hz = freq_hz
                 try:
                     samples = device.read_samples(config.num_samples)
-                except Exception:
+                except Exception as exc:
                     record_hw_error()
-                    raise
+                    # Keep read-outage advice concise and rate-limit reminders.
+                    now = time.monotonic()
+                    if not self._sdr_unresponsive:
+                        display_name = DEVICE_PROFILES.get(
+                            self._device_driver, {}
+                        ).get("display_name") or "SDR"
+                        logger.error(
+                            "SDR not responding: %s stopped returning samples "
+                            "at %.3f MHz. Check the USB cable. Mimir does not "
+                            "reconnect by itself yet: restart it with "
+                            "./mimir scan once the SDR is plugged back in.",
+                            display_name,
+                            freq_hz / 1e6,
+                        )
+                        logger.debug(
+                            "SDR read failure detail: %s", exc, exc_info=True
+                        )
+                        self._sdr_unresponsive = True
+                        self._sdr_unresponsive_last_log = now
+                    elif (
+                        self._sdr_unresponsive_last_log is not None
+                        and now - self._sdr_unresponsive_last_log
+                        >= _SDR_OUTAGE_REMINDER_SEC
+                    ):
+                        logger.warning(
+                            "SDR still not responding at %.3f MHz. Check the "
+                            "USB cable, then restart with ./mimir scan.",
+                            freq_hz / 1e6,
+                        )
+                        self._sdr_unresponsive_last_log = now
+                    time.sleep(_SCAN_ERROR_BACKOFF_SEC)
+                    continue
+                if self._sdr_unresponsive:
+                    logger.info("SDR responding again at %.3f MHz", freq_hz / 1e6)
+                    self._sdr_unresponsive = False
+                    self._sdr_unresponsive_last_log = None
                 for subscriber in self._iq_subscribers:
                     subscriber.receive(samples, freq_hz, _SAMPLE_RATE_HZ)
                 psd = compute_psd(samples, _SAMPLE_RATE_HZ, freq_hz)
