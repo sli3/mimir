@@ -80,14 +80,16 @@ uv run pytest tests/core/test_rx_only_lock.py -v
 # 4. Run full test suite
 uv run pytest
 
-# 5. Start the scanner (PYTHONPATH=. is always required — see note below)
-env PYTHONPATH=. .venv-scan/bin/python -s scan.py
+# 5. Start the scanner (the launcher sets PYTHONPATH=. for you — see note below)
+./mimir scan
 ```
 
 > **`PYTHONPATH=.` is always required** when running `scan.py` or any tool in `tools/`.
 > Mimir is not installed as a package — Python needs the repo root on its path to find
 > `core/`, `modules/`, `dashboard/`, `embeddings/`, and `llm/`. Without it you will get
-> `ModuleNotFoundError: No module named 'core'` (or similar).
+> `ModuleNotFoundError: No module named 'core'` (or similar). The `./mimir` launcher
+> (see below) sets it for you; the long form it runs is
+> `env PYTHONPATH=. .venv-scan/bin/python -s scan.py`.
 
 ### Option B — UV-based (recommended for development)
 
@@ -113,9 +115,32 @@ uv run pytest
 # 6. Create the scanner venv (system Python + SoapySDR, locked packages from uv.lock)
 bash -c 'source ./setup.sh && create_scanner_venv'
 
-# 7. Start the scanner (-s keeps old ~/.local packages out)
-env PYTHONPATH=. .venv-scan/bin/python -s scan.py
+# 7. Start the scanner (the launcher adds -s, which keeps old ~/.local packages out)
+./mimir scan
 ```
+
+### The `./mimir` launcher
+
+`./mimir` in the repo root starts everything with the right Python
+(`.venv-scan`), `PYTHONPATH=.` and `-s`, from any folder. Before it runs
+anything it prints the exact command and waits: press Enter to run it, or
+Ctrl+C to cancel.
+
+```bash
+./mimir                                # help
+./mimir scan                           # live scan (SDR plugged in)
+./mimir scan --device hackrf           # force a device: hackrf or plutosdr
+./mimir demo                           # replay the newest capture that has a demo cache
+./mimir demo data/captures/<stem>.sigmf-meta   # replay a chosen capture
+./mimir frontend                       # dashboard dev server on port 5173
+./mimir tool                           # list the tools; SDR tools are marked
+./mimir tool inspect_snr --label AIS   # run a tool with its own options
+./mimir test                           # pytest, then Vitest
+```
+
+Anything after `scan`, `demo` or `tool <name>` is passed straight through. In
+fish, `alias --save mimir ~/Repository/mimir/mimir` lets you type `mimir` from
+any folder.
 
 ---
 
@@ -136,7 +161,7 @@ The dashboard displays offline status in the AI Reasoning panel (amber "LLM OFFL
 To verify the live pipeline is emitting events correctly (requires `scan.py` running):
 
 ```bash
-PYTHONPATH=. python tools/diagnose_live.py --duration 60 --url http://localhost:5000
+./mimir tool diagnose_live --duration 60 --url http://localhost:5000
 ```
 
 Output shows live `[spectrum_update]` and `[scan_result]` events per band,
@@ -153,17 +178,17 @@ single source of truth for phase status and test counts. This section shows
 only a quick-glance summary — update `docs/ROADMAP.md` first, then sync this block.
 
 **Current phase: 76 — Demo Mode (--demo flag) for scan.py, Complete Arc**
-**Total: 1548 passing (1084 pytest + 464 Vitest), 0 failures**
+**Total: 1577 passing (1113 pytest + 464 Vitest), 0 failures**
 
 > **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector
 > store (`data/vectorstore/`) must be re-seeded after deploying this build.
-> Run `PYTHONPATH=. python tools/seed_chromadb.py` to wipe and re-seed.
+> Run `./mimir tool seed_chromadb` to wipe and re-seed.
 
 ---
 
 ## Diagnostic Tools
 
-Mimir ships with standalone tools in `tools/`. These are run manually from the project root with the Python environment active. The live-capture tools below need an SDR plugged in with an antenna attached; `replay_capture.py` works on saved files only and needs no hardware.
+Mimir ships with standalone tools in `tools/`. Run them with the launcher, `./mimir tool <name> [options]`; `./mimir tool` lists them. The live-capture tools below need an SDR plugged in with an antenna attached; `replay_capture.py` works on saved files only and needs no hardware.
 
 All tools are receive-only. No transmission occurs. Jurisdiction: AU/SA — Radiocommunications Act 1992 (Cth).
 
@@ -176,7 +201,7 @@ All tools are receive-only. No transmission occurs. Jurisdiction: AU/SA — Radi
 **When to use it:** First thing after a fresh setup, after any changes to `core/pipeline/`, or whenever you want to see what the raw numbers look like for a given frequency.
 
 ```bash
-PYTHONPATH=. python tools/diagnose_fingerprints.py
+./mimir tool diagnose_fingerprints
 ```
 
 Output: a table of feature values printed to stdout for each band — FM broadcast (98.9 MHz), ADS-B (1090 MHz), Aviation VHF (127 MHz), and a noise floor reference (433 MHz).
@@ -193,13 +218,13 @@ Output: a table of feature values printed to stdout for each band — FM broadca
 
 ```bash
 # Sweep all six bands
-PYTHONPATH=. python tools/diagnose_threshold.py
+./mimir tool diagnose_threshold
 
 # Sweep a single band
-PYTHONPATH=. python tools/diagnose_threshold.py --band adsb
+./mimir tool diagnose_threshold --band adsb
 
 # Sweep with the Pluto instead of the HackRF
-PYTHONPATH=. python tools/diagnose_threshold.py --device pluto --band ism
+./mimir tool diagnose_threshold --device pluto --band ism
 ```
 
 Valid `--band` values with the default `--device hackrf`: `fm_broadcast`, `aviation`, `acars`, `aprs`, `ism`, `adsb`. With `--device pluto`: `ism` and `adsb` only.
@@ -234,7 +259,7 @@ returned by ChromaDB seem off. Run it, then update the `STRONG_MATCH`,
 with the printed recommendations.
 
 ```bash
-PYTHONPATH=. python tools/calibrate_thresholds.py
+./mimir tool calibrate_thresholds
 ```
 
 Output: antenna selection prompt, per-band captures (with warnings for ADS-B, ACARS,
@@ -268,10 +293,10 @@ distance thresholds.
 
 ```bash
 # Capture all bands for the connected antenna
-PYTHONPATH=. python tools/capture_to_vectorstore.py
+./mimir tool capture_to_vectorstore
 
 # Wipe existing vectors before capturing (destructive -- all previous embeddings lost)
-PYTHONPATH=. python tools/capture_to_vectorstore.py --wipe
+./mimir tool capture_to_vectorstore --wipe
 ```
 
 > **Important:** Stop `scan.py` before running this tool. Both processes write to
@@ -290,13 +315,13 @@ readings, summary of records stored, and a reminder to run `calibrate_thresholds
 
 ```bash
 # Replay a capture with default tolerance (0.1 dB)
-PYTHONPATH=. python tools/replay_capture.py data/captures/capture_98000000hz_20260819_120000.sigmf-meta
+./mimir tool replay_capture data/captures/capture_98000000hz_20260819_120000.sigmf-meta
 
 # Replay with a different tolerance
-PYTHONPATH=. python tools/replay_capture.py path/to/capture.sigmf-data --tolerance-db 0.25
+./mimir tool replay_capture path/to/capture.sigmf-data --tolerance-db 0.25
 
 # Save the structured result to JSON
-PYTHONPATH=. python tools/replay_capture.py path/to/capture.sigmf-meta --json result.json
+./mimir tool replay_capture path/to/capture.sigmf-meta --json result.json
 ```
 
 Output: file metadata (frequency, sample rate, device profile), band resolution (which band profile matched, whether exact or nearest), per-chunk comparison (saved vs replayed fingerprint values with per-field match/mismatch), and a summary of matched/mismatched chunks.
@@ -321,8 +346,8 @@ If you are setting up Mimir for the first time, or tuning it after a hardware ch
 ### Starting the live dashboard
 
 ```bash
-# From the project root (works in fish and bash, no activation needed):
-env PYTHONPATH=. .venv-scan/bin/python -s scan.py
+# Works in fish and bash, no activation needed; press Enter to confirm:
+./mimir scan
 ```
 
 Then open your browser at `http://localhost:5000`. The cyberpunk dashboard will show:
@@ -357,8 +382,11 @@ A separate vector space visualisation page is available at `http://localhost:500
 Demo mode replays saved SigMF captures through the classifier pipeline with cached LLM responses. It opens no SDR and calls no live LLM.
 
 ```bash
-env PYTHONPATH=. .venv-scan/bin/python -s scan.py --demo --demo-files data/captures/<stem>.sigmf-meta
+./mimir demo                                   # newest capture that has a demo cache
+./mimir demo data/captures/<stem>.sigmf-meta   # a chosen capture
 ```
+
+The launcher runs `env PYTHONPATH=. .venv-scan/bin/python -s scan.py --demo --demo-files <file>`. With no file it picks the capture whose `data/demo_cache/<stem>.json` is newest and whose `.sigmf-meta` and `.sigmf-data` both exist.
 
 - The cache `data/demo_cache/<stem>.json` must exist (named after the first `--demo-files` file); `--demo-cache` points at a different one. `tools/generate_demo_cache.py` builds cache files.
 - `--demo-files-adsb` optionally names a 2 MSa/s, 1090 MHz capture to feed the ADS-B decoder.
