@@ -7,7 +7,7 @@ PURPOSE
 Tests for ``scan.py`` argument parsing and the demo-mode branch in
 ``main()``. Proves that ``--demo`` skips hardware detection, skips device
 construction, skips decoder subscribers, and enters the demo path, while
-the non-demo path remains unchanged.
+the live path requests a helper-process receiver.
 
 Run with:
     uv run pytest tests/scan/test_demo_main.py -v
@@ -527,8 +527,8 @@ class TestLiveBranch:
     """Tests proving the non-demo path remains the live hardware path."""
 
     @patch("llm.classifier.requests.get")
-    def test_live_path_calls_detect_and_build_device(self, mock_get) -> None:
-        """Require exit 0 after mocked live device setup and cleanup."""
+    def test_live_path_calls_detect_and_build_device(self, mock_get: MagicMock) -> None:
+        """Require a helper-process live receiver and exit 0 after mocked cleanup."""
         patches = _patch_dependencies()
         mocks, stack = _apply_patches(patches)
         (
@@ -574,7 +574,14 @@ class TestLiveBranch:
                 _stop_all(stack)
 
         mock_detect_device.assert_called_once()
-        mock_build_device.assert_called_once()
+        config = _mock_load_config.return_value
+        mock_build_device.assert_called_once_with(
+            "hackrf",
+            lna_gain_db=config.lna_gain_db,
+            vga_gain_db=config.vga_gain_db,
+            amp_enable=config.amp_enable,
+            helper_process=True,
+        )
         mock_acars.assert_called_once()
         mock_ais.assert_called_once()
         mock_adsb.assert_called_once()

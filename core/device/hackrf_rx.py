@@ -53,6 +53,10 @@ from core.legal.compliance_guard import HardwareTransmitError, transmit_guard
 
 logger = logging.getLogger(__name__)
 
+# SoapySDR/Errors.h: timeout means no data; overflow means samples were dropped.
+SOAPY_SDR_TIMEOUT = -1
+SOAPY_SDR_OVERFLOW = -4
+
 
 class HackRFReceiver(DeviceBase):
     """
@@ -348,19 +352,15 @@ class HackRFReceiver(DeviceBase):
             numpy.ndarray of shape (num_samples,) and dtype complex64.
 
         Raises:
-            RuntimeError: If the device is not open or capture fails after
-                one stream-reset retry.
+            RuntimeError: If the device is not open, an overflow repeats, or
+                another negative SoapySDR code (including timeout -1) occurs.
 
-        Timeout retry behaviour:
-            SoapySDR error code -4 means the hardware did not deliver samples
-            within the 10-second deadline. This can occur during band switches,
-            when USB bandwidth is saturated, or when the HackRF firmware is
-            temporarily unresponsive. When a timeout is detected, the method
-            deactivates and reactivates the SoapySDR stream (with a 50 ms gap
-            and 100 ms settle) to reset the USB transfer pipeline, then retries
-            the capture once. If the retry also fails, a RuntimeError is raised.
-            A warning is logged with the current centre frequency so operators
-            can see when the hardware is struggling.
+        Overflow retry behaviour:
+            SoapySDR overflow (-4) means samples were dropped. Discard any
+            partial capture and read once more from zero without resetting
+            the stream. Log the overflow and centre frequency. A second
+            overflow or any other negative code fails immediately; live
+            scanning then replaces the receiver helper with a fresh process.
         """
         if not self._is_open:
             raise RuntimeError("Device is not open. Call open() first.")
@@ -375,16 +375,11 @@ class HackRFReceiver(DeviceBase):
                 self._stream, [chunk], remaining, timeoutUs=int(1e7)
             )
             if sr.ret < 0:
-                if sr.ret == -4 and retry_count < 1:
+                if sr.ret == SOAPY_SDR_OVERFLOW and retry_count < 1:
                     logger.warning(
-                        "readStream timeout at %.3f MHz — resetting stream before retry",
+                        "readStream overflow at %.3f MHz; retrying capture from zero",
                         self._center_freq_hz / 1e6,
                     )
-                    if self._stream is not None:
-                        self._device.deactivateStream(self._stream)
-                        time.sleep(0.05)
-                        self._device.activateStream(self._stream)
-                        time.sleep(0.1)
                     retry_count += 1
                     total = 0
                     output = np.zeros(num_samples, dtype=np.complex64)

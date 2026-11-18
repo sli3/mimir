@@ -21,6 +21,9 @@ Provides a single function, build_device(), that constructs an UN-OPENED
 receiver instance for a named SoapySDR driver. Callers select hardware via
 the --device command-line flag (see scan.py) and open the device
 themselves, so the factory never touches USB.
+Live scanning can request an un-opened ReceiverProcess proxy instead; its
+helper starts only when the caller opens it. Direct receivers remain the
+default for tools and for construction inside the helper itself.
 
 WHY CENTRALISED
 ───────────────
@@ -64,8 +67,9 @@ def build_device(
     lna_gain_db: float = 24.0,
     vga_gain_db: float = 26.0,
     amp_enable: bool = False,
+    helper_process: bool = False,
 ) -> DeviceBase:
-    """Construct an un-opened receiver for the named device driver.
+    """Construct an un-opened direct receiver or replaceable helper proxy.
 
     The returned instance has NOT been opened: no USB access has occurred
     and no hardware is touched. The caller must call open() itself, which
@@ -81,13 +85,29 @@ def build_device(
             Ignored for "plutosdr".
         amp_enable: HackRF RF amplifier enable flag. Ignored for
             "plutosdr".
+        helper_process: Return a ReceiverProcess proxy without starting a
+            process. False retains direct receiver construction.
 
     Returns:
-        An un-opened DeviceBase instance (HackRFReceiver or PlutoReceiver).
+        An un-opened DeviceBase receiver or ReceiverProcess proxy.
 
     Raises:
         ValueError: If driver is not a known device driver key.
     """
+    if driver not in ("hackrf", "plutosdr"):
+        raise ValueError(
+            f"Unknown device driver {driver!r} (passed via --device). "
+            f"Valid drivers: 'hackrf', 'plutosdr'."
+        )
+    if helper_process:
+        from core.device.receiver_process import ReceiverProcess
+
+        return ReceiverProcess(
+            driver,
+            lna_gain_db=lna_gain_db,
+            vga_gain_db=vga_gain_db,
+            amp_enable=amp_enable,
+        )
     if driver == "hackrf":
         logger.debug(
             "Building HackRFReceiver: lna=%.1f dB, vga=%.1f dB, amp=%s",
@@ -110,7 +130,3 @@ def build_device(
             PlutoReceiver.DEFAULT_GAIN_DB,
         )
         return PlutoReceiver(gain_db=PlutoReceiver.DEFAULT_GAIN_DB)
-    raise ValueError(
-        f"Unknown device driver {driver!r} (passed via --device). "
-        f"Valid drivers: 'hackrf', 'plutosdr'."
-    )

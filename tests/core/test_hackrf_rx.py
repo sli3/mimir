@@ -20,8 +20,10 @@ from tests.core.soapy_doubles import FakeSoapySDRKwargs
 
 
 class TestHackRFReceiver:
-    def test_read_samples_resets_stream_on_timeout(self):
-        """deactivateStream + activateStream called when readStream returns -4."""
+    def test_read_samples_restarts_capture_on_overflow(
+        self, caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Overflow logs the frequency and retries without resetting the stream."""
         receiver = HackRFReceiver()
         receiver._is_open = True
         receiver._center_freq_hz = 1_090_000_000.0
@@ -30,35 +32,53 @@ class TestHackRFReceiver:
         mock_device = MagicMock()
         receiver._device = mock_device
 
-        # First readStream call returns -4 (timeout); second returns samples
+        # A partial capture precedes overflow; retry must request the full buffer.
         good_result = MagicMock()
         good_result.ret = 131072
-        timeout_result = MagicMock()
-        timeout_result.ret = -4
-        mock_device.readStream.side_effect = [timeout_result, good_result]
+        overflow_result = MagicMock(ret=-4)
+        mock_device.readStream.side_effect = [
+            MagicMock(ret=16), overflow_result, good_result,
+        ]
 
         samples = receiver.read_samples(131072)
 
-        # Stream must be reset between attempts
-        mock_device.deactivateStream.assert_called_once_with(mock_stream)
-        mock_device.activateStream.assert_called_once_with(mock_stream)
-        # Retry must succeed — no RuntimeError raised
+        mock_device.deactivateStream.assert_not_called()
+        mock_device.activateStream.assert_not_called()
+        assert [call.args[2] for call in mock_device.readStream.call_args_list] == [
+            131072, 131056, 131072,
+        ]
         assert len(samples) == 131072
+        assert "overflow at 1090.000 MHz" in caplog.text
 
-    def test_read_samples_raises_after_failed_retry(self):
-        """RuntimeError raised when both readStream attempts return -4."""
+    def test_read_samples_raises_after_second_overflow(self) -> None:
+        """A repeated overflow raises with its code after exactly two reads."""
         receiver = HackRFReceiver()
         receiver._is_open = True
         receiver._center_freq_hz = 1_090_000_000.0
         receiver._stream = MagicMock()
         receiver._device = MagicMock()
 
-        timeout_result = MagicMock()
-        timeout_result.ret = -4
-        receiver._device.readStream.return_value = timeout_result
+        receiver._device.readStream.return_value = MagicMock(ret=-4)
 
         with pytest.raises(RuntimeError, match="SoapySDR error code -4"):
             receiver.read_samples(131072)
+        assert receiver._device.readStream.call_count == 2
+        receiver._device.deactivateStream.assert_not_called()
+        receiver._device.activateStream.assert_not_called()
+
+    def test_read_samples_timeout_raises_immediately(self) -> None:
+        """Timeout -1 fails on the first read without touching the stream."""
+        receiver = HackRFReceiver()
+        receiver._is_open = True
+        receiver._stream = MagicMock()
+        receiver._device = MagicMock()
+        receiver._device.readStream.return_value = MagicMock(ret=-1)
+
+        with pytest.raises(RuntimeError, match="SoapySDR error code -1"):
+            receiver.read_samples(131072)
+        receiver._device.readStream.assert_called_once()
+        receiver._device.deactivateStream.assert_not_called()
+        receiver._device.activateStream.assert_not_called()
 
 
 class TestHackRFRetuneSettle:

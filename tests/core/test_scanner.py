@@ -335,7 +335,7 @@ class TestScanRunner:
         mock_device: MagicMock,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """The first failed main read separates advice from exception details."""
+        """First-failure advice promises automatic reconnection, with debug details."""
         scanner.set_focus_frequency(98_000_000.0)
         # The initial retune's discard succeeds before the main read fails.
         mock_device.read_samples.side_effect = [
@@ -360,7 +360,7 @@ class TestScanRunner:
         assert "HackRF One" in errors[0].getMessage()
         assert "98.000 MHz" in errors[0].getMessage()
         assert "Check the USB cable" in errors[0].getMessage()
-        assert "./mimir scan" in errors[0].getMessage()
+        assert "Mimir reconnects automatically" in errors[0].getMessage()
         assert "USB timeout" not in errors[0].getMessage()
         assert errors[0].exc_info is None
         details = [r for r in records if r.levelno == logging.DEBUG]
@@ -420,7 +420,7 @@ class TestScanRunner:
         mock_device: MagicMock,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """A reminder fires at the interval and starts a fresh quiet window."""
+        """Automatic-reconnect reminders fire at the interval, then stay quiet."""
         scanner.set_focus_frequency(98_000_000.0)
         mock_device.read_samples.side_effect = [
             mock_device.read_samples.return_value,
@@ -456,8 +456,8 @@ class TestScanRunner:
             logging.ERROR, logging.DEBUG, logging.WARNING,
         ]
         assert records[-1].getMessage() == (
-            "SDR still not responding at 98.000 MHz. Check the USB cable, "
-            "then restart with ./mimir scan."
+            "SDR still not responding at 98.000 MHz. Check the USB cable. "
+            "Mimir reconnects automatically once the SDR is plugged back in."
         )
         assert records[-1].exc_info is None
         assert mock_record.call_count == 4

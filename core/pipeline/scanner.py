@@ -546,7 +546,8 @@ class ScanRunner:
         every ``_SDR_OUTAGE_REMINDER_SEC``, and exception details with a
         traceback at debug level on the first failure. A good main read logs
         recovery and clears the outage state. Read failures pause for the
-        fixed ``_SCAN_ERROR_BACKOFF_SEC`` before the next cycle. The outer
+        fixed ``_SCAN_ERROR_BACKOFF_SEC`` before the next cycle. The receiver
+        proxy reconnects automatically once the SDR is plugged back in. The outer
         handler still logs a full traceback for any other exception escaping
         a scan cycle, using that cycle's frequency and the same back-off.
         This sleep is not interruptible, so ``stop()`` can lag by up to it.
@@ -626,9 +627,8 @@ class ScanRunner:
                         ).get("display_name") or "SDR"
                         logger.error(
                             "SDR not responding: %s stopped returning samples "
-                            "at %.3f MHz. Check the USB cable. Mimir does not "
-                            "reconnect by itself yet: restart it with "
-                            "./mimir scan once the SDR is plugged back in.",
+                            "at %.3f MHz. Check the USB cable. Mimir reconnects "
+                            "automatically once the SDR is plugged back in.",
                             display_name,
                             freq_hz / 1e6,
                         )
@@ -644,7 +644,8 @@ class ScanRunner:
                     ):
                         logger.warning(
                             "SDR still not responding at %.3f MHz. Check the "
-                            "USB cable, then restart with ./mimir scan.",
+                            "USB cable. Mimir reconnects automatically once "
+                            "the SDR is plugged back in.",
                             freq_hz / 1e6,
                         )
                         self._sdr_unresponsive_last_log = now

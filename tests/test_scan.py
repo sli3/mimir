@@ -223,10 +223,10 @@ class TestDeviceSelection:
         else:
             self.mock_detect_device.return_value = _hackrf_detected()
 
-    def test_default_device_prefers_pluto_when_both_present(self):
+    def test_default_device_prefers_pluto_when_both_present(self) -> None:
         """With no --device and both devices present (mocked detection
         resolving to Pluto), build_device is called with the plutosdr
-        driver — Pluto is the no-preference default per the 2026-07-15
+        driver and helper_process=True. Pluto is the default per the 2026-07-15
         multi-device decision."""
         self._set_detected_driver("plutosdr")
         self.config.frequencies_hz = [915_000_000]
@@ -236,25 +236,27 @@ class TestDeviceSelection:
             lna_gain_db=24.0,
             vga_gain_db=26.0,
             amp_enable=False,
+            helper_process=True,
         )
 
-    def test_default_device_selects_hackrf_when_only_hackrf_present(self):
+    def test_default_device_selects_hackrf_when_only_hackrf_present(self) -> None:
         """With no --device and only a HackRF present (mocked detection
         resolving to HackRF), build_device is called with the hackrf
-        driver."""
+        driver and helper_process=True."""
         self._run_main(["scan.py"])
         self.mock_build_device.assert_called_once_with(
             "hackrf",
             lna_gain_db=24.0,
             vga_gain_db=26.0,
             amp_enable=False,
+            helper_process=True,
         )
 
-    def test_explicit_hackrf_forces_hackrf_even_when_pluto_present(self):
+    def test_explicit_hackrf_forces_hackrf_even_when_pluto_present(self) -> None:
         """--device hackrf is the manual override for the six sub-325 MHz
         bands: detect_device is consulted with preferred='hackrf' and the
-        resolved driver passed to build_device is hackrf, even on a
-        machine where a Pluto is also present."""
+        resolved driver passed to build_device is hackrf with
+        helper_process=True, even when a Pluto is also present."""
         self._run_main(["scan.py", "--device", "hackrf"])
         self.mock_detect_device.assert_called_once_with(preferred="hackrf")
         self.mock_build_device.assert_called_once_with(
@@ -262,6 +264,7 @@ class TestDeviceSelection:
             lna_gain_db=24.0,
             vga_gain_db=26.0,
             amp_enable=False,
+            helper_process=True,
         )
 
     def test_detect_device_runtime_error_exits_1(self, caplog):
@@ -280,8 +283,8 @@ class TestDeviceSelection:
         assert "SDR detection failed" in caplog.text
         assert "No supported SDR device found" in caplog.text
 
-    def test_explicit_plutosdr_device(self):
-        """--device plutosdr routes to build_device with the plutosdr driver."""
+    def test_explicit_plutosdr_device(self) -> None:
+        """--device plutosdr requests a Pluto helper-process receiver."""
         self._set_detected_driver("plutosdr")
         self.config.frequencies_hz = [915_000_000]
         self._run_main(["scan.py", "--device", "plutosdr"])
@@ -290,6 +293,7 @@ class TestDeviceSelection:
             lna_gain_db=24.0,
             vga_gain_db=26.0,
             amp_enable=False,
+            helper_process=True,
         )
 
     def test_plutosdr_with_supported_freq_focuses_on_first_supported(self):

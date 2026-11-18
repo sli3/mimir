@@ -153,7 +153,8 @@ def main() -> None:
     2026-07-15 multi-device decision), initialises the AI pipeline
     (embeddings, ChromaDB store, LLM classifier), registers decoder
     subscribers (ACARS, AIS, ADS-B), starts the Flask-SocketIO dashboard,
-    and enters the scan loop.
+    and enters the scan loop. The live receiver runs in a replaceable
+    spawned helper so a lost SDR can reconnect with fresh native handles.
     Ctrl+C stops the scan gracefully.
 
     Demo mode validates replay files and any explicit --demo-files-adsb
@@ -403,6 +404,7 @@ def main() -> None:
             lna_gain_db=config.lna_gain_db,
             vga_gain_db=config.vga_gain_db,
             amp_enable=config.amp_enable,
+            helper_process=True,
         )
         device.open()
     except (RuntimeError, OSError) as exc:

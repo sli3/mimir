@@ -12,6 +12,7 @@ instances, and no test here calls open().
 
 import os
 import sys
+from unittest.mock import patch
 
 import pytest
 
@@ -20,6 +21,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from core.device.factory import build_device
 from core.device.hackrf_rx import HackRFReceiver
 from core.device.pluto_rx import PlutoReceiver
+from core.device.receiver_process import ReceiverProcess
 from core.legal.compliance_guard import HardwareTransmitError
 
 
@@ -60,14 +62,37 @@ class TestBuildDevice:
         )
         assert receiver.gain_db == PlutoReceiver.DEFAULT_GAIN_DB
 
-    def test_unknown_driver_raises_value_error(self):
-        """Unknown driver keys fail loudly with guidance for --device."""
+    @pytest.mark.parametrize("helper_process", [False, True])
+    def test_unknown_driver_raises_value_error(self, helper_process: bool) -> None:
+        """Unknown drivers fail before constructing a direct receiver or proxy."""
         with pytest.raises(ValueError) as exc_info:
-            build_device("rtlsdr")
+            build_device("rtlsdr", helper_process=helper_process)
         message = str(exc_info.value)
         assert "--device" in message
         assert "hackrf" in message
         assert "plutosdr" in message
+
+    @pytest.mark.parametrize("driver", ["hackrf", "plutosdr"])
+    def test_helper_process_returns_unopened_proxy(self, driver: str) -> None:
+        """Helper routing preserves gain kwargs and starts no process."""
+        with patch(
+            "core.device.receiver_process.multiprocessing.get_context"
+        ) as get_context:
+            receiver = build_device(
+                driver, lna_gain_db=16.0, vga_gain_db=20.0,
+                amp_enable=True, helper_process=True,
+            )
+            try:
+                assert isinstance(receiver, ReceiverProcess)
+                assert not receiver.is_open
+                assert receiver._process is None
+                assert receiver._driver == driver
+                assert receiver._gain_kwargs == {
+                    "lna_gain_db": 16.0, "vga_gain_db": 20.0, "amp_enable": True,
+                }
+                get_context.assert_not_called()
+            finally:
+                receiver.close()
 
     def test_returns_unopened_instance(self):
         """Neither driver path opens hardware inside the factory."""
