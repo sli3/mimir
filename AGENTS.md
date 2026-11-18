@@ -352,6 +352,7 @@ dashboard/                      Cyberpunk React dashboard + Flask-SocketIO
 | `core/pipeline/scan_result.py` | `ScanResult` dataclass (includes psd_db) |
 | `core/pipeline/scanner.py` | `ScanRunner` — two-thread scan + AI loop |
 | `core/config/loader.py` | `MimirConfig`, `load_config()` |
+| `core/device/receiver_process.py` | `ReceiverProcess` — RX-only proxy that runs the receiver in a replaceable helper process |
 | `embeddings/embedder.py` | SpectrumEmbedder — fingerprint to vector |
 | `embeddings/store.py` | SignalStore — ChromaDB wrapper |
 | `llm/acma_reference.py` | `AcmaReference` — ACMA spectrum plan lookup |
@@ -383,6 +384,7 @@ dashboard/                      Cyberpunk React dashboard + Flask-SocketIO
 | `tools/capture_to_vectorstore.py` | Live IQ capture across AU-legal bands, pipeline to production ChromaDB |
 | `docs/au-legal-reference.md` | ACMA legal reference |
 | `docs/ROADMAP.md` | Phase tracker and build history |
+
 
 
 
