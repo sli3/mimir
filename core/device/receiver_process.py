@@ -148,11 +148,18 @@ class ReceiverProcess(DeviceBase):
         self._closing = False
         self._next_reconnect = 0.0
 
-    def __getattr__(self, name: str) -> None:
-        """Fail closed for unsupported public operations; keep private lookup normal."""
-        if name.startswith("_"):
-            raise AttributeError(name)
-        transmit_guard(name)
+    # Undefined hackrf_start_tx and start_tx attributes raise AttributeError.
+    def writeStream(self, *args: object, **kwargs: object) -> None:
+        """Block stream output with HardwareTransmitError before any IPC."""
+        transmit_guard("writeStream")
+
+    def setupTxStream(self, *args: object, **kwargs: object) -> None:
+        """Block output stream setup with HardwareTransmitError before any IPC."""
+        transmit_guard("setupTxStream")
+
+    def activateTxStream(self, *args: object, **kwargs: object) -> None:
+        """Block stream activation with HardwareTransmitError before any IPC."""
+        transmit_guard("activateTxStream")
 
     def _stop_helper(self, process: multiprocessing.Process | None) -> None:
         """Reap a helper without touching its pipe, including during a locked read."""

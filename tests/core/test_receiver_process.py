@@ -383,9 +383,32 @@ def test_closed_configuration_applied_and_live_changes_rejected(
 
 
 def test_guarded_operations(receiver_builder: Callable) -> None:
-    """Inherited and unsupported output methods raise HardwareTransmitError."""
+    """Explicit and inherited output stubs block before starting any helper."""
     receiver = receiver_builder()
     with pytest.raises(HardwareTransmitError):
         receiver.transmit()
     with pytest.raises(HardwareTransmitError):
         receiver.writeStream()
+    with pytest.raises(HardwareTransmitError):
+        receiver.setupTxStream()
+    with pytest.raises(HardwareTransmitError):
+        receiver.activateTxStream()
+    with pytest.raises(HardwareTransmitError):
+        receiver.write_samples()
+    with pytest.raises(HardwareTransmitError):
+        receiver.set_tx_gain()
+    with pytest.raises(HardwareTransmitError):
+        receiver.set_tx_frequency()
+    assert receiver._process is None
+
+
+def test_unknown_public_attribute(receiver_builder: Callable) -> None:
+    """Unknown public lookups use normal Python fallbacks without a helper."""
+    receiver = receiver_builder()
+    sentinel = object()
+
+    with pytest.raises(AttributeError):
+        receiver.no_such_attr
+    assert getattr(receiver, "no_such_attr", sentinel) is sentinel
+    assert not hasattr(receiver, "no_such_attr")
+    assert receiver._process is None

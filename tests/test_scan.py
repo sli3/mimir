@@ -1,10 +1,12 @@
-"""Tests for scan.py startup error handling and --device selection.
+"""Tests for scan.py startup errors, live shutdown and --device selection.
 
 Legal: Receive-only. Radiocommunications Act 1992 (Cth).
        No transmission. Jurisdiction: AU/SA. Authority: ACMA.
 """
+import logging
 import sys
-from unittest.mock import MagicMock, patch
+from collections.abc import Iterator
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -42,11 +44,11 @@ def _pluto_detected() -> DetectedDevice:
 
 
 class TestScanStartupErrors:
-    """Verify scan.py exits cleanly when the SDR is unavailable."""
+    """Verify startup failures and ordered live scanner shutdown."""
 
     @pytest.fixture(autouse=True)
-    def _patch_dependencies(self):
-        """Patch heavy dependencies so importing scan.py does not touch hardware."""
+    def _patch_dependencies(self) -> Iterator[None]:
+        """Mock live components with a successful wait and shared shutdown log."""
         with (
             patch("scan.load_config") as mock_load_config,
             patch("scan.detect_device") as mock_detect_device,
@@ -55,9 +57,9 @@ class TestScanStartupErrors:
             patch("scan.SignalStore"),
             patch("scan.SignalClassifier"),
             patch("scan.ScanRunner") as mock_scan_runner_cls,
-            patch("scan.AcarsSubscriber"),
-            patch("scan.AisSubscriber"),
-            patch("scan.AdsbSubscriber"),
+            patch("scan.AcarsSubscriber") as mock_acars_cls,
+            patch("scan.AisSubscriber") as mock_ais_cls,
+            patch("scan.AdsbSubscriber") as mock_adsb_cls,
             patch("scan.time.sleep"),
             patch("scan.start_server") as mock_start_server,
             patch.object(sys, "argv", ["scan.py"]),
@@ -82,6 +84,24 @@ class TestScanStartupErrors:
             mock_broadcast = MagicMock()
             mock_start_server.return_value = mock_broadcast
             mock_start_server._broadcast_spectrum_fn = MagicMock()
+
+            scanner = mock_scan_runner_cls.return_value
+            scanner.wait_stopped.return_value = True
+            self.shutdown_calls = MagicMock()
+            self.shutdown_calls.attach_mock(scanner.stop, "stop")
+            self.shutdown_calls.attach_mock(scanner.wait_stopped, "wait_stopped")
+            self.shutdown_calls.attach_mock(
+                mock_acars_cls.return_value.stop, "stop_acars"
+            )
+            self.shutdown_calls.attach_mock(
+                mock_ais_cls.return_value.stop, "stop_ais"
+            )
+            self.shutdown_calls.attach_mock(
+                mock_adsb_cls.return_value.stop, "stop_adsb"
+            )
+            self.shutdown_calls.attach_mock(
+                mock_build_device.return_value.close, "close"
+            )
 
             self.mock_load_config = mock_load_config
             self.mock_detect_device = mock_detect_device
@@ -117,13 +137,14 @@ class TestScanStartupErrors:
         assert "USB device not found" in caplog.text
         assert "Is the HackRF One connected?" in caplog.text
 
-    def test_fatal_error_exits_with_code_1(self):
-        """A generic Exception from scanner.run() must cause exit code 1."""
+    def test_fatal_error_exits_with_code_1(self) -> None:
+        """A fatal scan error exits with code 1 after a successful stop wait."""
         device = MagicMock()
         self.mock_build_device.return_value = device
 
         scanner = MagicMock()
         scanner.run.side_effect = Exception("Unexpected hardware fault")
+        scanner.wait_stopped.return_value = True
 
         with patch("scan.ScanRunner", return_value=scanner):
             with pytest.raises(SystemExit) as exc_info:
@@ -131,31 +152,63 @@ class TestScanStartupErrors:
 
         assert exc_info.value.code == 1
 
-    def test_successful_startup_exits_zero_on_keyboard_interrupt(self):
-        """When device.open() succeeds, main() should enter the scan loop."""
-        device = MagicMock()
-        self.mock_build_device.return_value = device
-
-        scanner = MagicMock()
+    def test_successful_startup_exits_zero_on_keyboard_interrupt(self) -> None:
+        """Ctrl+C stops and waits before subscribers stop and the device closes."""
+        device = self.mock_build_device.return_value
+        scanner = self.mock_scan_runner_cls.return_value
         scanner.run.side_effect = KeyboardInterrupt
 
-        with patch("scan.ScanRunner", return_value=scanner):
+        with pytest.raises(SystemExit) as exc_info:
+            scan.main()
+
+        # Successful shutdown preserves the intentional Ctrl+C exit status.
+        assert exc_info.value.code == 0
+        device.open.assert_called_once()
+        assert self.shutdown_calls.mock_calls == [
+            call.stop(),
+            call.wait_stopped(timeout=5.0),
+            call.stop_acars(),
+            call.stop_ais(),
+            call.stop_adsb(),
+            call.close(),
+        ]
+
+    def test_shutdown_wait_timeout_warns_and_closes_device(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A timed-out scan wait warns and still closes the live receiver."""
+        scanner = self.mock_scan_runner_cls.return_value
+        scanner.run.side_effect = KeyboardInterrupt
+        scanner.wait_stopped.return_value = False
+
+        with caplog.at_level(logging.WARNING, logger="scan"):
             with pytest.raises(SystemExit) as exc_info:
                 scan.main()
 
-        # KeyboardInterrupt inside scanner.run() triggers the except block,
-        # which prints a message and falls through to the finally block,
-        # which calls sys.exit(0).
         assert exc_info.value.code == 0
-        device.open.assert_called_once()
+        assert self.shutdown_calls.mock_calls == [
+            call.stop(),
+            call.wait_stopped(timeout=5.0),
+            call.stop_acars(),
+            call.stop_ais(),
+            call.stop_adsb(),
+            call.close(),
+        ]
+        assert (
+            "scan",
+            logging.WARNING,
+            "Scan thread is still inside a device call; "
+            "the receiver will be closed anyway.",
+        ) in caplog.record_tuples
 
 
 class TestDeviceSelection:
     """Verify scan.py --device wiring (Phase 37)."""
 
     @pytest.fixture(autouse=True)
-    def _patch_dependencies(self):
-        """Patch heavy dependencies so main() never touches hardware."""
+    def _patch_dependencies(self) -> Iterator[None]:
+        """Mock device selection and a successful shutdown wait without hardware."""
         with (
             patch("scan.load_config") as mock_load_config,
             patch("scan.detect_device") as mock_detect_device,
@@ -194,6 +247,7 @@ class TestDeviceSelection:
             self.mock_detect_device = mock_detect_device
             self.mock_build_device = mock_build_device
             self.mock_scan_runner = mock_scan_runner_cls.return_value
+            self.mock_scan_runner.wait_stopped.return_value = True
             yield
 
     @pytest.fixture(autouse=True)

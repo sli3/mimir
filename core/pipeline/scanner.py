@@ -138,6 +138,10 @@ class ScanRunner:
         loop drains the queue before every insert so the AI loop always sees the
         most recent scan. At steady state the queue holds 0–1 items.
 
+        The scan thread wrapper signals ``_scan_loop_finished`` on every
+        exit path. Shutdown waits for this event because an interrupted
+        join can make thread liveness unreliable on CPython 3.11.
+
         Stats counters:
         _scan_count_since_llm — increments once per scan cycle; snapshot
         into _last_backlog when the AI loop picks up an item, then reset.
@@ -186,6 +190,8 @@ class ScanRunner:
         self._queue: queue.Queue = queue.Queue(maxsize=config.queue_maxsize)
         self._running = False
         self._scan_thread: threading.Thread | None = None
+        self._scan_loop_finished = threading.Event()
+        self._scan_loop_finished.set()
         self._ai_thread: threading.Thread | None = None
         self._broadcast_fn = None
         self._broadcast_spectrum_fn = None
@@ -256,13 +262,29 @@ class ScanRunner:
         return self._sdr_unresponsive
 
     def run(self) -> None:
+        """Start both workers and join them, recording scan completion.
+
+        Reset the completion event before starting the scan thread. Its
+        wrapper signals the event even when the scan loop raises, so an
+        interrupted join cannot falsely report a completed device call.
+        """
+        self._scan_loop_finished.clear()
         self._running = True
-        self._scan_thread = threading.Thread(target=self._scan_loop, daemon=True)
+        self._scan_thread = threading.Thread(
+            target=self._run_scan_loop, daemon=True,
+        )
         self._ai_thread = threading.Thread(target=self._ai_loop, daemon=True)
         self._scan_thread.start()
         self._ai_thread.start()
         self._scan_thread.join()
         self._ai_thread.join()
+
+    def _run_scan_loop(self) -> None:
+        """Signal scan-loop completion on normal return or any exception."""
+        try:
+            self._scan_loop()
+        finally:
+            self._scan_loop_finished.set()
 
     def start_ai_only(self) -> None:
         """Start only the AI loop thread (demo mode).
@@ -279,7 +301,24 @@ class ScanRunner:
         self._ai_thread.join()
 
     def stop(self) -> None:
+        """Request shutdown; use wait_stopped() to wait for the scan thread."""
         self._running = False
+
+    def wait_stopped(self, timeout: float) -> bool:
+        """Wait up to timeout seconds for scan-loop completion only.
+
+        Call after stop() before closing the receiver. Return False if the
+        loop has not finished, or immediately when called from its thread.
+        A scanner with no scan thread is already stopped for this purpose.
+        Use the completion event rather than thread liveness, which can
+        falsely report a stopped thread after an interrupted Python 3.11 join.
+        """
+        scan_thread = self._scan_thread
+        if scan_thread is None:
+            return True
+        if scan_thread is threading.current_thread():
+            return False
+        return self._scan_loop_finished.wait(timeout=timeout)
 
     def get_stats(self) -> dict:
         """Return current scanner runtime statistics.

@@ -188,6 +188,110 @@ class TestScanRunner:
         t.join(timeout=3)
         assert not t.is_alive()
 
+    def test_wait_stopped_after_stop(
+        self,
+        scanner: ScanRunner,
+        mock_device: MagicMock,
+    ) -> None:
+        """Observe scan-loop completion after requesting shutdown."""
+        read_entered = threading.Event()
+        samples = mock_device.read_samples.return_value
+
+        def read_samples(num_samples: int) -> object:
+            """Signal that the real scan loop has reached its fake receiver."""
+            read_entered.set()
+            return samples
+
+        mock_device.read_samples.side_effect = read_samples
+        runner_thread = threading.Thread(target=scanner.run, daemon=True)
+        runner_thread.start()
+        try:
+            assert read_entered.wait(timeout=3)
+            scanner.stop()
+            assert scanner.wait_stopped(timeout=3) is True
+            assert scanner._scan_thread is not None
+            assert scanner._scan_loop_finished.is_set()
+        finally:
+            scanner.stop()
+            runner_thread.join(timeout=3)
+        assert not runner_thread.is_alive()
+
+    def test_wait_stopped_before_run(self, scanner: ScanRunner) -> None:
+        """No scan thread means stopped, without inspecting or joining AI."""
+        scanner._ai_thread = MagicMock()
+
+        assert scanner.wait_stopped(timeout=0.01) is True
+        scanner._ai_thread.is_alive.assert_not_called()
+        scanner._ai_thread.join.assert_not_called()
+
+    @pytest.mark.parametrize("reported_alive", [True, False])
+    def test_wait_stopped_times_out_during_read(
+        self,
+        scanner: ScanRunner,
+        mock_device: MagicMock,
+        reported_alive: bool,
+    ) -> None:
+        """A blocked read times out even when its thread reports not alive."""
+        read_entered = threading.Event()
+        release_read = threading.Event()
+        samples = mock_device.read_samples.return_value
+
+        def blocked_read(num_samples: int) -> object:
+            """Hold the fake receiver read until the test permits shutdown."""
+            read_entered.set()
+            release_read.wait()
+            return samples
+
+        mock_device.read_samples.side_effect = blocked_read
+        runner_thread = threading.Thread(target=scanner.run, daemon=True)
+        runner_thread.start()
+        try:
+            assert read_entered.wait(timeout=3)
+            scanner.stop()
+            assert scanner._scan_thread is not None
+            # Reproduce the misleading liveness state after a Python 3.11
+            # interrupted join while the fake receiver is still blocked.
+            with patch.object(
+                scanner._scan_thread, "is_alive", return_value=reported_alive,
+            ) as is_alive:
+                assert scanner.wait_stopped(timeout=0.01) is False
+                release_read.set()
+                assert scanner.wait_stopped(timeout=3) is True
+                is_alive.assert_not_called()
+        finally:
+            scanner.stop()
+            release_read.set()
+            runner_thread.join(timeout=3)
+        assert not runner_thread.is_alive()
+        assert scanner.wait_stopped(timeout=0.01) is True
+
+    def test_wait_stopped_does_not_join_current_thread(
+        self,
+        scanner: ScanRunner,
+    ) -> None:
+        """A scan-thread wait returns immediately without waiting or joining."""
+        scanner._scan_thread = threading.current_thread()
+        with (
+            patch.object(scanner._scan_thread, "join") as join,
+            patch.object(scanner._scan_loop_finished, "wait") as wait,
+        ):
+            assert scanner.wait_stopped(timeout=0.01) is False
+        join.assert_not_called()
+        wait.assert_not_called()
+
+    def test_scan_loop_completion_signalled_on_exception(
+        self,
+        scanner: ScanRunner,
+    ) -> None:
+        """Signal completion on an escaping scan-loop error and propagate it."""
+        scanner._scan_loop_finished.clear()
+        with patch.object(
+            scanner, "_scan_loop", side_effect=RuntimeError("Scan loop failed"),
+        ):
+            with pytest.raises(RuntimeError, match="Scan loop failed"):
+                scanner._run_scan_loop()
+        assert scanner._scan_loop_finished.is_set()
+
     def test_scan_loop_stays_on_focus_frequency(
         self,
         scanner: ScanRunner,

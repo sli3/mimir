@@ -42,6 +42,8 @@ logging.basicConfig(
 
 logger = logging.getLogger("scan")
 
+_SHUTDOWN_SCAN_WAIT_SEC = 5.0
+
 
 def _parse_args() -> argparse.Namespace:
     """Parse command-line arguments.
@@ -155,7 +157,9 @@ def main() -> None:
     subscribers (ACARS, AIS, ADS-B), starts the Flask-SocketIO dashboard,
     and enters the scan loop. The live receiver runs in a replaceable
     spawned helper so a lost SDR can reconnect with fresh native handles.
-    Ctrl+C stops the scan gracefully.
+    Ctrl+C requests shutdown and waits up to five seconds for the live scan
+    thread before stopping subscribers and closing the receiver, warning
+    if the scan thread is still inside a device call.
 
     Demo mode validates replay files and any explicit --demo-files-adsb
     path before resolving the cache path or starting components.
@@ -487,6 +491,11 @@ def main() -> None:
         fatal_error = True
     finally:
         scanner.stop()
+        if not scanner.wait_stopped(timeout=_SHUTDOWN_SCAN_WAIT_SEC):
+            logger.warning(
+                "Scan thread is still inside a device call; "
+                "the receiver will be closed anyway."
+            )
         acars_subscriber.stop()
         ais_subscriber.stop()
         adsb_subscriber.stop()
