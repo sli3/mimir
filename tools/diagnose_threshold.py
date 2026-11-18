@@ -19,10 +19,10 @@ Legal: Receive-only. Radiocommunications Act 1992 (Cth).
        No transmission. Jurisdiction: AU/SA. Authority: ACMA.
 
 Usage:
-    PYTHONPATH=. python tools/diagnose_threshold.py
-    PYTHONPATH=. python tools/diagnose_threshold.py --band adsb
-    PYTHONPATH=. python tools/diagnose_threshold.py --device pluto
-    PYTHONPATH=. python tools/diagnose_threshold.py --device pluto --band adsb
+    ./mimir tool diagnose_threshold
+    ./mimir tool diagnose_threshold --band adsb
+    ./mimir tool diagnose_threshold --device pluto
+    ./mimir tool diagnose_threshold --device pluto --band adsb
 """
 
 import argparse

@@ -6,7 +6,7 @@ events, prints structured diagnostic output to stdout, and exits with
 PASS or FAIL.
 
 Usage:
-    python tools/diagnose_live.py --duration 15 --url http://localhost:5000
+    ./mimir tool diagnose_live --duration 15 --url http://localhost:5000
 
 Legal: Receive-only. Radiocommunications Act 1992 (Cth).
        No transmission. Jurisdiction: AU/SA. Authority: ACMA.

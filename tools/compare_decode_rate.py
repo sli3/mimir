@@ -43,16 +43,16 @@ WHY THIS IS A FAIR COMPARISON
 
 HOW TO RUN
 ──────────
-    PYTHONPATH=. python tools/compare_decode_rate.py
+    ./mimir tool compare_decode_rate
 
     # shorter smoke run (2 minutes per device):
-    PYTHONPATH=. python tools/compare_decode_rate.py --duration 120
+    ./mimir tool compare_decode_rate --duration 120
 
     # override gains for a sweep point:
-    PYTHONPATH=. python tools/compare_decode_rate.py --pluto-gain 35
+    ./mimir tool compare_decode_rate --pluto-gain 35
 
-PYTHONPATH=. is required — Mimir is not an installed package, so Python needs
-the repo root on its import path to find core/ and modules/.
+The launcher sets PYTHONPATH=. because Mimir is not an installed package, so
+Python needs the repo root on its import path to find core/ and modules/.
 
 Only one device is open at a time. The tool captures HackRF first, then pauses
 and prompts you to physically unplug it and plug in the Pluto before continuing.

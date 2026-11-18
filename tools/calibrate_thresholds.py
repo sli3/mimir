@@ -50,10 +50,10 @@ calibration vectors always match the live dashboard configuration:
                       tools/diagnose_pluto_gain.py first.
 
 Usage:
-    python tools/calibrate_thresholds.py
-    python tools/calibrate_thresholds.py --wipe
-    python tools/calibrate_thresholds.py --device pluto
-    python tools/calibrate_thresholds.py --device pluto --wipe
+    ./mimir tool calibrate_thresholds
+    ./mimir tool calibrate_thresholds --wipe
+    ./mimir tool calibrate_thresholds --device pluto
+    ./mimir tool calibrate_thresholds --device pluto --wipe
 
 Legal: Receive-only. Radiocommunications Act 1992 (Cth).
        No transmission. Jurisdiction: AU/SA. Authority: ACMA.

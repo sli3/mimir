@@ -12,9 +12,9 @@ full comparison printed. File-level problems (missing/malformed file, no
 fingerprint field, resource-cap breach) are hard errors: exit 1.
 
 Usage:
-    python tools/replay_capture.py data/captures/capture_98000000hz_20260819_120000.sigmf-meta
-    python tools/replay_capture.py path/to/capture.sigmf-data --tolerance-db 0.25
-    python tools/replay_capture.py path/to/capture.sigmf-meta --json result.json
+    ./mimir tool replay_capture data/captures/capture_98000000hz_20260819_120000.sigmf-meta
+    ./mimir tool replay_capture path/to/capture.sigmf-data --tolerance-db 0.25
+    ./mimir tool replay_capture path/to/capture.sigmf-meta --json result.json
 
 Legal: Receive-only. Radiocommunications Act 1992 (Cth).
        No transmission. Jurisdiction: AU/SA. Authority: ACMA.

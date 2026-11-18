@@ -1,7 +1,7 @@
 """
 Quick diagnostic — prints raw fingerprint features for each band.
 Run from project root:
-    PYTHONPATH=. python tools/diagnose_fingerprints.py
+    ./mimir tool diagnose_fingerprints
 """
 from core.pipeline.capture import capture_iq
 from core.pipeline.fft import compute_psd

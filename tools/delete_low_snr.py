@@ -14,7 +14,7 @@ There is no clean, principled SNR/threshold/timestamp split in the ADS_B data
 (inspect_snr.py confirmed a continuous smear, not a bimodal one), so this tool
 does NOT recommend a cut — YOU choose ``--max-snr`` after eyeballing the
 histogram. Preview the exact set first with:
-    PYTHONPATH=. python tools/inspect_snr.py --label ADS_B --max-snr 8.0
+    ./mimir tool inspect_snr --label ADS_B --max-snr 8.0
 then delete the identical set here by passing the same value.
 
 Shared flag contract with inspect_snr.py: ``--path``, ``--label``, ``--max-snr``
@@ -34,11 +34,11 @@ Safety gates (all of them apply):
 
 Run (from repo root, per project convention):
     # 1. Preview (read-only):
-    PYTHONPATH=. python tools/inspect_snr.py --label ADS_B --max-snr 8.0
+    ./mimir tool inspect_snr --label ADS_B --max-snr 8.0
     # 2. Dry-run the delete (still no changes):
-    PYTHONPATH=. python tools/delete_low_snr.py --label ADS_B --max-snr 8.0
+    ./mimir tool delete_low_snr --label ADS_B --max-snr 8.0
     # 3. Actually delete (backup + confirm):
-    PYTHONPATH=. python tools/delete_low_snr.py --label ADS_B --max-snr 8.0 --execute
+    ./mimir tool delete_low_snr --label ADS_B --max-snr 8.0 --execute
 
 Legal: Receive-only. Radiocommunications Act 1992 (Cth). AU/SA. ACMA.
        This tool only reads and deletes rows in a local database. It performs

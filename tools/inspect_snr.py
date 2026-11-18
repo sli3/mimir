@@ -27,9 +27,9 @@ tool to delete exactly the record set previewed here (both use strictly-less-tha
 semantics — a record at exactly the cut value is KEPT).
 
 Run (from repo root, per project convention):
-    PYTHONPATH=. python tools/inspect_snr.py
-    PYTHONPATH=. python tools/inspect_snr.py --label AIS
-    PYTHONPATH=. python tools/inspect_snr.py --label ADS_B --max-snr 8.0
+    ./mimir tool inspect_snr
+    ./mimir tool inspect_snr --label AIS
+    ./mimir tool inspect_snr --label ADS_B --max-snr 8.0
 
 Legal: Receive-only. Radiocommunications Act 1992 (Cth). AU/SA. ACMA.
        This tool only reads a local database. No RF, no TX, no network.
@@ -55,6 +55,7 @@ def _bucket(snr: float) -> str:
 
 
 def main() -> None:
+    """Inspect stored SNR and show a launcher command for previewed deletions."""
     parser = argparse.ArgumentParser(
         description="Read-only SNR inspection of stored vectors by label (no deletion)."
     )
@@ -174,7 +175,7 @@ def main() -> None:
                         if r["peak_power_db"] is not None else "   ?   ")
                 print(f"  {r['snr_db']:>8.2f}  {thr:>7}  {peak:>8}  {r['id']}")
             print(f"\n  To delete exactly these, run:")
-            print(f"    PYTHONPATH=. python tools/delete_low_snr.py "
+            print(f"    ./mimir tool delete_low_snr "
                   f"--label {args.label} --max-snr {args.max_snr} --execute")
         print()
 

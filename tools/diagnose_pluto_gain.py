@@ -24,9 +24,9 @@ Legal: Receive-only. Radiocommunications Act 1992 (Cth). No transmission.
        enforced by PlutoReceiver.
 
 Usage:
-    PYTHONPATH=. python tools/diagnose_pluto_gain.py
-    PYTHONPATH=. python tools/diagnose_pluto_gain.py --band ism
-    PYTHONPATH=. python tools/diagnose_pluto_gain.py --band adsb
+    ./mimir tool diagnose_pluto_gain
+    ./mimir tool diagnose_pluto_gain --band ism
+    ./mimir tool diagnose_pluto_gain --band adsb
 """
 
 import argparse
