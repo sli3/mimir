@@ -6,7 +6,7 @@ Legal: Receive-only. Radiocommunications Act 1992 (Cth).
 import logging
 import sys
 from collections.abc import Iterator
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import ANY, MagicMock, call, patch
 
 import pytest
 
@@ -43,12 +43,30 @@ def _pluto_detected() -> DetectedDevice:
     )
 
 
+def test_shutdown_handler_logs_further_interrupts(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The SIGINT handler logs at INFO and returns without interrupting cleanup."""
+    with patch("scan.signal.signal") as mock_signal:
+        scan._defer_interrupts_during_shutdown()
+
+    mock_signal.assert_called_once_with(scan.signal.SIGINT, ANY)
+    handler = mock_signal.call_args.args[1]
+    assert callable(handler)
+    with caplog.at_level(logging.INFO, logger="scan"):
+        handler(scan.signal.SIGINT, None)
+
+    assert caplog.record_tuples == [
+        ("scan", logging.INFO, "Shutdown already in progress; please wait."),
+    ]
+
+
 class TestScanStartupErrors:
     """Verify startup failures and ordered live scanner shutdown."""
 
     @pytest.fixture(autouse=True)
     def _patch_dependencies(self) -> Iterator[None]:
-        """Expose live component mocks and record start-up and scan shutdown."""
+        """Record cleanup order and mock SIGINT registration to protect pytest."""
         with (
             patch("scan.load_config") as mock_load_config,
             patch("scan.detect_device") as mock_detect_device,
@@ -61,6 +79,7 @@ class TestScanStartupErrors:
             patch("scan.AisSubscriber") as mock_ais_cls,
             patch("scan.AdsbSubscriber") as mock_adsb_cls,
             patch("scan.time.sleep"),
+            patch("scan.signal.signal") as mock_signal,
             patch("scan.start_server") as mock_start_server,
             patch.object(sys, "argv", ["scan.py"]),
         ):
@@ -88,6 +107,7 @@ class TestScanStartupErrors:
             scanner = mock_scan_runner_cls.return_value
             scanner.wait_stopped.return_value = True
             self.shutdown_calls = MagicMock()
+            self.shutdown_calls.attach_mock(mock_signal, "install_sigint")
             self.shutdown_calls.attach_mock(scanner.stop, "stop")
             self.shutdown_calls.attach_mock(scanner.wait_stopped, "wait_stopped")
             self.shutdown_calls.attach_mock(
@@ -189,7 +209,7 @@ class TestScanStartupErrors:
         self,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """Ctrl+C during the LLM check closes the receiver before decoders start."""
+        """LLM check cancellation defers further Ctrl+C before receiver closure."""
         classifier = self.mock_classifier_cls.return_value
         classifier.check_connection.side_effect = KeyboardInterrupt
 
@@ -206,13 +226,16 @@ class TestScanStartupErrors:
         self.mock_acars_cls.assert_not_called()
         self.mock_ais_cls.assert_not_called()
         self.mock_adsb_cls.assert_not_called()
-        assert self.shutdown_calls.mock_calls == [call.close()]
+        assert self.shutdown_calls.mock_calls == [
+            call.install_sigint(scan.signal.SIGINT, ANY),
+            call.close(),
+        ]
         self.mock_scan_runner_cls.return_value.run.assert_not_called()
 
     def test_keyboard_interrupt_on_server_stops_subscribers_and_closes(
         self,
     ) -> None:
-        """Ctrl+C starting the dashboard stops decoders before closing the receiver."""
+        """Dashboard cancellation defers Ctrl+C before stopping decoders and RX."""
         self.mock_start_server.side_effect = KeyboardInterrupt
 
         with pytest.raises(SystemExit) as exc_info:
@@ -220,6 +243,7 @@ class TestScanStartupErrors:
 
         assert exc_info.value.code == 130
         assert self.shutdown_calls.mock_calls == [
+            call.install_sigint(scan.signal.SIGINT, ANY),
             call.stop_acars(),
             call.stop_ais(),
             call.stop_adsb(),
@@ -234,7 +258,7 @@ class TestScanStartupErrors:
         self,
         stop_name: str,
     ) -> None:
-        """A subscriber stop RuntimeError preserves cleanup order and exit 130."""
+        """Stop errors preserve SIGINT deferral, cleanup order and exit 130."""
         self.mock_start_server.side_effect = KeyboardInterrupt
         getattr(self.shutdown_calls, stop_name).side_effect = RuntimeError(
             "cannot join thread before it is started"
@@ -246,6 +270,7 @@ class TestScanStartupErrors:
 
         assert exc_info.value.code == 130
         assert self.shutdown_calls.mock_calls == [
+            call.install_sigint(scan.signal.SIGINT, ANY),
             call.stop_acars(),
             call.stop_ais(),
             call.stop_adsb(),
@@ -270,7 +295,7 @@ class TestScanStartupErrors:
         assert exc_info.value.code == 1
 
     def test_successful_startup_exits_zero_on_keyboard_interrupt(self) -> None:
-        """Ctrl+C stops and waits before subscribers stop and the device closes."""
+        """Live shutdown defers further Ctrl+C before stopping and exits zero."""
         device = self.mock_build_device.return_value
         scanner = self.mock_scan_runner_cls.return_value
         scanner.run.side_effect = KeyboardInterrupt
@@ -282,6 +307,7 @@ class TestScanStartupErrors:
         assert exc_info.value.code == 0
         device.open.assert_called_once()
         assert self.shutdown_calls.mock_calls == [
+            call.install_sigint(scan.signal.SIGINT, ANY),
             call.stop(),
             call.wait_stopped(timeout=5.0),
             call.stop_acars(),
@@ -294,7 +320,7 @@ class TestScanStartupErrors:
         self,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """A timed-out scan wait warns and still closes the live receiver."""
+        """With Ctrl+C deferred, a scan wait timeout warns and still closes RX."""
         scanner = self.mock_scan_runner_cls.return_value
         scanner.run.side_effect = KeyboardInterrupt
         scanner.wait_stopped.return_value = False
@@ -305,6 +331,7 @@ class TestScanStartupErrors:
 
         assert exc_info.value.code == 0
         assert self.shutdown_calls.mock_calls == [
+            call.install_sigint(scan.signal.SIGINT, ANY),
             call.stop(),
             call.wait_stopped(timeout=5.0),
             call.stop_acars(),
@@ -325,7 +352,7 @@ class TestDeviceSelection:
 
     @pytest.fixture(autouse=True)
     def _patch_dependencies(self) -> Iterator[None]:
-        """Mock device selection and a successful shutdown wait without hardware."""
+        """Mock device selection, shutdown waits and SIGINT registration."""
         with (
             patch("scan.load_config") as mock_load_config,
             patch("scan.detect_device") as mock_detect_device,
@@ -338,6 +365,7 @@ class TestDeviceSelection:
             patch("scan.AisSubscriber"),
             patch("scan.AdsbSubscriber"),
             patch("scan.time.sleep"),
+            patch("scan.signal.signal"),
             patch("scan.start_server") as mock_start_server,
         ):
             # Default: a HackRF is the detected device. Tests exercising

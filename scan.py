@@ -11,9 +11,11 @@ LEGAL: Receive-only. Radiocommunications Act 1992 (Cth).
 import argparse
 import logging
 import os
+import signal
 import sys
 import time
 from pathlib import Path
+from types import FrameType
 
 from core.config.loader import load_config
 from core.device.factory import build_device
@@ -43,6 +45,16 @@ logging.basicConfig(
 logger = logging.getLogger("scan")
 
 _SHUTDOWN_SCAN_WAIT_SEC = 5.0
+
+
+def _defer_interrupts_during_shutdown() -> None:
+    """Log further Ctrl+C presses so ordered receiver cleanup can finish."""
+    def handler(signum: int, frame: FrameType | None) -> None:
+        """Report that shutdown is already in progress without interrupting it."""
+        logger.info("Shutdown already in progress; please wait.")
+
+    # Returning lets interrupted waits resume (PEP 475) for ordered USB release.
+    signal.signal(signal.SIGINT, handler)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -159,7 +171,9 @@ def main() -> None:
     spawned helper so a lost SDR can reconnect with fresh native handles.
     Ctrl+C requests shutdown and waits up to five seconds for the live scan
     thread before stopping subscribers and closing the receiver, warning
-    if the scan thread is still inside a device call.
+    if the scan thread is still inside a device call. Further presses during
+    cleanup log a please-wait message instead of interrupting shutdown.
+    Ctrl+C cannot force-quit during cleanup; every wait there is time-bounded.
 
     Demo mode validates replay files and any explicit --demo-files-adsb
     path before resolving the cache path or starting components.
@@ -183,7 +197,9 @@ def main() -> None:
     to stop each constructed decoder subscriber, closes the open receiver
     and exits with status 130. Subscriber stop RuntimeErrors are logged and
     cleanup continues, including for threads that have not started yet.
-    A second Ctrl+C during that cleanup is not handled.
+    Further presses during cleanup log a please-wait message instead of
+    interrupting it. Ctrl+C cannot force-quit during cleanup; every wait there
+    is time-bounded.
     Config loading and the Pluto focus check between detection and opening
     the device are not covered by these handlers; they open nothing.
 
@@ -504,6 +520,7 @@ def main() -> None:
         print(f"Focus mode: cycling through {len(config.frequencies_hz)} band(s) one at a time, "
               f"{config.dwell_time_sec}s dwell, queue depth {config.queue_maxsize}")
     except KeyboardInterrupt:
+        _defer_interrupts_during_shutdown()
         logger.info("Start-up cancelled by user; closing the %s.", display_name)
         try:
             for name, subscriber in (
@@ -534,6 +551,7 @@ def main() -> None:
         logger.error("Fatal error in scan loop: %s", e)
         fatal_error = True
     finally:
+        _defer_interrupts_during_shutdown()
         scanner.stop()
         if not scanner.wait_stopped(timeout=_SHUTDOWN_SCAN_WAIT_SEC):
             logger.warning(
