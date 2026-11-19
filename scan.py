@@ -177,7 +177,15 @@ def main() -> None:
     If the device cannot be opened (not connected, USB error), logs an
     error and exits with code 1 instead of crashing with a traceback.
     Ctrl+C while the device is being built or opened logs that start-up
-    was cancelled and exits with status 130 without a traceback.
+    was cancelled and exits with status 130. Ctrl+C during SDR detection
+    also logs cancellation and exits with status 130. After the receiver
+    opens but before the scan loop starts, Ctrl+C logs cancellation, attempts
+    to stop each constructed decoder subscriber, closes the open receiver
+    and exits with status 130. Subscriber stop RuntimeErrors are logged and
+    cleanup continues, including for threads that have not started yet.
+    A second Ctrl+C during that cleanup is not handled.
+    Config loading and the Pluto focus check between detection and opening
+    the device are not covered by these handlers; they open nothing.
 
     If the scan loop encounters an unexpected error, the process exits with
     code 1 (via a ``fatal_error`` flag in the ``finally`` block) to
@@ -377,6 +385,9 @@ def main() -> None:
             exc,
         )
         sys.exit(1)
+    except KeyboardInterrupt:
+        logger.info("Start-up cancelled by user before an SDR was selected.")
+        sys.exit(130)
     driver = detected.driver
     # Record the active device driver in shared state so the dashboard
     # system_stats payload (and the frontend's band greying) reflects the
@@ -422,71 +433,97 @@ def main() -> None:
         )
         sys.exit(130)
 
-    embedder = SpectrumEmbedder()
-    store = SignalStore(path="data/vectorstore")
-    llm_url = os.environ.get(
-        "MIMIR_LLM_URL",
-        config.llm_url,
-    )
-    classifier = SignalClassifier(
-        base_url=llm_url,
-        cooldown_sec=config.llm_cooldown_sec,
-        connect_timeout_sec=config.llm_connect_timeout_sec,
-    )
-
-    logger.info("Checking LLM server connectivity at startup...")
-    classifier.check_connection()
-
-    scanner = ScanRunner(device, embedder, store, classifier, config,
-                         device_driver=driver)
-
-    # Focus Pluto on its first supported frequency and set current_band to
-    # match, so the per-band threshold and crop window are correct from the
-    # first scan cycle. Without this the scanner would start on
-    # frequencies_hz[0], which is typically 98 MHz FM — below Pluto's floor.
-    if driver == "plutosdr" and pluto_focus is not None:
-        focus_freq_hz, focus_band_key = pluto_focus
-        scanner.set_focus_frequency(focus_freq_hz)
-        with shared_state.current_band_lock:
-            # Resolve via the device-aware helper (Phase 65, Finding A) so
-            # Pluto's calibrated signal_threshold_db/gain_db overlay is
-            # applied from the first scan cycle, not the HackRF values.
-            shared_state.current_band = shared_state.resolve_band_profile(
-                focus_band_key, driver
-            )
-        logger.info(
-            "Pluto startup focus: %.3f MHz (%s)",
-            focus_freq_hz / 1e6, focus_band_key,
+    acars_subscriber: AcarsSubscriber | None = None
+    ais_subscriber: AisSubscriber | None = None
+    adsb_subscriber: AdsbSubscriber | None = None
+    # Cancelled start-up must clean up even partially started subscribers.
+    try:
+        embedder = SpectrumEmbedder()
+        store = SignalStore(path="data/vectorstore")
+        llm_url = os.environ.get(
+            "MIMIR_LLM_URL",
+            config.llm_url,
+        )
+        classifier = SignalClassifier(
+            base_url=llm_url,
+            cooldown_sec=config.llm_cooldown_sec,
+            connect_timeout_sec=config.llm_connect_timeout_sec,
         )
 
-    acars_subscriber = AcarsSubscriber(broadcast_fn=emit_acars_message)
-    acars_subscriber.start()
-    scanner.register_iq_subscriber(acars_subscriber)
+        logger.info("Checking LLM server connectivity at startup...")
+        classifier.check_connection()
 
-    ais_subscriber = AisSubscriber(broadcast_fn=emit_ais_message)
-    ais_subscriber.start()
-    scanner.register_iq_subscriber(ais_subscriber)
+        scanner = ScanRunner(device, embedder, store, classifier, config,
+                             device_driver=driver)
 
-    adsb_subscriber = AdsbSubscriber(
-        broadcast_fn=emit_adsb_aircraft,
-        scan_result_fn=emit_adsb_scan_result,
-    )
-    adsb_subscriber.start()
-    scanner.register_iq_subscriber(adsb_subscriber)
+        # Focus Pluto on its first supported frequency and set current_band to
+        # match, so the per-band threshold and crop window are correct from the
+        # first scan cycle. Without this the scanner would start on
+        # frequencies_hz[0], which is typically 98 MHz FM — below Pluto's floor.
+        if driver == "plutosdr" and pluto_focus is not None:
+            focus_freq_hz, focus_band_key = pluto_focus
+            scanner.set_focus_frequency(focus_freq_hz)
+            with shared_state.current_band_lock:
+                # Resolve via the device-aware helper (Phase 65, Finding A) so
+                # Pluto's calibrated signal_threshold_db/gain_db overlay is
+                # applied from the first scan cycle, not the HackRF values.
+                shared_state.current_band = shared_state.resolve_band_profile(
+                    focus_band_key, driver
+                )
+            logger.info(
+                "Pluto startup focus: %.3f MHz (%s)",
+                focus_freq_hz / 1e6, focus_band_key,
+            )
 
-    broadcast = start_server(
-        config.dashboard_host, config.dashboard_port,
-        device=device, scanner=scanner,
-    )
-    broadcast_spectrum = start_server._broadcast_spectrum_fn
-    scanner._broadcast_fn = broadcast
-    scanner._broadcast_spectrum_fn = broadcast_spectrum
+        acars_subscriber = AcarsSubscriber(broadcast_fn=emit_acars_message)
+        acars_subscriber.start()
+        scanner.register_iq_subscriber(acars_subscriber)
 
-    print(f"Mimir — live scan started. Press Ctrl+C to stop.")
-    print(f"Device: {display_name}")
-    print(f"Dashboard: http://{config.dashboard_host}:{config.dashboard_port}")
-    print(f"Focus mode: cycling through {len(config.frequencies_hz)} band(s) one at a time, "
-          f"{config.dwell_time_sec}s dwell, queue depth {config.queue_maxsize}")
+        ais_subscriber = AisSubscriber(broadcast_fn=emit_ais_message)
+        ais_subscriber.start()
+        scanner.register_iq_subscriber(ais_subscriber)
+
+        adsb_subscriber = AdsbSubscriber(
+            broadcast_fn=emit_adsb_aircraft,
+            scan_result_fn=emit_adsb_scan_result,
+        )
+        adsb_subscriber.start()
+        scanner.register_iq_subscriber(adsb_subscriber)
+
+        broadcast = start_server(
+            config.dashboard_host, config.dashboard_port,
+            device=device, scanner=scanner,
+        )
+        broadcast_spectrum = start_server._broadcast_spectrum_fn
+        scanner._broadcast_fn = broadcast
+        scanner._broadcast_spectrum_fn = broadcast_spectrum
+
+        print(f"Mimir — live scan started. Press Ctrl+C to stop.")
+        print(f"Device: {display_name}")
+        print(f"Dashboard: http://{config.dashboard_host}:{config.dashboard_port}")
+        print(f"Focus mode: cycling through {len(config.frequencies_hz)} band(s) one at a time, "
+              f"{config.dwell_time_sec}s dwell, queue depth {config.queue_maxsize}")
+    except KeyboardInterrupt:
+        logger.info("Start-up cancelled by user; closing the %s.", display_name)
+        try:
+            for name, subscriber in (
+                ("ACARS", acars_subscriber),
+                ("AIS", ais_subscriber),
+                ("ADS-B", adsb_subscriber),
+            ):
+                if subscriber is not None:
+                    try:
+                        subscriber.stop()
+                    except RuntimeError as exc:
+                        # Ctrl+C can interrupt start() before its thread starts.
+                        logger.warning(
+                            "Could not stop %s subscriber during start-up "
+                            "cancellation: %s", name, exc,
+                        )
+        finally:
+            device.close()
+            time.sleep(1.0)   # give SoapySDR time to release USB before exit
+        sys.exit(130)
 
     fatal_error = False
     try:

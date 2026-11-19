@@ -48,14 +48,14 @@ class TestScanStartupErrors:
 
     @pytest.fixture(autouse=True)
     def _patch_dependencies(self) -> Iterator[None]:
-        """Mock live components with a successful wait and shared shutdown log."""
+        """Expose live component mocks and record start-up and scan shutdown."""
         with (
             patch("scan.load_config") as mock_load_config,
             patch("scan.detect_device") as mock_detect_device,
             patch("scan.build_device") as mock_build_device,
             patch("scan.SpectrumEmbedder"),
             patch("scan.SignalStore"),
-            patch("scan.SignalClassifier"),
+            patch("scan.SignalClassifier") as mock_classifier_cls,
             patch("scan.ScanRunner") as mock_scan_runner_cls,
             patch("scan.AcarsSubscriber") as mock_acars_cls,
             patch("scan.AisSubscriber") as mock_ais_cls,
@@ -107,6 +107,11 @@ class TestScanStartupErrors:
             self.mock_detect_device = mock_detect_device
             self.mock_build_device = mock_build_device
             self.mock_scan_runner_cls = mock_scan_runner_cls
+            self.mock_classifier_cls = mock_classifier_cls
+            self.mock_acars_cls = mock_acars_cls
+            self.mock_ais_cls = mock_ais_cls
+            self.mock_adsb_cls = mock_adsb_cls
+            self.mock_start_server = mock_start_server
             yield
 
     def test_runtime_error_on_open_logs_and_exits(self, caplog):
@@ -179,6 +184,75 @@ class TestScanStartupErrors:
             logging.INFO,
             "Start-up cancelled by user before the HackRF One was opened.",
         ) in caplog.record_tuples
+
+    def test_keyboard_interrupt_on_connection_closes_receiver(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Ctrl+C during the LLM check closes the receiver before decoders start."""
+        classifier = self.mock_classifier_cls.return_value
+        classifier.check_connection.side_effect = KeyboardInterrupt
+
+        with caplog.at_level(logging.INFO, logger="scan"):
+            with pytest.raises(SystemExit) as exc_info:
+                scan.main()
+
+        assert exc_info.value.code == 130
+        assert (
+            "scan",
+            logging.INFO,
+            "Start-up cancelled by user; closing the HackRF One.",
+        ) in caplog.record_tuples
+        self.mock_acars_cls.assert_not_called()
+        self.mock_ais_cls.assert_not_called()
+        self.mock_adsb_cls.assert_not_called()
+        assert self.shutdown_calls.mock_calls == [call.close()]
+        self.mock_scan_runner_cls.return_value.run.assert_not_called()
+
+    def test_keyboard_interrupt_on_server_stops_subscribers_and_closes(
+        self,
+    ) -> None:
+        """Ctrl+C starting the dashboard stops decoders before closing the receiver."""
+        self.mock_start_server.side_effect = KeyboardInterrupt
+
+        with pytest.raises(SystemExit) as exc_info:
+            scan.main()
+
+        assert exc_info.value.code == 130
+        assert self.shutdown_calls.mock_calls == [
+            call.stop_acars(),
+            call.stop_ais(),
+            call.stop_adsb(),
+            call.close(),
+        ]
+        self.mock_scan_runner_cls.return_value.run.assert_not_called()
+
+    @pytest.mark.parametrize("stop_name", [
+        "stop_acars", "stop_ais", "stop_adsb",
+    ])
+    def test_startup_stop_runtime_error_continues_cleanup(
+        self,
+        stop_name: str,
+    ) -> None:
+        """A subscriber stop RuntimeError preserves cleanup order and exit 130."""
+        self.mock_start_server.side_effect = KeyboardInterrupt
+        getattr(self.shutdown_calls, stop_name).side_effect = RuntimeError(
+            "cannot join thread before it is started"
+        )
+
+        with patch("scan.time.sleep") as mock_sleep:
+            with pytest.raises(SystemExit) as exc_info:
+                scan.main()
+
+        assert exc_info.value.code == 130
+        assert self.shutdown_calls.mock_calls == [
+            call.stop_acars(),
+            call.stop_ais(),
+            call.stop_adsb(),
+            call.close(),
+        ]
+        mock_sleep.assert_called_once_with(1.0)
+        self.mock_scan_runner_cls.return_value.run.assert_not_called()
 
     def test_fatal_error_exits_with_code_1(self) -> None:
         """A fatal scan error exits with code 1 after a successful stop wait."""
@@ -379,6 +453,28 @@ class TestDeviceSelection:
         self.mock_build_device.assert_not_called()
         assert "SDR detection failed" in caplog.text
         assert "No supported SDR device found" in caplog.text
+
+    def test_detect_device_keyboard_interrupt_logs_and_exits(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Ctrl+C during detection logs cancellation before a receiver is built."""
+        self.mock_detect_device.side_effect = KeyboardInterrupt
+
+        with (
+            patch.object(sys, "argv", ["scan.py"]),
+            caplog.at_level(logging.INFO, logger="scan"),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                scan.main()
+
+        assert exc_info.value.code == 130
+        assert (
+            "scan",
+            logging.INFO,
+            "Start-up cancelled by user before an SDR was selected.",
+        ) in caplog.record_tuples
+        self.mock_build_device.assert_not_called()
 
     def test_explicit_plutosdr_device(self) -> None:
         """--device plutosdr requests a Pluto helper-process receiver."""
