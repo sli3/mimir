@@ -11,8 +11,8 @@ each process. Replacing a spawned helper gives a fresh cache and isolates
 native crashes. A replacement helper is retuned live and one read is discarded
 before samples are returned.
 Spawn re-imports the parent's __main__, so scanner start-up can be slow.
-Ctrl+C before the helper installs SIG_IGN can kill that helper;
-the parent treats this as a lost session. A real readStream timeout now costs
+Where signal masks are supported, the helper starts with SIGINT blocked until
+it installs SIG_IGN and unblocks SIGINT. A real readStream timeout now costs
 a helper restart rather than an in-process retry. Pluto measurements remain
 untrustworthy for several minutes after replugging, even when samples resume.
 Reply deadlines cover the complete payload. A watchdog stops a helper that
@@ -26,6 +26,7 @@ import multiprocessing
 import signal
 import threading
 import time
+from multiprocessing import resource_tracker
 from multiprocessing.connection import Connection
 from typing import Callable
 
@@ -46,8 +47,15 @@ def _receiver_helper(
     sample_rate: float | None,
     gain: float | None,
 ) -> None:
-    """Own all native receiver handles and serve a fixed receive-only protocol."""
+    """Own receiver handles and serve a fixed receive-only protocol.
+
+    Install SIG_IGN first to discard pending SIGINT, then unblock the inherited
+    mask where supported so start-up interrupts cannot reach Python's handler.
+    """
     signal.signal(signal.SIGINT, signal.SIG_IGN)
+    # SIG_IGN discards any pending SIGINT before the inherited mask is lifted.
+    if hasattr(signal, "pthread_sigmask"):
+        signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGINT})
     logging.basicConfig(level=logging.INFO)
     device = None
     try:
@@ -238,7 +246,17 @@ class ReceiverProcess(DeviceBase):
         return result
 
     def _start_helper(self) -> None:
-        """Spawn under the pipe lock; reap on failure or shutdown during readiness."""
+        """Spawn under the pipe lock with SIGINT blocked where supported.
+
+        On the main thread, Ctrl+C during start is deferred until the caller's
+        mask is restored, then handled by the existing failure handler below.
+        Capture the entry mask before tracker initialisation and restore it even
+        if the tracker changes it or start fails. Reap on failure or shutdown
+        during readiness. Start the tracker before blocking. If it dies and
+        Process.start restarts it inside the protected window, Python 3.11's
+        tracker may unblock SIGINT and leave the helper unprotected. Python
+        3.14's tracker preserves the previous mask.
+        """
         if self._closing:
             raise RuntimeError("Receiver is closing")
         context = multiprocessing.get_context("spawn")
@@ -252,7 +270,18 @@ class ReceiverProcess(DeviceBase):
         )
         self._process = process
         try:
-            process.start()
+            if hasattr(signal, "pthread_sigmask"):
+                # Snapshot before tracker initialisation can change the mask.
+                old_mask = signal.pthread_sigmask(signal.SIG_BLOCK, [])
+                try:
+                    # Keep the tracker's mask changes outside the spawn window.
+                    resource_tracker.ensure_running()
+                    signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT})
+                    process.start()
+                finally:
+                    signal.pthread_sigmask(signal.SIG_SETMASK, old_mask)
+            else:
+                process.start()
             child.close()
             if self._closing:
                 raise RuntimeError("Receiver is closing")

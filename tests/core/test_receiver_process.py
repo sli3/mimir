@@ -11,7 +11,7 @@ import threading
 import time
 from functools import partial
 from pathlib import Path
-from typing import Callable, Iterator
+from typing import Callable, Iterable, Iterator
 from unittest.mock import patch
 
 import numpy as np
@@ -20,6 +20,18 @@ import pytest
 from core.device.receiver_process import ReceiverProcess
 from core.legal.compliance_guard import HardwareTransmitError
 from tests.core.receiver_process_fakes import make_receiver, partial_reply_helper
+
+
+@pytest.fixture
+def restored_signal_mask() -> Iterator[None]:
+    """Restore the test thread's original signal mask even after a failure."""
+    if not hasattr(signal, "pthread_sigmask"):
+        pytest.skip("POSIX signal masks are unavailable")
+    original_mask = signal.pthread_sigmask(signal.SIG_BLOCK, [])
+    try:
+        yield
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, original_mask)
 
 
 @pytest.fixture
@@ -330,6 +342,143 @@ def test_ready_helper_ignores_sigint(receiver_builder: Callable) -> None:
     receiver.open()
     os.kill(receiver._process.pid, signal.SIGINT)
     assert np.all(receiver.read_samples(16) == 98)
+
+
+@pytest.mark.usefixtures("restored_signal_mask")
+def test_starting_helper_ignores_sigint(
+    receiver_builder: Callable,
+    monkeypatch: pytest.MonkeyPatch,
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    """SIGINT immediately after spawn leaves samples and stderr intact."""
+    real_start = multiprocessing.context.SpawnProcess.start
+
+    def start_and_interrupt(process: multiprocessing.Process) -> None:
+        """Signal the real child as soon as its start call returns."""
+        real_start(process)
+        os.kill(process.pid, signal.SIGINT)
+
+    monkeypatch.setattr(
+        multiprocessing.context.SpawnProcess, "start", start_and_interrupt,
+    )
+    receiver = receiver_builder()
+    receiver.open()
+    assert receiver.is_open
+    assert np.all(receiver.read_samples(16) == 98)
+    receiver.close()
+    assert "KeyboardInterrupt" not in capfd.readouterr().err
+
+
+@pytest.mark.usefixtures("restored_signal_mask")
+@pytest.mark.parametrize("mode", ["healthy", "open_error"])
+@pytest.mark.parametrize("initially_blocked", [False, True])
+@pytest.mark.parametrize("in_thread", [False, True])
+def test_helper_start_restores_caller_mask(
+    receiver_builder: Callable,
+    mode: str,
+    initially_blocked: bool,
+    in_thread: bool,
+) -> None:
+    """Success and failed readiness preserve main and worker thread masks."""
+    receiver = receiver_builder(mode)
+    errors: list[BaseException] = []
+
+    def open_and_check_mask() -> None:
+        """Check either initial SIGINT state and restore this thread on exit."""
+        original_mask = signal.pthread_sigmask(signal.SIG_BLOCK, [])
+        try:
+            how = signal.SIG_BLOCK if initially_blocked else signal.SIG_UNBLOCK
+            signal.pthread_sigmask(how, {signal.SIGINT})
+            before = signal.pthread_sigmask(signal.SIG_BLOCK, [])
+            if mode == "open_error":
+                with pytest.raises(RuntimeError, match="unplugged"):
+                    receiver.open()
+            else:
+                receiver.open()
+                assert np.all(receiver.read_samples(16) == 98)
+            assert signal.pthread_sigmask(signal.SIG_BLOCK, []) == before
+        except BaseException as exc:
+            # Forward assertion failures and interrupts to the pytest thread.
+            errors.append(exc)
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, original_mask)
+
+    if in_thread:
+        thread = threading.Thread(target=open_and_check_mask)
+        thread.start()
+        thread.join(10.0)
+        assert not thread.is_alive(), "helper start thread did not finish"
+    else:
+        open_and_check_mask()
+    if errors:
+        raise errors[0]
+
+
+@pytest.mark.usefixtures("restored_signal_mask")
+@pytest.mark.parametrize("mode", ["healthy", "open_error"])
+def test_helper_start_restores_mask_after_tracker_unblocks_sigint(
+    receiver_builder: Callable,
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+) -> None:
+    """Preserve blocked SIGINT across Python 3.11-style tracker initialisation."""
+    from multiprocessing import resource_tracker
+
+    real_ensure_running = resource_tracker.ensure_running
+
+    def ensure_running_and_unblock() -> None:
+        """Ensure the real tracker, then mimic 3.11's first-start unblock."""
+        real_ensure_running()
+        signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGINT})
+
+    monkeypatch.setattr(
+        resource_tracker, "ensure_running", ensure_running_and_unblock,
+    )
+    signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT})
+    entry_mask = signal.pthread_sigmask(signal.SIG_BLOCK, [])
+    receiver = receiver_builder(mode)
+    if mode == "open_error":
+        with pytest.raises(RuntimeError, match="unplugged"):
+            receiver.open()
+    else:
+        receiver.open()
+    assert signal.pthread_sigmask(signal.SIG_BLOCK, []) == entry_mask
+
+
+@pytest.mark.usefixtures("restored_signal_mask")
+def test_resource_tracker_starts_before_sigint_block(
+    receiver_builder: Callable,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The tracker is ensured before the first SIGINT block, even on first use."""
+    from multiprocessing import resource_tracker
+
+    real_ensure_running = resource_tracker.ensure_running
+    real_sigmask = signal.pthread_sigmask
+    events: list[str] = []
+    blocked = False
+
+    def ensure_running() -> None:
+        """Record tracker calls only until the first SIGINT block."""
+        if not blocked:
+            events.append("ensure_running")
+        real_ensure_running()
+
+    def record_sigmask(how: int, mask: Iterable[int]) -> set[signal.Signals]:
+        """Record the first SIGINT block without changing mask semantics."""
+        nonlocal blocked
+        if not blocked and how == signal.SIG_BLOCK and signal.SIGINT in mask:
+            events.append("block")
+            blocked = True
+        return real_sigmask(how, mask)
+
+    monkeypatch.setattr(resource_tracker, "ensure_running", ensure_running)
+    monkeypatch.setattr(signal, "pthread_sigmask", record_sigmask)
+    receiver = receiver_builder()
+    receiver.open()
+    assert "ensure_running" in events
+    assert "block" in events
+    assert events.index("ensure_running") < events.index("block")
 
 
 def test_reported_tune_error_never_raises(receiver_builder: Callable) -> None:
