@@ -176,6 +176,8 @@ def main() -> None:
 
     If the device cannot be opened (not connected, USB error), logs an
     error and exits with code 1 instead of crashing with a traceback.
+    Ctrl+C while the device is being built or opened logs that start-up
+    was cancelled and exits with status 130 without a traceback.
 
     If the scan loop encounters an unexpected error, the process exits with
     code 1 (via a ``fatal_error`` flag in the ``finally`` block) to
@@ -414,6 +416,11 @@ def main() -> None:
     except (RuntimeError, OSError) as exc:
         logger.error("Startup failed: %s. Is the %s connected?", exc, display_name)
         sys.exit(1)
+    except KeyboardInterrupt:
+        logger.info(
+            "Start-up cancelled by user before the %s was opened.", display_name
+        )
+        sys.exit(130)
 
     embedder = SpectrumEmbedder()
     store = SignalStore(path="data/vectorstore")

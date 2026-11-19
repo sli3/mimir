@@ -137,6 +137,49 @@ class TestScanStartupErrors:
         assert "USB device not found" in caplog.text
         assert "Is the HackRF One connected?" in caplog.text
 
+    def test_keyboard_interrupt_on_open_logs_and_exits(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Ctrl+C during open logs cancellation and exits before components start."""
+        device = self.mock_build_device.return_value
+        device.open.side_effect = KeyboardInterrupt
+
+        with (
+            patch("scan.start_server") as mock_start_server,
+            caplog.at_level(logging.INFO, logger="scan"),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                scan.main()
+
+        assert exc_info.value.code == 130
+        assert (
+            "scan",
+            logging.INFO,
+            "Start-up cancelled by user before the HackRF One was opened.",
+        ) in caplog.record_tuples
+        self.mock_scan_runner_cls.assert_not_called()
+        mock_start_server.assert_not_called()
+        device.close.assert_not_called()
+
+    def test_keyboard_interrupt_on_build_logs_and_exits(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Ctrl+C during device construction logs cancellation and exits 130."""
+        self.mock_build_device.side_effect = KeyboardInterrupt
+
+        with caplog.at_level(logging.INFO, logger="scan"):
+            with pytest.raises(SystemExit) as exc_info:
+                scan.main()
+
+        assert exc_info.value.code == 130
+        assert (
+            "scan",
+            logging.INFO,
+            "Start-up cancelled by user before the HackRF One was opened.",
+        ) in caplog.record_tuples
+
     def test_fatal_error_exits_with_code_1(self) -> None:
         """A fatal scan error exits with code 1 after a successful stop wait."""
         device = MagicMock()
