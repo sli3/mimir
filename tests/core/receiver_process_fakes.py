@@ -25,11 +25,13 @@ class FakeReceiver(DeviceBase):
         mode: str = "healthy",
         flag_path: Path | None = None,
         entered_path: Path | None = None,
+        calls_path: Path | None = None,
     ) -> None:
-        """Store paths that remain observable across independent spawned helpers."""
+        """Store shared paths, including an optional tune/read call log."""
         self.mode = mode
         self.flag_path = flag_path
         self.entered_path = entered_path
+        self.calls_path = calls_path
         self.frequency = 98_000_000.0
         self.rate = 2_000_000.0
         self.gain = 0.0
@@ -57,7 +59,10 @@ class FakeReceiver(DeviceBase):
         }
 
     def set_center_frequency(self, freq_hz: float) -> None:
-        """Record the requested frequency or simulate a tuning failure."""
+        """Optionally log tune/open state, then record or fail the tune."""
+        if self.calls_path is not None:
+            with self.calls_path.open("a", encoding="utf-8") as calls:
+                calls.write(f"tune open={self.opened} {freq_hz}\n")
         self.frequency = freq_hz
         if self.mode == "tune_error" and self.opened:
             raise RuntimeError("fake tune failed")
@@ -71,7 +76,10 @@ class FakeReceiver(DeviceBase):
         self.gain = gain_db
 
     def read_samples(self, num_samples: int) -> np.ndarray:
-        """Return frequency-coded IQ or simulate loss, exit, SIGSEGV or a hang."""
+        """Log reads and open state if requested, then return IQ or fail."""
+        if self.calls_path is not None:
+            with self.calls_path.open("a", encoding="utf-8") as calls:
+                calls.write(f"read open={self.opened}\n")
         mode = self.mode
         if self.flag_path is not None:
             mode = self.flag_path.read_text(encoding="utf-8")
@@ -100,9 +108,10 @@ def make_receiver(
     mode: str = "healthy",
     flag_path: Path | None = None,
     entered_path: Path | None = None,
+    calls_path: Path | None = None,
 ) -> FakeReceiver:
-    """Build an unopened fake through an importable module-level factory."""
-    return FakeReceiver(mode, flag_path, entered_path)
+    """Build an unopened picklable fake with optional tune/read logging."""
+    return FakeReceiver(mode, flag_path, entered_path, calls_path=calls_path)
 
 
 def partial_reply_helper(

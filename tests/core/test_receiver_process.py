@@ -24,7 +24,7 @@ from tests.core.receiver_process_fakes import make_receiver, partial_reply_helpe
 
 @pytest.fixture
 def receiver_builder() -> Iterator[Callable[..., ReceiverProcess]]:
-    """Inject a picklable fake into every opened proxy and reap every helper."""
+    """Inject picklable fakes with optional call logs and reap every helper."""
     receivers = []
 
     def build(
@@ -32,9 +32,10 @@ def receiver_builder() -> Iterator[Callable[..., ReceiverProcess]]:
         *,
         flag_path: Path | None = None,
         entered_path: Path | None = None,
+        calls_path: Path | None = None,
         **kwargs: float,
     ) -> ReceiverProcess:
-        """Create a fake-backed proxy with short IPC timeouts."""
+        """Create a fake proxy with short timeouts and optional call logs."""
         options = dict(
             open_timeout=5.0,
             read_timeout=0.3,
@@ -47,6 +48,7 @@ def receiver_builder() -> Iterator[Callable[..., ReceiverProcess]]:
             "hackrf",
             receiver_factory=partial(
                 make_receiver, mode, flag_path=flag_path, entered_path=entered_path,
+                calls_path=calls_path,
             ),
             **options,
         )
@@ -224,6 +226,65 @@ def test_replug_restores_last_frequency(
     assert receiver._process.pid != old_process.pid
     assert receiver.device_info()["frequency"] == 1_090_000_000.0
     assert "SDR reconnected (hackrf)" in caplog.text
+
+
+def test_same_frequency_reconnect_retunes_and_discards(
+    receiver_builder: Callable,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Reconnect without changing frequency, then tune live and discard a read."""
+    flag = tmp_path / "state"
+    calls = tmp_path / "calls"
+    flag.write_text("healthy", encoding="utf-8")
+    receiver = receiver_builder(flag_path=flag, calls_path=calls)
+    receiver.open()
+    old_process = receiver._process
+    flag.write_text("unplugged", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="fake read failed"):
+        receiver.read_samples(16)
+    assert receiver._process is None
+    previous_calls = len(calls.read_text(encoding="utf-8").splitlines())
+
+    flag.write_text("healthy", encoding="utf-8")
+    with caplog.at_level("INFO", logger="core.device.receiver_process"):
+        samples = receiver.read_samples(16)
+    assert samples.shape == (16,)
+    assert samples.dtype == np.complex64
+    assert np.all(samples == 98)
+    assert receiver._process.pid != old_process.pid
+    # Store the frequency before opening, then tune live and read twice.
+    assert calls.read_text(encoding="utf-8").splitlines()[previous_calls:] == [
+        "tune open=False 98000000.0",
+        "tune open=True 98000000.0",
+        "read open=True",
+        "read open=True",
+    ]
+    assert "SDR reconnected (hackrf)" in caplog.text
+
+
+def test_reconnect_retune_failure_discards_helper(
+    receiver_builder: Callable,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A failed live retune raises and reaps the helper without a success log."""
+    flag = tmp_path / "state"
+    flag.write_text("healthy", encoding="utf-8")
+    receiver = receiver_builder("tune_error", flag_path=flag)
+    receiver.open()
+    flag.write_text("unplugged", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="fake read failed"):
+        receiver.read_samples(16)
+    assert receiver._process is None
+
+    flag.write_text("healthy", encoding="utf-8")
+    with caplog.at_level("INFO", logger="core.device.receiver_process"):
+        with pytest.raises(RuntimeError, match="fake tune failed"):
+            receiver.read_samples(16)
+    assert receiver._process is None
+    assert receiver.is_open
+    assert "SDR reconnected" not in caplog.text
 
 
 def test_reconnect_rate_limit(receiver_builder: Callable) -> None:

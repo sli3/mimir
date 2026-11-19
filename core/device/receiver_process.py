@@ -8,8 +8,10 @@ TX-capable; its use is restricted to the existing RX-only device wrappers.
 
 Unplugging can leave dead native handles, and SoapySDR caches devices within
 each process. Replacing a spawned helper gives a fresh cache and isolates
-native crashes. Spawn re-imports the parent's __main__, so scanner start-up
-can be slow. Ctrl+C before the helper installs SIG_IGN can kill that helper;
+native crashes. A replacement helper is retuned live and one read is discarded
+before samples are returned.
+Spawn re-imports the parent's __main__, so scanner start-up can be slow.
+Ctrl+C before the helper installs SIG_IGN can kill that helper;
 the parent treats this as a lost session. A real readStream timeout now costs
 a helper restart rather than an in-process retry. Pluto measurements remain
 untrustworthy for several minutes after replugging, even when samples resume.
@@ -100,7 +102,11 @@ def _receiver_helper(
 
 
 class ReceiverProcess(DeviceBase):
-    """Serialise receiver calls and replace a lost helper on a later read."""
+    """Serialise receiver calls and replace a lost helper on a later read.
+
+    Retune each replacement helper live and discard one read before returning
+    samples to the caller.
+    """
 
     def __init__(
         self,
@@ -289,7 +295,11 @@ class ReceiverProcess(DeviceBase):
             raise RuntimeError(f"{self._driver} receiver session lost: {exc}") from exc
 
     def read_samples(self, num_samples: int) -> np.ndarray:
-        """Read IQ samples, attempting a rate-limited fresh helper after loss."""
+        """Read IQ samples, attempting a rate-limited fresh helper after loss.
+
+        Retune a replacement helper live and discard one read before returning
+        samples. A failed retune or discard loses the session and raises.
+        """
         with self._lock:
             if not self._is_open or self._closing:
                 raise RuntimeError("Receiver is not open")
@@ -297,6 +307,9 @@ class ReceiverProcess(DeviceBase):
                 if time.monotonic() < self._next_reconnect:
                     raise RuntimeError("Receiver is waiting to reconnect")
                 self._start_helper()
+                # Retune live and discard transient samples before recovery.
+                self._request("tune", self._center_freq_hz, self._tune_timeout)
+                self._request("read", num_samples, self._read_timeout)
                 logger.info("SDR reconnected (%s)", self._driver)
             return self._request("read", num_samples, self._read_timeout)
 
