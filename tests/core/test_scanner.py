@@ -339,7 +339,62 @@ class TestScanRunner:
         assert len(calls) == 1
         assert calls[0][0][0] == 98_000_000.0
 
-    def test_set_focus_frequency_flushes_queue(self, scanner):
+    def test_stop_sets_stopping(self, scanner: ScanRunner) -> None:
+        """Shutdown remains observable even before workers have started."""
+        assert scanner.stopping is False
+        scanner.stop()
+        assert scanner.stopping is True
+
+    @pytest.mark.parametrize("freq_hz", [1_090_000_000.0, None])
+    def test_set_focus_frequency_ignored_after_stop(
+        self, scanner: ScanRunner, freq_hz: float | None,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Stopped focus requests preserve the frequency and queued results."""
+        initial_focus = scanner._focus_freq_hz
+        queued_items = [{"freq_hz": i} for i in range(3)]
+        for item in queued_items:
+            scanner._queue.put_nowait(item)
+        scanner.stop()
+
+        with caplog.at_level(logging.INFO, logger="core.pipeline.scanner"):
+            scanner.set_focus_frequency(freq_hz)
+
+        assert scanner._focus_freq_hz == initial_focus
+        assert scanner._queue.qsize() == len(queued_items)
+        for item in queued_items:
+            assert scanner._queue.get_nowait() is item
+        expected = (
+            "Ignoring focus change: scanner is stopping"
+            if freq_hz is None else
+            "Ignoring focus change to 1090.000 MHz: scanner is stopping"
+        )
+        assert caplog.messages == [expected]
+
+    @pytest.mark.parametrize("start_method", ["run", "start_ai_only"])
+    def test_start_resets_stopping(
+        self, scanner: ScanRunner, start_method: str,
+    ) -> None:
+        """Both start paths clear shutdown before starting mocked workers."""
+        scanner.stop()
+        assert scanner.stopping is True
+
+        def observe_start() -> None:
+            """Check worker startup state without running either worker."""
+            assert scanner.stopping is False
+            assert scanner._running is True
+
+        with patch("core.pipeline.scanner.threading.Thread") as thread:
+            thread.return_value.start.side_effect = observe_start
+            getattr(scanner, start_method)()
+            assert thread.return_value.start.called
+
+        assert scanner.stopping is False
+
+    def test_set_focus_frequency_flushes_queue(self, scanner: ScanRunner) -> None:
+        """Startup focus applies and flushes queued items before run()."""
+        assert scanner._running is False
+        assert scanner.stopping is False
         for i in range(3):
             scanner._queue.put_nowait({"freq_hz": i, "fingerprint": {}, "vector": [0] * 7})
         assert scanner._queue.qsize() == 3

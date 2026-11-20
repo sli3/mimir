@@ -29,7 +29,8 @@ def handle_set_focus(data: dict) -> None:
     retune the SDR and flush any queued results. Known non-HackRF devices
     reject frequencies outside their tuning range or unsupported bands
     before changing focus, the band profile or the scanner. Unknown device
-    keys retain the existing behaviour, and clearing focus is always allowed.
+    keys retain the existing behaviour. While the scanner is stopping, all
+    requests, including clearing focus, are ignored before changing state.
 
     Also updates shared_state.current_band to the matching band profile
     resolved for the active device (via shared_state.resolve_band_profile)
@@ -47,6 +48,13 @@ def handle_set_focus(data: dict) -> None:
         freq_hz = float(raw) if raw is not None else None
     except (TypeError, ValueError):
         freq_hz = None
+    # Require literal True so truthy MagicMock attributes keep their behaviour.
+    if (
+        _server._scanner_ref is not None
+        and getattr(_server._scanner_ref, "stopping", False) is True
+    ):
+        logger.info("Ignoring focus request: scanner is stopping")
+        return
     if freq_hz is not None:
         with shared_state.current_device_lock:
             active_device = shared_state.current_device

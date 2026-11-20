@@ -142,6 +142,9 @@ class ScanRunner:
         exit path. Shutdown waits for this event because an interrupted
         join can make thread liveness unreliable on CPython 3.11.
 
+        Focus changes are allowed before startup and blocked after stop()
+        until run() or start_ai_only() starts the scanner again.
+
         Stats counters:
         _scan_count_since_llm — increments once per scan cycle; snapshot
         into _last_backlog when the AI loop picks up an item, then reset.
@@ -189,6 +192,8 @@ class ScanRunner:
         self._config = config
         self._queue: queue.Queue = queue.Queue(maxsize=config.queue_maxsize)
         self._running = False
+        # True from stop() until the next run() or start_ai_only().
+        self._stopping: bool = False
         self._scan_thread: threading.Thread | None = None
         self._scan_loop_finished = threading.Event()
         self._scan_loop_finished.set()
@@ -261,14 +266,21 @@ class ScanRunner:
         """
         return self._sdr_unresponsive
 
+    @property
+    def stopping(self) -> bool:
+        """Return whether shutdown has been requested since the last start."""
+        return self._stopping
+
     def run(self) -> None:
         """Start both workers and join them, recording scan completion.
 
         Reset the completion event before starting the scan thread. Its
         wrapper signals the event even when the scan loop raises, so an
         interrupted join cannot falsely report a completed device call.
+        Clear the stopping flag immediately before enabling the workers.
         """
         self._scan_loop_finished.clear()
+        self._stopping = False
         self._running = True
         self._scan_thread = threading.Thread(
             target=self._run_scan_loop, daemon=True,
@@ -294,14 +306,17 @@ class ScanRunner:
 
         Blocks (joins the AI thread) until ``stop()`` is called. Same shape
         as ``run()`` but without the scan thread.
+        Clear the stopping flag immediately before enabling the AI worker.
         """
+        self._stopping = False
         self._running = True
         self._ai_thread = threading.Thread(target=self._ai_loop, daemon=True)
         self._ai_thread.start()
         self._ai_thread.join()
 
     def stop(self) -> None:
-        """Request shutdown; use wait_stopped() to wait for the scan thread."""
+        """Block focus changes and request shutdown; wait via wait_stopped()."""
+        self._stopping = True
         self._running = False
 
     def wait_stopped(self, timeout: float) -> bool:
@@ -340,8 +355,12 @@ class ScanRunner:
             "last_llm_ms": self._last_llm_ms,
         }
 
-    def set_focus_frequency(self, freq_hz: float) -> None:
+    def set_focus_frequency(self, freq_hz: float | None) -> None:
         """Change the focus frequency and flush stale queue items (live mode only).
+
+        Ignore requests after stop() until run() or start_ai_only() restarts
+        the scanner, leaving the focus and queue untouched. Requests before
+        the first start remain allowed for the startup focus.
 
         In demo mode (``is_demo_device=True``), the queue drain is SKIPPED:
         there is no real device to retune, so any chunks in the queue were
@@ -351,6 +370,15 @@ class ScanRunner:
         in demo mode — the AI loop doesn't read it, and the scan loop is not
         running).
         """
+        if self._stopping:
+            if freq_hz is None:
+                logger.info("Ignoring focus change: scanner is stopping")
+            else:
+                logger.info(
+                    "Ignoring focus change to %.3f MHz: scanner is stopping",
+                    freq_hz / 1e6,
+                )
+            return
         with self._focus_lock:
             self._focus_freq_hz = freq_hz
             if not self._is_demo_device:

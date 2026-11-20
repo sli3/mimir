@@ -171,6 +171,67 @@ class TestFocusFrequencyFilter:
         finally:
             server._focused_freq_hz = saved
 
+    @pytest.mark.parametrize("scanner_state", ["stopping", "absent", "mock"])
+    @pytest.mark.parametrize("freq_hz", [915e6, None])
+    def test_handle_set_focus_respects_scanner_shutdown(
+        self, scanner_state: str, freq_hz: float | None,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Only a literal stopping flag blocks focus and band updates.
+
+        Missing scanners and bare mocks retain normal focus behaviour.
+        Restore the dashboard globals after each request.
+        """
+        with server._focused_freq_lock:
+            saved_focus = server._focused_freq_hz
+        saved_scanner = server._scanner_ref
+        with ss.current_device_lock:
+            saved_device = ss.current_device
+        with ss.current_band_lock:
+            saved_band = ss.current_band
+        scanner = None if scanner_state == "absent" else MagicMock()
+        if scanner_state == "stopping":
+            scanner.stopping = True
+        initial_band = dict(ss.BAND_PROFILES["adsb"])
+        try:
+            with server._focused_freq_lock:
+                server._focused_freq_hz = 1_090e6
+            server._scanner_ref = scanner
+            with ss.current_device_lock:
+                ss.current_device = "plutosdr"
+            with ss.current_band_lock:
+                ss.current_band = initial_band
+
+            with caplog.at_level("INFO", logger="dashboard.socket_handlers"):
+                handle_set_focus({"freq_hz": freq_hz})
+
+            with server._focused_freq_lock:
+                assert server._focused_freq_hz == (
+                    1_090e6 if scanner_state == "stopping" else freq_hz
+                )
+            with ss.current_band_lock:
+                if scanner_state == "stopping" or freq_hz is None:
+                    assert ss.current_band is initial_band
+                else:
+                    assert ss.current_band == ss.resolve_band_profile(
+                        "ism", "plutosdr"
+                    )
+            if scanner_state == "stopping":
+                scanner.set_focus_frequency.assert_not_called()
+                assert caplog.messages == [
+                    "Ignoring focus request: scanner is stopping"
+                ]
+            elif scanner is not None:
+                scanner.set_focus_frequency.assert_called_once_with(freq_hz)
+        finally:
+            with server._focused_freq_lock:
+                server._focused_freq_hz = saved_focus
+            server._scanner_ref = saved_scanner
+            with ss.current_device_lock:
+                ss.current_device = saved_device
+            with ss.current_band_lock:
+                ss.current_band = saved_band
+
     @pytest.mark.parametrize(
         ("device", "freq_hz", "accepted"),
         [
