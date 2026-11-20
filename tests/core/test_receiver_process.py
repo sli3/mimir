@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import builtins
+import logging
 import multiprocessing
 import os
 import signal
@@ -10,16 +11,44 @@ import sys
 import threading
 import time
 from functools import partial
+from multiprocessing import resource_tracker, spawn
 from pathlib import Path
 from typing import Callable, Iterable, Iterator
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import numpy as np
 import pytest
 
-from core.device.receiver_process import ReceiverProcess
+from core.device.receiver_process import (
+    ReceiverProcess,
+    _main_module_not_reimported,
+)
 from core.legal.compliance_guard import HardwareTransmitError
-from tests.core.receiver_process_fakes import make_receiver, partial_reply_helper
+from tests.core.receiver_process_fakes import (
+    FakeReceiver,
+    make_receiver,
+    partial_reply_helper,
+)
+
+
+def _root_log_settings() -> dict[str, str | None]:
+    """Inspect the first root formatter, keeping private format access here."""
+    formatter = logging.getLogger().handlers[0].formatter
+    assert formatter is not None
+    return {"log_format": formatter._fmt, "log_datefmt": formatter.datefmt}
+
+
+class _LogReportingReceiver(FakeReceiver):
+    """Report the spawned helper's logging settings through fake device info."""
+
+    def device_info(self) -> dict:
+        """Include root formatter settings alongside the fake receiver identity."""
+        return {**super().device_info(), **_root_log_settings()}
+
+
+def _make_log_reporting_receiver() -> _LogReportingReceiver:
+    """Build a spawn-picklable fake that reports child logging configuration."""
+    return _LogReportingReceiver()
 
 
 @pytest.fixture
@@ -128,6 +157,186 @@ def test_open_and_read_round_trip(receiver_builder: Callable) -> None:
     assert samples.shape == (131072,)
     assert samples.dtype == np.complex64
     assert np.all(samples == 98)
+
+
+def test_helper_logging_matches_console_format() -> None:
+    """A real spawned fake reports the scanner's literal console log formats.
+
+    Inspect logging in the child so the parent's logging and signal state
+    remain under pytest's control.
+    """
+    receiver = ReceiverProcess(
+        "hackrf", receiver_factory=_make_log_reporting_receiver, open_timeout=5.0,
+    )
+    try:
+        receiver.open()
+        info = receiver.device_info()
+        assert info["log_format"] == (
+            "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+        )
+        assert info["log_datefmt"] == "%H:%M:%S"
+    finally:
+        receiver.close()
+
+
+def test_helper_start_preparation_skips_main_script(
+    receiver_builder: Callable,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Real CPython preparation data names __main__ instead of its script path.
+
+    Stub start and its matching join so fixture cleanup can close the proxy
+    without trying to join a child that was never launched.
+    """
+    main_module = sys.modules["__main__"]
+    monkeypatch.setattr(main_module, "__spec__", None)
+    monkeypatch.setattr(
+        main_module, "__file__", str(tmp_path / "main.py"), raising=False,
+    )
+    receiver = receiver_builder()
+    preparation_data: dict = {}
+
+    def inspect_start(process: multiprocessing.Process) -> None:
+        """Stub the unstarted process's join and inspect real spawn preparation."""
+        process.join = Mock(return_value=None)
+        preparation_data.update(spawn.get_preparation_data(process.name))
+
+    def reply(timeout: float) -> dict:
+        """Supply readiness without starting a child or accessing hardware."""
+        return {"driver": "fake"}
+
+    monkeypatch.setattr(
+        multiprocessing.context.SpawnProcess, "start", inspect_start,
+    )
+    monkeypatch.setattr(receiver, "_reply", reply)
+    receiver.open()
+    assert preparation_data["init_main_from_name"] == "__main__"
+    assert "init_main_from_path" not in preparation_data
+    assert main_module.__spec__ is None
+
+
+@pytest.mark.parametrize("with_sigmask", [False, True])
+@pytest.mark.parametrize("spec_state", ["object", "none", "missing"])
+@pytest.mark.parametrize("outcome", ["success", "error", "interrupt"])
+def test_helper_start_restores_main_spec(
+    receiver_builder: Callable,
+    monkeypatch: pytest.MonkeyPatch,
+    with_sigmask: bool,
+    spec_state: str,
+    outcome: str,
+) -> None:
+    """Both start branches restore the exact spec before masks and readiness.
+
+    Simulate signal masks and start outcomes without launching a child. Check
+    restoration for an object, None and an absent attribute, including failure
+    and KeyboardInterrupt, keeping the original spec during tracker setup.
+    Stub each simulated process's join so successful opens also clean up safely.
+    """
+    main_module = sys.modules["__main__"]
+    original_spec = object() if spec_state == "object" else None
+    if spec_state == "missing":
+        monkeypatch.delattr(main_module, "__spec__", raising=False)
+    else:
+        monkeypatch.setattr(main_module, "__spec__", original_spec)
+    events: list[str] = []
+    failure = (
+        ValueError("start failed") if outcome == "error"
+        else KeyboardInterrupt() if outcome == "interrupt" else None
+    )
+
+    def assert_original_spec() -> None:
+        """Check attribute absence or exact identity, including an original None."""
+        if spec_state == "missing":
+            assert not hasattr(main_module, "__spec__")
+        else:
+            assert main_module.__spec__ is original_spec
+
+    def ensure_running() -> None:
+        """Require the original spec during tracker initialisation."""
+        assert_original_spec()
+        events.append("tracker")
+
+    def record_sigmask(how: int, mask: Iterable[int]) -> set[signal.Signals]:
+        """Require spec restoration before the caller's mask is restored."""
+        assert_original_spec()
+        if how == signal.SIG_SETMASK:
+            events.append("restore_mask")
+        return set()
+
+    def start(process: multiprocessing.Process) -> None:
+        """Stub join, check the temporary main name and simulate the outcome."""
+        process.join = Mock(return_value=None)
+        events.append("start")
+        assert main_module.__spec__.name == "__main__"
+        if failure is not None:
+            raise failure
+
+    def reply(timeout: float) -> dict:
+        """Require the original spec when readiness is requested after start."""
+        assert_original_spec()
+        events.append("reply")
+        return {"driver": "fake"}
+
+    if with_sigmask:
+        monkeypatch.setattr(
+            signal, "pthread_sigmask", record_sigmask, raising=False,
+        )
+    else:
+        monkeypatch.delattr(signal, "pthread_sigmask", raising=False)
+    monkeypatch.setattr(resource_tracker, "ensure_running", ensure_running)
+    monkeypatch.setattr(multiprocessing.context.SpawnProcess, "start", start)
+    receiver = receiver_builder()
+    monkeypatch.setattr(receiver, "_reply", reply)
+    if outcome == "success":
+        receiver.open()
+        assert receiver.is_open
+    elif outcome == "error":
+        with pytest.raises(RuntimeError, match="start failed") as error:
+            receiver.open()
+        assert error.value.__cause__ is failure
+    else:
+        with pytest.raises(KeyboardInterrupt) as interrupt:
+            receiver.open()
+        assert interrupt.value is failure
+    assert_original_spec()
+    expected = ["tracker", "start", "restore_mask"] if with_sigmask else ["start"]
+    if outcome == "success":
+        expected.append("reply")
+    assert events == expected
+
+
+def test_main_spec_context_without_main_module(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A missing main module stays absent throughout the spawn context."""
+    monkeypatch.delitem(sys.modules, "__main__")
+    with _main_module_not_reimported():
+        assert "__main__" not in sys.modules
+    assert "__main__" not in sys.modules
+
+
+def test_real_spawn_does_not_run_main_script(
+    receiver_builder: Callable,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A real spawned fake reaches readiness without a main-script side effect."""
+    marker = tmp_path / "main-imported"
+    script = tmp_path / "main.py"
+    script.write_text(
+        "from pathlib import Path\n"
+        f"Path({str(marker)!r}).write_text('main script ran', encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    main_module = sys.modules["__main__"]
+    monkeypatch.setattr(main_module, "__spec__", None)
+    monkeypatch.setattr(main_module, "__file__", str(script), raising=False)
+    receiver = receiver_builder()
+    receiver.open()
+    assert receiver.device_info()["driver"] == "fake"
+    assert main_module.__spec__ is None
+    assert not marker.exists()
 
 
 def test_frequency_forwarded(receiver_builder: Callable) -> None:

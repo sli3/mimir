@@ -10,7 +10,8 @@ Unplugging can leave dead native handles, and SoapySDR caches devices within
 each process. Replacing a spawned helper gives a fresh cache and isolates
 native crashes. A replacement helper is retuned live and one read is discarded
 before samples are returned.
-Spawn re-imports the parent's __main__, so scanner start-up can be slow.
+Spawn skips re-importing the parent's main module by patching __main__.__spec__
+only during Process.start().
 Where signal masks are supported, the helper starts with SIGINT blocked until
 it installs SIG_IGN and unblocks SIGINT. A real readStream timeout now costs
 a helper restart rather than an in-process retry. Pluto measurements remain
@@ -21,14 +22,17 @@ stalls mid-message, unblocking receipt while the caller retains the pipe lock.
 
 from __future__ import annotations
 
+import importlib.machinery
 import logging
 import multiprocessing
 import signal
+import sys
 import threading
 import time
+from contextlib import contextmanager
 from multiprocessing import resource_tracker
 from multiprocessing.connection import Connection
-from typing import Callable
+from typing import Callable, Iterator
 
 import numpy as np
 
@@ -36,6 +40,35 @@ from core.device.device_base import DeviceBase
 from core.legal.compliance_guard import transmit_guard
 
 logger = logging.getLogger(__name__)
+
+# Keep these aligned with scan.py's console logging format so helper lines
+# read like the rest of the log without importing the scanner's main module.
+_HELPER_LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+_HELPER_LOG_DATEFMT = "%H:%M:%S"
+
+
+@contextmanager
+def _main_module_not_reimported() -> Iterator[None]:
+    """Skip main-script imports during spawn, restoring its exact spec on exit.
+
+    Leave a missing main module alone. Restore an existing spec by identity,
+    including None, or remove the temporary attribute if none existed, even
+    when the guarded start raises an exception or KeyboardInterrupt.
+    """
+    main_module = sys.modules.get("__main__")
+    if main_module is None:
+        yield
+        return
+    had_spec = hasattr(main_module, "__spec__")
+    original_spec = getattr(main_module, "__spec__", None)
+    main_module.__spec__ = importlib.machinery.ModuleSpec("__main__", None)
+    try:
+        yield
+    finally:
+        if had_spec:
+            main_module.__spec__ = original_spec
+        else:
+            del main_module.__spec__
 
 
 def _receiver_helper(
@@ -51,12 +84,18 @@ def _receiver_helper(
 
     Install SIG_IGN first to discard pending SIGINT, then unblock the inherited
     mask where supported so start-up interrupts cannot reach Python's handler.
+    Configure timestamped console logging to match the scanner before creating
+    the receiver, without importing the scanner's main module.
     """
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     # SIG_IGN discards any pending SIGINT before the inherited mask is lifted.
     if hasattr(signal, "pthread_sigmask"):
         signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGINT})
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(
+        level=logging.INFO,
+        format=_HELPER_LOG_FORMAT,
+        datefmt=_HELPER_LOG_DATEFMT,
+    )
     device = None
     try:
         # Library exceptions cross this boundary as text, never native objects.
@@ -248,6 +287,9 @@ class ReceiverProcess(DeviceBase):
     def _start_helper(self) -> None:
         """Spawn under the pipe lock with SIGINT blocked where supported.
 
+        Patch __main__.__spec__ only around start() so the helper does not
+        re-import the parent's main module. Restore the spec before the signal
+        mask, including on failure or KeyboardInterrupt.
         On the main thread, Ctrl+C during start is deferred until the caller's
         mask is restored, then handled by the existing failure handler below.
         Capture the entry mask before tracker initialisation and restore it even
@@ -270,6 +312,8 @@ class ReceiverProcess(DeviceBase):
         )
         self._process = process
         try:
+            # The target lives here and needs nothing from __main__. Naming the
+            # main module "__main__" makes spawn skip the parent's main script.
             if hasattr(signal, "pthread_sigmask"):
                 # Snapshot before tracker initialisation can change the mask.
                 old_mask = signal.pthread_sigmask(signal.SIG_BLOCK, [])
@@ -277,11 +321,13 @@ class ReceiverProcess(DeviceBase):
                     # Keep the tracker's mask changes outside the spawn window.
                     resource_tracker.ensure_running()
                     signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT})
-                    process.start()
+                    with _main_module_not_reimported():
+                        process.start()
                 finally:
                     signal.pthread_sigmask(signal.SIG_SETMASK, old_mask)
             else:
-                process.start()
+                with _main_module_not_reimported():
+                    process.start()
             child.close()
             if self._closing:
                 raise RuntimeError("Receiver is closing")
