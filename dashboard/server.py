@@ -39,6 +39,7 @@ CONSTRAINTS
 - broadcast() and broadcast_spectrum() are defined inside start_server()
   and are not importable directly. Retrieve via start_server._broadcast_fn
   and start_server._broadcast_spectrum_fn after calling start_server().
+  Spectrum updates are capped at 30 Hz and rounded to one decimal place.
 """
 
 import json
@@ -80,6 +81,13 @@ from modules.adsb.constants import (
 import dashboard.shared_state as shared_state
 
 logger = logging.getLogger(__name__)
+
+# Prin's 2026-11-20 logs measured live scanning at about 15-20 updates per
+# second with dwell_time_sec 0.0, below this cap. The cap guards against a
+# faster path flooding the browser and is global across centre frequencies.
+SPECTRUM_MAX_RATE_HZ = 30.0
+# 0.1 dB is below what the waterfall colourmap or spectrum bar can show.
+SPECTRUM_DB_DECIMALS = 1
 
 
 app = Flask(__name__, static_folder="static", static_url_path="")
@@ -225,7 +233,8 @@ def start_server(host: str, port: int, device=None, scanner=None):
     After calling start_server(), the broadcast functions are attached
     as attributes on the function itself:
         start_server._broadcast_fn        — emit a scan_result event
-        start_server._broadcast_spectrum_fn — emit a spectrum_update event
+        start_server._broadcast_spectrum_fn — emit spectrum_update at up to
+            30 Hz with PSD values rounded to one decimal place
     """
     global _device_ref, _scanner_ref
     _device_ref = device
@@ -349,14 +358,34 @@ def start_server(host: str, port: int, device=None, scanner=None):
         }
         socketio.emit("scan_result", data)
 
+    last_spectrum_emit_time: float | None = None
+    spectrum_emit_lock = threading.Lock()
+
     def broadcast_spectrum(
         psd_db: list,
         center_freq_hz: float,
         freq_min_hz: float,
         freq_max_hz: float,
     ) -> None:
+        """Emit spectrum updates at up to 30 Hz with PSD rounded to 0.1 dB.
+
+        The cap is shared across centre frequencies for this server call.
+        Updates inside the interval are dropped without being queued.
+        Updates at the next emit deadline are accepted.
+        """
+        nonlocal last_spectrum_emit_time
+        with spectrum_emit_lock:
+            now = time.monotonic()
+            if (
+                last_spectrum_emit_time is not None
+                and now < last_spectrum_emit_time + 1 / SPECTRUM_MAX_RATE_HZ
+            ):
+                return
+            last_spectrum_emit_time = now
+
+        values = psd_db.tolist() if hasattr(psd_db, "tolist") else psd_db
         data = {
-            "psd_db": psd_db.tolist() if hasattr(psd_db, 'tolist') else psd_db,
+            "psd_db": [round(float(v), SPECTRUM_DB_DECIMALS) for v in values],
             "center_freq_hz": center_freq_hz,
             "freq_min_hz": freq_min_hz,
             "freq_max_hz": freq_max_hz,

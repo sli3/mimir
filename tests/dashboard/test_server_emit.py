@@ -2,7 +2,8 @@
 tests/dashboard/test_server_emit.py — SocketIO emit payload tests
 
 Tests that decoder-driven emit functions include the raw decode fields
-required by the dashboard RAW DECODE views.
+required by the dashboard RAW DECODE views, and that spectrum updates
+preserve their payload contract while rounding values and limiting the rate.
 
 Run with:
     uv run pytest tests/dashboard/test_server_emit.py -v
@@ -10,8 +11,11 @@ Run with:
 
 import sys
 import os
+from collections.abc import Callable
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
+
+import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -142,6 +146,107 @@ class TestEmitAdsbMessage:
         event_name, payload = mock_emit.call_args[0]
         assert event_name == "scan_result"
         assert "squawk unknown" in payload["reasoning"]
+
+
+class TestBroadcastSpectrum:
+    """Spectrum payload rounding and per-server rate limiting."""
+
+    def _start_server_with_mocks(self) -> Callable:
+        """Obtain the spectrum callback without starting threads or binding ports."""
+        with (
+            patch("dashboard.server.socketio.run"),
+            patch("threading.Thread.start"),
+        ):
+            start_server("localhost", 5000)
+        return start_server._broadcast_spectrum_fn
+
+    def test_payload_rounding_and_python_float_values(self) -> None:
+        """Lists and numpy arrays yield rounded Python floats with the same keys."""
+        broadcast = self._start_server_with_mocks()
+        with (
+            patch("dashboard.server.socketio.emit") as mock_emit,
+            patch("dashboard.server.time.monotonic", side_effect=[0.0, 0.1]),
+        ):
+            for values in (
+                [-80.123, -42.987, -30],
+                np.array([-80.123, -42.987, -30], dtype=np.float32),
+            ):
+                broadcast(values, 1_090_000_000, 1_089_000_000, 1_091_000_000)
+
+        assert mock_emit.call_count == 2
+        for emit_call in mock_emit.call_args_list:
+            event_name, payload = emit_call.args
+            assert event_name == "spectrum_update"
+            assert payload == {
+                "psd_db": [-80.1, -43.0, -30.0],
+                "center_freq_hz": 1_090_000_000,
+                "freq_min_hz": 1_089_000_000,
+                "freq_max_hz": 1_091_000_000,
+            }
+            assert type(payload["psd_db"]) is list
+            assert all(type(value) is float for value in payload["psd_db"])
+
+    def test_rate_cap_measures_from_last_emit(self) -> None:
+        """Drop early calls across frequencies without moving the emit deadline."""
+        broadcast = self._start_server_with_mocks()
+        interval = 1 / server.SPECTRUM_MAX_RATE_HZ
+        t0 = 0.0
+        with (
+            patch("dashboard.server.socketio.emit") as mock_emit,
+            patch(
+                "dashboard.server.time.monotonic",
+                side_effect=[
+                    t0, t0 + interval / 2, t0 + interval * 0.999, t0 + interval,
+                ],
+            ),
+        ):
+            broadcast([-80.0], 1_090_000_000, 1_089_000_000, 1_091_000_000)
+            broadcast([-70.0], 98_000_000, 97_000_000, 99_000_000)
+            assert mock_emit.call_count == 1
+            broadcast([-65.0], 98_000_000, 97_000_000, 99_000_000)
+            assert mock_emit.call_count == 1
+            broadcast([-60.0], 98_000_000, 97_000_000, 99_000_000)
+
+        assert mock_emit.call_count == 2
+        assert [call.args[1]["psd_db"] for call in mock_emit.call_args_list] == [
+            [-80.0], [-60.0],
+        ]
+
+    def test_successive_boundaries_from_nonzero_time_emit(self) -> None:
+        """Accept successive deadlines built from the configured rate interval."""
+        broadcast = self._start_server_with_mocks()
+        interval = 1 / server.SPECTRUM_MAX_RATE_HZ
+        t0 = 0.3
+        t1 = t0 + interval
+        t2 = t1 + interval
+        with (
+            patch("dashboard.server.socketio.emit") as mock_emit,
+            patch("dashboard.server.time.monotonic", side_effect=[t0, t1, t2]),
+        ):
+            for value in (-80.0, -70.0, -60.0):
+                broadcast([value], 1_090_000_000, 1_089_000_000, 1_091_000_000)
+
+        assert mock_emit.call_count == 3
+        assert [call.args[1]["psd_db"] for call in mock_emit.call_args_list] == [
+            [-80.0], [-70.0], [-60.0],
+        ]
+
+    def test_separate_server_calls_have_independent_throttles(self) -> None:
+        """Each start_server call permits its first update at the same time."""
+        first_broadcast = self._start_server_with_mocks()
+        with (
+            patch("dashboard.server.socketio.emit") as mock_emit,
+            patch("dashboard.server.time.monotonic", return_value=0.0),
+        ):
+            first_broadcast([-80.0], 1_090_000_000, 1_089_000_000, 1_091_000_000)
+            second_broadcast = self._start_server_with_mocks()
+            second_broadcast([-70.0], 1_090_000_000, 1_089_000_000, 1_091_000_000)
+            first_broadcast([-60.0], 1_090_000_000, 1_089_000_000, 1_091_000_000)
+
+        assert mock_emit.call_count == 2
+        assert [call.args[1]["psd_db"] for call in mock_emit.call_args_list] == [
+            [-80.0], [-70.0],
+        ]
 
 
 class TestBroadcastFocusFilter:
