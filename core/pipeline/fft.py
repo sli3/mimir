@@ -26,8 +26,11 @@ def compute_psd(
 
     This function transforms time-domain IQ samples into the frequency domain
     to show how signal power is distributed across frequencies. It applies a
-    Hann window to reduce spectral leakage, splits samples into chunks, and
-    averages the power across all chunks for a smoother estimate.
+    float32 Hann window to complete chunks and transforms them in one batched
+    FFT, averaging their power in float64 for a smoother estimate. Complex64
+    samples stay complex64 through the FFT; complex128 samples stay complex128.
+    The float32 FFT path introduces small numerical differences from the old
+    complex128 path. A trailing partial chunk is discarded after DC removal.
 
     The output shows absolute frequencies: center_freq_hz plus fftshifted
     fftfreq offsets, from about centre minus sample_rate_hz / 2 up to centre
@@ -90,7 +93,7 @@ def compute_psd(
     # Remove DC offset (HackRF One produces false spike at centre frequency)
     samples = samples - np.mean(samples)
 
-    # Split samples into non-overlapping chunks of size nfft
+    # Count complete, non-overlapping chunks of size nfft
     num_chunks = len(samples) // nfft
     if num_chunks == 0:
         logger.warning(
@@ -108,29 +111,21 @@ def compute_psd(
             "chunk_peak_db": 0.0,
         }
 
-    # Apply Hann window to each chunk to reduce spectral leakage
+    # Batch complete chunks; preserve float64 Hann power for normalisation.
+    chunks = samples[: num_chunks * nfft].reshape(num_chunks, nfft)
     hann_window = np.hanning(nfft)
+    # A float32 window keeps complex64 input on the float32 FFT path, with
+    # small rounding differences from the previous complex128 calculation.
+    windowed_chunks = chunks * hann_window.astype(np.float32)
+    fft_result = np.fft.fft(windowed_chunks, axis=1)
+    # Shift only frequency bins, leaving the chunk axis unchanged.
+    shifted_fft = np.fft.fftshift(fft_result, axes=1)
+    power = np.abs(shifted_fft) ** 2
 
-    chunk_psd_list = []
-    max_single_chunk_power = 0.0
-    for i in range(num_chunks):
-        chunk = samples[i * nfft : (i + 1) * nfft]
-        # Apply window and FFT
-        windowed_chunk = chunk * hann_window
-        fft_result = np.fft.fft(windowed_chunk)
-        # Shift so DC component is centered
-        shifted_fft = np.fft.fftshift(fft_result)
-        # Compute magnitude squared (power)
-        power = np.abs(shifted_fft) ** 2
-        chunk_psd_list.append(power)
-        # Track maximum power in any single chunk before averaging
-        chunk_max = np.max(power)
-        if chunk_max > max_single_chunk_power:
-            max_single_chunk_power = chunk_max
-
-    # Average across all chunks
-    averaged_power = np.mean(chunk_psd_list, axis=0)
-    max_hold_power = np.max(chunk_psd_list, axis=0)
+    # Reduce across chunks and promote to float64 before normalisation.
+    averaged_power = power.mean(axis=0, dtype=np.float64)
+    max_hold_power = power.max(axis=0).astype(np.float64)
+    max_single_chunk_power = float(power.max())
 
     # Normalise against window power — produces true dBFS referenced to ADC full scale.
     # Dividing by (nfft * window_power) is the standard Welch periodogram normalisation.

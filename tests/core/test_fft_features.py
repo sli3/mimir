@@ -31,6 +31,89 @@ from core.pipeline.features import (
 from dashboard.shared_state import BAND_PROFILES
 
 
+def _legacy_compute_psd(
+    samples: np.ndarray,
+    sample_rate_hz: float,
+    center_freq_hz: float,
+    nfft: int,
+) -> dict:
+    """Reproduce the old float64-window loop for complete-chunk fixtures."""
+    samples = samples - np.mean(samples)
+    num_chunks = len(samples) // nfft
+    hann_window = np.hanning(nfft)
+
+    chunk_psd_list = []
+    max_single_chunk_power = 0.0
+    for i in range(num_chunks):
+        chunk = samples[i * nfft : (i + 1) * nfft]
+        # Keep the original promotion to complex128 before each FFT.
+        windowed_chunk = chunk * hann_window
+        fft_result = np.fft.fft(windowed_chunk)
+        shifted_fft = np.fft.fftshift(fft_result)
+        power = np.abs(shifted_fft) ** 2
+        chunk_psd_list.append(power)
+        chunk_max = np.max(power)
+        if chunk_max > max_single_chunk_power:
+            max_single_chunk_power = chunk_max
+
+    averaged_power = np.mean(chunk_psd_list, axis=0)
+    max_hold_power = np.max(chunk_psd_list, axis=0)
+    window_power = np.sum(hann_window ** 2)
+    chunk_peak_db = 10 * np.log10(
+        max_single_chunk_power / (nfft * window_power) + 1e-12
+    )
+    psd_db = 10 * np.log10(averaged_power / (nfft * window_power) + 1e-12)
+    psd_max_hold_db = 10 * np.log10(
+        max_hold_power / (nfft * window_power) + 1e-12
+    )
+    freq_offsets = np.fft.fftshift(np.fft.fftfreq(nfft, d=1 / sample_rate_hz))
+    return {
+        "frequencies_hz": center_freq_hz + freq_offsets,
+        "psd_db": psd_db,
+        "psd_max_hold_db": psd_max_hold_db,
+        "center_freq_hz": center_freq_hz,
+        "sample_rate_hz": sample_rate_hz,
+        "nfft": nfft,
+        "num_chunks": num_chunks,
+        "chunk_peak_db": float(chunk_peak_db),
+    }
+
+
+def _psd_equivalence_samples(case: str, nfft: int) -> np.ndarray:
+    """Build seeded noisy receiver-like fixtures, including quantisation."""
+    rng = np.random.default_rng(42)
+    count = 64 * nfft + (317 if case == "partial_chunk" else 0)
+    noise = rng.standard_normal(count) + 1j * rng.standard_normal(count)
+    tone = np.exp(2j * np.pi * 137.25 * np.arange(count) / nfft)
+    if case == "hackrf_8bit":
+        samples = 0.25 * tone + 0.04 * noise
+        # Quantise each component to signed 8-bit ADC levels.
+        samples = (
+            np.clip(np.rint(samples.real * 128), -128, 127)
+            + 1j * np.clip(np.rint(samples.imag * 128), -128, 127)
+        ) / 128
+    elif case == "strong_12bit":
+        # A strong tone with ADC quantisation and a realistic deep noise floor.
+        samples = 0.65 * tone + 0.00025 * noise
+        samples = (
+            np.clip(np.rint(samples.real * 2048), -2048, 2047)
+            + 1j * np.clip(np.rint(samples.imag * 2048), -2048, 2047)
+        ) / 2048
+    elif case == "short_burst":
+        samples = 0.01 * noise
+        # A signal lasting one chunk must survive in the max-hold trace.
+        burst = slice(17 * nfft, 18 * nfft)
+        samples[burst] += 0.4 * tone[burst]
+    elif case in ("moderate_snr", "partial_chunk"):
+        samples = 0.2 * tone + 0.02 * noise
+        if case == "partial_chunk":
+            # The discarded tail still contributes to the original DC mean.
+            samples[-317:] += 0.3 + 0.2j
+    else:
+        raise ValueError(f"Unknown PSD equivalence case: {case}")
+    return samples.astype(np.complex64)
+
+
 class TestComputePsd:
     """Tests for the compute_psd() function."""
 
@@ -202,6 +285,60 @@ class TestComputePsd:
         few_samples = np.random.randn(512).astype(np.float32) + 1j * np.random.randn(512).astype(np.float32)
         result = compute_psd(few_samples, sample_rate, center_freq, nfft)
         assert result["chunk_peak_db"] == 0.0
+
+
+class TestBatchedPsdEquivalence:
+    """Compare batched FFT output with the calibrated per-chunk loop."""
+
+    @pytest.mark.parametrize("dtype", [np.complex64, np.complex128])
+    @pytest.mark.parametrize(
+        "case",
+        [
+            "moderate_snr",
+            "hackrf_8bit",
+            "strong_12bit",
+            "short_burst",
+            "partial_chunk",
+        ],
+    )
+    def test_matches_legacy_loop(self, case: str, dtype: type) -> None:
+        """Preserve PSD levels, chunk counts, frequencies and output types."""
+        nfft = 2048
+        samples = _psd_equivalence_samples(case, nfft).astype(dtype)
+        expected = _legacy_compute_psd(samples, 2_000_000, 98_000_000, nfft)
+        result = compute_psd(samples, 2_000_000, 98_000_000, nfft)
+
+        assert result["num_chunks"] == expected["num_chunks"] == 64
+        np.testing.assert_array_equal(
+            result["frequencies_hz"], expected["frequencies_hz"]
+        )
+        for key in ("center_freq_hz", "sample_rate_hz", "nfft"):
+            assert result[key] == expected[key]
+        for key in ("psd_db", "psd_max_hold_db", "frequencies_hz"):
+            assert result[key].dtype == np.dtype(np.float64)
+        assert type(result["chunk_peak_db"]) is float
+
+        # NumPy 2.4.6, seed 42, both input precisions: measured maximum
+        # absolute differences were 0.000371971 dB for averaged PSD and
+        # 0.000000627 dB for chunk peak. Use absolute bounds with no rtol.
+        np.testing.assert_allclose(
+            result["psd_db"], expected["psd_db"], rtol=0, atol=0.01
+        )
+        assert result["chunk_peak_db"] == pytest.approx(
+            expected["chunk_peak_db"], rel=0, abs=0.01
+        )
+
+        # Max-hold measured 0.000551227 dB maximum, including all bins.
+        # Restrict the tight bound to reference bins >= -100 dBFS because
+        # float32 rounding is amplified in deeper individual-chunk minima.
+        above_floor = expected["psd_max_hold_db"] >= -100.0
+        assert np.any(above_floor)
+        np.testing.assert_allclose(
+            result["psd_max_hold_db"][above_floor],
+            expected["psd_max_hold_db"][above_floor],
+            rtol=0,
+            atol=0.01,
+        )
 
 
 class TestSignalThresholdDb:
