@@ -31,6 +31,10 @@ from llm.acma_reference import AcmaReference
 logger = logging.getLogger(__name__)
 
 _SAMPLE_RATE_HZ = 2_000_000
+# Caps the in-memory RECORD buffer so an unattended recording cannot exhaust
+# memory; the final concatenate briefly needs about twice this.
+RECORD_MAX_BYTES = 2 * 1024**3
+RECORD_MAX_SAMPLES = RECORD_MAX_BYTES // np.dtype(np.complex64).itemsize
 # Pause after a failed scan cycle so a persistent device or pipeline error
 # cannot spin the loop and flood the log. Deliberately not config.dwell_time_sec,
 # which is 0.0 in config/mimir.yaml.
@@ -113,17 +117,17 @@ class ScanRunner:
     Operator-controlled recording (Phase 68):
     start_recording() / stop_recording() / get_recording_status() manage a
     long-lived, operator-controlled "Record" mode that accumulates scan-cycle
-    samples in memory between start and stop, then writes a single SigMF
+    samples in memory up to a cap, then writes a single SigMF
     file on stop. Fully separate mechanism from capture_now() above —
     separate state, separate code path, separate endpoint. The class
     methods only manage state and chunk accumulation; the actual SigMF
     metadata writing happens in save_recording() in core/pipeline/capture.py,
-    which both methods call into. get_recording_status() is exposed for
+    called by stop_recording(). get_recording_status() is exposed for
     the frontend to adopt in-progress recording state on remount (page
     refresh during an active recording); as shipped it has zero call
-    sites (a related gap is tracked as tech debt). No client-side
-    auto-stop and no backend cap — the recording runs until the
-    operator stops it (a 60-second soft warning is displayed client-side).
+    sites (a related gap is tracked as tech debt). Accumulation stops at
+    the memory cap; the operator stops the recording to save it (a
+    60-second soft warning is displayed client-side).
     """
     def __init__(
         self, device, embedder, store, classifier, config: MimirConfig,
@@ -144,6 +148,9 @@ class ScanRunner:
 
         Focus changes are allowed before startup and blocked after stop()
         until run() or start_ai_only() starts the scanner again.
+
+        Recording state starts empty and uncapped; accumulation is limited
+        to RECORD_MAX_SAMPLES until the operator stops and saves it.
 
         Stats counters:
         _scan_count_since_llm — increments once per scan cycle; snapshot
@@ -239,7 +246,8 @@ class ScanRunner:
         # Operator-controlled "Record" capture state (Phase 68). Fully
         # separate mechanism from capture_now() above: separate fields,
         # separate scan-loop code path, separate Flask routes. While
-        # _recording is True, each scan cycle appends its already-read
+        # _recording is True and the cap has not been reached, each scan
+        # cycle appends its already-read
         # samples to _record_buffer (in-memory accumulation only — no
         # disk streaming, no file handle held open across cycles) and
         # one per-cycle fingerprint entry to _record_fingerprints.
@@ -251,6 +259,8 @@ class ScanRunner:
         # saved file's single core:frequency field is honest, and so a
         # mid-recording focus change can be detected and logged.
         self._recording: bool = False
+        # Latched at the memory cap until recording state is reset.
+        self._record_capped: bool = False
         self._record_buffer: list = []              # np.ndarray chunks
         self._record_fingerprints: list = []        # per-cycle dicts
         self._record_sample_offset: int = 0
@@ -458,9 +468,9 @@ class ScanRunner:
 
         Called from the Flask request handler thread (POST /api/record/
         start). From the next scan cycle onwards, each cycle's already-
-        read samples are appended to an in-memory buffer until
-        stop_recording() is called. Nothing touches disk here — the
-        buffer lives in RAM for the whole recording.
+        read samples are appended to an in-memory buffer until the memory
+        cap is reached or stop_recording() is called. Starting resets the
+        cap flag. The buffer stays in RAM until the operator stops to save.
 
         Idempotent-safe: calling while already recording returns an
         error status rather than silently resetting an in-progress
@@ -479,6 +489,7 @@ class ScanRunner:
             self._record_buffer = []
             self._record_fingerprints = []
             self._record_sample_offset = 0
+            self._record_capped = False
             self._record_freq_hz = self._focus_freq_hz
             self._recording = True
             return {"status": "ok"}
@@ -487,11 +498,11 @@ class ScanRunner:
         """Stop accumulating, concatenate the buffer, write one SigMF file.
 
         Called from the Flask request handler thread (POST /api/record/
-        stop). Blocks briefly for the concatenate plus file write — this
-        is bounded and fast (np.concatenate of the accumulated chunks
-        plus a single save_recording() call), so it runs under
-        _record_lock to keep the state transition atomic against the
-        scan loop.
+        stop). Blocks for np.concatenate of the capped buffer plus a
+        single save_recording() call. The memory cap bounds the samples,
+        but a large buffer can still take time to save. This runs under
+        _record_lock to keep the state transition atomic against the scan
+        loop; concatenate briefly needs about twice the buffer memory.
 
         ``_recording`` is cleared FIRST, before any heavy work, so the
         scan loop's re-check inside its own lock acquisition cannot add
@@ -506,6 +517,9 @@ class ScanRunner:
               (str path), ``"duration_sec"`` (float, total samples /
               sample rate) and ``"cycle_count"`` (int, number of scan
               cycles captured).
+            - ``"cap_reached"``   — save succeeded after accumulation hit
+              the memory cap; has the same file, duration and cycle keys
+              as ``"ok"``, describing only the retained samples.
             - ``"error"``         — concatenate or save raised
               (including MemoryError); also has ``"cause"`` (str, the
               exception message). State is still fully reset.
@@ -522,6 +536,7 @@ class ScanRunner:
             fingerprints = self._record_fingerprints
             cycle_count = len(fingerprints)
             total_samples = self._record_sample_offset
+            capped = self._record_capped
             buffer = self._record_buffer
             # Reset shared state under the lock, whatever happens next,
             # so the scan loop sees an empty accumulator on its next
@@ -529,6 +544,7 @@ class ScanRunner:
             self._record_buffer = []
             self._record_fingerprints = []
             self._record_sample_offset = 0
+            self._record_capped = False
             try:
                 samples = np.concatenate(buffer)
                 saved_path = save_recording(
@@ -545,7 +561,7 @@ class ScanRunner:
                 )
                 return {"status": "error", "cause": str(exc)}
             return {
-                "status": "ok",
+                "status": "cap_reached" if capped else "ok",
                 "file": str(saved_path),
                 "duration_sec": total_samples / _SAMPLE_RATE_HZ,
                 "cycle_count": cycle_count,
@@ -595,6 +611,8 @@ class ScanRunner:
              below since the previous cycle, saves the raw IQ samples via
              save_capture(). A save failure is logged and swallowed so it can
              never kill the scan loop.
+          8. Accumulates recording samples and fingerprints up to the
+             memory cap, leaving the retained buffer for an operator stop.
 
         Frequency cache:
         A method-local ``_last_tuned_hz`` tracks the most recently tuned frequency.
@@ -902,9 +920,12 @@ class ScanRunner:
                 # Continuous "Record" capture (Phase 68). Independent of
                 # both the SNR-edge auto-trigger above and the one-shot
                 # manual capture_now() block. Appends this cycle's
-                # already-read samples to an in-memory accumulator until
-                # stop_recording() is called from the Flask request
-                # thread. Frequency-change guard: if the operator
+                # already-read samples to an in-memory accumulator up to
+                # the memory cap. Once capped, later cycles add neither
+                # samples nor fingerprints; stop_recording() saves the
+                # retained buffer from the Flask request thread. No disk
+                # or concatenate work happens here. Frequency-change
+                # guard: if the operator
                 # changes the focus frequency mid-recording, the
                 # recording continues but a log warning is emitted,
                 # since a recording spanning two different frequencies
@@ -928,21 +949,36 @@ class ScanRunner:
                                     self._record_freq_hz / 1e6,
                                     freq_hz / 1e6,
                                 )
-                            self._record_buffer.append(samples)
-                            cycle_fp = {
-                                "sample_start": self._record_sample_offset,
-                                "sample_count": len(samples),
-                                "timestamp_sec": (
-                                    self._record_sample_offset
-                                    / _SAMPLE_RATE_HZ
-                                ),
-                                **{
-                                    k: fingerprint[k]
-                                    for k in _FINGERPRINT_METADATA_KEYS
-                                },
-                            }
-                            self._record_fingerprints.append(cycle_fp)
-                            self._record_sample_offset += len(samples)
+                            if self._record_capped:
+                                pass
+                            elif (
+                                self._record_sample_offset + len(samples)
+                                > RECORD_MAX_SAMPLES
+                            ):
+                                self._record_capped = True
+                                logger.warning(
+                                    "Recording memory cap reached (%d bytes); "
+                                    "%.3f seconds recorded so far. Later "
+                                    "cycles are not kept until RECORD is stopped",
+                                    RECORD_MAX_BYTES,
+                                    self._record_sample_offset / _SAMPLE_RATE_HZ,
+                                )
+                            else:
+                                self._record_buffer.append(samples)
+                                cycle_fp = {
+                                    "sample_start": self._record_sample_offset,
+                                    "sample_count": len(samples),
+                                    "timestamp_sec": (
+                                        self._record_sample_offset
+                                        / _SAMPLE_RATE_HZ
+                                    ),
+                                    **{
+                                        k: fingerprint[k]
+                                        for k in _FINGERPRINT_METADATA_KEYS
+                                    },
+                                }
+                                self._record_fingerprints.append(cycle_fp)
+                                self._record_sample_offset += len(samples)
                 vector = embedder.embed(fingerprint)
                 # "Latest wins" — drain stale items before inserting so the AI loop
                 # always classifies the freshest scan, not a backlog seconds old.

@@ -8,7 +8,7 @@ import RecordButton from './RecordButton.jsx'
  * Props: focusedFreq, focusFrequency, unsupportedBands, adsbAircraftList,
  * adsbAircraftHistory, customInput, setCustomInput, handleKeyDown, handleTune,
  * handleCaptureClick, capturePending, recording, handleRecordClick, recordElapsedSec,
- * recordWarning, recordResult.
+ * recordWarning, recordResult (successful saves include a cap_reached flag).
  */
 export default function BandNavBar({
   focusedFreq,
@@ -193,7 +193,7 @@ export default function BandNavBar({
             }}
           >
             {recordResult.status === 'ok'
-              ? `Recorded ${recordResult.duration_sec.toFixed(1)}s / ${recordResult.cycle_count} cycles`
+              ? `Recorded ${recordResult.duration_sec.toFixed(1)}s / ${recordResult.cycle_count} cycles${recordResult.cap_reached ? ' (stopped at memory cap)' : ''}`
               : `Recording failed: ${recordResult.cause}`}
           </span>
         )}

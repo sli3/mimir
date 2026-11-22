@@ -2212,8 +2212,9 @@ class TestRecording:
     start_recording() / stop_recording() are called from the Flask
     request handler thread; the scan loop appends each cycle's
     already-read samples to an in-memory accumulator while
-    _recording is True. stop_recording() concatenates the buffer and
-    writes ONE SigMF file via save_recording().
+    _recording is True, up to the memory cap. stop_recording()
+    concatenates the retained buffer and writes ONE SigMF file via
+    save_recording(), returning cap_reached for a capped recording.
 
     The trigger state and current_band are module-level in
     dashboard.shared_state, so the autouse fixture snapshots and
@@ -2265,15 +2266,19 @@ class TestRecording:
             "is_burst": False,
         }
 
-    def test_start_recording_resets_state_and_returns_ok(self, scanner):
+    def test_start_recording_resets_state_and_returns_ok(
+        self, scanner: ScanRunner
+    ) -> None:
         """start_recording() returns ok, sets _recording, resets the
-        accumulator state, and pins the current focus frequency."""
+        accumulator and cap flag, and pins the current focus frequency."""
+        scanner._record_capped = True
         result = scanner.start_recording()
         assert result == {"status": "ok"}
         assert scanner._recording is True
         assert scanner._record_buffer == []
         assert scanner._record_fingerprints == []
         assert scanner._record_sample_offset == 0
+        assert scanner._record_capped is False
         assert scanner._record_freq_hz == scanner._focus_freq_hz
 
     def test_start_recording_while_already_recording_returns_already_recording_without_reset(
@@ -2394,6 +2399,100 @@ class TestRecording:
                 assert read_index == prev_read_index + 1
             prev_read_index = read_index
             offset += entry["sample_count"]
+
+    def test_recording_memory_cap_keeps_only_complete_cycles(
+        self,
+        scanner: ScanRunner,
+        mock_device: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Keep cycles up to the cap, warn once, and save aligned metadata.
+
+        The first two chunks exactly fill the cap. A larger third chunk
+        trips it; later smaller chunks must also be discarded. The save
+        is mocked so the scan thread and test never write capture files.
+        """
+        import numpy as np
+
+        # The scan loop discards read zero after its initial retune.
+        reads = {"n": -1}
+
+        def fake_read(num_samples: int) -> np.ndarray:
+            """Return identifiable chunks, including small post-cap cycles."""
+            reads["n"] += 1
+            n = reads["n"]
+            length = 2048 if n <= 2 else (4097 if n == 3 else 2048)
+            return np.full(length, complex(n, 0), dtype=np.complex64)
+
+        def fake_fingerprint(psd: dict, **kwargs: object) -> dict:
+            """Tag each fingerprint with its sample chunk's read index."""
+            return self._fingerprint(float(reads["n"]))
+
+        mock_device.read_samples.side_effect = fake_read
+        with patch(
+            "core.pipeline.scanner.RECORD_MAX_SAMPLES", 4096
+        ), patch(
+            "core.pipeline.scanner.time.sleep", return_value=None
+        ), patch(
+            "core.pipeline.scanner.features.fingerprint_spectrum",
+            side_effect=fake_fingerprint,
+        ), patch(
+            "core.pipeline.scanner.save_recording",
+            return_value="/tmp/capped.sigmf-meta",
+        ) as mock_save, caplog.at_level(
+            logging.WARNING, logger="core.pipeline.scanner"
+        ):
+            assert scanner.start_recording() == {"status": "ok"}
+            scanner._running = True
+            t = threading.Thread(target=scanner._scan_loop, daemon=True)
+            t.start()
+            try:
+                wait_until(lambda: scanner._scan_count >= 5)
+                with scanner._record_lock:
+                    assert scanner._recording is True
+                    assert scanner._record_capped is True
+                    assert len(scanner._record_buffer) == 2
+                    assert len(scanner._record_fingerprints) == 2
+                    assert scanner._record_sample_offset == 4096
+                result = scanner.stop_recording()
+            finally:
+                scanner.stop()
+                t.join(timeout=3)
+
+        assert result == {
+            "status": "cap_reached",
+            "file": "/tmp/capped.sigmf-meta",
+            "duration_sec": 4096 / 2_000_000,
+            "cycle_count": 2,
+        }
+        mock_save.assert_called_once()
+        samples = mock_save.call_args.args[0]
+        np.testing.assert_array_equal(
+            samples,
+            np.concatenate([
+                np.full(2048, 1, dtype=np.complex64),
+                np.full(2048, 2, dtype=np.complex64),
+            ]),
+        )
+        sequence = mock_save.call_args.kwargs["fingerprint_sequence"]
+        assert [entry["sample_start"] for entry in sequence] == [0, 2048]
+        assert [entry["sample_count"] for entry in sequence] == [2048, 2048]
+        assert [entry["timestamp_sec"] for entry in sequence] == [
+            0, 2048 / 2_000_000,
+        ]
+        assert [entry["snr_db"] for entry in sequence] == [1.0, 2.0]
+        warnings = [
+            record for record in caplog.records
+            if "Recording memory cap reached" in record.getMessage()
+        ]
+        assert len(warnings) == 1
+        assert "2147483648 bytes" in warnings[0].getMessage()
+        assert "seconds recorded so far" in warnings[0].getMessage()
+        assert "until RECORD is stopped" in warnings[0].getMessage()
+        assert scanner._record_capped is False
+        assert scanner._record_buffer == []
+        assert scanner._record_fingerprints == []
+        assert scanner._record_sample_offset == 0
 
     def test_trigger_suppressed_during_recording(
         self,

@@ -23,7 +23,8 @@ afterEach(() => {
  * useRecording hook, matching the dashboard's recording wiring in
  * pages/DashboardPage.jsx through hooks/useCaptureControls.js. The parent
  * owns the click handler (start vs stop decided from the recording state)
- * and renders the minimal inline result readout, mirroring the dashboard.
+ * and renders the inline result readout, including the memory-cap suffix,
+ * mirroring BandNavBar. Data attributes expose the hook's normalised result.
  */
 function TestHarness() {
   const {
@@ -44,9 +45,13 @@ function TestHarness() {
         warning={warning}
       />
       {recordResult && !recording && (
-        <span data-testid="record-result">
+        <span
+          data-testid="record-result"
+          data-status={recordResult.status}
+          data-cap-reached={String(recordResult.cap_reached)}
+        >
           {recordResult.status === 'ok'
-            ? `Recorded ${recordResult.duration_sec.toFixed(1)}s / ${recordResult.cycle_count} cycles`
+            ? `Recorded ${recordResult.duration_sec.toFixed(1)}s / ${recordResult.cycle_count} cycles${recordResult.cap_reached ? ' (stopped at memory cap)' : ''}`
             : `Recording failed: ${recordResult.cause}`}
         </span>
       )}
@@ -127,6 +132,41 @@ describe('RecordButton', () => {
     )
   })
 
+  it('reports a capped recording as a successful save with the memory-cap suffix', async () => {
+    const fetchMock = vi.fn((url) =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(
+          url === '/api/record/stop'
+            ? {
+                status: 'cap_reached',
+                file: '/tmp/capped.sigmf-meta',
+                duration_sec: 12.4,
+                cycle_count: 45,
+              }
+            : { status: 'ok' }
+        ),
+      })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    render(<TestHarness />)
+    fireEvent.click(screen.getByTestId('record-button'))
+    await waitFor(() =>
+      expect(screen.getByTestId('record-dot')).toBeInTheDocument()
+    )
+    fireEvent.click(screen.getByTestId('record-button'))
+    await waitFor(() =>
+      expect(screen.getByTestId('record-result')).toHaveTextContent(
+        'Recorded 12.4s / 45 cycles (stopped at memory cap)'
+      )
+    )
+    const result = screen.getByTestId('record-result')
+    expect(result).toHaveAttribute('data-status', 'ok')
+    expect(result).toHaveAttribute('data-cap-reached', 'true')
+    expect(result).not.toHaveTextContent('Recording failed')
+    expect(screen.queryByTestId('record-dot')).not.toBeInTheDocument()
+  })
+
   it('elapsed timer increments while recording', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     vi.stubGlobal('fetch', mockFetchOk({ status: 'ok' }))
@@ -165,7 +205,7 @@ describe('RecordButton', () => {
     expect(elapsed).toHaveTextContent('01:01')
     expect(elapsed.style.color).toBe('var(--neon-amber)')
     // ...but the recording is STILL active and the stop endpoint was
-    // NEVER called — no auto-stop, no backend cap.
+    // NEVER called: the timer warning does not stop or save the recording.
     expect(screen.getByTestId('record-dot')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(fetchMock.mock.calls[0][0]).toBe('/api/record/start')

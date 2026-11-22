@@ -10,9 +10,11 @@ const WARNING_THRESHOLD_SEC = 60
  * accumulates scan-cycle samples in memory between POST /api/record/start
  * and POST /api/record/stop, then writes one SigMF file.
  *
- * There is deliberately NO client-side auto-stop and NO backend cap: the
- * recording runs until the operator stops it. The 60-second mark only
- * flips a `warning` flag the UI uses to recolour the elapsed readout.
+ * The backend stops accumulation at its memory cap and saves when the
+ * operator stops it. The UI learns of the cap in the stop response and
+ * reports a successful save with cap_reached: true. The elapsed timer
+ * keeps counting until stop; the 60-second mark only flips a `warning`
+ * flag the UI uses to recolour the elapsed readout.
  *
  * @returns {{
  *   recording: boolean,
@@ -144,12 +146,22 @@ export default function useRecording() {
         }
         if (!mountedRef.current || controller.signal.aborted) return
         switch (body?.status) {
+          case 'cap_reached':
+            setRecordResult({
+              status: 'ok',
+              file: String(body.file ?? ''),
+              duration_sec: Number(body.duration_sec ?? 0),
+              cycle_count: Number(body.cycle_count ?? 0),
+              cap_reached: true,
+            })
+            break
           case 'ok':
             setRecordResult({
               status: 'ok',
               file: String(body.file ?? ''),
               duration_sec: Number(body.duration_sec ?? 0),
               cycle_count: Number(body.cycle_count ?? 0),
+              cap_reached: false,
             })
             break
           case 'error':

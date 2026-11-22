@@ -73,8 +73,8 @@ def api_record_start():
     Fully separate mechanism from /api/capture: separate state, separate
     scan-loop code path, no shared fields.
 
-    There is deliberately NO backend duration cap and NO auto-stop: the
-    recording runs until the operator stops it. The 60-second warning is
+    Accumulation stops at the backend memory cap; the retained recording
+    is saved when the operator stops it. The 60-second warning is
     a frontend-only display concern; this endpoint has no awareness of
     elapsed time.
 
@@ -121,8 +121,8 @@ def api_record_stop():
     written by this path — the two fields are mutually exclusive by
     construction.
 
-    The response blocks briefly for the concatenate plus file write,
-    which is bounded and fast.
+    The response blocks for the concatenate plus file write. The memory
+    cap bounds the samples, but a large buffer can still take time to save.
 
     Always returns HTTP 200 with a structured status field, mirroring
     /api/capture's "never 500 the user" convention — a save failure
@@ -131,12 +131,13 @@ def api_record_stop():
 
     Output format:
     {
-        "status": "ok" | "error" | "not_recording" | "scanner_unavailable",
-        "file": str,           — present only on "ok" (path to the
+        "status": "ok" | "cap_reached" | "error" | "not_recording" |
+                  "scanner_unavailable",
+        "file": str,           — on "ok" or "cap_reached" (path to the
                                   .sigmf-meta file)
-        "duration_sec": float, — present only on "ok" (total samples /
+        "duration_sec": float, — on "ok" or "cap_reached" (kept samples /
                                   sample rate)
-        "cycle_count": int,    — present only on "ok" (scan cycles
+        "cycle_count": int,    — on "ok" or "cap_reached" (scan cycles
                                   captured)
         "cause": str,          — present only on "error"
     }
@@ -144,6 +145,8 @@ def api_record_stop():
     Implementation notes:
     - RECEIVE-ONLY. No RF transmission or hardware control. The endpoint
       writes a file of already-received samples.
+    - "cap_reached" is a successful save after accumulation hit the memory
+      cap; later scan cycles were not retained.
     - Legal constraint: Radiocommunications Act 1992 (Cth), AU/SA
       jurisdiction, ACMA authority. Every recording carries the legal
       provenance note baked into save_recording()'s SigMF metadata.
