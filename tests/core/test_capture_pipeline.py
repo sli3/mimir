@@ -7,11 +7,7 @@ Tests cover:
 - save_capture filename matches expected SigMF pattern and writes the .sigmf-data sibling
 - saved SigMF recording reloads as complex64 with matching data and metadata
 - SigMF metadata round-trips device identity and legal provenance
-- capture_and_save dispatches to the correct device capture function
-- capture_and_save validates the device string before any hardware call
-- capture_and_save validates the band string before any hardware call
-- capture_and_save measures a spectral fingerprint from the captured samples
-  and passes it through to save_capture
+- capture_iq and capture_iq_pluto never call transmit-family methods
 - save_capture records the fingerprint as a nested mimir:fingerprint field
   (and omits it entirely when fingerprint is None)
 - bandwidth_hz is recorded as SigMF core:bandwidth metadata (never as DSP)
@@ -21,7 +17,6 @@ Tests cover:
 import sys
 import os
 import re
-import logging
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -34,15 +29,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from core.legal.compliance_guard import HardwareTransmitError
 from core.pipeline.capture import (
     _FINGERPRINT_METADATA_KEYS,
-    capture_and_save,
     capture_iq,
     capture_iq_pluto,
     save_capture,
     save_recording,
 )
-from core.pipeline.fft import compute_psd
-from core.pipeline.features import fingerprint_spectrum
-from dashboard.shared_state import BAND_PROFILES
 
 TX_METHOD_NAMES = [
     "transmit",
@@ -81,6 +72,30 @@ class TestCaptureIq:
                 "capture_iq must raise RuntimeError, not HardwareTransmitError, "
                 "when hardware is unavailable."
             )
+
+    def test_no_transmit_method_called_on_hackrf_receiver(self) -> None:
+        """capture_iq reads samples without calling transmit-family methods."""
+        with patch("core.pipeline.capture.HackRFReceiver") as mock_receiver_cls:
+            mock_sdr = MagicMock()
+            mock_receiver_cls.return_value = mock_sdr
+
+            capture_iq(
+                freq_hz=98_000_000,
+                num_samples=1024,
+                sample_rate_hz=2_000_000,
+                lna_gain_db=16,
+                vga_gain_db=20,
+            )
+
+            mock_sdr.read_samples.assert_called_once_with(1024)
+            for method_name in TX_METHOD_NAMES:
+                getattr(mock_sdr, method_name).assert_not_called()
+
+            # The constructor must never receive a transmit-direction argument.
+            ctor_kwargs = mock_receiver_cls.call_args.kwargs
+            for kwarg_name, kwarg_value in ctor_kwargs.items():
+                assert kwarg_name not in TX_METHOD_NAMES
+                assert kwarg_value not in TX_METHOD_NAMES
 
 
 class TestCaptureIqPluto:
@@ -359,139 +374,6 @@ class TestSaveCapture:
         assert meta.get_global_field("peak_freq_hz") is None
         assert stored["peak_freq_hz"] == 98_000_500.0
 
-
-class TestNoTxPatterns:
-    """Verify that capture.py contains no transmit-related code."""
-
-    def test_no_tx_patterns_in_capture_py(self):
-        """capture.py must not contain any TX function names or patterns."""
-        capture_path = Path(__file__).resolve().parent.parent.parent / "core" / "pipeline" / "capture.py"
-        source = capture_path.read_text()
-
-        tx_patterns = [
-            "writeStream",
-            "transmit_guard",
-            "HardwareTransmitError",
-            ".transmit(",
-            ".write_samples(",
-            "setupTxStream",
-            "activateTxStream",
-            "set_tx_gain",
-            "set_tx_frequency",
-        ]
-
-        for pattern in tx_patterns:
-            assert pattern not in source, (
-                f"TX pattern '{pattern}' found in capture.py — "
-                "this file must be receive-only."
-            )
-
-
-def _mock_sdr_with_samples(num_samples: int = 1024) -> MagicMock:
-    """A mock SDR whose read_samples returns a real complex64 array.
-
-    save_capture() feeds the samples to sigmf.fromarray(), which needs a
-    genuine numpy array - a bare MagicMock return value would fail there.
-    """
-    mock_sdr = MagicMock()
-    mock_sdr.read_samples.return_value = np.zeros(num_samples, dtype=np.complex64)
-    return mock_sdr
-
-
-class TestCaptureAndSave:
-    """Tests for the capture_and_save orchestration function (Phase 61)."""
-
-    def test_dispatches_to_capture_iq_for_hackrf(self, tmp_path):
-        """device="hackrf" constructs HackRFReceiver with wrapper default gains."""
-        with patch("core.pipeline.capture.HackRFReceiver") as mock_hackrf_cls, \
-             patch("core.pipeline.capture.PlutoReceiver") as mock_pluto_cls:
-            mock_sdr = _mock_sdr_with_samples(1024)
-            mock_hackrf_cls.return_value = mock_sdr
-
-            result = capture_and_save(
-                freq_hz=98_000_000,
-                num_samples=1024,
-                sample_rate_hz=2_000_000,
-                band="fm_broadcast",
-                output_dir=tmp_path,
-                device="hackrf",
-            )
-
-            mock_hackrf_cls.assert_called_once_with(
-                center_freq_hz=98_000_000,
-                sample_rate_hz=2_000_000,
-                lna_gain_db=mock_hackrf_cls.DEFAULT_LNA_GAIN_DB,
-                vga_gain_db=mock_hackrf_cls.DEFAULT_VGA_GAIN_DB,
-            )
-            mock_pluto_cls.assert_not_called()
-            mock_sdr.read_samples.assert_called_once_with(1024)
-            assert result.name.endswith(".sigmf-meta")
-            assert result.exists()
-
-    def test_dispatches_to_capture_iq_pluto_for_plutosdr(self, tmp_path):
-        """device="plutosdr" constructs PlutoReceiver with default gain + bandwidth."""
-        with patch("core.pipeline.capture.HackRFReceiver") as mock_hackrf_cls, \
-             patch("core.pipeline.capture.PlutoReceiver") as mock_pluto_cls:
-            mock_sdr = _mock_sdr_with_samples(1024)
-            mock_pluto_cls.return_value = mock_sdr
-
-            capture_and_save(
-                freq_hz=1_090_000_000,
-                num_samples=1024,
-                sample_rate_hz=2_000_000,
-                band="adsb",
-                output_dir=tmp_path,
-                device="plutosdr",
-                bandwidth_hz=1_800_000,
-            )
-
-            mock_pluto_cls.assert_called_once_with(
-                center_freq_hz=1_090_000_000,
-                sample_rate_hz=2_000_000,
-                gain_db=mock_pluto_cls.DEFAULT_GAIN_DB,
-                bandwidth_hz=1_800_000,
-            )
-            mock_hackrf_cls.assert_not_called()
-            mock_sdr.read_samples.assert_called_once_with(1024)
-
-    def test_unknown_device_raises_value_error_before_hardware_call(self, tmp_path):
-        """An unknown device key raises ValueError and never touches hardware."""
-        with patch("core.pipeline.capture.HackRFReceiver") as mock_hackrf_cls, \
-             patch("core.pipeline.capture.PlutoReceiver") as mock_pluto_cls:
-            with pytest.raises(ValueError, match="Unknown device 'bogus'"):
-                capture_and_save(
-                    freq_hz=98_000_000,
-                    num_samples=1024,
-                    sample_rate_hz=2_000_000,
-                    band="fm_broadcast",
-                    output_dir=tmp_path,
-                    device="bogus",
-                )
-
-            mock_hackrf_cls.assert_not_called()
-            mock_pluto_cls.assert_not_called()
-
-    def test_sigmf_meta_hw_field_is_adalm_pluto_for_plutosdr(self, tmp_path):
-        """End-to-end: a Pluto capture records hw as ADALM-PLUTO in SigMF."""
-        with patch("core.pipeline.capture.PlutoReceiver") as mock_pluto_cls:
-            mock_pluto_cls.return_value = _mock_sdr_with_samples(512)
-
-            result = capture_and_save(
-                freq_hz=1_090_000_000,
-                num_samples=512,
-                sample_rate_hz=2_000_000,
-                band="adsb",
-                output_dir=tmp_path,
-                device="plutosdr",
-            )
-
-            meta = sigmf.fromfile(str(result))
-            assert meta.hw == "ADALM-PLUTO", (
-                "core:hw must come from DEVICE_PROFILES['plutosdr'] - "
-                "a wrong driver key would write the wrong hardware name."
-            )
-            assert meta.get_global_field("mimir:device_profile") == "plutosdr"
-
     def test_sigmf_meta_hw_field_uses_device_profiles_display_name_directly(
         self, tmp_path
     ):
@@ -544,233 +426,32 @@ class TestCaptureAndSave:
         assert captures[0][sigmf.FREQUENCY_KEY] == 98_000_000
         assert "core:bandwidth" not in captures[0]
 
-    def test_hackrf_bandwidth_hz_logs_warning_and_still_records_metadata(
-        self, tmp_path, caplog
-    ):
-        """HackRF + bandwidth_hz: warning logged, value still in SigMF metadata."""
-        with patch("core.pipeline.capture.HackRFReceiver") as mock_hackrf_cls:
-            mock_hackrf_cls.return_value = _mock_sdr_with_samples(256)
 
-            with caplog.at_level(logging.WARNING, logger="core.pipeline.capture"):
-                result = capture_and_save(
-                    freq_hz=98_000_000,
-                    num_samples=256,
-                    sample_rate_hz=2_000_000,
-                    band="fm_broadcast",
-                    output_dir=tmp_path,
-                    device="hackrf",
-                    bandwidth_hz=1_800_000,
-                )
+class TestNoTxPatterns:
+    """Verify that capture.py contains no transmit-related code."""
 
-            warnings = [
-                r for r in caplog.records
-                if r.levelno == logging.WARNING and "bandwidth_hz" in r.getMessage()
-            ]
-            assert warnings, "Expected a warning that bandwidth_hz is ignored on HackRF"
-            assert "bandwidth_hz ignored" in warnings[0].getMessage()
+    def test_no_tx_patterns_in_capture_py(self):
+        """capture.py must not contain any TX function names or patterns."""
+        capture_path = Path(__file__).resolve().parent.parent.parent / "core" / "pipeline" / "capture.py"
+        source = capture_path.read_text()
 
-            meta = sigmf.fromfile(str(result))
-            assert meta.get_captures()[0]["core:bandwidth"] == 1_800_000
+        tx_patterns = [
+            "writeStream",
+            "transmit_guard",
+            "HardwareTransmitError",
+            ".transmit(",
+            ".write_samples(",
+            "setupTxStream",
+            "activateTxStream",
+            "set_tx_gain",
+            "set_tx_frequency",
+        ]
 
-    def test_pluto_bandwidth_hz_passed_through_to_capture_iq_pluto(self, tmp_path):
-        """Pluto + bandwidth_hz: the value reaches the PlutoReceiver constructor."""
-        with patch("core.pipeline.capture.PlutoReceiver") as mock_pluto_cls:
-            mock_pluto_cls.return_value = _mock_sdr_with_samples(256)
-
-            capture_and_save(
-                freq_hz=915_000_000,
-                num_samples=256,
-                sample_rate_hz=2_000_000,
-                band="adsb",
-                output_dir=tmp_path,
-                device="plutosdr",
-                bandwidth_hz=1_500_000,
+        for pattern in tx_patterns:
+            assert pattern not in source, (
+                f"TX pattern '{pattern}' found in capture.py — "
+                "this file must be receive-only."
             )
-
-            assert mock_pluto_cls.call_args.kwargs["bandwidth_hz"] == 1_500_000
-
-    def test_no_transmit_methods_called_on_pluto_via_capture_and_save(self, tmp_path):
-        """TX-safety: no transmit-family method is invoked on the Pluto path."""
-        with patch("core.pipeline.capture.PlutoReceiver") as mock_pluto_cls:
-            mock_sdr = _mock_sdr_with_samples(256)
-            mock_pluto_cls.return_value = mock_sdr
-
-            capture_and_save(
-                freq_hz=915_000_000,
-                num_samples=256,
-                sample_rate_hz=2_000_000,
-                band="adsb",
-                output_dir=tmp_path,
-                device="plutosdr",
-            )
-
-            for method_name in TX_METHOD_NAMES:
-                getattr(mock_sdr, method_name).assert_not_called()
-
-            ctor_kwargs = mock_pluto_cls.call_args.kwargs
-            for kwarg_name, kwarg_value in ctor_kwargs.items():
-                assert kwarg_name not in TX_METHOD_NAMES
-                assert kwarg_value not in TX_METHOD_NAMES
-
-    def test_no_transmit_methods_called_on_hackrf_via_capture_and_save(self, tmp_path):
-        """TX-safety: no transmit-family method is invoked on the HackRF path."""
-        with patch("core.pipeline.capture.HackRFReceiver") as mock_hackrf_cls:
-            mock_sdr = _mock_sdr_with_samples(256)
-            mock_hackrf_cls.return_value = mock_sdr
-
-            capture_and_save(
-                freq_hz=98_000_000,
-                num_samples=256,
-                sample_rate_hz=2_000_000,
-                band="fm_broadcast",
-                output_dir=tmp_path,
-                device="hackrf",
-            )
-
-            for method_name in TX_METHOD_NAMES:
-                getattr(mock_sdr, method_name).assert_not_called()
-
-            ctor_kwargs = mock_hackrf_cls.call_args.kwargs
-            for kwarg_name, kwarg_value in ctor_kwargs.items():
-                assert kwarg_name not in TX_METHOD_NAMES
-                assert kwarg_value not in TX_METHOD_NAMES
-
-    def test_capture_and_save_does_not_call_save_capture_with_unknown_device(
-        self, tmp_path
-    ):
-        """The unknown-device ValueError fires before save_capture is reached."""
-        with patch("core.pipeline.capture.save_capture") as mock_save, \
-             patch("core.pipeline.capture.HackRFReceiver") as mock_hackrf_cls, \
-             patch("core.pipeline.capture.PlutoReceiver") as mock_pluto_cls:
-            with pytest.raises(ValueError, match="Unknown device 'bogus'"):
-                capture_and_save(
-                    freq_hz=98_000_000,
-                    num_samples=1024,
-                    sample_rate_hz=2_000_000,
-                    band="fm_broadcast",
-                    output_dir=tmp_path,
-                    device="bogus",
-                )
-
-            mock_save.assert_not_called()
-            mock_hackrf_cls.assert_not_called()
-            mock_pluto_cls.assert_not_called()
-
-    def test_unknown_band_raises_value_error_before_hardware_call(self, tmp_path):
-        """An unrecognised band raises ValueError and never touches hardware."""
-        with patch("core.pipeline.capture.HackRFReceiver") as mock_hackrf_cls, \
-             patch("core.pipeline.capture.PlutoReceiver") as mock_pluto_cls, \
-             patch("core.pipeline.capture.save_capture") as mock_save, \
-             patch("core.pipeline.capture.compute_psd") as mock_psd, \
-             patch("core.pipeline.capture.fingerprint_spectrum") as mock_fp:
-            with pytest.raises(ValueError, match="Unknown band 'bogus_band'"):
-                capture_and_save(
-                    freq_hz=98_000_000,
-                    num_samples=1024,
-                    sample_rate_hz=2_000_000,
-                    band="bogus_band",
-                    output_dir=tmp_path,
-                    device="hackrf",
-                )
-
-            mock_hackrf_cls.assert_not_called()
-            mock_pluto_cls.assert_not_called()
-            mock_psd.assert_not_called()
-            mock_fp.assert_not_called()
-            mock_save.assert_not_called()
-
-    def test_valid_band_produces_fingerprint_and_passes_to_save_capture(
-        self, tmp_path
-    ):
-        """A valid band yields a measured fingerprint passed to save_capture.
-
-        compute_psd and fingerprint_spectrum run for real (via wraps spies)
-        on a genuine numpy capture; only save_capture is mocked, to capture
-        the fingerprint kwarg it receives.
-        """
-        with patch("core.pipeline.capture.HackRFReceiver") as mock_hackrf_cls, \
-             patch("core.pipeline.capture.compute_psd", wraps=compute_psd) as spy_psd, \
-             patch(
-                 "core.pipeline.capture.fingerprint_spectrum",
-                 wraps=fingerprint_spectrum,
-             ) as spy_fp, \
-             patch("core.pipeline.capture.save_capture") as mock_save:
-            mock_hackrf_cls.return_value = _mock_sdr_with_samples(2048)
-
-            capture_and_save(
-                freq_hz=98_000_000,
-                num_samples=2048,
-                sample_rate_hz=2_000_000,
-                band="fm_broadcast",
-                output_dir=tmp_path,
-                device="hackrf",
-            )
-
-            spy_psd.assert_called_once()
-            spy_fp.assert_called_once()
-
-            # The band profile supplies the per-band measurement parameters.
-            profile = BAND_PROFILES["fm_broadcast"]
-            fp_kwargs = spy_fp.call_args.kwargs
-            assert fp_kwargs["signal_threshold_db"] == profile["signal_threshold_db"]
-            assert fp_kwargs["crop_half_width_hz"] == profile["crop_half_width_hz"]
-            assert fp_kwargs["burst_use_wide_window"] == profile.get(
-                "burst_use_wide_window", False
-            )
-            assert fp_kwargs["trace_key"] == profile.get(
-                "fingerprint_trace_key", "psd_db"
-            )
-            assert fp_kwargs["trace_key"] == "psd_db"
-
-            mock_save.assert_called_once()
-            fingerprint = mock_save.call_args.kwargs["fingerprint"]
-            expected_keys = {
-                "peak_freq_hz",
-                "peak_power_db",
-                "noise_floor_db",
-                "snr_db",
-                "bandwidth_hz",
-                "occupied_bins",
-                "spectral_flatness",
-            }
-            for key in expected_keys:
-                assert key in fingerprint, (
-                    f"Fingerprint passed to save_capture is missing {key!r}."
-                )
-
-    def test_valid_adsb_band_passes_trace_key_max_hold(
-        self, tmp_path
-    ):
-        """ADS-B profile sets fingerprint_trace_key='psd_max_hold_db' and
-        capture_and_save must forward it to fingerprint_spectrum."""
-        with patch("core.pipeline.capture.PlutoReceiver") as mock_pluto_cls, \
-             patch("core.pipeline.capture.compute_psd", wraps=compute_psd) as spy_psd, \
-             patch(
-                 "core.pipeline.capture.fingerprint_spectrum",
-                 wraps=fingerprint_spectrum,
-             ) as spy_fp, \
-             patch("core.pipeline.capture.save_capture") as mock_save:
-            mock_pluto_cls.return_value = _mock_sdr_with_samples(2048)
-
-            capture_and_save(
-                freq_hz=1_090_000_000,
-                num_samples=2048,
-                sample_rate_hz=2_000_000,
-                band="adsb",
-                output_dir=tmp_path,
-                device="plutosdr",
-                bandwidth_hz=1_800_000,
-            )
-
-            spy_psd.assert_called_once()
-            spy_fp.assert_called_once()
-
-            profile = BAND_PROFILES["adsb"]
-            fp_kwargs = spy_fp.call_args.kwargs
-            assert fp_kwargs["trace_key"] == profile["fingerprint_trace_key"]
-            assert fp_kwargs["trace_key"] == "psd_max_hold_db"
-
-            mock_save.assert_called_once()
 
 
 def _make_sequence_entry(sample_start, sample_count, **overrides):

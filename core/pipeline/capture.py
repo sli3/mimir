@@ -8,7 +8,6 @@ Legal: Receive-only. Radiocommunications Act 1992 (Cth).
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
 
 import numpy as np
 import sigmf
@@ -16,9 +15,6 @@ import sigmf
 from core.device.hackrf_rx import HackRFReceiver
 from core.device.pluto_rx import PlutoReceiver
 from core.device.profiles import DEVICE_PROFILES
-from core.pipeline.fft import compute_psd
-from core.pipeline.features import fingerprint_spectrum
-from dashboard.shared_state import BAND_PROFILES
 
 logger = logging.getLogger(__name__)
 
@@ -158,19 +154,6 @@ def capture_iq_pluto(
         raise
 
 
-# Maps device driver keys to their capture functions. Used by
-# capture_and_save() to validate the device string BEFORE any hardware
-# call: an unknown key raises ValueError immediately. Keys must match
-# DEVICE_PROFILES exactly ("hackrf" / "plutosdr" - never "pluto").
-# The dict is validation only; the actual dispatch is an explicit
-# if/elif because capture_iq and capture_iq_pluto take different kwargs
-# (split LNA/VGA gain model vs combined gain plus RF bandwidth).
-_CAPTURE_DISPATCH: dict[str, Callable] = {
-    "hackrf": capture_iq,
-    "plutosdr": capture_iq_pluto,
-}
-
-
 def save_capture(
     samples: np.ndarray,
     freq_hz: float,
@@ -235,10 +218,8 @@ def save_capture(
 
     Raises:
         KeyError: If device is not a DEVICE_PROFILES driver key. This is
-                  deliberate fail-fast behaviour; capture_and_save()
-                  validates the key with a clearer ValueError before any
-                  hardware call, so direct callers of save_capture()
-                  get the KeyError with the bad device key.
+                  deliberate fail-fast behaviour: the KeyError contains
+                  the invalid device key.
 
     Files written:
         {output_dir}/capture_{int(freq_hz)}hz_{YYYYMMDD_HHMMSS}.sigmf-data
@@ -469,152 +450,3 @@ def save_recording(
     meta_path = Path(str(base_path) + ".sigmf-meta")
     logger.info("Saved SigMF recording to %s", meta_path)
     return meta_path
-
-
-def capture_and_save(
-    freq_hz: float,
-    num_samples: int,
-    sample_rate_hz: float,
-    band: str,
-    output_dir: Path = Path("data/captures"),
-    device: str = "hackrf",
-    bandwidth_hz: float | None = None,
-) -> Path:
-    """
-    Capture IQ samples and save them as a SigMF recording in one call.
-
-    Supports both the HackRF One (device="hackrf") and the ADALM-PLUTO
-    (device="plutosdr"). Both the band string and the device string are
-    validated BEFORE any hardware call - an unrecognised band raises
-    ValueError against BAND_PROFILES and an unknown device raises
-    ValueError against _CAPTURE_DISPATCH, so a typo can never open the
-    wrong device or silently fall through. The band is never guessed
-    from freq_hz; the caller must state it explicitly.
-
-    The whole call chain is RECEIVE-ONLY. Both device wrappers guard
-    every transmit-capable entry point at the wrapper level, and this
-    function only ever drives the RX path (open, read_samples, close).
-
-    After the samples come back, a spectral fingerprint is measured
-    from them (compute_psd then fingerprint_spectrum, parameterised by
-    the band's BAND_PROFILES entry) and recorded in the SigMF metadata
-    as the nested "mimir:fingerprint" global field. This is a
-    measurement only: the samples written to .sigmf-data are unchanged
-    and unfiltered, and no software DSP, cropping, or decimation is
-    applied to them.
-
-    Gain handling per device:
-      - HackRF uses its split gain model with the wrapper defaults
-        (LNA 24 dB, VGA 26 dB), calibrated for the telescopic whip SMA
-        antenna and confirmed safe on live Adelaide FM signals.
-      - Pluto uses its single combined gain stage at
-        PlutoReceiver.DEFAULT_GAIN_DB (30.0 dB). That figure is
-        PROVISIONAL - chosen from spur observation, NOT from a
-        calibration session. See the pluto_rx.py module docstring and
-        the PLUTO_BAND_PROFILES comments in dashboard/shared_state.py.
-
-    bandwidth_hz handling per device:
-      - Pluto: passed through to capture_iq_pluto, where PlutoReceiver
-        applies it to the analogue RF filter.
-      - HackRF: the HackRF has no settable RF bandwidth, so the value
-        is NOT passed to capture_iq. A warning is logged, but the value
-        is still recorded in the SigMF metadata (core:bandwidth) because
-        it records the operator's intent.
-
-    Args:
-        freq_hz: Centre frequency to tune to in Hz.
-        num_samples: Number of IQ samples to capture.
-        sample_rate_hz: Samples per second.
-        band: BAND_PROFILES key (e.g. "fm_broadcast", "adsb"). Required.
-              Selects the per-band signal_threshold_db,
-              fingerprint_trace_key, crop_half_width_hz, and
-              burst_use_wide_window used for the fingerprint
-              measurement. Any key not defined by the band's
-              profile falls back to fingerprint_spectrum()'s own default.
-        output_dir: Directory to save the files in. Defaults to
-                    Path("data/captures").
-        device: DEVICE_PROFILES driver key - "hackrf" or "plutosdr".
-                Defaults to "hackrf".
-        bandwidth_hz: RF filter bandwidth in Hz. Applied only on Pluto;
-                      logged-and-ignored (but still recorded in metadata)
-                      on HackRF. Defaults to None.
-
-    Returns:
-        Path to the saved .sigmf-meta file (the canonical SigMF handle;
-        the sibling .sigmf-data file holds the raw samples).
-
-    Raises:
-        ValueError: If band is not a key of BAND_PROFILES, or device is
-                    not a key of _CAPTURE_DISPATCH. Both are raised
-                    BEFORE any hardware call.
-    """
-    if band not in BAND_PROFILES:
-        raise ValueError(
-            f"Unknown band {band!r} - valid bands: "
-            f"{', '.join(sorted(BAND_PROFILES.keys()))}"
-        )
-
-    capture_fn = _CAPTURE_DISPATCH.get(device)
-    if capture_fn is None:
-        raise ValueError(
-            f"Unknown device {device!r} — valid devices: "
-            f"{', '.join(sorted(_CAPTURE_DISPATCH.keys()))}"
-        )
-
-    if device == "hackrf":
-        if bandwidth_hz is not None:
-            logger.warning(
-                "bandwidth_hz ignored (HackRF has no settable RF filter): "
-                "%s Hz requested; metadata will still record the value",
-                bandwidth_hz,
-            )
-        samples = capture_iq(
-            freq_hz=freq_hz,
-            num_samples=num_samples,
-            sample_rate_hz=sample_rate_hz,
-            lna_gain_db=HackRFReceiver.DEFAULT_LNA_GAIN_DB,
-            vga_gain_db=HackRFReceiver.DEFAULT_VGA_GAIN_DB,
-        )
-    elif device == "plutosdr":
-        # PlutoReceiver.DEFAULT_GAIN_DB (30.0) is provisional - chosen
-        # from spur observation, NOT from a calibration session.
-        # See the pluto_rx.py module docstring and the PLUTO_BAND_PROFILES
-        # comments in dashboard/shared_state.py.
-        samples = capture_iq_pluto(
-            freq_hz=freq_hz,
-            num_samples=num_samples,
-            sample_rate_hz=sample_rate_hz,
-            gain_db=PlutoReceiver.DEFAULT_GAIN_DB,
-            bandwidth_hz=bandwidth_hz,
-        )
-    else:
-        # Unreachable - _CAPTURE_DISPATCH validation above would have
-        # raised already. Defensive only.
-        raise ValueError(f"Unknown device {device!r}")  # pragma: no cover
-
-    # Measure the spectral fingerprint from the captured samples. The
-    # band profile supplies the per-band measurement parameters; any key
-    # a profile does not define falls back to fingerprint_spectrum()'s
-    # own default via .get() (signal_threshold_db=None, trace_key='psd_db',
-    # crop_half_width_hz=None, burst_use_wide_window=False). This is a
-    # measurement recorded as metadata - the samples passed to
-    # save_capture below are the raw captures, unmodified.
-    profile = BAND_PROFILES[band]
-    psd_result = compute_psd(samples, sample_rate_hz, freq_hz)
-    fingerprint = fingerprint_spectrum(
-        psd_result,
-        signal_threshold_db=profile.get("signal_threshold_db"),
-        trace_key=profile.get("fingerprint_trace_key", "psd_db"),
-        crop_half_width_hz=profile.get("crop_half_width_hz"),
-        burst_use_wide_window=profile.get("burst_use_wide_window", False),
-    )
-
-    return save_capture(
-        samples,
-        freq_hz=freq_hz,
-        sample_rate_hz=sample_rate_hz,
-        device=device,
-        output_dir=output_dir,
-        bandwidth_hz=bandwidth_hz,
-        fingerprint=fingerprint,
-    )
