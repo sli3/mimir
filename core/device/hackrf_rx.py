@@ -38,6 +38,18 @@ a generic SDR language and SoapySDR handles the translation.
 This also means if you ever use a different SDR (e.g. an RTL-SDR dongle),
 only the driver= argument changes — the rest of your pipeline code stays
 the same.
+
+RECEIVE DIRECTION — WHY IT IS NOT HARDCODED
+───────────────────────────────────────────
+SoapySDR represents the receive direction with SOAPY_SDR_RX. Direction
+arguments select receive or transmit on this TX-capable library and
+hardware, so using the wrong value would violate our receive-only rule.
+
+open() checks the installed SOAPY_SDR_RX against the expected receive
+value before enumerating or opening any device. A mismatch raises
+RuntimeError. After the check passes, open() captures SOAPY_SDR_RX in
+self._rx, which every direction-taking hardware call uses. The expected
+value is only a consistency check, never the hardware argument.
 """
 
 from __future__ import annotations
@@ -82,10 +94,8 @@ class HackRFReceiver(DeviceBase):
         - Antenna attached to the SMA port before powering on
     """
 
-    # SoapySDR direction constants — we store these as class attributes
-    # so the values are visible in tests without importing SoapySDR directly.
-    # SOAPY_SDR_RX = 1  (receive direction)
-    # SOAPY_SDR_TX = 0  (transmit direction — BLOCKED, never used)
+    # Expected receive value, checked against SoapySDR at open().
+    # Hardware calls use self._rx, captured from the validated SOAPY_SDR_RX.
     _SOAPY_RX_DIRECTION: int = 1
     _SOAPY_TX_DIRECTION: int = 0  # documented here, never passed to hardware
 
@@ -113,7 +123,8 @@ class HackRFReceiver(DeviceBase):
         Initialise the HackRF receiver configuration.
 
         This does NOT open the hardware yet. Call open() or use the
-        object as a context manager (with statement).
+        object as a context manager (with statement). The receive direction
+        stays unset until open() validates the installed SoapySDR constant.
 
         Args:
             center_freq_hz : Frequency to tune to in Hz. Default: 98 MHz.
@@ -152,6 +163,7 @@ class HackRFReceiver(DeviceBase):
 
         self._device = None    # SoapySDR device object — set in open()
         self._stream = None    # RX stream — set in open()
+        self._rx: int | None = None
         self._is_open = False
 
     # ── Lifecycle ──────────────────────────────────────────────────────
@@ -159,6 +171,10 @@ class HackRFReceiver(DeviceBase):
     def open(self) -> None:
         """
         Open the HackRF hardware and configure the receiver.
+
+        Validate SOAPY_SDR_RX against the expected receive value before
+        device enumeration or construction, then capture it in self._rx
+        for every direction-taking hardware call.
 
         Settle-before-activate ordering:
         ────────────────────────────────
@@ -171,7 +187,9 @@ class HackRFReceiver(DeviceBase):
         used in set_center_frequency() for mid-run retunes.
 
         Raises:
-            RuntimeError: If no HackRF is found or hardware fails to open.
+            RuntimeError: If SoapySDR is unavailable, its receive constant
+                differs from the expected value, no HackRF is found, or
+                hardware fails to open.
         """
         try:
             import SoapySDR
@@ -181,6 +199,15 @@ class HackRFReceiver(DeviceBase):
                 "SoapySDR Python bindings not found. "
                 "Install with: sudo dnf install python3-SoapySDR"
             ) from e
+
+        if SOAPY_SDR_RX != self._SOAPY_RX_DIRECTION:
+            raise RuntimeError(
+                "The installed SoapySDR receive constant "
+                f"({SOAPY_SDR_RX}) does not match the expected receive "
+                f"value ({self._SOAPY_RX_DIRECTION}); "
+                "the device will not be opened."
+            )
+        self._rx = SOAPY_SDR_RX
 
         # Build the device arguments string
         # driver=hackrf tells SoapySDR to use the HackRF plugin
@@ -203,19 +230,19 @@ class HackRFReceiver(DeviceBase):
 
         # ── Configure receive channel 0 ────────────────────────────────
         # Channel 0 is the only receive channel on the HackRF One.
-        # We always use _SOAPY_RX_DIRECTION (1), never TX direction (0).
+        # Use the receive constant captured from SoapySDR after validation.
 
-        self._device.setSampleRate(self._SOAPY_RX_DIRECTION, 0, self._sample_rate_hz)
-        self._device.setFrequency(self._SOAPY_RX_DIRECTION, 0, self._center_freq_hz)
-        self._device.setGain(self._SOAPY_RX_DIRECTION, 0, "LNA", self._lna_gain_db)
-        self._device.setGain(self._SOAPY_RX_DIRECTION, 0, "VGA", self._vga_gain_db)
-        self._device.setGain(self._SOAPY_RX_DIRECTION, 0, "AMP",
+        self._device.setSampleRate(self._rx, 0, self._sample_rate_hz)
+        self._device.setFrequency(self._rx, 0, self._center_freq_hz)
+        self._device.setGain(self._rx, 0, "LNA", self._lna_gain_db)
+        self._device.setGain(self._rx, 0, "VGA", self._vga_gain_db)
+        self._device.setGain(self._rx, 0, "AMP",
                              11.0 if self._amp_enable else 0.0)
 
         # Set up the receive stream
         # SOAPY_SDR_CF32 = complex float32 = what we want (IQ samples as
         # complex numbers, each component a 32-bit float)
-        self._stream = self._device.setupStream(self._SOAPY_RX_DIRECTION, SOAPY_SDR_CF32)
+        self._stream = self._device.setupStream(self._rx, SOAPY_SDR_CF32)
         # Settle BEFORE activating the stream, so the PLL settling transient
         # is never captured into the ring buffer (see open() docstring).
         time.sleep(self._retune_settle_sec)
@@ -230,7 +257,7 @@ class HackRFReceiver(DeviceBase):
         )
 
     def close(self) -> None:
-        """Release the HackRF hardware and free all resources."""
+        """Release the HackRF hardware, free resources and reset _rx to None."""
         if self._is_open and self._device is not None:
             if self._stream is not None:
                 self._device.deactivateStream(self._stream)
@@ -239,6 +266,7 @@ class HackRFReceiver(DeviceBase):
             self._device = None
             self._is_open = False
             logger.info("HackRF One closed.")
+        self._rx = None
 
     def __enter__(self) -> "HackRFReceiver":
         self.open()
@@ -256,6 +284,8 @@ class HackRFReceiver(DeviceBase):
     def set_center_frequency(self, freq_hz: float) -> None:
         """
         Tune the receiver to a new centre frequency.
+
+        Use the validated receive direction captured by open().
 
         Settle-before-activate ordering:
         ────────────────────────────────
@@ -279,7 +309,7 @@ class HackRFReceiver(DeviceBase):
         if self._is_open:
             if self._stream is not None:
                 self._device.deactivateStream(self._stream)
-            self._device.setFrequency(self._SOAPY_RX_DIRECTION, 0, freq_hz)
+            self._device.setFrequency(self._rx, 0, freq_hz)
             if self._stream is not None:
                 time.sleep(self._retune_settle_sec)
                 self._device.activateStream(self._stream)
@@ -289,30 +319,36 @@ class HackRFReceiver(DeviceBase):
         """
         Set the sample rate (how many IQ samples per second).
 
+        Use the validated receive direction captured by open().
+
         Args:
             rate_hz: Samples per second. HackRF supports up to 20 MHz.
                      Common values: 2_000_000, 8_000_000, 10_000_000.
         """
         self._sample_rate_hz = rate_hz
         if self._is_open:
-            self._device.setSampleRate(self._SOAPY_RX_DIRECTION, 0, rate_hz)
+            self._device.setSampleRate(self._rx, 0, rate_hz)
             logger.debug(f"Sample rate set to {rate_hz/1e6:.1f} MHz")
 
     def set_gain(self, gain_db: float) -> None:
         """
         Set combined VGA gain. For fine control use set_lna_gain / set_vga_gain.
 
+        Use the validated receive direction captured by open().
+
         Args:
             gain_db: Gain in dB, applied to the VGA stage (0–62 dB).
         """
         self._vga_gain_db = gain_db
         if self._is_open:
-            self._device.setGain(self._SOAPY_RX_DIRECTION, 0, "VGA", gain_db)
+            self._device.setGain(self._rx, 0, "VGA", gain_db)
             logger.debug(f"VGA gain set to {gain_db} dB")
 
     def set_lna_gain(self, gain_db: float) -> None:
         """
         Set LNA (Low Noise Amplifier) gain separately.
+
+        Use the validated receive direction captured by open().
 
         The LNA is the first amplifier in the receive chain. It boosts
         the incoming signal before any other processing, so it has the
@@ -323,7 +359,7 @@ class HackRFReceiver(DeviceBase):
         """
         self._lna_gain_db = gain_db
         if self._is_open:
-            self._device.setGain(self._SOAPY_RX_DIRECTION, 0, "LNA", gain_db)
+            self._device.setGain(self._rx, 0, "LNA", gain_db)
             logger.debug(f"LNA gain set to {gain_db} dB")
 
     def read_samples(self, num_samples: int) -> np.ndarray:

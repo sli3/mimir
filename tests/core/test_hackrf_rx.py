@@ -8,7 +8,7 @@ All tests use mocks — no hardware required.
 
 import os
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import numpy as np
 import pytest
@@ -79,6 +79,130 @@ class TestHackRFReceiver:
         receiver._device.readStream.assert_called_once()
         receiver._device.deactivateStream.assert_not_called()
         receiver._device.activateStream.assert_not_called()
+
+
+class TestHackRFReceiveDirection:
+    """Validate and retain SoapySDR's receive direction using mocks only."""
+
+    def test_open_uses_validated_receive_direction(self) -> None:
+        """Every direction-taking open call uses the validated RX constant."""
+        mock_soapy = MagicMock()
+        mock_soapy.SOAPY_SDR_RX = 1
+        mock_soapy.SOAPY_SDR_CF32 = "CF32"
+        mock_device = mock_soapy.Device.return_value
+        mock_soapy.Device.enumerate.return_value = [
+            FakeSoapySDRKwargs({"driver": "hackrf", "serial": "0000"})
+        ]
+        sys.modules["SoapySDR"] = mock_soapy
+        try:
+            receiver = HackRFReceiver(retune_settle_sec=0.0)
+            receiver.open()
+
+            assert receiver._rx == mock_soapy.SOAPY_SDR_RX
+            assert receiver.is_open
+            mock_device.setSampleRate.assert_called_once_with(
+                mock_soapy.SOAPY_SDR_RX, 0, receiver.sample_rate_hz,
+            )
+            mock_device.setFrequency.assert_called_once_with(
+                mock_soapy.SOAPY_SDR_RX, 0, receiver.center_freq_hz,
+            )
+            assert mock_device.setGain.call_args_list == [
+                call(mock_soapy.SOAPY_SDR_RX, 0, "LNA", receiver._lna_gain_db),
+                call(mock_soapy.SOAPY_SDR_RX, 0, "VGA", receiver._vga_gain_db),
+                call(mock_soapy.SOAPY_SDR_RX, 0, "AMP", 0.0),
+            ]
+            mock_device.setupStream.assert_called_once_with(
+                mock_soapy.SOAPY_SDR_RX, mock_soapy.SOAPY_SDR_CF32,
+            )
+        finally:
+            del sys.modules["SoapySDR"]
+
+    @pytest.mark.parametrize("rx_direction", [0, 7])
+    def test_open_rejects_unexpected_receive_direction(
+        self, rx_direction: int,
+    ) -> None:
+        """A mismatched constant fails before device discovery or creation."""
+        mock_soapy = MagicMock()
+        mock_soapy.SOAPY_SDR_RX = rx_direction
+        mock_soapy.SOAPY_SDR_CF32 = "CF32"
+        mock_device = mock_soapy.Device.return_value
+        sys.modules["SoapySDR"] = mock_soapy
+        try:
+            receiver = HackRFReceiver(retune_settle_sec=0.0)
+            with pytest.raises(
+                RuntimeError,
+                match="receive constant .* does not match the expected receive",
+            ) as exc_info:
+                receiver.open()
+
+            assert "the device will not be opened" in str(exc_info.value)
+            mock_soapy.Device.enumerate.assert_not_called()
+            mock_soapy.Device.assert_not_called()
+            mock_device.setupStream.assert_not_called()
+            mock_device.setSampleRate.assert_not_called()
+            mock_device.setFrequency.assert_not_called()
+            mock_device.setGain.assert_not_called()
+            assert receiver._rx is None
+            assert not receiver.is_open
+        finally:
+            del sys.modules["SoapySDR"]
+
+    @pytest.mark.parametrize(
+        ("setter", "value", "device_method", "expected_args"),
+        [
+            ("set_center_frequency", 98_000_000.0, "setFrequency",
+             (0, 98_000_000.0)),
+            ("set_sample_rate", 2_000_000.0, "setSampleRate",
+             (0, 2_000_000.0)),
+            ("set_gain", 26.0, "setGain", (0, "VGA", 26.0)),
+            ("set_lna_gain", 24.0, "setGain", (0, "LNA", 24.0)),
+        ],
+    )
+    def test_setters_use_stored_receive_direction(
+        self,
+        setter: str,
+        value: float,
+        device_method: str,
+        expected_args: tuple[int | float | str, ...],
+    ) -> None:
+        """Each setter forwards _rx rather than the expected class constant."""
+        receiver = HackRFReceiver(retune_settle_sec=0.0)
+        receiver._is_open = True
+        receiver._device = MagicMock()
+        # A distinct integer proves forwarding to the mock, without hardware.
+        receiver._rx = 7
+
+        getattr(receiver, setter)(value)
+
+        getattr(receiver._device, device_method).assert_called_once_with(
+            receiver._rx, *expected_args,
+        )
+
+    def test_close_resets_receive_direction(self) -> None:
+        """Closing an opened mock device clears its captured RX direction."""
+        mock_soapy = MagicMock()
+        mock_soapy.SOAPY_SDR_RX = 1
+        mock_soapy.SOAPY_SDR_CF32 = "CF32"
+        mock_device = mock_soapy.Device.return_value
+        mock_soapy.Device.enumerate.return_value = [
+            FakeSoapySDRKwargs({"driver": "hackrf", "serial": "0000"})
+        ]
+        sys.modules["SoapySDR"] = mock_soapy
+        try:
+            receiver = HackRFReceiver(retune_settle_sec=0.0)
+            receiver.open()
+            assert receiver._rx == mock_soapy.SOAPY_SDR_RX
+            assert receiver.is_open
+            stream = receiver._stream
+
+            receiver.close()
+
+            mock_device.deactivateStream.assert_called_once_with(stream)
+            mock_device.closeStream.assert_called_once_with(stream)
+            assert receiver._rx is None
+            assert not receiver.is_open
+        finally:
+            del sys.modules["SoapySDR"]
 
 
 class TestHackRFRetuneSettle:
