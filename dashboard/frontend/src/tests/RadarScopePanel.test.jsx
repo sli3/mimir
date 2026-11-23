@@ -708,7 +708,9 @@ describe('RadarScopePanel', () => {
       // No NaN/Infinity may leak into the serialised SVG markup.
       expect(container.innerHTML).not.toContain('NaN')
       expect(container.innerHTML).not.toContain('Infinity')
-      expect(container.querySelectorAll('[data-testid="radar-prediction-ghost-dot"]').length).toBe(0) // TD-59-3: non-finite vector suppresses ghost dots too
+      // TD-59-3: the non-finite vector collapses v to null, so proj is null
+      // and RadarScopePanel's `if (!proj) return box` skips the ghost-dot code.
+      expect(container.querySelectorAll('[data-testid="radar-prediction-ghost-dot"]').length).toBe(0)
     })
   })
 

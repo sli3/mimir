@@ -198,8 +198,10 @@ def save_capture(
                 Defaults to "hackrf".
         output_dir: Directory to save the files in. Created if it does
                     not exist. Defaults to Path("data/captures").
-        bandwidth_hz: RF filter bandwidth in Hz, if the capture device
-                      applied one. Recorded as core:bandwidth in the
+        bandwidth_hz: RF filter bandwidth the caller declared, in Hz,
+                      recorded as given whether or not the capture device
+                      applied it (HackRF has no settable RF filter).
+                      Recorded as core:bandwidth in the
                       capture record at sample index 0. If None the key
                       is omitted entirely. Metadata only - no samples
                       are filtered, cropped, or resampled here.

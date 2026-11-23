@@ -11,9 +11,12 @@ describe('PREDICTION_HORIZON_SEC', () => {
     expect(PREDICTION_HORIZON_SEC).toBe(45)
   })
 
-  // Phase 59 (TD-59-1): the 45s ghost-dot in RadarScopePanel.jsx reuses `there`
-  // (projected at PREDICTION_HORIZON_SEC) with data-horizon="45"; keep in lockstep.
-  it('stays at 45 to match the data-horizon="45" ghost-dot in RadarScopePanel', () => {
+  // Phase 59 (TD-59-1): RadarScopePanel.jsx projects the selected aircraft
+  // PREDICTION_HORIZON_SEC (45 s) ahead (projectPosition -> proj -> there).
+  // This supplies only the direction of its fixed-length dashed line and
+  // ghost dots. Neither is drawn at the 45 s position, and no DOM attribute
+  // carries the horizon value.
+  it('stays at 45, the horizon RadarScopePanel projects the selected aircraft to', () => {
     expect(PREDICTION_HORIZON_SEC).toBe(45)
   })
 })

@@ -16,8 +16,9 @@ const MAX_RANGE_NM = 40
  *
  * Hosts the existing RadarScopePanel on its own full-viewport page,
  * mirroring how /vectordb hosts VectorSpacePage. The Flask backend
- * serves index.html at /radar; main.jsx inspects window.location.pathname
- * and mounts this page instead of the main dashboard App.
+ * serves index.html at /radar; main.jsx passes window.location.pathname
+ * to AppRouter.jsx, which mounts this page for /radar instead of the main
+ * dashboard App.
  *
  * Header: this page owns the page-level header (title, contact count,
  * range readout) exclusively — RadarScopePanel no longer renders its own
