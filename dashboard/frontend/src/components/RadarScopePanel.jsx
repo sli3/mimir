@@ -456,8 +456,11 @@ export default function RadarScopePanel({
                     // visual cue only, normalised to a constant on-screen length so
                     // the direction reads at a glance regardless of the true rate's
                     // magnitude. The dashed line shares the same start/end points as the
-                    // dots (both end at dot3), so only the vector box shows the true
-                    // 45s clamped position (`there`).
+                    // dots (both end at dot3). The true 45 s clamped position (`there`)
+                    // sets only the indicator's direction and is the line's end point
+                    // only in the degenerate case described below; nothing draws a
+                    // marker at it. The vector box shows the callsign or ICAO plus
+                    // θ (bearing rate, °/s) and Δr (range rate, nm/s), not a position.
                     //
                     // Multiplier 0.22 (increased from the original 0.15 spec
                     // default): live-verified 2026-08-08 against real
