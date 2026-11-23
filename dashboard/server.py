@@ -161,9 +161,8 @@ def _get_path_reasoner() -> PathReasoner:
 
     Configured from load_config() on first use (LLM URL plus the Phase 53
     llm_reason_timeout_sec / llm_reason_cooldown_sec keys). If the config
-    file cannot be loaded, falls back to PathReasoner's own defaults so
-    the endpoint still serves a well-formed "unavailable" answer instead
-    of failing at import or startup time.
+    file cannot be loaded, falls back to an unconfigured PathReasoner that
+    always serves a well-formed "unavailable" answer.
 
     Returns:
         PathReasoner: The singleton reasoner instance.
@@ -183,7 +182,8 @@ def _get_path_reasoner() -> PathReasoner:
                 except Exception as exc:
                     logger.warning(
                         "Config load failed for PathReasoner (%s) — "
-                        "using constructor defaults", exc,
+                        "using an unconfigured reasoner that always returns "
+                        "unavailable", exc,
                     )
                     _path_reasoner = PathReasoner()
     return _path_reasoner

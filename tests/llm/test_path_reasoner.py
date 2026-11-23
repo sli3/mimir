@@ -354,12 +354,29 @@ class TestPromptContent:
 
 
 class TestConstructor:
-    def test_no_args_uses_documented_defaults(self):
+    def test_no_args_uses_documented_defaults(self) -> None:
+        """No-argument construction leaves the endpoint unconfigured."""
         reasoner = PathReasoner()
 
+        assert reasoner._base_url == ""
         assert reasoner._cooldown_sec == 60.0
         assert reasoner._timeout_sec == 45.0
         assert reasoner._connect_timeout_sec == 5.0
+        assert reasoner._offline_until == 0.0
+
+    @patch("llm.path_reasoner.requests.post")
+    def test_empty_url_returns_unavailable(self, mock_post: MagicMock) -> None:
+        """An absent endpoint returns a network fallback without cooldown."""
+        reasoner = PathReasoner(base_url="")
+
+        result = reasoner.reason(_make_facts())
+
+        mock_post.assert_not_called()
+        assert isinstance(result, ReasoningResult)
+        assert result.status == "unavailable"
+        assert result.verdict == "unavailable"
+        assert result.cause == "network"
+        assert "No LLM endpoint is configured" in result.notes
         assert reasoner._offline_until == 0.0
 
     def test_result_is_a_reasoning_result_on_every_path(self, reasoner):

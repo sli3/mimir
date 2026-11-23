@@ -29,10 +29,12 @@ import dataclasses
 import hashlib
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Any
 
+from core.config.loader import ConfigError, load_config
 from core.pipeline.fingerprint import fingerprint_samples
 from core.pipeline.replay import (
     MAX_ONE_SHOT_SAMPLES,
@@ -343,7 +345,7 @@ def _parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """CLI entry point for generate_demo_cache."""
+    """Generate a cache using configured LLM settings, or validate a dry run."""
     args = _parse_args()
 
     if not args.dry_run and args.cache is None:
@@ -365,10 +367,21 @@ def main() -> None:
     if args.dry_run:
         sys.exit(_run_dry_run(args.files))
 
-    # Real run: initialise the LLM pipeline dependencies.
+    # Real runs require config; dry runs only validate the capture files.
+    try:
+        config = load_config()
+    except ConfigError as exc:
+        print(_colour(f"ERROR: {exc}", ANSI_RED))
+        sys.exit(1)
+
+    # Initialise the LLM pipeline with config and the endpoint override.
     embedder = SpectrumEmbedder()
     store = SignalStore(path="data/vectorstore")
-    classifier = SignalClassifier()
+    classifier = SignalClassifier(
+        base_url=os.environ.get("MIMIR_LLM_URL", config.llm_url),
+        cooldown_sec=config.llm_cooldown_sec,
+        connect_timeout_sec=config.llm_connect_timeout_sec,
+    )
     acma = AcmaReference()
 
     sys.exit(

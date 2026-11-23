@@ -11,11 +11,13 @@ so no network calls are made.
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
 
+from core.config.loader import ConfigError
 from core.pipeline.capture import save_capture, save_recording
 from core.pipeline.fft import compute_psd
 from core.pipeline.features import fingerprint_spectrum
@@ -27,6 +29,78 @@ from tools.generate_demo_cache import _parse_args, main
 
 _FREQ_HZ = 98_000_000
 _SAMPLE_RATE_HZ = 2_000_000
+
+
+@pytest.fixture(autouse=True)
+def mock_config(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    """Keep every CLI test independent of the real configuration file."""
+    loader = MagicMock(return_value=SimpleNamespace(
+        llm_url="configured-endpoint",
+        llm_cooldown_sec=17.0,
+        llm_connect_timeout_sec=3.0,
+    ))
+    monkeypatch.setattr("tools.generate_demo_cache.load_config", loader)
+    monkeypatch.delenv("MIMIR_LLM_URL", raising=False)
+    return loader
+
+
+@pytest.mark.parametrize("override", [None, "environment-endpoint"])
+def test_classifier_uses_configured_settings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mock_config: MagicMock,
+    override: str | None,
+) -> None:
+    """Use config timeouts and the configured URL or environment override."""
+    meta_path = tmp_path / "input.sigmf-meta"
+    meta_path.touch()
+    classifier = MagicMock()
+    monkeypatch.setattr("tools.generate_demo_cache.SignalClassifier", classifier)
+    monkeypatch.setattr("tools.generate_demo_cache.SpectrumEmbedder", MagicMock())
+    monkeypatch.setattr("tools.generate_demo_cache.AcmaReference", MagicMock())
+    monkeypatch.setattr(
+        "tools.generate_demo_cache._build_cache", MagicMock(return_value=0)
+    )
+    monkeypatch.delenv("MIMIR_LLM_URL", raising=False)
+    if override is not None:
+        monkeypatch.setenv("MIMIR_LLM_URL", override)
+
+    exit_code = _run_main(monkeypatch, [
+        "--files", str(meta_path), "--cache", str(tmp_path / "cache.json"),
+    ])
+
+    assert exit_code == 0
+    mock_config.assert_called_once_with()
+    config = mock_config.return_value
+    classifier.assert_called_once_with(
+        base_url=config.llm_url if override is None else override,
+        cooldown_sec=config.llm_cooldown_sec,
+        connect_timeout_sec=config.llm_connect_timeout_sec,
+    )
+
+
+def test_config_error_exits_cleanly(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    mock_config: MagicMock,
+) -> None:
+    """Configuration errors print a clear message and exit without traceback."""
+    meta_path = tmp_path / "input.sigmf-meta"
+    meta_path.touch()
+    mock_config.side_effect = ConfigError("invalid scanner settings")
+    classifier = MagicMock()
+    monkeypatch.setattr("tools.generate_demo_cache.SignalClassifier", classifier)
+
+    exit_code = _run_main(monkeypatch, [
+        "--files", str(meta_path), "--cache", str(tmp_path / "cache.json"),
+    ])
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "ERROR: invalid scanner settings" in captured.out
+    assert "Traceback" not in captured.out + captured.err
+    classifier.assert_not_called()
 
 
 def _make_samples(num_samples: int = 16_384, seed: int = 42) -> np.ndarray:

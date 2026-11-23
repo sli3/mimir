@@ -128,7 +128,7 @@ class PathReasoner:
 
     Usage:
         reasoner = PathReasoner(
-            base_url="http://192.168.0.66:8080/v1",
+            base_url="http://localhost:8080/v1",
             model="Qwen3-4B-Mimir",
         )
         result = reasoner.reason(physics_facts)
@@ -153,7 +153,7 @@ class PathReasoner:
 
     def __init__(
         self,
-        base_url: str = "http://192.168.0.66:8080/v1",
+        base_url: str = "",
         model: str = "Qwen3-4B-Mimir",
         temperature: float = 0.1,
         cooldown_sec: float = 60.0,
@@ -165,7 +165,9 @@ class PathReasoner:
 
         Args:
             base_url    : Base URL of the local LLM server (OpenAI-compatible).
-                          Default: Qwen3-4B-Mimir via llama.cpp on yubaba.
+                          Callers pass llm_url from config/mimir.yaml, or
+                          MIMIR_LLM_URL in scan.py. An empty value means no
+                          endpoint is configured.
             model       : Model name to pass to the API.
             temperature : LLM temperature. Kept low (0.1) like the classifier —
                           narration should be consistent, not creative.
@@ -206,6 +208,8 @@ class PathReasoner:
 
         Returns:
             ReasoningResult — always. Never raises.
+            An empty URL returns an unavailable fallback with cause="network"
+            without a network call or a change to the cooldown.
             On server error or malformed response, returns a fallback
             result with verdict="unavailable" and confidence="low".
 
@@ -218,6 +222,14 @@ class PathReasoner:
             against prompt injection — bypassing it would let attacker-controlled
             text reach the LLM prompt. Do not call reason() with untrusted input.
         """
+        # An unconfigured endpoint returns unavailable without a cooldown.
+        if not self._base_url:
+            return self._fallback_result(
+                "No LLM endpoint is configured. Set llm_url in "
+                "config/mimir.yaml or MIMIR_LLM_URL.",
+                cause="network",
+            )
+
         # Fast-fail during cooldown — no network call if server known-offline
         if time.time() < self._offline_until:
             return self._fallback_result(

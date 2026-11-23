@@ -226,7 +226,7 @@ class SignalClassifier:
 
     Usage:
         classifier = SignalClassifier(
-            base_url="http://192.168.0.66:8080/v1",
+            base_url="http://localhost:8080/v1",
             model="Qwen3-4B-Mimir",
         )
         result = classifier.classify(fingerprint, neighbours)
@@ -244,7 +244,7 @@ class SignalClassifier:
 
     def __init__(
         self,
-        base_url: str = "http://192.168.0.66:8080/v1",
+        base_url: str = "",
         model: str = "Qwen3-4B-Mimir",
         temperature: float = 0.1,
         cooldown_sec: float = 60.0,
@@ -255,7 +255,9 @@ class SignalClassifier:
 
         Args:
             base_url    : Base URL of the local LLM server (OpenAI-compatible).
-                          Default: Qwen3-4B-Mimir via llama.cpp on yubaba.
+                          Callers pass llm_url from config/mimir.yaml, or
+                          MIMIR_LLM_URL in scan.py. An empty value means no
+                          endpoint is configured.
             model       : Model name to pass to the API.
             temperature : LLM temperature. Keep low (0.1) for classification —
                           you want consistent, deterministic results, not creativity.
@@ -275,6 +277,8 @@ class SignalClassifier:
         """Probe the LLM server at startup and set cooldown if unreachable.
 
         Never raises. Returns True if the server is reachable, False otherwise.
+        An empty URL logs one warning and returns False without a network call
+        or a change to the cooldown.
         An HTTP error (e.g. 404 from /models) is treated as reachable because
         not every build exposes that endpoint.
 
@@ -283,6 +287,13 @@ class SignalClassifier:
         and will return offline results for any classification requests until
         the cooldown expires.
         """
+        if not self._base_url:
+            logger.warning(
+                "No LLM endpoint is configured. Set scanner.llm_url in "
+                "config/mimir.yaml or MIMIR_LLM_URL."
+            )
+            return False
+
         try:
             response = requests.get(
                 f"{self._base_url}/models",
@@ -341,9 +352,15 @@ class SignalClassifier:
 
         Returns:
             ClassificationResult — always. Never raises on LLM failure.
+            An empty URL returns an offline result without a network call,
+            logging or a change to the cooldown.
             On server error or malformed response, returns a fallback
             result with signal_type="unavailable" and confidence="low".
         """
+        # An unconfigured endpoint returns offline without starting a cooldown.
+        if not self._base_url:
+            return self._offline_result()
+
         # Fast-fail during cooldown — no network call if server known-offline
         if time.time() < self._offline_until:
             return self._offline_result()
@@ -414,27 +431,31 @@ class SignalClassifier:
             return self._fallback_result(f"Classification unavailable — {err}")
 
     def _offline_result(self) -> ClassificationResult:
-        """Return a ClassificationResult indicating the LLM server is offline.
+        """Return an offline result for an absent or unreachable LLM endpoint.
 
-        Used when the LLM server is unreachable (ConnectionError) or when the
-        classifier is in cooldown after a recent connection failure. This
-        provides a graceful fallback that allows the pipeline to continue
-        operating without crashing.
-
-        The result includes a human-readable reasoning message that explains
-        the offline status and suggests checking the LLM server status.
+        Configured endpoints include the remaining retry cooldown and guidance
+        to check the configured server. An empty endpoint instead explains how
+        to configure it, without claiming a retry is pending.
         """
+        if self._base_url:
+            reasoning = (
+                f"LLM server offline at {self._base_url}. "
+                f"Cooldown active — next retry in "
+                f"{max(0.0, self._offline_until - time.time()):.0f} s. "
+                "Check that the LLM server set by llm_url in config/mimir.yaml "
+                "(or MIMIR_LLM_URL) is running and reachable."
+            )
+        else:
+            reasoning = (
+                "No LLM endpoint is configured. Set llm_url in "
+                "config/mimir.yaml or MIMIR_LLM_URL."
+            )
         return ClassificationResult(
             signal_type=self._OFFLINE_SIGNAL_TYPE,
             confidence="low",
             confidence_score=0.0,
             novel=False,
-            reasoning=(
-                f"LLM server offline at {self._base_url}. "
-                f"Cooldown active — next retry in "
-                f"{max(0.0, self._offline_until - time.time()):.0f} s. "
-                f"Check yubaba is running and Mimir is on the home network."
-            ),
+            reasoning=reasoning,
             au_legal_status="verify_before_use",
             frequency_band="unknown",
             raw_response="",

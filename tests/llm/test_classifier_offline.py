@@ -15,6 +15,7 @@ Run with:
 import sys
 import os
 import json
+import logging
 import time
 from unittest.mock import MagicMock, patch
 
@@ -92,6 +93,25 @@ class TestCheckConnection:
     """Tests for SignalClassifier.check_connection()."""
 
     @patch("llm.classifier.requests.get")
+    def test_empty_url_skips_probe(
+        self, mock_get: MagicMock, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """An absent endpoint warns once without probing or setting cooldown."""
+        cls = SignalClassifier(base_url="")
+
+        with caplog.at_level(logging.WARNING, logger="llm.classifier"):
+            assert cls.check_connection() is False
+
+        mock_get.assert_not_called()
+        assert cls._offline_until == 0.0
+        assert len(caplog.records) == 1
+        assert caplog.records[0].levelno == logging.WARNING
+        assert "No LLM endpoint is configured" in caplog.text
+        assert "scanner.llm_url" in caplog.text
+        assert "config/mimir.yaml" in caplog.text
+        assert "MIMIR_LLM_URL" in caplog.text
+
+    @patch("llm.classifier.requests.get")
     def test_check_connection_success(self, mock_get, classifier):
         """A reachable /models endpoint returns True and clears cooldown."""
         mock_response = MagicMock()
@@ -140,6 +160,40 @@ class TestCheckConnection:
 
 class TestClassifyOfflineHandling:
     """Tests for classify() cooldown and offline-result behaviour."""
+
+    @patch("llm.classifier.requests.post")
+    def test_empty_url_returns_offline(
+        self, mock_post: MagicMock, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """An absent endpoint returns offline silently without retry cooldown."""
+        cls = SignalClassifier(base_url="")
+
+        with caplog.at_level(logging.DEBUG, logger="llm.classifier"):
+            result = cls.classify(_make_fingerprint(), _make_neighbours())
+
+        mock_post.assert_not_called()
+        assert result.signal_type == "llm_offline"
+        assert "No LLM endpoint is configured" in result.reasoning
+        assert "llm_url" in result.reasoning
+        assert "config/mimir.yaml" in result.reasoning
+        assert "MIMIR_LLM_URL" in result.reasoning
+        assert "next retry" not in result.reasoning
+        assert cls._offline_until == 0.0
+        assert caplog.records == []
+
+    def test_configured_offline_reasoning(
+        self, classifier: SignalClassifier
+    ) -> None:
+        """A configured offline endpoint points to settings and retry timing."""
+        classifier._offline_until = time.time() + 60
+
+        result = classifier._offline_result()
+
+        assert classifier._base_url in result.reasoning
+        assert "next retry" in result.reasoning
+        assert "llm_url" in result.reasoning
+        assert "config/mimir.yaml" in result.reasoning
+        assert "MIMIR_LLM_URL" in result.reasoning
 
     def test_classify_fast_fail_during_cooldown(self, classifier, fingerprint, neighbours):
         """classify() must skip the network call and return llm_offline during cooldown."""
@@ -193,9 +247,10 @@ class TestClassifyOfflineHandling:
         assert fallback.signal_type == "unavailable"
         assert "llm_offline" != "unavailable"
 
-    def test_classify_no_args_still_works(self):
-        """SignalClassifier() with no arguments uses documented defaults."""
+    def test_classify_no_args_still_works(self) -> None:
+        """No-argument construction leaves the endpoint unconfigured."""
         cls = SignalClassifier()
 
+        assert cls._base_url == ""
         assert cls._cooldown_sec == 60.0
         assert cls._connect_timeout_sec == 5.0
