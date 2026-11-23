@@ -75,44 +75,69 @@ class TestPlutoReceiver:
 
     # ── Receive direction — legal guard ────────────────────────────────
 
-    def test_rx_direction_uses_soapy_constant_not_hardcoded(self):
+    def test_rx_direction_uses_soapy_constant_not_hardcoded(self) -> None:
         """Direction-taking calls must use SoapySDR's real SOAPY_SDR_RX.
 
-        Every other test in this file sets the mock's SOAPY_SDR_RX to 1.
-        If the implementation also hardcoded 1, both paths would agree in
-        the mock and no test could detect the divergence — while on real
-        hardware a mismatch would route every call to the wrong direction.
-        The direction adjacent to receive is transmit, so this is a legal
-        exposure on TX-capable hardware, not merely a functional bug.
-
-        This test deliberately uses a different value (7) so it fails if
-        the implementation ever reverts to a hardcoded constant.
+        Patch the expected value to 7 alongside the mocked SoapySDR value
+        so the open-time check passes. Using 7 catches hardware calls that
+        hardcode 1; the context manager restores the expected value after
+        the test.
         """
-        self.mock_soapy.SOAPY_SDR_RX = 7
+        with patch.object(PlutoReceiver, "_SOAPY_RX_DIRECTION", 7):
+            self.mock_soapy.SOAPY_SDR_RX = 7
 
+            receiver = PlutoReceiver(retune_settle_sec=0.0)
+            receiver.open()
+
+            # open() must use the mocked SoapySDR value after validation.
+            self.mock_device.setGainMode.assert_called_once_with(7, 0, False)
+            self.mock_device.setBandwidth.assert_called_once_with(7, 0, 2_000_000)
+
+            # Post-open calls must keep using the captured SoapySDR value.
+            self.mock_device.setGain.reset_mock()
+            self.mock_device.setFrequency.reset_mock()
+            self.mock_device.setSampleRate.reset_mock()
+
+            receiver.set_gain(40.0)
+            receiver.set_center_frequency(1_090_000_000.0)
+            receiver.set_sample_rate(2_000_000.0)
+
+            self.mock_device.setGain.assert_called_once_with(7, 0, 40.0)
+            self.mock_device.setFrequency.assert_called_once_with(
+                7, 0, 1_090_000_000.0
+            )
+            self.mock_device.setSampleRate.assert_called_once_with(
+                7, 0, 2_000_000.0
+            )
+
+    @pytest.mark.parametrize("receive_direction", [0, 7])
+    def test_rx_direction_mismatch_refuses_to_open(
+        self, receive_direction: int,
+    ) -> None:
+        """Reject unexpected receive values before discovery or hardware calls."""
+        self.mock_soapy.SOAPY_SDR_RX = receive_direction
         receiver = PlutoReceiver(retune_settle_sec=0.0)
-        receiver.open()
 
-        # open() itself must have used the real constant
-        self.mock_device.setGainMode.assert_called_once_with(7, 0, False)
-        self.mock_device.setBandwidth.assert_called_once_with(7, 0, 2_000_000)
+        with pytest.raises(
+            RuntimeError,
+            match=(
+                r"^The installed SoapySDR receive constant "
+                rf"\({receive_direction}\) does not match the expected receive "
+                r"value \(1\); the device will not be opened\.$"
+            ),
+        ):
+            receiver.open()
 
-        # ... and so must every post-open call
-        self.mock_device.setGain.reset_mock()
-        self.mock_device.setFrequency.reset_mock()
-        self.mock_device.setSampleRate.reset_mock()
-
-        receiver.set_gain(40.0)
-        receiver.set_center_frequency(1_090_000_000.0)
-        receiver.set_sample_rate(2_000_000.0)
-
-        self.mock_device.setGain.assert_called_once_with(7, 0, 40.0)
-        self.mock_device.setFrequency.assert_called_once_with(
-            7, 0, 1_090_000_000.0
-        )
-        self.mock_device.setSampleRate.assert_called_once_with(
-            7, 0, 2_000_000.0
-        )
+        self.mock_soapy.Device.enumerate.assert_not_called()
+        self.mock_soapy.Device.assert_not_called()
+        self.mock_device.setGainMode.assert_not_called()
+        self.mock_device.setBandwidth.assert_not_called()
+        self.mock_device.setSampleRate.assert_not_called()
+        self.mock_device.setFrequency.assert_not_called()
+        self.mock_device.setGain.assert_not_called()
+        self.mock_device.setupStream.assert_not_called()
+        assert receiver._rx is None
+        assert not receiver.is_open
 
     # ── USB URI preference ──────────────────────────────────────────────
 

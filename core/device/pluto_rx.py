@@ -42,8 +42,9 @@ argument changes — the rest of your pipeline code stays the same.
 RECEIVE DIRECTION — WHY IT IS NOT HARDCODED
 ───────────────────────────────────────────
 SoapySDR represents the receive direction with the constant
-SOAPY_SDR_RX. Its numeric value is an implementation detail of the
-installed SoapySDR build — this wrapper must never assume it.
+SOAPY_SDR_RX. Before enumerating or opening a device, open() checks it
+against the expected receive value in _SOAPY_RX_DIRECTION. A mismatch
+raises RuntimeError before any hardware is accessed.
 
 The direction opposite to receive is transmit. If a hardcoded receive
 value ever diverged from the installed SoapySDR's real constant, every
@@ -51,9 +52,10 @@ subsequent call would be routed to the wrong direction. Given this is
 TX-capable hardware under a zero-transmit legal constraint, that is not
 an acceptable risk to carry.
 
-Therefore open() captures the real SOAPY_SDR_RX from the imported module
-into self._rx, and every direction-taking call uses self._rx. There is
-exactly one source of truth and it comes from SoapySDR itself.
+After validation, open() captures the real SOAPY_SDR_RX from the imported
+module into self._rx, and every direction-taking call uses self._rx. The
+expected value is only a consistency check; the value passed to hardware
+still comes from SoapySDR itself.
 
 MEASURED FINDINGS — ADELAIDE, 2026-07-16/17, SPIRAL DISCONE
 ──────────────────────────────────────────────────────────
@@ -157,6 +159,10 @@ class PlutoReceiver(DeviceBase):
     MIN_GAIN_DB: float = 0.0
     MAX_GAIN_DB: float = 74.5
 
+    # Expected receive value, checked against SoapySDR in open(); never
+    # passed to hardware.
+    _SOAPY_RX_DIRECTION: int = 1
+
     def __init__(
         self,
         center_freq_hz: float = DEFAULT_CENTER_FREQ_HZ,
@@ -169,7 +175,8 @@ class PlutoReceiver(DeviceBase):
         Initialise the Pluto receiver configuration.
 
         This does NOT open the hardware yet. Call open() or use the
-        object as a context manager (with statement).
+        object as a context manager (with statement). The receive direction
+        stays unset until open() validates SoapySDR's receive constant.
 
         Args:
             center_freq_hz: Frequency to tune to in Hz. Default: 1090 MHz.
@@ -209,8 +216,8 @@ class PlutoReceiver(DeviceBase):
         self._is_open = False
         self._uri: str | None = None   # selected device URI
 
-        # Receive direction constant, captured from SoapySDR in open().
-        # Never hardcoded — see the module docstring for why.
+        # Hardware receive value, captured from SoapySDR in open() after
+        # checking it against the expected _SOAPY_RX_DIRECTION.
         self._rx: int | None = None
 
     # ── Lifecycle ───────────────────────────────────────────────────────
@@ -218,6 +225,10 @@ class PlutoReceiver(DeviceBase):
     def open(self) -> None:
         """
         Open the ADALM-PLUTO hardware and configure the receiver.
+
+        Validate SOAPY_SDR_RX against the expected receive value before
+        device enumeration or construction, then capture it in self._rx
+        for every direction-taking hardware call.
 
         Settle-before-activate ordering:
         ────────────────────────────────
@@ -230,8 +241,9 @@ class PlutoReceiver(DeviceBase):
         used in set_center_frequency() for mid-run retunes.
 
         Raises:
-            RuntimeError: If no Pluto is found, hardware fails to open,
-                or AGC cannot be disabled.
+            RuntimeError: If SoapySDR is unavailable, its receive constant
+                differs from the expected value, no Pluto is found,
+                hardware fails to open, or AGC cannot be disabled.
         """
         try:
             import SoapySDR
@@ -241,6 +253,14 @@ class PlutoReceiver(DeviceBase):
                 "SoapySDR Python bindings not found. "
                 "Install with: sudo dnf install python3-SoapySDR"
             ) from e
+
+        if SOAPY_SDR_RX != self._SOAPY_RX_DIRECTION:
+            raise RuntimeError(
+                "The installed SoapySDR receive constant "
+                f"({SOAPY_SDR_RX}) does not match the expected receive "
+                f"value ({self._SOAPY_RX_DIRECTION}); "
+                "the device will not be opened."
+            )
 
         logger.info("Opening ADALM-PLUTO (RX only)...")
 
@@ -290,9 +310,9 @@ class PlutoReceiver(DeviceBase):
         # than no-op and leak it.
         self._is_open = True
 
-        # Capture the real receive direction constant. Every direction-
-        # taking call in this class uses self._rx from here on, so there
-        # is one source of truth and it is SoapySDR's own value.
+        # Capture SoapySDR's receive direction constant after validation.
+        # Every direction-taking call in this class uses self._rx from
+        # here on, so the hardware receives SoapySDR's own value.
         self._rx = SOAPY_SDR_RX
 
         # ── Configure receive channel 0 ────────────────────────────────
