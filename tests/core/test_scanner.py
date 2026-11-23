@@ -2309,6 +2309,38 @@ class TestRecording:
         assert result == {"status": "not_recording"}
         mock_save.assert_not_called()
 
+    def test_stop_recording_without_samples_returns_error_and_warns_once(
+        self,
+        scanner: ScanRunner,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Stopping before a scan cycle warns once and resets without saving."""
+        with patch(
+            "core.pipeline.scanner.save_recording"
+        ) as mock_save, caplog.at_level(
+            logging.WARNING, logger="core.pipeline.scanner"
+        ):
+            assert scanner.start_recording() == {"status": "ok"}
+            result = scanner.stop_recording()
+
+        assert result == {
+            "status": "error",
+            "cause": "No samples were recorded, so no file was saved.",
+        }
+        mock_save.assert_not_called()
+        records = [
+            record for record in caplog.records
+            if record.name == "core.pipeline.scanner"
+        ]
+        assert len(records) == 1
+        assert records[0].levelno == logging.WARNING
+        assert records[0].exc_info is None
+        assert scanner._recording is False
+        assert scanner._record_buffer == []
+        assert scanner._record_fingerprints == []
+        assert scanner._record_sample_offset == 0
+        assert scanner._record_capped is False
+
     def test_recording_accumulates_samples_and_fingerprints_across_cycles(
         self, scanner: ScanRunner, mock_device: MagicMock
     ) -> None:

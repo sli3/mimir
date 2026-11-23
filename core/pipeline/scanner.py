@@ -495,11 +495,11 @@ class ScanRunner:
             return {"status": "ok"}
 
     def stop_recording(self) -> dict:
-        """Stop accumulating, concatenate the buffer, write one SigMF file.
+        """Stop accumulating and save one SigMF file if samples were recorded.
 
         Called from the Flask request handler thread (POST /api/record/
-        stop). Blocks for np.concatenate of the capped buffer plus a
-        single save_recording() call. The memory cap bounds the samples,
+        stop). With samples, blocks for np.concatenate of the capped buffer
+        plus a single save_recording() call. The memory cap bounds the samples,
         but a large buffer can still take time to save. This runs under
         _record_lock to keep the state transition atomic against the scan
         loop; concatenate briefly needs about twice the buffer memory.
@@ -521,8 +521,10 @@ class ScanRunner:
               the memory cap; has the same file, duration and cycle keys
               as ``"ok"``, describing only the retained samples.
             - ``"error"``         — concatenate or save raised
-              (including MemoryError); also has ``"cause"`` (str, the
-              exception message). State is still fully reset.
+              (including MemoryError), or no samples were recorded and no
+              file was written. Also has ``"cause"`` (str): the exception
+              message, or "No samples were recorded, so no file was saved."
+              State is still fully reset.
             - ``"not_recording"`` — no recording was in progress.
         """
         with self._record_lock:
@@ -545,6 +547,12 @@ class ScanRunner:
             self._record_fingerprints = []
             self._record_sample_offset = 0
             self._record_capped = False
+            if not buffer:
+                logger.warning("No samples were recorded, so no file was saved.")
+                return {
+                    "status": "error",
+                    "cause": "No samples were recorded, so no file was saved.",
+                }
             try:
                 samples = np.concatenate(buffer)
                 saved_path = save_recording(
