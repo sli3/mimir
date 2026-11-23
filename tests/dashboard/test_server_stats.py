@@ -526,7 +526,12 @@ class TestFocusFrequencyFilter:
                 ss.current_device = saved_device
 
     def test_handle_set_focus_does_not_update_current_band_for_unknown_freq(self):
-        """handle_set_focus leaves current_band unchanged for a non-BAND_PROFILES frequency."""
+        """100 MHz falls back to the nearest band, fm_broadcast.
+
+        It is not a band centre, so band_key_for_freq selects fm_broadcast,
+        which equals the default current_band. The band ends equal to its
+        starting value; this test does not exercise a truly unknown frequency.
+        """
         saved = dict(ss.current_band)
         try:
             handle_set_focus({"freq_hz": 100_000_000})

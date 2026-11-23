@@ -490,8 +490,9 @@ export default function RadarScopePanel({
                     // zero-length direction may leak into SVG attributes. The
                     // box's θ/Δr readouts correctly indicate "no meaningful
                     // motion" for this case, so nothing is lost. In the
-                    // degenerate case the line falls back to the true
-                    // (unclamped-endpoint) `there`, consistent with the box.
+                    // degenerate case the line falls back to `here` -> `there`
+                    // (the clamped 45 s projection). The box shows the θ
+                    // bearing and Δr range rates, not this projected point.
                     const indicator = trueLength >= 0.01 ? (() => {
                       const ux = dx / trueLength
                       const uy = dy / trueLength

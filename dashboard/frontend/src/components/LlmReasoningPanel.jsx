@@ -34,7 +34,7 @@ import React, { useEffect, useRef, useState } from 'react'
  * @param {string|null} callsign - Last known callsign, or null
  * @param {string|null} squawk - Transponder code, or null. Squawk has been
  *   live since Phase 54: DF5 surveillance replies are decoded and surfaced
- *   through AdsbDecoder and dashboard/server.py's AdsbFieldTracker. Null
+ *   through AdsbDecoder and AdsbFieldTracker in dashboard/adsb_field_tracker.py. Null
  *   means this aircraft is not currently sending a DF5 identity reply, not
  *   that the field is unpopulated.
  * @param {number|null} altitude_ft

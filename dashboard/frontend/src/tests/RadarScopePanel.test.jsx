@@ -927,8 +927,8 @@ describe('RadarScopePanel', () => {
     it('falls back to `here` -> true-to-scale `there` for the line in the degenerate case', () => {
       // Companion to the degenerate-dots test above: when the on-screen
       // displacement is too small to normalise (< 0.01 px), no dots
-      // render, and the line falls back to `here` -> the true
-      // (unclamped-endpoint) `there` position, WITHOUT the ring-clearance
+      // render, and the line falls back to `here` -> the clamped 45 s
+      // `there` position, WITHOUT the ring-clearance
       // offset — there is no direction to offset along in this case.
       const ac = { icao: 'ABC123', callsign: 'VOZ123', bearing_deg: 0, range_nm: 10, timestamp: '1970-01-01T00:00:11.000Z' }
       const trail = [

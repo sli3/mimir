@@ -22,9 +22,10 @@
  *     - Tuning resolution of consumer SDRs (often sub-kHz)
  *
  *   Small enough for safety against cross-band false matches:
- *     The frontend's effective canonical set (STRIP_CONFIGS, FREQ_CONFIGS,
- *     FREQ_COLOUR_MAP, FREQ_LABEL_MAP, BAND_GROUPS) all share seven
- *     entries including Aviation at 127 MHz. The smallest adjacent gap
+ *     The frontend's effective canonical sets (STRIP_CONFIGS in
+ *     WaterfallPanel.jsx, BAND_GROUPS in constants/bands.js, and
+ *     FREQ_COLOUR_MAP and FREQ_LABEL_MAP in SignalHistoryLog.jsx) all share
+ *     seven entries including Aviation at 127 MHz. The smallest adjacent gap
  *     in that set is:
  *       AVIATION (127 MHz) ↔ ACARS (129.125 MHz) = 2.125 MHz
  *     which is 21× larger than the 100 kHz tolerance — no realistic

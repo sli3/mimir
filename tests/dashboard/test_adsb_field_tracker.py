@@ -1,4 +1,4 @@
-"""Tests for dashboard/server.py AdsbFieldTracker.
+"""Tests for AdsbFieldTracker in dashboard/adsb_field_tracker.py.
 
 Structured after tests/modules/test_adsb_bearing_tracker.py: the tracker
 mirrors BearingTracker's retention discipline (lazy TTL eviction, capacity

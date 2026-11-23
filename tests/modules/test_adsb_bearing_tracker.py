@@ -51,11 +51,13 @@ class TestInitialBearing:
         assert initial_bearing_deg(0.0, 0.0, 0.0, -1.0) == pytest.approx(270.0)
 
     def test_adelaide_to_eastern_airspace(self):
-        """Aircraft due east of Adelaide (same latitude, +1 deg longitude).
+        """Target about one degree of longitude east of the receiver constants.
 
-        Hand-verified great-circle initial bearing: ~90.29 deg, i.e. just
-        north of due east as the great circle curves towards the pole in
-        the southern hemisphere.
+        Its latitude is nearly the same, slightly south of the receiver.
+        The initial great-circle bearing is a little over 90 deg, just
+        south of due east: in the southern hemisphere the great circle
+        starts out heading towards the South Pole. The assertion keeps
+        a 1 deg tolerance around 90.29 deg.
         """
         bearing = initial_bearing_deg(ADELAIDE_LAT, ADELAIDE_LON, -34.93, 139.60)
         assert 80.0 < bearing < 120.0
