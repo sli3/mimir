@@ -82,6 +82,9 @@ import dashboard.shared_state as shared_state
 
 logger = logging.getLogger(__name__)
 
+# emit_stats runs in a single thread, so this warning set needs no lock.
+_warned_unknown_devices: set[str] = set()
+
 # Prin's 2026-11-20 logs measured live scanning at about 15-20 updates per
 # second with dwell_time_sec 0.0, below this cap. The cap guards against a
 # faster path flooding the browser and is global across centre frequencies.
@@ -214,12 +217,41 @@ def _compute_hackrf_status() -> str:
     return "CONNECTED"
 
 
+def _unsupported_bands_or_empty(device: str) -> dict[str, str]:
+    """Return unsupported bands, warning once per unknown device key."""
+    try:
+        return shared_state.unsupported_bands_for_device(device)
+    except KeyError:
+        if device not in _warned_unknown_devices:
+            _warned_unknown_devices.add(device)
+            logger.warning("Unknown device %r: unsupported bands unavailable", device)
+        return {}
+
+
+def _run_socketio(host: str, port: int) -> None:
+    """Run the server, deliberately ending its thread after logging a failure.
+
+    Werkzeug's own "Running on" line is the success signal.
+    """
+    logger.info("Dashboard server starting on http://%s:%d", host, port)
+    try:
+        socketio.run(
+            app, host=host, port=port, debug=False, use_reloader=False,
+            allow_unsafe_werkzeug=True,
+        )
+    except Exception:
+        logger.exception("Dashboard server failed on http://%s:%d", host, port)
+        return
+
+
 def start_server(host: str, port: int, device=None, scanner=None):
     """
     Start the Flask-SocketIO dashboard server in a background thread.
 
     Werkzeug is allowed to run without a TTY so background and demo launches
     serve the dashboard, and the bind address comes from config, loopback by default.
+    The server thread logs its start attempt and any failure; Werkzeug's own
+    "Running on" line confirms success.
 
     Args:
         host    : Bind address (e.g. "0.0.0.0" for all interfaces).
@@ -241,17 +273,14 @@ def start_server(host: str, port: int, device=None, scanner=None):
     _scanner_ref = scanner
 
     def run_flask() -> None:
-        """Run the dashboard server for foreground and background launches."""
-        socketio.run(
-            app, host=host, port=port, debug=False, use_reloader=False,
-            allow_unsafe_werkzeug=True,
-        )
+        """Delegate to the server runner for start-attempt and failure logging."""
+        _run_socketio(host, port)
 
     t = threading.Thread(target=run_flask, daemon=True)
     t.start()
-    logger.info("Dashboard server started on http://%s:%d", host, port)
 
-    def emit_stats():
+    def emit_stats() -> None:
+        """Emit stats with an empty band map and raw name for unknown devices."""
         while True:
             time.sleep(2.0)
             if scanner is not None:
@@ -270,7 +299,7 @@ def start_server(host: str, port: int, device=None, scanner=None):
                 llm_call_count = 0
                 llm_ms = 0.0
             # Read the active device driver from shared state (under lock)
-            # and compute the per-device unsupported-band map. Both are
+            # and compute the guarded per-device unsupported-band map. Both are
             # static for the lifetime of a run, but reading every poll
             # keeps the code path uniform with the rest of the stats and
             # means a future hot-swap of the device via a hypothetical
@@ -278,7 +307,11 @@ def start_server(host: str, port: int, device=None, scanner=None):
             # function.
             with shared_state.current_device_lock:
                 active_device = shared_state.current_device
-            unsupported_map = shared_state.unsupported_bands_for_device(active_device)
+            unsupported_map = _unsupported_bands_or_empty(active_device)
+            try:
+                device_display = shared_state.display_name_for_device(active_device)
+            except KeyError:
+                device_display = str(active_device)
             data = {
                 "hackrf_status": _compute_hackrf_status(),
                 "active_frequency_hz": active_freq,
@@ -289,8 +322,8 @@ def start_server(host: str, port: int, device=None, scanner=None):
                 "llm_last_inference_ms": llm_ms,
                 # Phase 38 — device-aware unsupported-band UI.
                 "device": active_device,
-                # Phase 40b — friendly device name for the signal-detail panel.
-                "current_device_display": shared_state.display_name_for_device(active_device),
+                # Friendly device name, falling back to the raw unknown key.
+                "current_device_display": device_display,
                 "unsupported_bands": unsupported_map,
             }
             socketio.emit("system_stats", data)
@@ -311,6 +344,7 @@ def start_server(host: str, port: int, device=None, scanner=None):
         decoder-driven ones (see :func:`emit_adsb_scan_result`). Since Phase 45,
         includes burst-detection fields (burst_ratio_db, expected_noise_ratio_db,
         burst_excess_db, is_burst) computed by the per-bin max-hold ratio method.
+        A missing SNR margin is sent as None.
 
         Args:
             scan_result: The ScanResult dataclass instance to broadcast.
@@ -345,12 +379,7 @@ def start_server(host: str, port: int, device=None, scanner=None):
             "snr_db": fp.get("snr_db"),
             # Per-band threshold fields — added in Phase 11
             "signal_threshold_db": fp.get("signal_threshold_db", 0.0),
-            # TODO(tech-debt): snr_margin_db defaults to 0.0 here, which makes a
-            # missing margin indistinguishable from a real +0.0 dB margin. The
-            # Phase 32 provenance gate (source="fingerprint"|"decode") sidesteps
-            # this for confidence display, but a missing margin should ideally
-            # default to None. Deferred from Phase 32.
-            "snr_margin_db": fp.get("snr_margin_db", 0.0),
+            "snr_margin_db": fp.get("snr_margin_db"),
             "bandwidth_hz": fp.get("bandwidth_hz"),
             "spectral_flatness": fp.get("spectral_flatness"),
             "chroma_distance": fp.get("chroma_distance"),

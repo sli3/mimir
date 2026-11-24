@@ -43,8 +43,8 @@ _REASON_NULLABLE_NUMERIC_RANGES = {
 }
 
 
-def _coerce_finite_float(value):
-    """Coerce to a finite float, or return None on any failure.
+def _coerce_finite_float(value: object) -> float | None:
+    """Coerce an object to a finite float, or return None on any failure.
 
     Rejects NaN and Infinity (json.loads accepts both by default, so they
     CAN arrive over the wire), booleans, non-numeric strings, and None.

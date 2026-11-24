@@ -713,9 +713,9 @@ def unsupported_bands_for_device(device: str) -> dict[str, str]:
     reference, never a user-facing band — consistent with
     ``get_nearest_band_for_freq`` / ``band_key_for_freq``), and calls the
     existing ``band_supported_by_device(band, device)`` for each. For the
-    unsupported bands, reads the reason string directly out of
-    ``PLUTO_BAND_PROFILES[band]["reason"]`` — no hard-coding here. The map
-    is keyed by band_key (e.g. "fm_broadcast"), not freq_hz, because the
+    unsupported bands, reads the reason string from PLUTO_BAND_PROFILES,
+    defaulting to "Unsupported on this device" when the reason is missing.
+    The map is keyed by band_key (e.g. "fm_broadcast"), not freq_hz, because the
     frontend has the freq_hz -> band_key mapping and the backend has the
     reverse; the shared device value flows through unchanged.
 
@@ -733,12 +733,13 @@ def unsupported_bands_for_device(device: str) -> dict[str, str]:
 
     Returns:
         Dict mapping band_key to its PLUTO_BAND_PROFILES reason string for
-        every band the device does not support. Empty dict if the device
-        supports all bands.
+        every band the device does not support, with a default reason when
+        missing. Empty dict if the device supports all bands.
 
     Raises:
         KeyError: If device is not a known DEVICE_PROFILES driver key —
-            propagated from ``band_supported_by_device``.
+            propagated from ``band_supported_by_device`` and caught by the
+            stats helper in ``dashboard/server.py``.
     """
     unsupported: dict[str, str] = {}
     for band_key, _profile in BAND_PROFILES.items():
@@ -747,8 +748,11 @@ def unsupported_bands_for_device(device: str) -> dict[str, str]:
         if not band_supported_by_device(band_key, device):
             # band_supported_by_device has already validated that the
             # device is a known DEVICE_PROFILES key; the device-specific
-            # reason string lives on PLUTO_BAND_PROFILES.
-            unsupported[band_key] = PLUTO_BAND_PROFILES[band_key]["reason"]
+            # reason string lives on PLUTO_BAND_PROFILES, with a fallback
+            # for entries that omit it.
+            unsupported[band_key] = PLUTO_BAND_PROFILES[band_key].get(
+                "reason", "Unsupported on this device"
+            )
     return unsupported
 
 

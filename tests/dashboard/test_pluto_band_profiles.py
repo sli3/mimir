@@ -156,6 +156,22 @@ class TestUnsupportedBandsForDevice:
         for band_key, reason in result.items():
             assert reason == PLUTO_BAND_PROFILES[band_key]["reason"], band_key
 
+    def test_missing_reason_uses_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An unsupported profile without a reason uses the default text."""
+        from dashboard.shared_state import (
+            PLUTO_BAND_PROFILES,
+            unsupported_bands_for_device,
+        )
+        monkeypatch.setitem(
+            PLUTO_BAND_PROFILES, "fm_broadcast", {"supported": False}
+        )
+
+        result = unsupported_bands_for_device("plutosdr")
+
+        assert result["fm_broadcast"] == "Unsupported on this device"
+
     def test_plutosdr_excludes_supported_bands(self):
         """ism and adsb are Pluto-supported, so they MUST NOT appear in
         the unsupported map."""

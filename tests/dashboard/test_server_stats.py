@@ -1,6 +1,7 @@
 import sys
 import os
 import time
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -406,6 +407,22 @@ class TestFocusFrequencyFilter:
         event_name, payload = mock_emit.call_args[0]
         assert event_name == "scan_result"
         assert payload.get("peak_bin_power_db") is None
+
+    def test_broadcast_snr_margin_none_when_missing(self) -> None:
+        """A fingerprint without an SNR margin emits an explicit None."""
+        broadcast = self._start_server_with_mocks()
+        fp = {"snr_db": 12.0, "signal_threshold_db": 10.0}
+        with (
+            patch("dashboard.server._focused_freq_hz", 100e6),
+            patch("dashboard.server.socketio.emit") as mock_emit,
+        ):
+            broadcast(self._make_scan_result(100e6, fp))
+
+        mock_emit.assert_called_once()
+        event_name, payload = mock_emit.call_args[0]
+        assert event_name == "scan_result"
+        assert "snr_margin_db" in payload
+        assert payload["snr_margin_db"] is None
 
     def test_broadcast_includes_burst_fields(self):
         """Given a fingerprint dict with the four Phase 45 burst fields populated, the emitted scan_result data dict contains each field with the correct value."""
@@ -1072,6 +1089,133 @@ class TestScanResultSourceProvenance:
         assert payload["expected_noise_ratio_db"] is None
         assert payload["burst_excess_db"] is None
         assert payload["is_burst"] is None
+
+
+class TestUnsupportedBandsOrEmpty:
+    """Guarded stats lookups preserve known maps and warn once per key."""
+
+    @pytest.fixture(autouse=True)
+    def clear_unknown_device_warnings(self) -> Iterator[None]:
+        """Clear warning history before and after each guarded-lookup test."""
+        server._warned_unknown_devices.clear()
+        try:
+            yield
+        finally:
+            server._warned_unknown_devices.clear()
+
+    def test_known_device_map_passes_through(self) -> None:
+        """The stats guard returns the helper's normal map unchanged."""
+        expected = {"fm_broadcast": "Unsupported on this device"}
+        with (
+            patch(
+                "dashboard.server.shared_state.unsupported_bands_for_device",
+                return_value=expected,
+            ) as lookup,
+            patch("dashboard.server.logger.warning") as warning,
+        ):
+            assert server._unsupported_bands_or_empty("plutosdr") is expected
+
+        lookup.assert_called_once_with("plutosdr")
+        warning.assert_not_called()
+
+    def test_unknown_device_warns_once_per_distinct_key(self) -> None:
+        """Repeated unknown keys return empty maps and warn once per key."""
+        with patch("dashboard.server.logger.warning") as warning:
+            assert server._unsupported_bands_or_empty("unknown_device") == {}
+            assert server._unsupported_bands_or_empty("unknown_device") == {}
+            warning.assert_called_once_with(
+                "Unknown device %r: unsupported bands unavailable", "unknown_device"
+            )
+
+            assert server._unsupported_bands_or_empty("another_unknown") == {}
+            assert server._unsupported_bands_or_empty("another_unknown") == {}
+            assert warning.call_count == 2
+            warning.assert_called_with(
+                "Unknown device %r: unsupported bands unavailable", "another_unknown"
+            )
+
+    def test_unknown_device_emits_complete_system_stats(self) -> None:
+        """An unknown device emits stats before the next polling iteration."""
+        class _StopStats(Exception):
+            """End the stats loop at its second sleep call."""
+
+        saved_device = server._device_ref
+        saved_scanner = server._scanner_ref
+        with ss.current_device_lock:
+            saved_current_device = ss.current_device
+        try:
+            with ss.current_device_lock:
+                ss.current_device = "unknown_device"
+            with (
+                patch("dashboard.server.threading.Thread") as thread,
+                patch("dashboard.server.socketio.emit") as emit,
+                patch(
+                    "dashboard.server.time.sleep",
+                    side_effect=[None, _StopStats()],
+                ) as sleep,
+            ):
+                server.start_server("127.0.0.1", 5000, device=None, scanner=None)
+                targets = [
+                    call.kwargs["target"]
+                    for call in thread.call_args_list
+                    if call.kwargs["target"].__name__ == "emit_stats"
+                ]
+                assert len(targets) == 1
+                with pytest.raises(_StopStats):
+                    targets[0]()
+
+                assert sleep.call_count == 2
+                emit.assert_called_once()
+                event_name, payload = emit.call_args.args
+                assert event_name == "system_stats"
+                assert payload["unsupported_bands"] == {}
+                assert payload["current_device_display"] == "unknown_device"
+        finally:
+            with ss.current_device_lock:
+                ss.current_device = saved_current_device
+            server._device_ref = saved_device
+            server._scanner_ref = saved_scanner
+
+
+class TestRunSocketio:
+    """Server-thread logging reports attempts and catches runner failures."""
+
+    def test_runner_failure_logs_exception_without_raising(self) -> None:
+        """A runner failure is logged and ends the call without propagating."""
+        with (
+            patch(
+                "dashboard.server.socketio.run",
+                side_effect=RuntimeError("bind failed"),
+            ) as run,
+            patch("dashboard.server.logger.exception") as exception,
+        ):
+            assert server._run_socketio("localhost", 5000) is None
+
+        run.assert_called_once_with(
+            server.app, host="localhost", port=5000, debug=False,
+            use_reloader=False, allow_unsafe_werkzeug=True,
+        )
+        exception.assert_called_once_with(
+            "Dashboard server failed on http://%s:%d", "localhost", 5000
+        )
+
+    def test_runner_logs_start_attempt_and_preserves_arguments(self) -> None:
+        """A normal runner call logs the attempt and uses the required options."""
+        with (
+            patch("dashboard.server.socketio.run") as run,
+            patch("dashboard.server.logger.info") as info,
+            patch("dashboard.server.logger.exception") as exception,
+        ):
+            assert server._run_socketio("localhost", 5000) is None
+
+        info.assert_called_once_with(
+            "Dashboard server starting on http://%s:%d", "localhost", 5000
+        )
+        run.assert_called_once_with(
+            server.app, host="localhost", port=5000, debug=False,
+            use_reloader=False, allow_unsafe_werkzeug=True,
+        )
+        exception.assert_not_called()
 
 
 class TestSystemStatsDeviceField:

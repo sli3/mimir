@@ -7,6 +7,7 @@ Legal: Receive-only. Radiocommunications Act 1992 (Cth).
 import json
 import logging
 import re
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +19,8 @@ _CAPTURE_FILENAME_RE = re.compile(
 )
 
 
-def _parse_capture_meta_entry(path):
-    """Parse a single .sigmf-meta file into the api_captures entry dict.
+def _parse_capture_meta_entry(path: Path) -> dict:
+    """Parse a .sigmf-meta Path into the api_captures entry dict.
 
     Uses json.load() so the .sigmf-data sibling is never touched.
     Any failure produces an "unknown" entry with an "error" key.
@@ -76,8 +77,8 @@ def _parse_capture_meta_entry(path):
     return entry
 
 
-def _parse_capture_timestamp(filename):
-    """Return an ISO timestamp string from a capture filename, or None."""
+def _parse_capture_timestamp(filename: str) -> str | None:
+    """Return an ISO timestamp string from a capture filename string, or None."""
     match = _CAPTURE_FILENAME_RE.search(filename)
     if not match:
         return None
@@ -88,8 +89,8 @@ def _parse_capture_timestamp(filename):
     )
 
 
-def _capture_sort_key(entry):
-    """Sort key for api_captures: timestamp desc with filename fallback.
+def _capture_sort_key(entry: dict) -> tuple[str, str]:
+    """Return timestamp and filename strings for descending capture sorting.
 
     Entries without a timestamp are pushed to the end by using an
     empty string for the primary key. Filename provides a stable
