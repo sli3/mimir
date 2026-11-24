@@ -69,6 +69,36 @@ describe('WaterfallPanel', () => {
     expect(onStripScroll).toHaveBeenCalledTimes(3)
   })
 
+  it.each([null, undefined])('waits for device information before ticking markers when device is %s', (device) => {
+    const onStripScroll = vi.fn()
+    const psd = new Array(2048).fill(-55)
+    const socketState = {
+      spectrumUpdates: [{ center_freq_hz: 98_000_000, psd_db: psd }],
+      device,
+      acarsRawLog: [],
+      aisRawLog: [],
+    }
+    const props = {
+      focusedFreq: 98_000_000,
+      focusFrequency: mockFocusFrequency,
+      singleBand: true,
+      markers: [],
+      onStripScroll,
+    }
+    useSocket.mockReturnValueOnce(socketState)
+    const { rerender } = render(<WaterfallPanel {...props} />)
+    expect(onStripScroll).not.toHaveBeenCalled()
+
+    useSocket.mockReturnValueOnce({ ...socketState, device: 'hackrf' })
+    rerender(<WaterfallPanel {...props} />)
+    expect(onStripScroll).toHaveBeenCalledTimes(1)
+    expect(onStripScroll).toHaveBeenLastCalledWith(98_000_000, 200)
+
+    useSocket.mockReturnValueOnce({ ...socketState, device: 'hackrf' })
+    rerender(<WaterfallPanel {...props} />)
+    expect(onStripScroll).toHaveBeenCalledTimes(1)
+  })
+
   it('renders 14 canvas elements (main + crosshair per band strip) in default mode', () => {
     render(<WaterfallPanel focusedFreq={null} focusFrequency={mockFocusFrequency} />)
     const canvases = document.querySelectorAll('canvas')

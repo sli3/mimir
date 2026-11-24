@@ -41,9 +41,9 @@ const NUM_PSD_BINS = 2048
 //
 // Keyed on the RAW SoapySDR driver strings emitted by system_stats.device
 // ("hackrf" / "plutosdr" — DEVICE_PROFILES keys), NOT the friendly display
-// names from display_name_for_device(). Unknown or missing devices fall
-// back to _default, which reproduces the pre-Phase-42 behaviour exactly
-// (minSpanDb: 0 = no floor).
+// names from display_name_for_device(). Unknown non-null devices fall back
+// to _default, which reproduces the pre-Phase-42 behaviour exactly
+// (minSpanDb: 0 = no floor). The hook skips drawing while device is pending.
 const DEVICE_SCALE_PROFILES = {
   hackrf:   { floorPercentile: 0.70, floorPadDb: 2, ceilPadDb: 6, minSpanDb: 30 },
   plutosdr: { floorPercentile: 0.70, floorPadDb: 2, ceilPadDb: 6, minSpanDb: 15 },
@@ -54,6 +54,7 @@ const DEVICE_SCALE_PROFILES = {
  * Resolve the colour-scale profile for a raw device driver string.
  * Unknown, null, or undefined devices fall back to the _default profile,
  * preserving pre-Phase-42 behaviour for any device without an entry.
+ * The hook skips drawing for null or undefined before calling this helper.
  */
 export function selectDeviceProfile(device) {
   return DEVICE_SCALE_PROFILES[device] ?? DEVICE_SCALE_PROFILES._default
@@ -137,18 +138,22 @@ export function computeScaleWindow(psdDb, profile) {
  * Phase 42 added the ``device`` parameter: the colour window is computed
  * per device via DEVICE_SCALE_PROFILES (see computeScaleWindow), so each
  * SDR gets a minimum-span floor matched to how grainy its dead-band noise
- * looks. Unknown devices use the _default profile, which reproduces the
- * pre-Phase-42 behaviour exactly.
+ * looks. Unknown non-null devices use the _default profile, which reproduces
+ * the pre-Phase-42 behaviour exactly. Drawing waits while device is null or
+ * undefined. If system_stats never arrives (for example, the backend is down),
+ * the waterfall intentionally draws nothing.
  *
- * @param {{ canvasRef: React.RefObject<HTMLCanvasElement>, psdDb: number[], device: string|null }} props
+ * @param {{ canvasRef: React.RefObject<HTMLCanvasElement>, psdDb: number[], device: string|null|undefined }} props
  *        ``canvasRef`` — the canvas element to draw onto.
  *        ``psdDb`` — array of 2048 PSD power values in dBFS.
  *        ``device`` — raw SoapySDR driver string from system_stats
- *        ("hackrf" / "plutosdr"), or null before the first system_stats
- *        arrives. Selects the DEVICE_SCALE_PROFILES entry.
+ *        ("hackrf" / "plutosdr"), or null/undefined while system_stats is
+ *        pending. Selects the DEVICE_SCALE_PROFILES entry once available.
  */
 export function useWaterfall({ canvasRef, psdDb, device }) {
   useEffect(() => {
+    // Wait for device information so early rows use the correct colour scale.
+    if (device == null) return
     const canvas = canvasRef.current
     if (!canvas || !psdDb || psdDb.length === 0) return
 

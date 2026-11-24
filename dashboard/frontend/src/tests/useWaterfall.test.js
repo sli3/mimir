@@ -172,7 +172,7 @@ describe('useWaterfall hook integration', () => {
 
     function TestComponent() {
       const canvasRef = useRef(canvas)
-      useWaterfall({ canvasRef, psdDb })
+      useWaterfall({ canvasRef, psdDb, device: 'hackrf' })
       return null
     }
     render(React.createElement(TestComponent))
@@ -181,5 +181,57 @@ describe('useWaterfall hook integration', () => {
     expect(ctx.createImageData).toHaveBeenCalledWith(width, 1)
     expect(ctx.putImageData).toHaveBeenCalled()
     expect(ctx.getImageData).not.toHaveBeenCalled()
+  })
+
+  it.each([null, undefined])('does not draw while device is %s', (device) => {
+    const { canvas, ctx } = createMockCanvas(10, 100)
+    const psdDb = new Array(NUM_PSD_BINS).fill(-40)
+
+    function TestComponent() {
+      const canvasRef = useRef(canvas)
+      useWaterfall({ canvasRef, psdDb, device })
+      return null
+    }
+    render(React.createElement(TestComponent))
+
+    expect(ctx.drawImage).not.toHaveBeenCalled()
+    expect(ctx.putImageData).not.toHaveBeenCalled()
+  })
+
+  it('draws for an unknown non-null device', () => {
+    const { canvas, ctx } = createMockCanvas(10, 100)
+    const psdDb = new Array(NUM_PSD_BINS).fill(-40)
+
+    function TestComponent() {
+      const canvasRef = useRef(canvas)
+      useWaterfall({ canvasRef, psdDb, device: 'unknown-device' })
+      return null
+    }
+    render(React.createElement(TestComponent))
+
+    expect(ctx.drawImage).toHaveBeenCalledWith(canvas, 0, 1)
+    expect(ctx.putImageData).toHaveBeenCalledTimes(1)
+  })
+
+  it('draws exactly once when device arrives with the same PSD', () => {
+    const { canvas, ctx } = createMockCanvas(10, 100)
+    const psdDb = new Array(NUM_PSD_BINS).fill(-40)
+
+    function TestComponent({ device }) {
+      const canvasRef = useRef(canvas)
+      useWaterfall({ canvasRef, psdDb, device })
+      return null
+    }
+    const { rerender } = render(React.createElement(TestComponent, { device: null }))
+    expect(ctx.drawImage).not.toHaveBeenCalled()
+    expect(ctx.putImageData).not.toHaveBeenCalled()
+
+    rerender(React.createElement(TestComponent, { device: 'hackrf' }))
+    expect(ctx.drawImage).toHaveBeenCalledTimes(1)
+    expect(ctx.putImageData).toHaveBeenCalledTimes(1)
+
+    rerender(React.createElement(TestComponent, { device: 'hackrf' }))
+    expect(ctx.drawImage).toHaveBeenCalledTimes(1)
+    expect(ctx.putImageData).toHaveBeenCalledTimes(1)
   })
 })

@@ -100,11 +100,11 @@ function WaterfallStrip({ config, latestPsd, focusedFreq, focusFrequency, single
   )
 
   // Phase 69: marker rowOffset increment must fire on the SAME trigger
-  // useWaterfall uses (PSD or device change = one scroll tick), so
-  // markers scroll at exactly the same rate as the underlying signal
-  // data. A separate setInterval would drift out of sync — do NOT use one.
+  // useWaterfall uses (PSD or device change = one scroll tick once device
+  // information is available). Skip pending devices so markers tick only
+  // with drawn rows. A separate setInterval would drift out of sync.
   useEffect(() => {
-    if (!latestPsd) return
+    if (!latestPsd || device == null) return
     onStripScroll(config.freq_hz, canvasSize.height)
   }, [latestPsd, device])
 
@@ -256,8 +256,8 @@ function WaterfallStrip({ config, latestPsd, focusedFreq, focusFrequency, single
 export default function WaterfallPanel({ focusedFreq, focusFrequency, singleBand = false, markers = [], onStripScroll = () => {} }) {
   // device is the raw SoapySDR driver string ("hackrf" / "plutosdr") from
   // system_stats — threaded into useWaterfall for per-device colour scaling
-  // (Phase 42). null until the first system_stats arrives, which selects
-  // the _default profile (pre-Phase-42 behaviour).
+  // (Phase 42). Drawing and marker ticks wait until system_stats supplies
+  // a non-null device; unknown device strings use the _default profile.
   // Phase 76 third fix: opt out of focus control. WaterfallPanel's own useSocket()
   // instance opens its own socket and holds its own focusedFreqRef, but it has no
   // legitimate opinion about which frequency the dashboard should be focused on.
