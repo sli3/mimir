@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import React from 'react'
 
-import { projectToScope, isWithinRange, isValidContact } from '../components/radar/projection.js'
+import { projectToScope, isWithinRange, isValidContact, isAdsbFrequency } from '../components/radar/projection.js'
 import RadarScopePanel from '../components/RadarScopePanel.jsx'
 import { derivePredictionVector, projectPosition } from '../utils/pathPrediction.js'
 
@@ -19,6 +19,18 @@ const r2 = (n) => Number(n.toFixed(2))
 const TUNED_FREQ = 1_090_000_000
 
 describe('projection', () => {
+  it.each([null, undefined, 0, NaN, 98_000_000, 1_087_999_999, 1_092_000_001])(
+    'rejects non-ADS-B frequency %s with a boolean result', (freqHz) => {
+      expect(isAdsbFrequency(freqHz)).toBe(false)
+    }
+  )
+
+  it.each([1_088_000_000, 1_090_000_000, 1_092_000_000])(
+    'accepts ADS-B frequency %s including the tolerance boundaries', (freqHz) => {
+      expect(isAdsbFrequency(freqHz)).toBe(true)
+    }
+  )
+
   it('projects north bearing to top of scope', () => {
     const { x, y } = projectToScope(0, 40, 40, 100, 100, 90)
     expect(y).toBeLessThan(100)
@@ -39,10 +51,11 @@ describe('projection', () => {
     expect(clamped.y).toBeCloseTo(onRing.y, 5)
   })
 
-  it('isWithinRange rejects null, undefined, NaN and out-of-range', () => {
+  it('isWithinRange rejects null, undefined, NaN, negative and out-of-range values', () => {
     expect(isWithinRange(null, 40)).toBe(false)
     expect(isWithinRange(undefined, 40)).toBe(false)
     expect(isWithinRange(NaN, 40)).toBe(false)
+    expect(isWithinRange(-1, 40)).toBe(false)
     expect(isWithinRange(41, 40)).toBe(false)
     expect(isWithinRange(40, 40)).toBe(true)
     expect(isWithinRange(0, 40)).toBe(true)
@@ -60,6 +73,33 @@ describe('projection', () => {
 })
 
 describe('RadarScopePanel', () => {
+  it('exposes named, focusable blip buttons and selected state', () => {
+    render(<RadarScopePanel focusedFreq={TUNED_FREQ} selectedIcao="ABC123" adsbAircraft={{
+      ABC123: { icao: 'ABC123', callsign: 'TEST1', bearing_deg: 45, range_nm: 10 },
+      DEF456: { icao: 'DEF456', bearing_deg: 90, range_nm: 20 },
+    }} />)
+    const selected = screen.getByRole('button', { name: 'TEST1' })
+    expect(selected).toHaveAttribute('tabindex', '0')
+    expect(selected).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'DEF456' })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('selects blips only for direct Enter or Space keys and prevents Space scrolling', () => {
+    const onSelectAircraft = vi.fn()
+    render(<RadarScopePanel focusedFreq={TUNED_FREQ} onSelectAircraft={onSelectAircraft} adsbAircraft={{
+      ABC123: { icao: 'ABC123', callsign: 'TEST1', bearing_deg: 45, range_nm: 10 },
+    }} />)
+    const blip = screen.getByRole('button', { name: 'TEST1' })
+    fireEvent.keyDown(blip, { key: 'Enter' })
+    expect(onSelectAircraft).toHaveBeenLastCalledWith('ABC123')
+    expect(fireEvent.keyDown(blip, { key: ' ', cancelable: true })).toBe(false)
+    expect(onSelectAircraft).toHaveBeenCalledTimes(2)
+    fireEvent.keyDown(blip, { key: 'Escape' })
+    fireEvent.keyDown(blip.querySelector('circle'), { key: 'Enter' })
+    fireEvent.keyDown(blip.querySelector('circle'), { key: ' ' })
+    expect(onSelectAircraft).toHaveBeenCalledTimes(2)
+  })
+
   it('test_skips_aircraft_with_null_range_nm', () => {
     const adsbAircraft = {
       ABC123: {

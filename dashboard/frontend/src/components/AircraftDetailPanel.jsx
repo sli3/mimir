@@ -5,6 +5,7 @@ import {
   formatSpeed,
   formatTrack,
   formatVerticalRate,
+  formatBearing,
 } from '../utils/aircraftFormat.js'
 
 /**
@@ -16,7 +17,7 @@ import {
  *   a) A scrollable list of every in-range contact, filtered with the
  *      same isValidContact() rule the scope and the page header use
  *      (single source of truth in projection.js - NOT reimplemented
- *      here). Clicking a row selects that aircraft via the
+ *      here). Clicking a row or pressing Enter or Space selects it via the
  *      onSelectAircraft(icao) callback; the selected row is highlighted
  *      to match the amber ring the scope draws around the same blip.
  *
@@ -38,7 +39,7 @@ import {
  * @param {number} maxRangeNm - Maximum displayed range, in nautical miles
  * @param {string|null} selectedIcao - Currently selected ICAO address
  * @param {Function} onSelectAircraft - Called with the icao string when
- *   a list row is clicked
+ *   a list row is clicked or activated with Enter or Space
  */
 export default function AircraftDetailPanel({
   adsbAircraft = {},
@@ -69,16 +70,15 @@ export default function AircraftDetailPanel({
     return formatted === '—' ? formatted : `${formatted}kt`
   }
 
-  // Combined bearing/range readout (Phase 55). Bearing rounds to whole
-  // degrees and zero-pads to three characters ("005°", "045°"); range
+  // Combined bearing/range readout (Phase 55). The shared formatter rounds
+  // and wraps bearing with % 360, then zero-pads ("005°", "045°"); range
   // renders to one decimal ("12.3nm"). If EITHER input is missing the
   // whole field falls back to the em-dash placeholder - a partial
   // readout would imply precision the data does not have.
   const formatBearingRange = (bearing, range) => {
     if (bearing === null || bearing === undefined) return '—'
     if (range === null || range === undefined) return '—'
-    const padded = String(Math.round(bearing)).padStart(3, '0')
-    return `${padded}° / ${range.toFixed(1)}nm`
+    return `${formatBearing(bearing)} / ${range.toFixed(1)}nm`
   }
 
   return (
@@ -98,12 +98,23 @@ export default function AircraftDetailPanel({
               key={ac.icao}
               data-testid="radar-detail-row"
               data-icao={ac.icao}
+              role="button"
+              tabIndex={0}
+              aria-label={ac.callsign || ac.icao}
+              aria-pressed={ac.icao === selectedIcao}
               className={
                 ac.icao === selectedIcao
                   ? 'radar-detail-row radar-detail-row-selected'
                   : 'radar-detail-row'
               }
               onClick={() => onSelectAircraft?.(ac.icao)}
+              onKeyDown={(e) => {
+                // Ignore keys bubbling from descendants; Space must not scroll.
+                if (e.target !== e.currentTarget) return
+                if (e.key !== 'Enter' && e.key !== ' ') return
+                if (e.key === ' ') e.preventDefault()
+                onSelectAircraft?.(ac.icao)
+              }}
             >
               <span>{ac.callsign || '—'}</span>
               <span>{formatAltitude(ac.altitude_ft)}</span>

@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback, useEffect } from 'react'
+import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react'
 import { useSocket } from '../hooks/useSocket.js'
 import { useCanvasSize } from '../hooks/useCanvasSize.js'
 import { useWaterfall } from '../hooks/useWaterfall.js'
@@ -80,6 +80,7 @@ export const STRIP_CONFIGS = [
   { freq_hz: 1090000000, label: '1090.0 MHz',   name: 'ADS-B',        colourVar: '--neon-magenta'},
 ]
 
+/** Render one strip with memoised markers that advance with PSD/device scrolls. */
 function WaterfallStrip({ config, latestPsd, focusedFreq, focusFrequency, singleBand, hideSidebar, device, markers, onStripScroll }) {
   const canvasRef = useRef(null)
   const crosshairRef = useRef(null)
@@ -92,19 +93,20 @@ function WaterfallStrip({ config, latestPsd, focusedFreq, focusFrequency, single
     device,
   })
 
-  // Phase 69: per-strip marker view. Mirrors the spectrumUpdates
-  // filtering pattern (line 214-216 below) — each strip only sees
-  // markers belonging to its own frequency.
-  const stripMarkers = markers.filter((m) => m.freqHz === config.freq_hz)
+  // Phase 69: cache this strip's marker view until markers or frequency change.
+  const stripMarkers = useMemo(
+    () => markers.filter((m) => m.freqHz === config.freq_hz),
+    [markers, config.freq_hz]
+  )
 
   // Phase 69: marker rowOffset increment must fire on the SAME trigger
-  // useWaterfall uses (a new PSD row arriving = one scroll tick), so
+  // useWaterfall uses (PSD or device change = one scroll tick), so
   // markers scroll at exactly the same rate as the underlying signal
   // data. A separate setInterval would drift out of sync — do NOT use one.
   useEffect(() => {
     if (!latestPsd) return
     onStripScroll(config.freq_hz, canvasSize.height)
-  }, [latestPsd])
+  }, [latestPsd, device])
 
   /**
    * Handle a click on the waterfall canvas.

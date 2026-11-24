@@ -299,7 +299,7 @@ describe('App', () => {
     // must render with a title attribute (so the native tooltip fires
     // on hover) AND must NOT carry the HTML disabled attribute (which
     // removes the element from hit-testing and suppresses the tooltip).
-    // Click is blocked by the onClick omission, not by disabled.
+    // aria-disabled exposes the status; the onClick omission blocks activation.
 
     const plutoReason = {
       fm_broadcast: "Below Pluto's 325 MHz tuning floor (98 MHz)",
@@ -322,6 +322,9 @@ describe('App', () => {
       expect(fmButton).toBeDefined()
       // Title must be the reason string
       expect(fmButton.getAttribute('title')).toBe(plutoReason.fm_broadcast)
+      expect(fmButton).toHaveAttribute('aria-disabled', 'true')
+      const adsbButton = buttons.find((b) => b.textContent.startsWith('ADS-B'))
+      expect(adsbButton).not.toHaveAttribute('aria-disabled')
       // CRITICAL: the disabled attribute must NOT be present.
       // Both attribute-presence and JS-property-presence must fail
       // to catch every way the regression could re-appear.

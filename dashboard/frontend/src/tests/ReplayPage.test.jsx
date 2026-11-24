@@ -673,6 +673,7 @@ describe('ReplayPage burst fade overlay', () => {
     const cell = screen.getByTestId('replay-chunk-cell-0')
     expect(cell.style.backgroundColor).toBe('var(--neon-green)')
     expect(cell.style.boxShadow).toBeFalsy()
+    expect(cell).toHaveAttribute('title', 'Chunk 1: matched')
   })
 
   it('RecordResult matched chunk with high burst renders an amber-tinged background', async () => {
@@ -685,6 +686,7 @@ describe('ReplayPage burst fade overlay', () => {
     const cell = screen.getByTestId('replay-chunk-cell-0')
     expect(cell.style.backgroundColor).not.toBe('var(--neon-green)')
     expect(cell.style.backgroundColor).toBe('var(--neon-amber)')
+    expect(cell).toHaveAttribute('title', 'Chunk 1: matched · burst 1.00')
   })
 
   it('RecordResult matched chunk at half intensity renders the interpolated rgb colour', async () => {
@@ -701,6 +703,7 @@ describe('ReplayPage burst fade overlay', () => {
     // b = round(136 * 0.5 + 0 * 0.5) = 68
     expect(cell.style.backgroundColor).toBe('rgb(128, 230, 68)')
     expect(cell.style.boxShadow).toBeFalsy()
+    expect(cell).toHaveAttribute('title', 'Chunk 1: matched · burst 0.50')
   })
 
   it('RecordResult mismatched chunk with no burst renders solid red and no ring', async () => {
@@ -713,6 +716,7 @@ describe('ReplayPage burst fade overlay', () => {
     const cell = screen.getByTestId('replay-chunk-cell-0')
     expect(cell.style.backgroundColor).toBe('var(--neon-red)')
     expect(cell.style.boxShadow).toBeFalsy()
+    expect(cell).toHaveAttribute('title', 'Chunk 1: mismatched')
   })
 
   it('RecordResult mismatched chunk with high burst renders red with an amber ring', async () => {
@@ -725,6 +729,7 @@ describe('ReplayPage burst fade overlay', () => {
     const cell = screen.getByTestId('replay-chunk-cell-0')
     expect(cell.style.backgroundColor).toBe('var(--neon-red)')
     expect(cell.style.boxShadow).toContain('var(--neon-amber)')
+    expect(cell).toHaveAttribute('title', 'Chunk 1: mismatched · burst 1.00')
   })
 
   it('OneShotResult with is_burst=false does not render a burst badge', async () => {

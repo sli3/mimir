@@ -31,6 +31,44 @@ describe('WaterfallPanel', () => {
     useWaterfall.mockClear()
   })
 
+  it('ticks markers for PSD and device changes, but not unrelated rerenders', () => {
+    const onStripScroll = vi.fn()
+    const psd = new Array(2048).fill(-55)
+    const socketState = {
+      spectrumUpdates: [{ center_freq_hz: 98_000_000, psd_db: psd }],
+      device: 'hackrf',
+      acarsRawLog: [],
+      aisRawLog: [],
+    }
+    useSocket.mockReturnValueOnce(socketState)
+    const props = {
+      focusedFreq: 98_000_000,
+      focusFrequency: mockFocusFrequency,
+      singleBand: true,
+      markers: [],
+      onStripScroll,
+    }
+    const { rerender } = render(<WaterfallPanel {...props} />)
+    expect(onStripScroll).toHaveBeenCalledTimes(1)
+    expect(onStripScroll).toHaveBeenLastCalledWith(98_000_000, 200)
+
+    useSocket.mockReturnValueOnce(socketState)
+    rerender(<WaterfallPanel {...props} />)
+    expect(onStripScroll).toHaveBeenCalledTimes(1)
+
+    useSocket.mockReturnValueOnce({ ...socketState, device: 'plutosdr' })
+    rerender(<WaterfallPanel {...props} />)
+    expect(onStripScroll).toHaveBeenCalledTimes(2)
+
+    useSocket.mockReturnValueOnce({
+      ...socketState,
+      device: 'plutosdr',
+      spectrumUpdates: [{ center_freq_hz: 98_000_000, psd_db: [...psd] }],
+    })
+    rerender(<WaterfallPanel {...props} />)
+    expect(onStripScroll).toHaveBeenCalledTimes(3)
+  })
+
   it('renders 14 canvas elements (main + crosshair per band strip) in default mode', () => {
     render(<WaterfallPanel focusedFreq={null} focusFrequency={mockFocusFrequency} />)
     const canvases = document.querySelectorAll('canvas')

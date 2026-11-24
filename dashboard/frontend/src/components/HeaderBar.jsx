@@ -1,5 +1,5 @@
 /**
- * Render the HeaderBar section.
+ * Render the header with links to the radar and vector space pages.
  * Props: clock.
  */
 export default function HeaderBar({ clock }) {
@@ -38,8 +38,7 @@ export default function HeaderBar({ clock }) {
         alignItems: 'center',
         gap: '16px',
       }}>
-        {/* UI-OVERHAUL (Change 7e) — link to the standalone /radar page
-            hosting the PPI scope that used to live inline at bottom-right. */}
+        {/* Links to the standalone radar scope and vector space pages. */}
         <a
           href="/radar"
           style={{
@@ -53,6 +52,20 @@ export default function HeaderBar({ clock }) {
           }}
         >
           RADAR
+        </a>
+        <a
+          href="/vectordb"
+          style={{
+            fontSize: '11px',
+            color: 'var(--neon-cyan)',
+            letterSpacing: '2px',
+            fontFamily: 'var(--font-data)',
+            textDecoration: 'none',
+            border: '1px solid var(--border)',
+            padding: '2px 8px',
+          }}
+        >
+          VECTOR SPACE
         </a>
         <span style={{
           fontSize: '11px',

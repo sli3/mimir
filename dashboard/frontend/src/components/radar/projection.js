@@ -23,8 +23,8 @@ export function projectToScope(bearingDeg, rangeNm, maxRangeNm, cx, cy, maxR) {
 }
 
 /**
- * Null-safe range check. Returns false for null, undefined, NaN, or
- * out-of-range values.
+ * Null-safe range check. Returns false for null, undefined, NaN,
+ * negative or out-of-range values.
  *
  * @param {number|null|undefined} rangeNm
  * @param {number} maxRangeNm
@@ -33,7 +33,18 @@ export function projectToScope(bearingDeg, rangeNm, maxRangeNm, cx, cy, maxR) {
 export function isWithinRange(rangeNm, maxRangeNm) {
   if (rangeNm === null || rangeNm === undefined) return false
   if (Number.isNaN(rangeNm)) return false
+  if (rangeNm < 0) return false
   return rangeNm <= maxRangeNm
+}
+
+/**
+ * Check whether a truthy frequency is within 2 MHz of the ADS-B centre.
+ *
+ * @param {number|null|undefined} freqHz - Focused frequency in Hz
+ * @returns {boolean}
+ */
+export function isAdsbFrequency(freqHz) {
+  return Boolean(freqHz && Math.abs(freqHz - 1_090_000_000) <= 2_000_000)
 }
 
 /**

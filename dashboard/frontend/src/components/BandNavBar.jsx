@@ -4,7 +4,7 @@ import CaptureButton from './CaptureButton.jsx'
 import RecordButton from './RecordButton.jsx'
 
 /**
- * Render the BandNavBar section.
+ * Render band navigation with accessible unsupported-band status and tooltips.
  * Props: focusedFreq, focusFrequency, unsupportedBands, adsbAircraftList,
  * adsbAircraftHistory, customInput, setCustomInput, handleKeyDown, handleTune,
  * handleCaptureClick, capturePending, recording, handleRecordClick, recordElapsedSec,
@@ -87,15 +87,16 @@ export default function BandNavBar({
                 // HTML disabled controls (the browser removes them
                 // from hit-testing, so mouseover never fires). The
                 // tooltip IS the reason this row is greyed, so it
-                // must be visible on hover. Click is blocked by
-                // the onClick omission above; do not re-add
-                // `disabled` here.
+                // must be visible on hover. aria-disabled exposes the
+                // status; click is blocked by the onClick omission below.
+                // Do not re-add `disabled` here.
                 return (
                   <button
                     key={band.freq_hz}
                     onClick={isUnsupported ? undefined : () => focusFrequency(band.freq_hz)}
                     title={isUnsupported ? unsupportedReason : undefined}
                     data-unsupported={isUnsupported ? 'true' : undefined}
+                    aria-disabled={isUnsupported ? 'true' : undefined}
                     style={{
                       fontFamily: 'monospace',
                       fontSize: '12px',

@@ -52,6 +52,34 @@ describe('RadarPage', () => {
     expect(screen.getAllByText('TEST1').length).toBe(2)
   })
 
+  it('updates the header count on tuning changes while retaining the same aircraft data', () => {
+    const adsbAircraft = {
+      ABC123: { icao: 'ABC123', callsign: 'TEST1', bearing_deg: 45, range_nm: 10 },
+    }
+    useSocket.mockReturnValue(makeMock({
+      adsbAircraft,
+      systemStats: { active_frequency_hz: 98_000_000 },
+    }))
+    const { rerender } = render(<RadarPage />)
+    expect(screen.getByText('0 CONTACTS · 40NM')).toBeInTheDocument()
+    expect(screen.queryByTestId('radar-blip')).toBeNull()
+
+    useSocket.mockReturnValue(makeMock({
+      adsbAircraft,
+      systemStats: { active_frequency_hz: 1_090_000_000 },
+    }))
+    rerender(<RadarPage />)
+    expect(screen.getByText('1 CONTACTS · 40NM')).toBeInTheDocument()
+    expect(screen.getByTestId('radar-blip')).toBeInTheDocument()
+
+    useSocket.mockReturnValue(makeMock({
+      adsbAircraft,
+      systemStats: { active_frequency_hz: 98_000_000 },
+    }))
+    rerender(<RadarPage />)
+    expect(screen.getByText('0 CONTACTS · 40NM')).toBeInTheDocument()
+  })
+
   it('passes maxRangeNm down to RadarScopePanel explicitly', () => {
     // Phase 50 regression guard: RadarPage must pass its MAX_RANGE_NM
     // constant to RadarScopePanel rather than relying on the two

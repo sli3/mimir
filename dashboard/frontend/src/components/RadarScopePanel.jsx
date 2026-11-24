@@ -1,5 +1,5 @@
 import React, { useMemo, useRef } from 'react'
-import { projectToScope, isWithinRange, isValidContact } from './radar/projection.js'
+import { projectToScope, isWithinRange, isValidContact, isAdsbFrequency } from './radar/projection.js'
 import { PREDICTION_HORIZON_SEC, derivePredictionVector, projectPosition } from '../utils/pathPrediction.js'
 import { formatDeltaR } from '../utils/aircraftFormat.js'
 
@@ -58,7 +58,7 @@ const r2 = (n) => Number(n.toFixed(2))
  * @param {string|null} selectedIcao - ICAO of the currently selected
  *   aircraft; its blip gets an amber highlight ring (Phase 51)
  * @param {Function} [onSelectAircraft] - Called with the icao string
- *   when a blip is clicked (Phase 51)
+ *   when a blip is clicked or activated with Enter or Space
  */
 export default function RadarScopePanel({
   adsbAircraft = {},
@@ -68,9 +68,7 @@ export default function RadarScopePanel({
   onSelectAircraft,
   trailsRef: trailsRefProp = null,   // NEW: optional lifted ref (Phase 52)
 }) {
-  const isAdsbFreq = focusedFreq && (
-    Math.abs(focusedFreq - 1_090_000_000) <= 2_000_000
-  )
+  const isAdsbFreq = isAdsbFrequency(focusedFreq)
 
   // Per-ICAO trail history: icao -> [{ bearing_deg, range_nm, ts }, ...],
   // oldest first, capped at TRAIL_MAX_POINTS. A ref, not state, because
@@ -286,7 +284,18 @@ export default function RadarScopePanel({
                   key={ac.icao}
                   data-testid="radar-blip"
                   data-icao={ac.icao}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={ac.callsign || ac.icao}
+                  aria-pressed={ac.icao === selectedIcao}
                   onClick={() => onSelectAircraft?.(ac.icao)}
+                  onKeyDown={(e) => {
+                    // Ignore keys bubbling from descendants; Space must not scroll.
+                    if (e.target !== e.currentTarget) return
+                    if (e.key !== 'Enter' && e.key !== ' ') return
+                    if (e.key === ' ') e.preventDefault()
+                    onSelectAircraft?.(ac.icao)
+                  }}
                   style={{ cursor: 'pointer' }}
                 >
                   {showTrail && (

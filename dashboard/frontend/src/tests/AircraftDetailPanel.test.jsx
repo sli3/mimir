@@ -23,6 +23,49 @@ const makeAircraft = (overrides = {}) => ({
 })
 
 describe('AircraftDetailPanel', () => {
+  it('exposes named, focusable row buttons and selected state', () => {
+    render(<AircraftDetailPanel selectedIcao="ABC123" adsbAircraft={{
+      ABC123: makeAircraft(),
+      DEF456: makeAircraft({ icao: 'DEF456', callsign: null }),
+    }} />)
+    const selected = screen.getByRole('button', { name: 'QFA1' })
+    expect(selected).toHaveAttribute('tabindex', '0')
+    expect(selected).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'DEF456' })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('selects rows only for direct Enter or Space keys and prevents Space scrolling', () => {
+    const onSelectAircraft = vi.fn()
+    render(<AircraftDetailPanel adsbAircraft={{ ABC123: makeAircraft() }} onSelectAircraft={onSelectAircraft} />)
+    const row = screen.getByRole('button', { name: 'QFA1' })
+    fireEvent.keyDown(row, { key: 'Enter' })
+    expect(onSelectAircraft).toHaveBeenLastCalledWith('ABC123')
+    expect(fireEvent.keyDown(row, { key: ' ', cancelable: true })).toBe(false)
+    expect(onSelectAircraft).toHaveBeenCalledTimes(2)
+    fireEvent.keyDown(row, { key: 'ArrowDown' })
+    fireEvent.keyDown(row.querySelector('span'), { key: 'Enter' })
+    fireEvent.keyDown(row.querySelector('span'), { key: ' ' })
+    expect(onSelectAircraft).toHaveBeenCalledTimes(2)
+  })
+
+  it('wraps a bearing of 360 degrees to 000 in the combined readout', () => {
+    render(<AircraftDetailPanel selectedIcao="ABC123" adsbAircraft={{
+      ABC123: makeAircraft({ bearing_deg: 360, range_nm: 12.3 }),
+    }} />)
+    expect(within(screen.getByTestId('radar-detail-pinned')).getByText('000° / 12.3nm')).toBeInTheDocument()
+  })
+
+  it.each([
+    { bearing_deg: null }, { bearing_deg: undefined },
+    { range_nm: null }, { range_nm: undefined },
+  ])('keeps the whole bearing/range placeholder for missing input %j', (missing) => {
+    render(<AircraftDetailPanel selectedIcao="ABC123" adsbAircraft={{
+      ABC123: makeAircraft(missing),
+    }} />)
+    const label = within(screen.getByTestId('radar-detail-pinned')).getByText('Bearing / Range')
+    expect(label.parentElement.querySelector('.radar-detail-value')).toHaveTextContent(/^—$/)
+  })
+
   it('renders the empty list state and the no-selection placeholder', () => {
     render(
       <AircraftDetailPanel adsbAircraft={{}} maxRangeNm={40} />

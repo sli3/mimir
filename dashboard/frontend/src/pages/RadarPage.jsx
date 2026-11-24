@@ -3,7 +3,7 @@ import { useSocket } from '../hooks/useSocket.js'
 import RadarScopePanel from '../components/RadarScopePanel.jsx'
 import AircraftDetailPanel from '../components/AircraftDetailPanel.jsx'
 import PathPredictionPanel from '../components/PathPredictionPanel.jsx'
-import { isValidContact } from '../components/radar/projection.js'
+import { isValidContact, isAdsbFrequency } from '../components/radar/projection.js'
 import './RadarPage.css'
 
 // Sole source of truth for max displayed range. Passed down to
@@ -27,6 +27,7 @@ const MAX_RANGE_NM = 40
  * Both this page's contactCount and RadarScopePanel's contacts filter
  * now call the same isValidContact() function from projection.js, so
  * there is exactly one place the "valid, in-range contact" rule lives.
+ * The shared isAdsbFrequency() gate keeps the count at zero off frequency.
  *
  * Passive receive display only — no TX capability.
  */
@@ -64,14 +65,13 @@ export default function RadarPage() {
     return () => document.body.classList.remove('radar-page')
   }, [])
 
-  // Contact count for the page header. Uses the same isValidContact()
-  // rule RadarScopePanel applies before projecting blips, so the header
-  // readout can never diverge from what the scope actually shows.
+  // Header count uses the scope's shared frequency gate and contact rule.
+  // Retained aircraft data must not produce a count while tuned elsewhere.
   const contactCount = useMemo(() => (
-    Object.values(adsbAircraft || {})
+    !isAdsbFrequency(effectiveFocusedFreq) ? 0 : Object.values(adsbAircraft || {})
       .filter((ac) => isValidContact(ac, MAX_RANGE_NM))
       .length
-  ), [adsbAircraft])
+  ), [adsbAircraft, effectiveFocusedFreq])
 
   return (
     <div className="radar-shell">

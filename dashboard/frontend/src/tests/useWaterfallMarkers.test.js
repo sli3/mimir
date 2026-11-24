@@ -4,6 +4,22 @@ import { renderHook, act } from '@testing-library/react'
 import useWaterfallMarkers from '../hooks/useWaterfallMarkers.js'
 
 describe('useWaterfallMarkers', () => {
+  it('preserves the markers array reference on an empty tick', () => {
+    const { result } = renderHook(() => useWaterfallMarkers())
+    const markers = result.current.markers
+    act(() => result.current.tickAndPrune(98000000, 100))
+    expect(result.current.markers).toBe(markers)
+  })
+
+  it('preserves the markers array reference when no frequency matches', () => {
+    const { result } = renderHook(() => useWaterfallMarkers())
+    act(() => result.current.addCaptureMarker(129125000))
+    const markers = result.current.markers
+    act(() => result.current.tickAndPrune(98000000, 100))
+    expect(result.current.markers).toBe(markers)
+    expect(result.current.markers[0].rowOffset).toBe(0)
+  })
+
   it('addCaptureMarker adds one marker with type=capture, given freqHz, rowOffset=0, and a numeric id', () => {
     const { result } = renderHook(() => useWaterfallMarkers())
     act(() => result.current.addCaptureMarker(98000000))
@@ -34,7 +50,9 @@ describe('useWaterfallMarkers', () => {
       result.current.addCaptureMarker(98000000)
       result.current.addCaptureMarker(129125000)
     })
+    const markers = result.current.markers
     act(() => result.current.tickAndPrune(98000000, 100))
+    expect(result.current.markers).not.toBe(markers)
     const freq1 = result.current.markers.find((m) => m.freqHz === 98000000)
     const freq2 = result.current.markers.find((m) => m.freqHz === 129125000)
     expect(freq1.rowOffset).toBe(1)

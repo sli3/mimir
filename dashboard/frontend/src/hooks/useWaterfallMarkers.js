@@ -30,6 +30,7 @@ import { useState, useRef, useCallback } from 'react'
  * lifecycle, so tickAndPrune only ever advances/prunes markers whose
  * freqHz matches the calling strip.  Markers for other frequencies are
  * passed through untouched — their strips tick them independently.
+ * Ticks with no matching markers preserve the existing array reference.
  *
  * No persistence: markers live in React state only.  A page refresh
  * clears them, which is the intended behaviour.
@@ -81,11 +82,13 @@ export default function useWaterfallMarkers() {
     // measurement it can be 0 or undefined, in which case there is no
     // meaningful row to advance to.
     if (typeof height !== 'number' || !Number.isFinite(height) || height <= 0) return
-    setMarkers((prev) =>
-      prev
+    setMarkers((prev) => {
+      // Preserve state identity when this strip has no markers to advance.
+      if (prev.length === 0 || !prev.some((m) => m.freqHz === freqHz)) return prev
+      return prev
         .map((m) => (m.freqHz === freqHz ? { ...m, rowOffset: m.rowOffset + 1 } : m))
         .filter((m) => !(m.freqHz === freqHz && m.rowOffset >= height))
-    )
+    })
   }, [])
 
   return {

@@ -266,7 +266,7 @@ function OneShotResult({ result }) {
 }
 
 /**
- * Record-mode replay result view - grid of chunks plus detail panel.
+ * Record-mode replay grid with burst intensity tooltips and chunk details.
  */
 function RecordResult({ result }) {
   const [selectedIndex, setSelectedIndex] = useState(0)
@@ -432,7 +432,7 @@ function RecordResult({ result }) {
               className={`replay-chunk-cell ${selectedIndex === idx ? 'replay-chunk-cell-selected' : ''}`}
               data-testid={`replay-chunk-cell-${idx}`}
               onClick={() => setSelectedIndex(idx)}
-              title={`Chunk ${idx + 1}: ${matched ? 'matched' : 'mismatched'}`}
+              title={`Chunk ${idx + 1}: ${matched ? 'matched' : 'mismatched'}${t > 0 ? ` · burst ${t.toFixed(2)}` : ''}`}
               style={{ ...cellStyle, ...ringStyle }}
             >
               {idx + 1}
