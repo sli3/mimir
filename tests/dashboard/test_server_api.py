@@ -14,6 +14,7 @@ import os
 from unittest.mock import patch
 
 import pytest
+from flask.testing import FlaskClient
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -134,26 +135,29 @@ class TestApiFrequencies:
 class TestApiFrequenciesErrorHandling:
     """Tests for error paths in /api/frequencies."""
 
-    def test_corrupt_file_returns_500(self, client):
-        """If the reference file is unreadable, return 500 with error JSON."""
+    def test_corrupt_file_returns_500(self, client: FlaskClient) -> None:
+        """Invalid JSON read by the frequency route returns 500 error JSON."""
         from unittest.mock import patch, mock_open
-        from dashboard import server as server_module
+        from dashboard import routes_frequencies
 
-        with patch.object(server_module, "open", mock_open(read_data="not json")):
+        with patch.object(
+            routes_frequencies, "open", mock_open(read_data="not json"),
+        ):
             response = client.get("/api/frequencies")
             assert response.status_code == 500
             data = response.get_json()
             assert "error" in data
 
-    def test_missing_file_returns_500(self, client):
-        """If the reference file does not exist, return 500 with error JSON."""
+    def test_missing_file_returns_500(self, client: FlaskClient) -> None:
+        """A missing reference file in the frequency route returns 500 JSON."""
         from unittest.mock import patch
-        from dashboard import server as server_module
+        from dashboard import routes_frequencies
 
-        def raise_fnf(*args, **kwargs):
+        def raise_fnf(*args: object, **kwargs: object) -> None:
+            """Simulate a missing frequency-reference file."""
             raise FileNotFoundError("No such file")
 
-        with patch.object(server_module, "open", raise_fnf):
+        with patch.object(routes_frequencies, "open", raise_fnf):
             response = client.get("/api/frequencies")
             assert response.status_code == 500
             data = response.get_json()

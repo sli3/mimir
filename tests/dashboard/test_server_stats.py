@@ -3,7 +3,6 @@ import os
 import time
 from collections.abc import Iterator
 from datetime import datetime, timezone
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -947,21 +946,30 @@ class TestEmitAdsbScanResult:
             dashboard.server._focused_freq_hz = saved
 
 
-    def test_function_body_excludes_classifier_and_caps(self) -> None:
-        """Static guard: emit_adsb_scan_result() never calls classify() or caps."""
-        server_path = Path(__file__).parent.parent.parent / "dashboard" / "server.py"
-        source = server_path.read_text()
-        start = source.find("def emit_adsb_scan_result")
-        assert start != -1, "emit_adsb_scan_result not found in server.py"
-        next_def = source.find("\ndef ", start + len("def emit_adsb_scan_result"))
-        body = source[start:next_def] if next_def != -1 else source[start:]
-        assert "classify(" not in body, (
-            "emit_adsb_scan_result() must not call classify() — "
-            "decoder-driven results are ground truth."
-        )
-        assert "_apply_confidence_caps" not in body, (
-            "emit_adsb_scan_result() must not apply fingerprint confidence caps."
-        )
+    def test_decode_bypasses_classifier_and_caps(self) -> None:
+        """A confirmed decode emits ground truth without classifier processing."""
+        msg = self._make_adsb_message()
+        with (
+            patch.object(server, "_focused_freq_hz", None),
+            patch("llm.classifier.SignalClassifier.classify") as classify,
+            patch(
+                "llm.classifier.SignalClassifier._apply_confidence_caps"
+            ) as caps,
+            patch(
+                "llm.classifier.SignalClassifier.classify_noise_deterministic"
+            ) as classify_noise,
+            patch("dashboard.server.socketio.emit") as emit,
+        ):
+            server.emit_adsb_scan_result(msg)
+
+        classify.assert_not_called()
+        caps.assert_not_called()
+        classify_noise.assert_not_called()
+        emit.assert_called_once()
+        event_name, payload = emit.call_args.args
+        assert event_name == "scan_result"
+        assert payload["confidence_score"] == 1.0
+        assert payload["source"] == "decode"
 
     def test_decode_payload_is_ground_truth(self) -> None:
         """Behavioural guard: decoder-driven payload has source=decode and confidence=1.0."""
@@ -1104,14 +1112,14 @@ class TestUnsupportedBandsOrEmpty:
             server._warned_unknown_devices.clear()
 
     def test_known_device_map_passes_through(self) -> None:
-        """The stats guard returns the helper's normal map unchanged."""
+        """The lifecycle guard returns the helper map without warning."""
         expected = {"fm_broadcast": "Unsupported on this device"}
         with (
             patch(
                 "dashboard.server.shared_state.unsupported_bands_for_device",
                 return_value=expected,
             ) as lookup,
-            patch("dashboard.server.logger.warning") as warning,
+            patch("dashboard.lifecycle.logger.warning") as warning,
         ):
             assert server._unsupported_bands_or_empty("plutosdr") is expected
 
@@ -1119,8 +1127,8 @@ class TestUnsupportedBandsOrEmpty:
         warning.assert_not_called()
 
     def test_unknown_device_warns_once_per_distinct_key(self) -> None:
-        """Repeated unknown keys return empty maps and warn once per key."""
-        with patch("dashboard.server.logger.warning") as warning:
+        """The lifecycle logger warns once per unknown key with empty maps."""
+        with patch("dashboard.lifecycle.logger.warning") as warning:
             assert server._unsupported_bands_or_empty("unknown_device") == {}
             assert server._unsupported_bands_or_empty("unknown_device") == {}
             warning.assert_called_once_with(
@@ -1181,13 +1189,13 @@ class TestRunSocketio:
     """Server-thread logging reports attempts and catches runner failures."""
 
     def test_runner_failure_logs_exception_without_raising(self) -> None:
-        """A runner failure is logged and ends the call without propagating."""
+        """The lifecycle logger records runner failure without propagation."""
         with (
             patch(
                 "dashboard.server.socketio.run",
                 side_effect=RuntimeError("bind failed"),
             ) as run,
-            patch("dashboard.server.logger.exception") as exception,
+            patch("dashboard.lifecycle.logger.exception") as exception,
         ):
             assert server._run_socketio("localhost", 5000) is None
 
@@ -1200,11 +1208,11 @@ class TestRunSocketio:
         )
 
     def test_runner_logs_start_attempt_and_preserves_arguments(self) -> None:
-        """A normal runner call logs the attempt and uses the required options."""
+        """The lifecycle logger records attempts with required runner options."""
         with (
             patch("dashboard.server.socketio.run") as run,
-            patch("dashboard.server.logger.info") as info,
-            patch("dashboard.server.logger.exception") as exception,
+            patch("dashboard.lifecycle.logger.info") as info,
+            patch("dashboard.lifecycle.logger.exception") as exception,
         ):
             assert server._run_socketio("localhost", 5000) is None
 
@@ -1218,68 +1226,92 @@ class TestRunSocketio:
         exception.assert_not_called()
 
 
+@pytest.fixture(params=[("hackrf", "HackRF One"), ("plutosdr", "ADALM-PLUTO")])
+def known_device_stats(request: pytest.FixtureRequest) -> tuple[dict, dict]:
+    """Run one stats iteration and verify calls to the real device helpers."""
+    class _StopStats(Exception):
+        """End the stats loop at its second sleep call."""
+
+    device, display_name = request.param
+    expected = {
+        "device": device,
+        "unsupported_bands": ss.unsupported_bands_for_device(device),
+        "current_device_display": display_name,
+    }
+    saved_device = server._device_ref
+    saved_scanner = server._scanner_ref
+    with ss.current_device_lock:
+        saved_current_device = ss.current_device
+    try:
+        with ss.current_device_lock:
+            ss.current_device = device
+        with (
+            patch("dashboard.server.threading.Thread") as thread,
+            patch("dashboard.server.socketio.emit") as emit,
+            patch(
+                "dashboard.server.time.sleep", side_effect=[None, _StopStats()],
+            ) as sleep,
+            patch(
+                "dashboard.shared_state.unsupported_bands_for_device",
+                wraps=ss.unsupported_bands_for_device,
+            ) as unsupported_bands,
+            patch(
+                "dashboard.shared_state.display_name_for_device",
+                wraps=ss.display_name_for_device,
+            ) as display_name_lookup,
+        ):
+            server.start_server("127.0.0.1", 5000, device=None, scanner=None)
+            targets = [
+                call.kwargs["target"]
+                for call in thread.call_args_list
+                if call.kwargs["target"].__name__ == "emit_stats"
+            ]
+            assert len(targets) == 1
+            with pytest.raises(_StopStats):
+                targets[0]()
+
+            assert sleep.call_count == 2
+            unsupported_bands.assert_called_once_with(device)
+            display_name_lookup.assert_called_once_with(device)
+            emit.assert_called_once()
+            event_name, payload = emit.call_args.args
+            assert event_name == "system_stats"
+            return payload, expected
+    finally:
+        with ss.current_device_lock:
+            ss.current_device = saved_current_device
+        server._device_ref = saved_device
+        server._scanner_ref = saved_scanner
+
+
 class TestSystemStatsDeviceField:
-    """Static-source guard that emit_stats() reads current_device and
-    calls unsupported_bands_for_device to populate the system_stats
-    payload (Phase 38).
+    """Runtime guards for device helpers and device-aware stats payloads."""
 
-    Per the task: emit_stats runs in a 2s background thread and is
-    awkward to unit-test directly, so the test is a static-source
-    assertion that the function body imports/uses the helper rather
-    than re-deriving the support logic. The behaviour is covered by
-    the helper's own unit tests in test_pluto_band_profiles.py.
-    """
+    def test_emit_stats_uses_device_helpers(
+        self, known_device_stats: tuple[dict, dict],
+    ) -> None:
+        """Real device helpers supply the complete device stats payload."""
+        payload, expected = known_device_stats
+        for key, value in expected.items():
+            assert payload[key] == value
 
-    def test_server_py_imports_unsupported_bands_helper(self):
-        from pathlib import Path
-        server_path = Path(__file__).parent.parent.parent / "dashboard" / "server.py"
-        source = server_path.read_text()
-        assert "unsupported_bands_for_device" in source, (
-            "dashboard/server.py must call shared_state.unsupported_bands_for_device "
-            "to build the system_stats unsupported_bands payload"
-        )
-
-    def test_emit_stats_emits_device_key(self):
-        from pathlib import Path
-        server_path = Path(__file__).parent.parent.parent / "dashboard" / "server.py"
-        source = server_path.read_text()
-        # Find the emit_stats function body and assert both keys land
-        # in the data dict. Slice from "def emit_stats" to the next
-        # top-level def.
-        start = source.find("def emit_stats")
-        assert start != -1
-        next_def = source.find("\ndef ", start + len("def emit_stats"))
-        body = source[start:next_def] if next_def != -1 else source[start:]
-        assert '"device"' in body, "emit_stats() must include the device key"
-        assert '"unsupported_bands"' in body, "emit_stats() must include the unsupported_bands key"
-        assert "current_device_lock" in body, "emit_stats() must acquire the current_device lock"
+    def test_emit_stats_emits_device_key(
+        self, known_device_stats: tuple[dict, dict],
+    ) -> None:
+        """Stats include the active driver and its unsupported-band map."""
+        payload, expected = known_device_stats
+        assert payload["device"] == expected["device"]
+        assert payload["unsupported_bands"] == expected["unsupported_bands"]
 
 
 class TestSystemStatsCurrentDeviceDisplay:
-    """Static-source guard that emit_stats() calls display_name_for_device
-    to populate the system_stats current_device_display payload (Phase 40b).
+    """Runtime guard for friendly device names in the stats payload."""
 
-    Per the Phase 38 precedent: emit_stats runs in a 2s background thread
-    and is awkward to unit-test directly, so this is a static-source
-    assertion that the function body uses the new helper rather than
-    re-deriving the friendly name inline. The behaviour is covered by
-    the helper's own unit tests in TestDisplayNameForDevice.
-    """
-
-    def test_emit_stats_emits_current_device_display_key(self):
-        from pathlib import Path
-        server_path = Path(__file__).parent.parent.parent / "dashboard" / "server.py"
-        source = server_path.read_text()
-        # Find the emit_stats function body and assert the new key lands
-        # in the data dict, adjacent to the existing "device" key.
-        start = source.find("def emit_stats")
-        assert start != -1
-        next_def = source.find("\ndef ", start + len("def emit_stats"))
-        body = source[start:next_def] if next_def != -1 else source[start:]
-        assert '"current_device_display"' in body, (
-            "emit_stats() must include the current_device_display key"
-        )
-        assert "display_name_for_device" in body, (
-            "emit_stats() must call shared_state.display_name_for_device to "
-            "build the current_device_display payload"
+    def test_emit_stats_emits_current_device_display_key(
+        self, known_device_stats: tuple[dict, dict],
+    ) -> None:
+        """Stats include the real helper's friendly name for each device."""
+        payload, expected = known_device_stats
+        assert (
+            payload["current_device_display"] == expected["current_device_display"]
         )
