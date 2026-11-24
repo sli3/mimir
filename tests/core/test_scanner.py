@@ -1578,6 +1578,81 @@ class TestScanLoopRetuneDiscard:
             f"but found {retune_then_read} read_samples calls preceded by set_center_frequency"
         )
 
+    def test_discard_read_after_focus_change(
+        self,
+        scanner: ScanRunner,
+        mock_device: MagicMock,
+    ) -> None:
+        """T7b: each retune's discarded buffer never reaches PSD processing.
+
+        Wait for reads before the focus change and processing after the retune.
+        """
+        import numpy as np
+        from unittest.mock import DEFAULT
+
+        from core.pipeline.fft import compute_psd
+
+        read_indices: list[int] = []
+        processed_indices: list[int] = []
+
+        def distinct_samples(num_samples: int) -> np.ndarray:
+            """Return a distinct complex64 buffer and record its read index."""
+            index = len(read_indices) + 1
+            read_indices.append(index)
+            return np.full(num_samples, index, dtype=np.complex64)
+
+        def record_processing(
+            samples: np.ndarray, *args: object, **kwargs: object,
+        ) -> object:
+            """Record the buffer index, then defer to the wrapped real FFT."""
+            processed_indices.append(int(samples[0].real))
+            return DEFAULT
+
+        mock_device.read_samples.side_effect = distinct_samples
+        manager = MagicMock()
+        manager.attach_mock(mock_device.set_center_frequency, "set_center_frequency")
+        manager.attach_mock(mock_device.read_samples, "read_samples")
+        with patch(
+            "core.pipeline.scanner.compute_psd",
+            wraps=compute_psd,
+            side_effect=record_processing,
+        ):
+            t = threading.Thread(target=scanner.run, daemon=True)
+            t.start()
+            try:
+                wait_until(lambda: mock_device.read_samples.call_count >= 2)
+                scanner.set_focus_frequency(145_175_000.0)
+                wait_until(lambda: mock_device.set_center_frequency.call_count >= 2)
+                read_count = mock_device.read_samples.call_count
+                wait_until(lambda: mock_device.read_samples.call_count >= read_count + 2)
+                wait_until(
+                    lambda: bool(processed_indices)
+                    and processed_indices[-1] >= read_count + 2
+                )
+            finally:
+                scanner.stop()
+                t.join(timeout=3)
+        calls = [c[0] for c in manager.mock_calls]
+        retune_then_read = sum(
+            1 for i in range(len(calls) - 1)
+            if calls[i] == "set_center_frequency" and calls[i + 1] == "read_samples"
+        )
+        assert retune_then_read == 2
+        assert mock_device.set_center_frequency.call_args_list == [
+            ((98_000_000.0,), {}),
+            ((145_175_000.0,), {}),
+        ]
+        # Map each tune to its first two reads using the ordered device log.
+        reads_before_tune = 0
+        for name in calls:
+            if name == "set_center_frequency":
+                discard_index = read_indices[reads_before_tune]
+                next_index = read_indices[reads_before_tune + 1]
+                assert discard_index not in processed_indices
+                assert next_index in processed_indices
+            elif name == "read_samples":
+                reads_before_tune += 1
+
 
 class TestDeviceDriverValidation:
     """ScanRunner.__init__ must reject unknown device_driver strings.

@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import path from 'node:path'
 import { freqMatches, findCanonicalValue, FREQ_TOLERANCE_HZ } from '../utils/frequency.js'
 
 const FREQ_LABEL_MAP = {
@@ -82,6 +85,19 @@ describe('findCanonicalValue', () => {
 })
 
 describe('FREQ_TOLERANCE_HZ', () => {
+  /** Keep the browser's focus tolerance paired with the Python declaration. */
+  it('matches the backend focus frequency tolerance', () => {
+    const pythonPath = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      '../../../../core/pipeline/frequency.py',
+    )
+    const source = readFileSync(pythonPath, 'utf8')
+    const match = source.match(/^FOCUS_FREQ_TOLERANCE_HZ\s*:\s*int\s*=\s*([\d_]+)/m)
+    expect(match).not.toBeNull()
+    const backendTolerance = Number(match[1].replaceAll('_', ''))
+    expect(backendTolerance).toBe(FREQ_TOLERANCE_HZ)
+  })
+
   it('exists and equals 100 kHz', () => {
     expect(FREQ_TOLERANCE_HZ).toBe(100_000)
   })

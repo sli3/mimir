@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import builtins
 import logging
 import multiprocessing
@@ -160,17 +161,36 @@ def test_open_and_read_round_trip(receiver_builder: Callable) -> None:
 
 
 def test_helper_logging_matches_console_format() -> None:
-    """A real spawned fake reports the scanner's literal console log formats.
+    """Compare child log formats with scan.py and the expected literals.
 
     Inspect logging in the child so the parent's logging and signal state
     remain under pytest's control.
     """
+    scan_path = Path(__file__).resolve().parents[2] / "scan.py"
+    scan_tree = ast.parse(scan_path.read_text(encoding="utf-8"))
+    console_formats = {}
+    for node in ast.walk(scan_tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "basicConfig"
+        ):
+            console_formats = {
+                keyword.arg: ast.literal_eval(keyword.value)
+                for keyword in node.keywords
+                if keyword.arg in {"format", "datefmt"}
+            }
+            break
+    assert "format" in console_formats
+    assert "datefmt" in console_formats
     receiver = ReceiverProcess(
         "hackrf", receiver_factory=_make_log_reporting_receiver, open_timeout=5.0,
     )
     try:
         receiver.open()
         info = receiver.device_info()
+        assert info["log_format"] == console_formats["format"]
+        assert info["log_datefmt"] == console_formats["datefmt"]
         assert info["log_format"] == (
             "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
         )

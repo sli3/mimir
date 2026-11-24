@@ -924,6 +924,58 @@ describe('RadarScopePanel', () => {
       expect(container.querySelector('[data-testid="radar-prediction-box"]')).not.toBeNull()
     })
 
+    /** Guard the dashed line's direction when an opening projection exceeds range. */
+    it('directs the dashed line towards the clamped projection', () => {
+      // thetaDegPerSec is the BEARING rate (deg/s) and deltaRNmPerSec is
+      // the RANGE rate (nm/s); backend delta_r_deg_per_sec is a bearing
+      // rate, so do not confuse them.
+      const maxRangeNm = 40
+      const ac = { icao: 'ABC123', callsign: 'VOZ123', bearing_deg: 10, range_nm: 30, timestamp: '1970-01-01T00:00:11.000Z' }
+      const trail = [
+        { bearing_deg: 0, range_nm: 10, ts: 1000 },
+        { bearing_deg: 10, range_nm: 30, ts: 11000 },
+      ]
+      expect(isValidContact(ac, maxRangeNm)).toBe(true)
+      const v = derivePredictionVector(trail)
+      expect(v).not.toBeNull()
+      const proj = projectPosition(ac.bearing_deg, ac.range_nm, v.thetaDegPerSec, v.deltaRNmPerSec, 45)
+      expect(proj.range_nm).toBeGreaterThan(2 * maxRangeNm)
+      const here = projectToScope(ac.bearing_deg, ac.range_nm, maxRangeNm, SCOPE_CX, SCOPE_CY, SCOPE_MAX_R)
+      const there = projectToScope(proj.bearing_deg, Math.min(proj.range_nm, maxRangeNm), maxRangeNm, SCOPE_CX, SCOPE_CY, SCOPE_MAX_R)
+      // projectToScope clamps internally too. Expand its range and pixel
+      // radius together to preserve pixels per nm beyond the visible ring.
+      const unclampedThere = projectToScope(
+        proj.bearing_deg, proj.range_nm, proj.range_nm,
+        SCOPE_CX, SCOPE_CY, SCOPE_MAX_R * proj.range_nm / maxRangeNm,
+      )
+      /** Normalise a non-zero screen displacement to a unit direction. */
+      const unitDirection = (dx, dy) => {
+        const length = Math.hypot(dx, dy)
+        expect(length).toBeGreaterThan(0)
+        return { x: dx / length, y: dy / length }
+      }
+      /** Measure the angle between unit directions, allowing floating point drift. */
+      const angleDegrees = (a, b) => (
+        Math.acos(Math.max(-1, Math.min(1, a.x * b.x + a.y * b.y))) * 180 / Math.PI
+      )
+      const clampedDirection = unitDirection(there.x - here.x, there.y - here.y)
+      const unclampedDirection = unitDirection(unclampedThere.x - here.x, unclampedThere.y - here.y)
+      expect(angleDegrees(clampedDirection, unclampedDirection)).toBeGreaterThan(5)
+      const trailsRef = { current: new Map([['ABC123', trail]]) }
+      const { container } = render(
+        <RadarScopePanel adsbAircraft={{ ABC123: ac }} focusedFreq={TUNED_FREQ} maxRangeNm={maxRangeNm} selectedIcao="ABC123" trailsRef={trailsRef} />
+      )
+      const line = container.querySelector('[data-testid="radar-prediction-line"] line')
+      expect(line).not.toBeNull()
+      const renderedDirection = unitDirection(
+        Number(line.getAttribute('x2')) - Number(line.getAttribute('x1')),
+        Number(line.getAttribute('y2')) - Number(line.getAttribute('y1')),
+      )
+      // SVG coordinates round to two decimals, so allow a small angular error.
+      expect(angleDegrees(renderedDirection, clampedDirection)).toBeLessThan(0.1)
+      expect(angleDegrees(renderedDirection, unclampedDirection)).toBeGreaterThan(5)
+    })
+
     it('falls back to `here` -> true-to-scale `there` for the line in the degenerate case', () => {
       // Companion to the degenerate-dots test above: when the on-screen
       // displacement is too small to normalise (< 0.01 px), no dots
