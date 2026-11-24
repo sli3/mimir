@@ -123,10 +123,16 @@ def _demo_config(dwell_time_sec: float = 0.01) -> MimirConfig:
 
 
 class _FakeScanner:
-    """Minimal scanner stand-in: DemoProducer only needs ``_queue``."""
+    """Scanner stand-in with a chunk queue and recorded demo frequencies."""
 
-    def __init__(self):
+    def __init__(self) -> None:
+        """Initialise the queue and frequency report history."""
         self._queue: queue.Queue = queue.Queue(maxsize=20)
+        self.reported_frequencies: list[float] = []
+
+    def report_demo_frequency(self, freq_hz: float) -> None:
+        """Record the replayed capture's reported centre frequency."""
+        self.reported_frequencies.append(freq_hz)
 
 
 @pytest.fixture
@@ -205,6 +211,90 @@ class TestDemoProducerConstructor:
 
 class TestDemoProducerThread:
     """Tests for DemoProducer.start() / stop() and the _run() thread body."""
+
+    def test_produced_chunk_reports_queued_frequency(
+        self,
+        tmp_path: Path,
+        embedder: SpectrumEmbedder,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A synchronously produced chunk reports its queued centre frequency."""
+        meta_path = _build_one_shot(tmp_path)
+        scanner = _FakeScanner()
+        producer = DemoProducer(
+            sigmf_files=[meta_path],
+            embedder=embedder,
+            scanner=scanner,
+            config=_demo_config(),
+        )
+        monkeypatch.setattr(
+            "core.pipeline.demo_producer.DEMO_CHUNK_INTERVAL_SEC", 0.0
+        )
+        info = producer._file_infos[meta_path]
+
+        producer._produce_chunk(
+            meta=info["meta"],
+            file_id=info["file_id"],
+            chunk_idx="0",
+            sample_start=None,
+            sample_count=-1,
+            q=scanner._queue,
+            embedder=embedder,
+        )
+
+        item = scanner._queue.get_nowait()
+        assert item["freq_hz"] == _FREQ_HZ
+        assert scanner.reported_frequencies == [item["freq_hz"]]
+
+    def test_frequency_report_failure_preserves_chunk_and_broadcast(
+        self,
+        tmp_path: Path,
+        embedder: SpectrumEmbedder,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A failed frequency report logs its exception and allows broadcast."""
+        meta_path = _build_one_shot(tmp_path)
+        scanner = _FakeScanner()
+        report = MagicMock(side_effect=RuntimeError("frequency report failed"))
+        monkeypatch.setattr(scanner, "report_demo_frequency", report)
+        broadcast = MagicMock()
+        producer = DemoProducer(
+            sigmf_files=[meta_path],
+            embedder=embedder,
+            scanner=scanner,
+            config=_demo_config(),
+            broadcast_spectrum_fn=broadcast,
+        )
+        monkeypatch.setattr(
+            "core.pipeline.demo_producer.DEMO_CHUNK_INTERVAL_SEC", 0.0
+        )
+        info = producer._file_infos[meta_path]
+
+        producer._produce_chunk(
+            meta=info["meta"],
+            file_id=info["file_id"],
+            chunk_idx="0",
+            sample_start=None,
+            sample_count=-1,
+            q=scanner._queue,
+            embedder=embedder,
+        )
+
+        item = scanner._queue.get_nowait()
+        assert item["freq_hz"] == _FREQ_HZ
+        report.assert_called_once_with(item["freq_hz"])
+        broadcast.assert_called_once()
+        assert broadcast.call_args.args[1] == item["freq_hz"]
+        records = [
+            record for record in caplog.records
+            if record.name == "core.pipeline.demo_producer"
+        ]
+        assert len(records) == 1
+        assert records[0].getMessage() == (
+            "Frequency reporting failed in demo producer"
+        )
+        assert records[0].exc_info is not None
 
     def test_start_stop_cleanly_terminates(
         self, tmp_path: Path, embedder: SpectrumEmbedder

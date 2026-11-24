@@ -810,6 +810,46 @@ class TestScanRunner:
             t.join(timeout=3)
         assert scanner.get_stats()["scan_count"] > 0
 
+    def test_demo_frequency_report_updates_stats(
+        self,
+        config: MimirConfig,
+        mock_device: MagicMock,
+        mock_embedder: MagicMock,
+        mock_store: MagicMock,
+        mock_classifier: MagicMock,
+    ) -> None:
+        """Demo stats start at zero and then reflect the reported centre."""
+        scanner = ScanRunner(
+            mock_device, mock_embedder, mock_store, mock_classifier, config,
+            is_demo_device=True,
+        )
+        assert scanner.get_stats()["active_frequency_hz"] == 0.0
+
+        scanner.report_demo_frequency(1_090_030_000.0)
+
+        assert scanner.get_stats()["active_frequency_hz"] == 1_090_030_000.0
+
+    def test_live_demo_frequency_reports_are_ignored_with_one_warning(
+        self,
+        scanner: ScanRunner,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Repeated demo reports preserve live stats and warn once per runner."""
+        with caplog.at_level(logging.WARNING, logger="core.pipeline.scanner"):
+            scanner.report_demo_frequency(1_090_030_000.0)
+            scanner.report_demo_frequency(1_090_000_000.0)
+
+        assert scanner.get_stats()["active_frequency_hz"] == 0.0
+        records = [
+            record for record in caplog.records
+            if record.name == "core.pipeline.scanner"
+            and record.levelno == logging.WARNING
+        ]
+        assert len(records) == 1
+        assert records[0].getMessage() == (
+            "Ignoring demo frequency report in live mode"
+        )
+
     def test_active_freq_hz_set_after_run(
         self,
         scanner: ScanRunner,

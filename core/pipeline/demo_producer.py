@@ -263,10 +263,11 @@ class DemoProducer:
         q,
         embedder,
     ) -> None:
-        """Read, fingerprint, embed, and queue one chunk.
+        """Read, fingerprint, embed, queue, and report one replayed chunk.
 
         Per-chunk exceptions are logged and swallowed so the demo keeps
-        running.
+        running. Frequency reporting failures are logged separately so the
+        queued chunk and its spectrum broadcast can still reach consumers.
         """
         try:
             time.sleep(DEMO_CHUNK_INTERVAL_SEC)
@@ -295,6 +296,11 @@ class DemoProducer:
                 "psd_db": psd_result["psd_db"],
             }
             q.put(item)
+
+            try:
+                self._scanner.report_demo_frequency(self._core_freq_hz)
+            except Exception:
+                logger.exception("Frequency reporting failed in demo producer")
 
             if self._broadcast_spectrum_fn is not None:
                 try:

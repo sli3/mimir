@@ -178,6 +178,9 @@ class ScanRunner:
         and must reach the AI loop, not be silently dropped on every socket
         reconnect. Defaults to False (live mode).
 
+        Demo frequency reports update runtime statistics only in demo mode;
+        live-mode reports are ignored with one warning per instance.
+
         Raises:
             ValueError: If device_driver is not a DEVICE_PROFILES key. The
                 scan loop's guard calls band_supported_by_device(), which
@@ -193,6 +196,7 @@ class ScanRunner:
         self._device = device
         self._device_driver = device_driver
         self._is_demo_device = is_demo_device
+        self._demo_frequency_warning_logged: bool = False
         self._embedder = embedder
         self._store = store
         self._classifier = classifier
@@ -345,11 +349,25 @@ class ScanRunner:
             return False
         return self._scan_loop_finished.wait(timeout=timeout)
 
+    def report_demo_frequency(self, freq_hz: float) -> None:
+        """Report the replayed capture's centre frequency in demo mode.
+
+        Ignore live-mode reports and warn once per instance because the
+        scan loop owns the live SDR centre frequency.
+        """
+        if self._is_demo_device:
+            self._active_freq_hz = float(freq_hz)
+        elif not self._demo_frequency_warning_logged:
+            self._demo_frequency_warning_logged = True
+            logger.warning("Ignoring demo frequency report in live mode")
+
     def get_stats(self) -> dict:
         """Return current scanner runtime statistics.
 
         Keys:
-            active_frequency_hz : float  — current SDR center frequency
+            active_frequency_hz : float  — current SDR centre frequency, or
+                in demo mode the centre frequency of the capture being
+                replayed (0.0 until the first report)
             scan_count          : int    — total scan cycles completed
             queue_depth         : int    — current AI queue depth (0–1)
             last_backlog        : int    — scan cycles since last LLM pickup
