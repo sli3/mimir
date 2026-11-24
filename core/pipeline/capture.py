@@ -6,6 +6,7 @@ Legal: Receive-only. Radiocommunications Act 1992 (Cth).
 """
 
 import logging
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -17,6 +18,8 @@ from core.device.pluto_rx import PlutoReceiver
 from core.device.profiles import DEVICE_PROFILES
 
 logger = logging.getLogger(__name__)
+
+_SAVE_NAME_LOCK = threading.Lock()
 
 # The seven measurement keys from fingerprint_spectrum() written into
 # SigMF metadata under the nested "mimir:fingerprint" global field.
@@ -154,6 +157,21 @@ def capture_iq_pluto(
         raise
 
 
+def _unique_base_path(output_dir: Path, freq_hz: float) -> Path:
+    """Choose a free SigMF base through _999; caller must hold _SAVE_NAME_LOCK."""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base_name = f"capture_{int(freq_hz)}hz_{timestamp}"
+    for number in range(1, 1000):
+        suffix = "" if number == 1 else f"_{number}"
+        candidate = output_dir / f"{base_name}{suffix}"
+        if not (
+            candidate.with_suffix(".sigmf-meta").exists()
+            or candidate.with_suffix(".sigmf-data").exists()
+        ):
+            return candidate
+    raise FileExistsError(f"All SigMF names through {base_name}_999 are taken")
+
+
 def save_capture(
     samples: np.ndarray,
     freq_hz: float,
@@ -174,7 +192,8 @@ def save_capture(
 
     The device identity is stored in the JSON metadata only, never in
     the filename. The filename stays controlled (numeric frequency plus
-    timestamp) so no caller-controlled string can influence the path.
+    timestamp, with an optional numeric suffix) so no caller-controlled
+    string can influence the path.
 
     This function is device-agnostic and RECEIVE-ONLY: it writes files
     and nothing else. It performs no software DSP - bandwidth_hz is
@@ -222,10 +241,14 @@ def save_capture(
         KeyError: If device is not a DEVICE_PROFILES driver key. This is
                   deliberate fail-fast behaviour: the KeyError contains
                   the invalid device key.
+        FileExistsError: If the plain name and every suffix up to _999
+                         are taken by metadata or data files.
 
     Files written:
-        {output_dir}/capture_{int(freq_hz)}hz_{YYYYMMDD_HHMMSS}.sigmf-data
-        {output_dir}/capture_{int(freq_hz)}hz_{YYYYMMDD_HHMMSS}.sigmf-meta
+        {output_dir}/capture_{int(freq_hz)}hz_{YYYYMMDD_HHMMSS}[_N].sigmf-data
+        {output_dir}/capture_{int(freq_hz)}hz_{YYYYMMDD_HHMMSS}[_N].sigmf-meta
+        The optional _N suffix (_2 through _999) is used only when the
+        plain name is taken.
 
     Metadata recorded:
         core:datatype    — "cf32_le" (from the complex64 array)
@@ -242,10 +265,6 @@ def save_capture(
                              is not None)
     """
     output_dir.mkdir(parents=True, exist_ok=True)
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    base_name = f"capture_{int(freq_hz)}hz_{timestamp}"
-    base_path = output_dir / base_name
 
     meta = sigmf.fromarray(samples)
     meta.sample_rate = sample_rate_hz
@@ -288,7 +307,11 @@ def save_capture(
         capture_meta["core:bandwidth"] = bandwidth_hz
     meta.add_capture(start_index=0, metadata=capture_meta)
 
-    meta.tofile(base_path)
+    # Keep name selection and writing together so request threads cannot
+    # choose the same base. SigMF retains its default overwrite=False.
+    with _SAVE_NAME_LOCK:
+        base_path = _unique_base_path(output_dir, freq_hz)
+        meta.tofile(base_path)
     meta_path = Path(str(base_path) + ".sigmf-meta")
     logger.info("Saved SigMF capture to %s", meta_path)
     return meta_path
@@ -339,9 +362,8 @@ def save_recording(
     passes them, so this function has the same safety property as
     save_capture() regardless of what the caller hands over.
 
-    DRIFT RISK: save_capture() must remain byte-for-byte stable for
-    existing consumers, so the SigMF boilerplate below is DUPLICATED
-    rather than shared through a helper. Any future SigMF metadata
+    DRIFT RISK: both save functions share the naming helper and lock,
+    but the SigMF boilerplate below is still DUPLICATED. Any future metadata
     change (namespace declaration, description text, capture-record
     shape) must be applied to BOTH functions in lockstep.
 
@@ -381,10 +403,14 @@ def save_recording(
     Raises:
         KeyError: If device is not a DEVICE_PROFILES driver key (same
                   fail-fast behaviour as save_capture()).
+        FileExistsError: If the plain name and every suffix up to _999
+                         are taken by metadata or data files.
 
     Files written:
-        {output_dir}/capture_{int(freq_hz)}hz_{YYYYMMDD_HHMMSS}.sigmf-data
-        {output_dir}/capture_{int(freq_hz)}hz_{YYYYMMDD_HHMMSS}.sigmf-meta
+        {output_dir}/capture_{int(freq_hz)}hz_{YYYYMMDD_HHMMSS}[_N].sigmf-data
+        {output_dir}/capture_{int(freq_hz)}hz_{YYYYMMDD_HHMMSS}[_N].sigmf-meta
+        The optional _N suffix (_2 through _999) is used only when the
+        plain name is taken.
 
     Metadata recorded:
         core:datatype    — "cf32_le" (from the complex64 array)
@@ -399,10 +425,6 @@ def save_recording(
                            sample_start / sample_count / timestamp_sec
     """
     output_dir.mkdir(parents=True, exist_ok=True)
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    base_name = f"capture_{int(freq_hz)}hz_{timestamp}"
-    base_path = output_dir / base_name
 
     meta = sigmf.fromarray(samples)
     meta.sample_rate = sample_rate_hz
@@ -448,7 +470,11 @@ def save_recording(
     capture_meta = {sigmf.FREQUENCY_KEY: freq_hz}
     meta.add_capture(start_index=0, metadata=capture_meta)
 
-    meta.tofile(base_path)
+    # Use the same lock as one-shot saves, including SigMF's non-overwriting
+    # write, so both save paths coordinate their filenames across threads.
+    with _SAVE_NAME_LOCK:
+        base_path = _unique_base_path(output_dir, freq_hz)
+        meta.tofile(base_path)
     meta_path = Path(str(base_path) + ".sigmf-meta")
     logger.info("Saved SigMF recording to %s", meta_path)
     return meta_path

@@ -17,6 +17,11 @@ Tests cover:
 import sys
 import os
 import re
+import threading
+from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from functools import partial
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -233,6 +238,133 @@ class TestCaptureIqUnchanged:
             mock_sdr.__enter__.assert_called_once()
             mock_sdr.read_samples.assert_called_once_with(1024)
             assert result is mock_sdr.read_samples.return_value
+
+
+class TestSaveNameCollisions:
+    """Both save paths preserve existing files and serialise name selection."""
+
+    _BASE_NAME = "capture_98000000hz_20261124_152422"
+
+    @pytest.fixture(autouse=True)
+    def frozen_capture_time(self) -> Iterator[None]:
+        """Freeze only the capture module's clock before any workers start."""
+        with patch("core.pipeline.capture.datetime") as clock:
+            clock.now.return_value = datetime(2026, 11, 24, 15, 24, 22)
+            yield
+
+    @pytest.fixture(params=["capture", "recording"])
+    def saver(
+        self, request: pytest.FixtureRequest, tmp_path: Path
+    ) -> Callable[[np.ndarray], Path]:
+        """Exercise each public save function with the same frequency and path."""
+        kwargs = {
+            "freq_hz": 98_000_000,
+            "sample_rate_hz": 2_000_000,
+            "device": "hackrf",
+            "output_dir": tmp_path,
+        }
+        if request.param == "recording":
+            return partial(save_recording, fingerprint_sequence=[], **kwargs)
+        return partial(save_capture, **kwargs)
+
+    def test_repeated_saves_preserve_first_pair(
+        self, saver: Callable[[np.ndarray], Path]
+    ) -> None:
+        """Same-second saves use the exact plain, _2 and _3 names without loss."""
+        first = saver(np.zeros(32, dtype=np.complex64))
+        assert first.name == f"{self._BASE_NAME}.sigmf-meta"
+        first_meta = first.read_bytes()
+        first_data = first.with_suffix(".sigmf-data").read_bytes()
+
+        second = saver(np.ones(32, dtype=np.complex64))
+        third = saver(np.full(32, 2, dtype=np.complex64))
+        assert second.name == f"{self._BASE_NAME}_2.sigmf-meta"
+        assert third.name == f"{self._BASE_NAME}_3.sigmf-meta"
+        for path in (first, second, third):
+            assert path.exists()
+            assert path.with_suffix(".sigmf-data").exists()
+        assert first.read_bytes() == first_meta
+        assert first.with_suffix(".sigmf-data").read_bytes() == first_data
+
+    @pytest.mark.parametrize("extension", [".sigmf-meta", ".sigmf-data"])
+    def test_orphaned_file_reserves_plain_name(
+        self, saver: Callable[[np.ndarray], Path], tmp_path: Path, extension: str
+    ) -> None:
+        """Either half of an existing pair forces _2 and stays unchanged."""
+        orphan = tmp_path / f"{self._BASE_NAME}{extension}"
+        orphan.write_bytes(b"existing capture")
+        result = saver(np.zeros(32, dtype=np.complex64))
+        assert result.name == f"{self._BASE_NAME}_2.sigmf-meta"
+        assert result.with_suffix(".sigmf-data").exists()
+        assert orphan.read_bytes() == b"existing capture"
+
+    def test_name_selection_and_write_hold_shared_lock(
+        self, saver: Callable[[np.ndarray], Path]
+    ) -> None:
+        """Both save functions hold the shared lock during naming and writing."""
+        from core.pipeline import capture
+
+        samples = np.zeros(32, dtype=np.complex64)
+        meta = sigmf.fromarray(samples)
+        choose_base = capture._unique_base_path
+        write_meta = meta.tofile
+        lock_states = []
+
+        def checked_base_path(output_dir: Path, freq_hz: float) -> Path:
+            """Record the shared lock state when the real name chooser runs."""
+            lock_states.append(("name", capture._SAVE_NAME_LOCK.locked()))
+            return choose_base(output_dir, freq_hz)
+
+        def checked_tofile(base_path: Path) -> None:
+            """Record the shared lock state when the real SigMF write runs."""
+            lock_states.append(("write", capture._SAVE_NAME_LOCK.locked()))
+            write_meta(base_path)
+
+        with (
+            patch("core.pipeline.capture.sigmf.fromarray", return_value=meta),
+            patch(
+                "core.pipeline.capture._unique_base_path",
+                side_effect=checked_base_path,
+            ),
+            patch.object(meta, "tofile", side_effect=checked_tofile),
+        ):
+            result = saver(samples)
+
+        assert lock_states == [("name", True), ("write", True)]
+        assert result.exists()
+        assert result.with_suffix(".sigmf-data").exists()
+
+    def test_concurrent_saves_choose_distinct_names(
+        self, saver: Callable[[np.ndarray], Path]
+    ) -> None:
+        """Two threads at one frozen instant save distinct, complete pairs."""
+        barrier = threading.Barrier(2)
+
+        def save_at_barrier() -> Path:
+            """Wait for the other request before saving at the frozen instant."""
+            barrier.wait(timeout=5)
+            return saver(np.zeros(32, dtype=np.complex64))
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [executor.submit(save_at_barrier) for _ in range(2)]
+            paths = [future.result(timeout=10) for future in futures]
+        assert {path.name for path in paths} == {
+            f"{self._BASE_NAME}.sigmf-meta",
+            f"{self._BASE_NAME}_2.sigmf-meta",
+        }
+        for path in paths:
+            assert path.exists()
+            assert path.with_suffix(".sigmf-data").exists()
+
+    def test_exhausted_names_raise_file_exists_error(
+        self, saver: Callable[[np.ndarray], Path], tmp_path: Path
+    ) -> None:
+        """The plain name and suffixes _2 through _999 exhaust the namespace."""
+        (tmp_path / f"{self._BASE_NAME}.sigmf-meta").touch()
+        for number in range(2, 1000):
+            (tmp_path / f"{self._BASE_NAME}_{number}.sigmf-meta").touch()
+        with pytest.raises(FileExistsError, match="_999"):
+            saver(np.zeros(32, dtype=np.complex64))
 
 
 class TestSaveCapture:

@@ -11,6 +11,7 @@ Run with:
 import json
 import sys
 import os
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -579,6 +580,34 @@ class TestApiCaptures:
             "capture_98000000hz_20260819_120000.sigmf-meta",
             "capture_98000000hz_20260819_110000.sigmf-meta",
         ]
+
+    def test_suffixed_capture_timestamp_and_sort_order(
+        self, client: FlaskClient, captures_dir: Path
+    ) -> None:
+        """A suffixed capture keeps its timestamp and sorts before its twin."""
+        names = [
+            "capture_98000000hz_20260819_110000.sigmf-meta",
+            "capture_98000000hz_20260819_120000.sigmf-meta",
+            "capture_98000000hz_20260819_120000_2.sigmf-meta",
+            "capture_98000000hz_20260819_130000.sigmf-meta",
+        ]
+        for name in names:
+            (captures_dir / name).write_text(json.dumps({
+                "global": {
+                    "mimir:device_profile": "hackrf",
+                    "mimir:fingerprint": {},
+                },
+                "captures": [{"core:frequency": self._FREQ_HZ}],
+            }))
+        response = client.get("/api/captures")
+        assert response.status_code == 200
+        entries = response.get_json()["captures"]
+        assert [entry["filename"] for entry in entries] == [
+            names[3], names[2], names[1], names[0],
+        ]
+        assert entries[1]["timestamp"] == "2026-08-19T12:00:00"
+        assert entries[2]["timestamp"] == "2026-08-19T12:00:00"
+        assert entries[1]["mode"] == "oneshot"
 
     def test_subdirectory_files_excluded(self, client, captures_dir):
         """Files inside subdirectories are not listed; search is non-recursive."""

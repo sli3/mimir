@@ -13,9 +13,10 @@ logger = logging.getLogger(__name__)
 
 
 # Timestamp used to age-sort captures; group matches YYYYMMDD_HHMMSS in
-# capture_<freq>hz_YYYYMMDD_HHMMSS.sigmf-meta filenames.
+# capture_<freq>hz_YYYYMMDD_HHMMSS.sigmf-meta filenames, optionally suffixed
+# with _N before .sigmf-meta when saves share a timestamp.
 _CAPTURE_FILENAME_RE = re.compile(
-    r"capture_(\d+)hz_(\d{8})_(\d{6})\.sigmf-meta$"
+    r"capture_(\d+)hz_(\d{8})_(\d{6})(?:_\d+)?\.sigmf-meta$"
 )
 
 
