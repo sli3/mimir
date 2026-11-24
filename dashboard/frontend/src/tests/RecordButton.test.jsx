@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import React from 'react'
 
@@ -12,6 +12,10 @@ const mockFetchOk = (body) =>
       json: () => Promise.resolve(body),
     })
   )
+
+beforeEach(() => {
+  vi.stubGlobal('fetch', mockFetchOk({ status: 'ok', recording: false }))
+})
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -60,6 +64,89 @@ function TestHarness() {
 }
 
 describe('RecordButton', () => {
+  it('adopts an in-progress recording and its warning timer on mount', async () => {
+    const fetchMock = mockFetchOk({ status: 'ok', recording: true, elapsed_sec: 75 })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<TestHarness />)
+    await waitFor(() =>
+      expect(screen.getByTestId('record-elapsed')).toHaveTextContent('01:15')
+    )
+    expect(screen.getByTestId('record-elapsed').style.color).toBe('var(--neon-amber)')
+    expect(screen.getByTestId('record-dot')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/record/status')
+    expect(fetchMock.mock.calls[0][1].method).toBe('GET')
+  })
+
+  it('stays idle when mount status reports no recording', async () => {
+    const fetchMock = mockFetchOk({ status: 'ok', recording: false, elapsed_sec: 0 })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<TestHarness />)
+    await act(async () => {})
+    expect(screen.queryByTestId('record-dot')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('record-elapsed')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('record-result')).not.toBeInTheDocument()
+  })
+
+  it.each(['network', 'http', 'json', 'scanner_unavailable'])(
+    'silently stays idle when mount status fails: %s',
+    async (failure) => {
+      const fetchMock = vi.fn(() => {
+        if (failure === 'network') return Promise.reject(new Error('offline'))
+        return Promise.resolve({
+          ok: failure !== 'http',
+          json: () => failure === 'json'
+            ? Promise.reject(new SyntaxError('bad JSON'))
+            : Promise.resolve({ status: 'scanner_unavailable' }),
+        })
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      render(<TestHarness />)
+      await act(async () => {})
+      expect(screen.queryByTestId('record-dot')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('record-elapsed')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('record-result')).not.toBeInTheDocument()
+    }
+  )
+
+  it('ignores mount status arriving after the operator starts recording', async () => {
+    let resolveStatus
+    const statusResponse = new Promise((resolve) => { resolveStatus = resolve })
+    vi.stubGlobal('fetch', vi.fn((url) => url === '/api/record/status'
+      ? statusResponse
+      : Promise.resolve({ ok: true, json: () => Promise.resolve({ status: 'ok' }) })
+    ))
+    render(<TestHarness />)
+    fireEvent.click(screen.getByTestId('record-button'))
+    await waitFor(() => expect(screen.getByTestId('record-dot')).toBeInTheDocument())
+    await act(async () => {
+      resolveStatus({
+        ok: true,
+        json: () => Promise.resolve({ status: 'ok', recording: true, elapsed_sec: 75 }),
+      })
+    })
+    expect(screen.getByTestId('record-elapsed')).toHaveTextContent('00:00')
+    expect(screen.getByTestId('record-elapsed').style.color).toBe('var(--neon-red)')
+    expect(screen.getByTestId('record-dot')).toBeInTheDocument()
+  })
+
+  it('aborts mount status on unmount and ignores its late response', async () => {
+    let resolveStatus
+    const fetchMock = vi.fn(() => new Promise((resolve) => { resolveStatus = resolve }))
+    vi.stubGlobal('fetch', fetchMock)
+    const { unmount } = render(<TestHarness />)
+    const signal = fetchMock.mock.calls[0][1].signal
+    unmount()
+    expect(signal.aborted).toBe(true)
+    await act(async () => {
+      resolveStatus({
+        ok: true,
+        json: () => Promise.resolve({ status: 'ok', recording: true, elapsed_sec: 75 }),
+      })
+    })
+    expect(screen.queryByTestId('record-dot')).not.toBeInTheDocument()
+  })
+
   it('renders idle-themed by default', () => {
     render(<TestHarness />)
     const button = screen.getByTestId('record-button')
@@ -81,8 +168,9 @@ describe('RecordButton', () => {
     await waitFor(() =>
       expect(screen.getByTestId('record-dot')).toBeInTheDocument()
     )
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    const [url, opts] = fetchMock.mock.calls[0]
+    const startCalls = fetchMock.mock.calls.filter(([url]) => url === '/api/record/start')
+    expect(startCalls).toHaveLength(1)
+    const [url, opts] = startCalls[0]
     expect(url).toBe('/api/record/start')
     expect(opts.method).toBe('POST')
     // Recording visual state: red styling, dot present, elapsed readout.
@@ -120,8 +208,9 @@ describe('RecordButton', () => {
     await waitFor(() =>
       expect(screen.queryByTestId('record-dot')).not.toBeInTheDocument()
     )
-    expect(fetchMock).toHaveBeenCalledTimes(2)
-    const [url, opts] = fetchMock.mock.calls[1]
+    const stopCalls = fetchMock.mock.calls.filter(([url]) => url === '/api/record/stop')
+    expect(stopCalls).toHaveLength(1)
+    const [url, opts] = stopCalls[0]
     expect(url).toBe('/api/record/stop')
     expect(opts.method).toBe('POST')
     // Back to idle visual state, with the minimal inline result readout.
@@ -207,8 +296,8 @@ describe('RecordButton', () => {
     // ...but the recording is STILL active and the stop endpoint was
     // NEVER called: the timer warning does not stop or save the recording.
     expect(screen.getByTestId('record-dot')).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(fetchMock.mock.calls[0][0]).toBe('/api/record/start')
+    expect(fetchMock.mock.calls.filter(([url]) => url === '/api/record/start')).toHaveLength(1)
+    expect(fetchMock.mock.calls.filter(([url]) => url === '/api/record/stop')).toHaveLength(0)
   })
 
   it('surfaces a stop-time error cause in the inline readout', async () => {

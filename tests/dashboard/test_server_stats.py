@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
+from flask.testing import FlaskClient
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -722,6 +723,58 @@ class TestApiCapture:
 
         assert response.status_code == 200
         assert response.get_json() == payload
+
+
+class TestApiRecordStatus:
+    """Check read-only recording status with an isolated scanner reference."""
+
+    @pytest.fixture
+    def client(self) -> Iterator[FlaskClient]:
+        """Provide the Flask test client used by the capture route tests."""
+        server.app.config["TESTING"] = True
+        with server.app.test_client() as client:
+            yield client
+
+    @pytest.fixture
+    def scanner_ref(self) -> Iterator[None]:
+        """Restore the module-level scanner reference after each request."""
+        saved = server._scanner_ref
+        try:
+            yield
+        finally:
+            server._scanner_ref = saved
+
+    def test_scanner_unavailable(
+        self, client: FlaskClient, scanner_ref: None,
+    ) -> None:
+        """An absent scanner produces a structured HTTP 200 response."""
+        server._scanner_ref = None
+        response = client.get("/api/record/status")
+        assert response.status_code == 200
+        assert response.get_json() == {"status": "scanner_unavailable"}
+
+    @pytest.mark.parametrize("recording", [False, True])
+    def test_status_passthrough(
+        self, client: FlaskClient, scanner_ref: None, recording: bool,
+    ) -> None:
+        """Status fields pass through unchanged without start or stop calls."""
+        payload = {
+            "recording": recording,
+            "elapsed_cycles": 12 if recording else 0,
+            "elapsed_sec": 75.5 if recording else 0.0,
+            "capped": recording,
+        }
+        scanner = MagicMock()
+        scanner.get_recording_status.return_value = payload
+        server._scanner_ref = scanner
+
+        response = client.get("/api/record/status")
+
+        assert response.status_code == 200
+        assert response.get_json() == {"status": "ok", **payload}
+        scanner.get_recording_status.assert_called_once_with()
+        scanner.start_recording.assert_not_called()
+        scanner.stop_recording.assert_not_called()
 
 
 class TestEmitAdsbScanResult:

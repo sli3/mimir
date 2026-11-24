@@ -5,6 +5,7 @@ Legal: Receive-only. Radiocommunications Act 1992 (Cth).
 """
 
 from flask import jsonify
+from flask.typing import ResponseReturnValue
 
 import dashboard.server as _server
 
@@ -60,6 +61,26 @@ def api_capture():
         return jsonify({"status": "scanner_unavailable"}), 200
     result = _server._scanner_ref.capture_now()
     return jsonify(result), 200
+
+
+@_server.app.route("/api/record/status", methods=["GET"])
+def api_record_status() -> ResponseReturnValue:
+    """Return recording state for adoption after a page refresh.
+
+    Always returns HTTP 200 with status "scanner_unavailable" when no
+    scanner is running, or status "ok" with recording, elapsed_cycles,
+    elapsed_sec and capped from the scanner's lightweight status snapshot.
+    This read-only route changes no recording state.
+
+    Implementation notes:
+    - RECEIVE-ONLY. No RF transmission or hardware control.
+    - Legal constraint: Radiocommunications Act 1992 (Cth), AU/SA
+      jurisdiction, ACMA authority.
+    """
+    scanner = _server._scanner_ref
+    if scanner is None:
+        return jsonify({"status": "scanner_unavailable"}), 200
+    return jsonify({"status": "ok", **scanner.get_recording_status()}), 200
 
 
 @_server.app.route("/api/record/start", methods=["POST"])

@@ -9,6 +9,8 @@ const WARNING_THRESHOLD_SEC = 60
  * long-lived state machine — idle → recording → stopped. The backend
  * accumulates scan-cycle samples in memory between POST /api/record/start
  * and POST /api/record/stop, then writes one SigMF file.
+ * On mount, GET /api/record/status silently restores an active recording
+ * and its elapsed time unless the operator has already acted locally.
  *
  * The backend stops accumulation at its memory cap and saves when the
  * operator stops it. The UI learns of the cap in the stop response and
@@ -32,19 +34,38 @@ export default function useRecording() {
   const mountedRef = useRef(true)
   const abortRef = useRef(null)
   const startTsRef = useRef(null)
+  const operatorActedRef = useRef(false)
 
   useEffect(() => {
     mountedRef.current = true
+    operatorActedRef.current = false
+    const controller = new AbortController()
+    fetch('/api/record/status', { method: 'GET', signal: controller.signal })
+      .then(async (res) => {
+        if (!res.ok) return
+        const body = await res.json()
+        if (!mountedRef.current || controller.signal.aborted || operatorActedRef.current) return
+        if (body?.status === 'ok' && body.recording === true) {
+          const elapsed = body.elapsed_sec
+          startTsRef.current = Date.now() - elapsed * 1000
+          setElapsedSec(Math.floor(elapsed))
+          setRecording(true)
+        }
+      })
+      .catch(() => {
+        // Status restoration is best-effort; failures leave the hook idle.
+      })
     return () => {
       mountedRef.current = false
+      controller.abort()
       if (abortRef.current) {
         abortRef.current.abort()
       }
     }
   }, [])
 
-  // Client-side elapsed timer: 1 Hz while recording, cleared when not.
-  // Display-only — the backend has no awareness of elapsed time.
+  // Display elapsed time at 1 Hz from a local start or the restored backend
+  // duration. Cleared when idle; the warning never stops the recording.
   useEffect(() => {
     if (!recording) return undefined
     const interval = setInterval(() => {
@@ -55,6 +76,7 @@ export default function useRecording() {
   }, [recording])
 
   const startRecording = useCallback(() => {
+    operatorActedRef.current = true
     if (abortRef.current) {
       abortRef.current.abort()
     }
@@ -90,7 +112,8 @@ export default function useRecording() {
           setRecording(true)
         } else if (body?.status === 'already_recording') {
           // Another operator action beat us to it; adopt the recording
-          // state so the UI matches the backend.
+          // state and seed a running timer if no start time is known.
+          if (startTsRef.current === null) startTsRef.current = Date.now()
           setRecording(true)
         } else if (body?.status === 'scanner_unavailable') {
           setRecordResult({
@@ -114,6 +137,7 @@ export default function useRecording() {
   }, [])
 
   const stopRecording = useCallback(() => {
+    operatorActedRef.current = true
     if (abortRef.current) {
       abortRef.current.abort()
     }

@@ -72,7 +72,7 @@ def _assert_emission(emit: Mock, event: str, keys: set[str]) -> None:
 
 
 def test_route_contract() -> None:
-    """Freeze every non-static route and its explicit HTTP methods."""
+    """Freeze non-static routes, including the read-only recording status."""
     routes = {
         (rule.rule, frozenset(rule.methods - {"HEAD", "OPTIONS"}))
         for rule in server.app.url_map.iter_rules()
@@ -86,6 +86,7 @@ def test_route_contract() -> None:
         ("/api/capture", frozenset({"POST"})),
         ("/api/record/start", frozenset({"POST"})),
         ("/api/record/stop", frozenset({"POST"})),
+        ("/api/record/status", frozenset({"GET"})),
         ("/api/replay", frozenset({"POST"})),
         ("/api/captures", frozenset({"GET"})),
         ("/vectordb", frozenset({"GET"})),
@@ -93,7 +94,7 @@ def test_route_contract() -> None:
         ("/replay", frozenset({"GET"})),
         ("/api/vectorstore/points", frozenset({"GET"})),
     }
-    assert len(routes) == 13
+    assert len(routes) == 14
 
 
 def test_socket_handler_contract() -> None:

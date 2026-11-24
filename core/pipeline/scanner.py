@@ -122,11 +122,10 @@ class ScanRunner:
     separate state, separate code path, separate endpoint. The class
     methods only manage state and chunk accumulation; the actual SigMF
     metadata writing happens in save_recording() in core/pipeline/capture.py,
-    called by stop_recording(). get_recording_status() is exposed for
-    the frontend to adopt in-progress recording state on remount (page
-    refresh during an active recording); as shipped it has zero call
-    sites (a related gap is tracked as tech debt). Accumulation stops at
-    the memory cap; the operator stops the recording to save it (a
+    called by stop_recording(). GET /api/record/status exposes
+    get_recording_status() so the frontend can adopt an in-progress
+    recording and its elapsed time on remount (page refresh).
+    Accumulation stops at the memory cap; the operator stops to save it (a
     60-second soft warning is displayed client-side).
     """
     def __init__(
@@ -149,8 +148,9 @@ class ScanRunner:
         Focus changes are allowed before startup and blocked after stop()
         until run() or start_ai_only() starts the scanner again.
 
-        Recording state starts empty and uncapped; accumulation is limited
-        to RECORD_MAX_SAMPLES until the operator stops and saves it.
+        Recording state starts empty and uncapped with no start timestamp;
+        accumulation is limited to RECORD_MAX_SAMPLES until the operator
+        stops and saves it.
 
         Stats counters:
         _scan_count_since_llm — increments once per scan cycle; snapshot
@@ -262,6 +262,7 @@ class ScanRunner:
         # sample_start). _record_freq_hz pins the start frequency so the
         # saved file's single core:frequency field is honest, and so a
         # mid-recording focus change can be detected and logged.
+        # _record_started_monotonic tracks elapsed time for status reads.
         self._recording: bool = False
         # Latched at the memory cap until recording state is reset.
         self._record_capped: bool = False
@@ -269,6 +270,7 @@ class ScanRunner:
         self._record_fingerprints: list = []        # per-cycle dicts
         self._record_sample_offset: int = 0
         self._record_freq_hz: float | None = None
+        self._record_started_monotonic: float | None = None
         self._record_lock: threading.Lock = threading.Lock()
 
     @property
@@ -488,7 +490,8 @@ class ScanRunner:
         start). From the next scan cycle onwards, each cycle's already-
         read samples are appended to an in-memory buffer until the memory
         cap is reached or stop_recording() is called. Starting resets the
-        cap flag. The buffer stays in RAM until the operator stops to save.
+        cap flag and records the monotonic start time before enabling
+        recording. The buffer stays in RAM until the operator stops to save.
 
         Idempotent-safe: calling while already recording returns an
         error status rather than silently resetting an in-progress
@@ -509,6 +512,7 @@ class ScanRunner:
             self._record_sample_offset = 0
             self._record_capped = False
             self._record_freq_hz = self._focus_freq_hz
+            self._record_started_monotonic = time.monotonic()
             self._recording = True
             return {"status": "ok"}
 
@@ -525,9 +529,9 @@ class ScanRunner:
         ``_recording`` is cleared FIRST, before any heavy work, so the
         scan loop's re-check inside its own lock acquisition cannot add
         an orphan cycle after the buffer has been detached. The shared
-        accumulator state is also reset under the lock regardless of
-        save outcome, so a failed save (e.g. disk full) can never leave
-        a stale half-recording behind for the next start_recording().
+        accumulator state and monotonic start time are reset under the
+        lock regardless of save outcome, so a failed save (e.g. disk full)
+        can never leave a stale half-recording for the next start_recording().
 
         Returns:
             dict with key ``"status"`` and one of:
@@ -565,6 +569,7 @@ class ScanRunner:
             self._record_fingerprints = []
             self._record_sample_offset = 0
             self._record_capped = False
+            self._record_started_monotonic = None
             if not buffer:
                 logger.warning("No samples were recorded, so no file was saved.")
                 return {
@@ -594,19 +599,31 @@ class ScanRunner:
             }
 
     def get_recording_status(self) -> dict:
-        """Lightweight recording status poll.
+        """Return a lightweight snapshot for GET /api/record/status.
 
-        Reads the two fields directly without taking _record_lock: both
-        are single-word reads (a bool and a len()) with no cross-field
-        consistency requirement, so there is no lock-contention risk.
+        Read state without _record_lock so a slow save in stop_recording()
+        cannot block status requests. Local references keep list and start
+        time reads safe across a reset; fields need not form an atomic
+        snapshot. Elapsed time uses the monotonic clock and is non-negative.
 
         Returns:
-            dict with keys ``"recording"`` (bool) and
-            ``"elapsed_cycles"`` (int, scan cycles accumulated so far).
+            dict with keys ``"recording"`` (bool), ``"elapsed_cycles"``
+            (int, retained scan cycles), ``"elapsed_sec"`` (float, wall
+            duration while recording, otherwise 0.0), and ``"capped"``
+            (bool, whether accumulation reached the memory cap).
         """
+        recording = self._recording
+        fingerprints = self._record_fingerprints
+        started = self._record_started_monotonic
+        elapsed_sec = (
+            max(0.0, time.monotonic() - started)
+            if recording and started is not None else 0.0
+        )
         return {
-            "recording": self._recording,
-            "elapsed_cycles": len(self._record_fingerprints),
+            "recording": recording,
+            "elapsed_cycles": len(fingerprints),
+            "elapsed_sec": elapsed_sec,
+            "capped": self._record_capped,
         }
 
 

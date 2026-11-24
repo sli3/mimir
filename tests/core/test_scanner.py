@@ -2381,6 +2381,78 @@ class TestRecording:
             "is_burst": False,
         }
 
+    def test_recording_status_defaults_to_idle(self, scanner: ScanRunner) -> None:
+        """An idle scanner reports empty recording state and no elapsed time."""
+        assert scanner._record_started_monotonic is None
+        assert scanner.get_recording_status() == {
+            "recording": False,
+            "elapsed_cycles": 0,
+            "elapsed_sec": 0.0,
+            "capped": False,
+        }
+
+    def test_recording_status_tracks_elapsed_time(
+        self, scanner: ScanRunner,
+    ) -> None:
+        """Status uses monotonic elapsed time and reports retained cycles."""
+        with patch("core.pipeline.scanner.time.monotonic", return_value=100.0):
+            assert scanner.start_recording() == {"status": "ok"}
+        scanner._record_fingerprints.append({"sample_start": 0})
+        with patch("core.pipeline.scanner.time.monotonic", return_value=175.5):
+            assert scanner.get_recording_status() == {
+                "recording": True,
+                "elapsed_cycles": 1,
+                "elapsed_sec": 75.5,
+                "capped": False,
+            }
+
+    def test_recording_status_clamps_elapsed_time(
+        self, scanner: ScanRunner,
+    ) -> None:
+        """Status tolerates an earlier clock value or a reset start time."""
+        with patch("core.pipeline.scanner.time.monotonic", return_value=100.0):
+            scanner.start_recording()
+        with patch("core.pipeline.scanner.time.monotonic", return_value=99.0):
+            assert scanner.get_recording_status()["elapsed_sec"] == 0.0
+        scanner._record_started_monotonic = None
+        assert scanner.get_recording_status()["elapsed_sec"] == 0.0
+
+    def test_recording_status_reflects_memory_cap(
+        self, scanner: ScanRunner,
+    ) -> None:
+        """Hitting the memory cap keeps recording active and reports capped."""
+        scanner.start_recording()
+        scanner._record_capped = True
+        status = scanner.get_recording_status()
+        assert status["recording"] is True
+        assert status["capped"] is True
+
+    @pytest.mark.parametrize("save_fails", [False, True])
+    def test_recording_status_resets_after_stop(
+        self, scanner: ScanRunner, save_fails: bool,
+    ) -> None:
+        """Stopping resets status and its timestamp even when saving fails."""
+        import numpy as np
+
+        scanner.start_recording()
+        scanner._record_buffer.append(np.zeros(8, dtype=np.complex64))
+        scanner._record_fingerprints.append({"sample_start": 0})
+        scanner._record_sample_offset = 8
+        scanner._record_capped = True
+        with patch("core.pipeline.scanner.save_recording") as save:
+            save.return_value = "/tmp/recording.sigmf-meta"
+            if save_fails:
+                save.side_effect = OSError("disk full")
+            result = scanner.stop_recording()
+        assert result["status"] == ("error" if save_fails else "cap_reached")
+        assert scanner._record_started_monotonic is None
+        assert scanner.get_recording_status() == {
+            "recording": False,
+            "elapsed_cycles": 0,
+            "elapsed_sec": 0.0,
+            "capped": False,
+        }
+
     def test_start_recording_resets_state_and_returns_ok(
         self, scanner: ScanRunner
     ) -> None:
