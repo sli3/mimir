@@ -1,5 +1,5 @@
 /**
- * Render the header with links to the radar and vector space pages.
+ * Render the header with links to the radar, vector space and replay pages.
  * Props: clock.
  */
 export default function HeaderBar({ clock }) {
@@ -38,7 +38,7 @@ export default function HeaderBar({ clock }) {
         alignItems: 'center',
         gap: '16px',
       }}>
-        {/* Links to the standalone radar scope and vector space pages. */}
+        {/* Links to the standalone radar, vector space and replay pages. */}
         <a
           href="/radar"
           style={{
@@ -66,6 +66,20 @@ export default function HeaderBar({ clock }) {
           }}
         >
           VECTOR SPACE
+        </a>
+        <a
+          href="/replay"
+          style={{
+            fontSize: '11px',
+            color: 'var(--neon-cyan)',
+            letterSpacing: '2px',
+            fontFamily: 'var(--font-data)',
+            textDecoration: 'none',
+            border: '1px solid var(--border)',
+            padding: '2px 8px',
+          }}
+        >
+          REPLAY
         </a>
         <span style={{
           fontSize: '11px',
