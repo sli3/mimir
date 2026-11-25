@@ -814,7 +814,9 @@ def main() -> None:
     4. Prompt the operator to connect each antenna and capture the bands it
        covers. Per-band warnings for ADS-B, ACARS, and AIS fire before the
        first capture of each such band; ADS-B additionally prompts for an
-       antenna-length check (telescopic whip only).
+       antenna-length check (telescopic whip only). Replace prior records only
+       after every capture for that band succeeds. One failed capture discards
+       the band's pending captures and keeps its prior records.
     5. Merge freshly captured vectors with stored non-stale vectors from bands
        not captured this run.
     6. Compute pairwise distance matrix between all merged vectors. Split the
@@ -978,14 +980,10 @@ def main() -> None:
                     print(f"\n  Skipping {label} — no captures stored for this band.")
                     continue
 
-            # Replace any prior vectors for THIS band AND THIS device before
-            # writing new captures. delete_by_label() alone would also
-            # delete the other device's calibration for the same label
-            # (e.g. a Pluto ADS_B run wiping HackRF ADS_B calibration) — so
-            # this filters by device in Python and deletes by id directly,
-            # same get-then-delete-by-ids pattern SignalStore.delete_by_label
-            # itself uses internally, matching tools/delete_low_snr.py's
-            # precedent for standalone device-aware deletion.
+            # Collect prior ids for this label and device without deleting.
+            # Replace them only if every capture succeeds: one failed capture
+            # discards this band's good pending captures and keeps the old set.
+            # Other devices' records must survive the replacement.
             existing = store.get_all_embeddings()
             existing_metas = existing.get("metadatas") or []
             ids_to_delete = [
@@ -995,14 +993,8 @@ def main() -> None:
                 and meta.get("label") == label
                 and meta.get("device", "hackrf") == args.device
             ]
-            if ids_to_delete:
-                store._collection.delete(ids=ids_to_delete)  # noqa: SLF001
-                print(
-                    f"  Replaced {len(ids_to_delete)} prior {args.device} "
-                    f"calibration record(s) for {label}"
-                )
-
-            band_captured = False
+            pending_records: list[dict] = []
+            pending_entries: list[dict] = []
             for cap_idx in range(target["captures"]):
                 record_id = f"{label}_{args.device}_{cap_idx}"
                 print(f"  Capture #{cap_idx + 1}/{target['captures']}")
@@ -1054,17 +1046,16 @@ def main() -> None:
                         },
                     }
 
-                    store.add(record)
-                    captured_count += 1
-                    band_captured = True
-
-                    # Print one-line summary
-                    print(
-                        f"    ✓ Stored: peak={fingerprint['peak_power_db']:.2f} dB, "
-                        f"SNR={fingerprint['snr_db']:.2f} dB"
+                    pending_records.append(record)
+                    pending_entries.append(
+                        {"id": record_id, "label": label, "embedding": vector}
                     )
 
-                    entries.append({"id": record_id, "label": label, "embedding": vector})
+                    # This capture stays pending until the whole band succeeds.
+                    print(
+                        f"    ✓ Pending: peak={fingerprint['peak_power_db']:.2f} dB, "
+                        f"SNR={fingerprint['snr_db']:.2f} dB"
+                    )
 
                 except RuntimeError as err:
                     logger.error(
@@ -1087,8 +1078,25 @@ def main() -> None:
                     logger.info("Waiting 5 seconds before next capture")
                     time.sleep(5)
 
-            if band_captured:
+            if len(pending_records) == target["captures"]:
+                # Reused ids require deletion first; insert the batch immediately.
+                if ids_to_delete:
+                    store._collection.delete(ids=ids_to_delete)  # noqa: SLF001
+                store.add_batch(pending_records)
+                entries.extend(pending_entries)
+                captured_count += len(pending_records)
                 captured_bands.add(label)
+                print(
+                    f"  Replaced {len(ids_to_delete)} prior {args.device} "
+                    f"calibration record(s) for {label}"
+                )
+            else:
+                print(
+                    f"  WARNING: Kept {len(ids_to_delete)} prior {args.device} "
+                    f"calibration record(s) for {label}; no new records were "
+                    "stored because not every capture succeeded. "
+                    "A stale prior set is still excluded from the ladder."
+                )
 
     # ─────────────────────────────────────────────────────────────────────────
     # Step E — Merge stored non-stale vectors for bands not captured this run

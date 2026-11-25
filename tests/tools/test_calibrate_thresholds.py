@@ -6,6 +6,8 @@ cross-session merge helpers.
 """
 
 from datetime import datetime, timedelta
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import itertools
 import logging
@@ -15,6 +17,7 @@ import pytest
 
 from dashboard.shared_state import BAND_PROFILES
 from embeddings.store import SignalStore
+from tools import calibrate_thresholds
 from tools.calibrate_thresholds import (
     CALIBRATION_TARGETS,
     CROSS_TYPE_MIN_FLOOR,
@@ -412,6 +415,172 @@ def test_merge_stored_entries_includes_fresh_non_captured_and_excludes_stale():
     assert "ADS_B" in labels
     assert len(merged) == 2
     store.delete_collection()
+
+
+@pytest.mark.parametrize("device", ["hackrf", "pluto"])
+@pytest.mark.parametrize("stale", [False, True])
+@pytest.mark.parametrize(
+    "outcome", ["all_fail", "partial_fail", "success", "interrupted"],
+)
+def test_band_replacement_requires_every_capture(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+    device: str,
+    stale: bool,
+    outcome: str,
+) -> None:
+    """Replace only complete bands and preserve each device after failures.
+
+    The real merge helper must reuse fresh prior records after a failure and
+    exclude stale ones. Interrupts propagate before replacement takes place.
+    """
+    label = "FM_broadcast"
+    target = dict(next(t for t in CALIBRATION_TARGETS if t["label"] == label))
+    target.update(captures=2, num_samples=8, gain_db=20.0)
+    timestamp = (
+        datetime.now() - timedelta(days=STALENESS_DAYS + 1 if stale else 0)
+    ).isoformat()
+    store = SignalStore(str(tmp_path))
+    prior = []
+    for idx in range(3):
+        metadata = {"label": label, "timestamp": timestamp, "device": device}
+        if device == "hackrf" and idx == 0:
+            del metadata["device"]  # Legacy records belong to HackRF.
+        prior.append({
+            "id": f"{label}_{device}_{idx}",
+            "embedding": [0.1] * 7,
+            "metadata": metadata,
+        })
+    other = {
+        "id": "other_device",
+        "embedding": [0.2] * 7,
+        "metadata": {
+            "label": label,
+            "device": "pluto" if device == "hackrf" else "hackrf",
+            "timestamp": datetime.now().isoformat(),
+        },
+    }
+    store.add_batch([*prior, other])
+    before = store.get_all_embeddings()
+    store._collection = MagicMock(wraps=store._collection)
+    samples = np.ones(8, dtype=np.complex64)
+    outcomes = {
+        "all_fail": [RuntimeError("failed"), RuntimeError("failed")],
+        "partial_fail": [samples, RuntimeError("capture failed")],
+        "success": [samples, samples],
+        "interrupted": [samples, KeyboardInterrupt()],
+    }
+    monkeypatch.setattr(
+        "sys.argv", ["calibrate_thresholds.py", "--device", device],
+    )
+    monkeypatch.setattr("builtins.input", lambda _prompt: "")
+    profiles = {
+        "1": {"name": "Test antenna", "range": "test", "bands": [label]},
+        "3": {"name": "Other antenna", "range": "test", "bands": []},
+    }
+    with (
+        patch.object(calibrate_thresholds, "Path", return_value=tmp_path),
+        patch.object(calibrate_thresholds, "SignalStore", return_value=store),
+        patch.object(calibrate_thresholds, "CALIBRATION_TARGETS", [target]),
+        patch.object(calibrate_thresholds, "ANTENNA_PROFILES", profiles),
+        patch.object(
+            calibrate_thresholds, "_build_pluto_calibration_targets",
+            return_value=[target],
+        ),
+        patch.object(
+            calibrate_thresholds, "_prompt_recapture_fresh_bands",
+            return_value={label},
+        ),
+        patch.object(calibrate_thresholds, "time"),
+        patch.object(
+            calibrate_thresholds,
+            "capture_iq_pluto" if device == "pluto" else "capture_iq",
+            side_effect=outcomes[outcome],
+        ),
+        patch.object(calibrate_thresholds, "compute_psd", return_value={}),
+        patch.object(
+            calibrate_thresholds, "fingerprint_spectrum", return_value={
+                "peak_power_db": -30.0, "snr_db": 12.0,
+            },
+        ),
+        patch.object(calibrate_thresholds, "SpectrumEmbedder") as embedder,
+        patch.object(store, "add_batch", wraps=store.add_batch) as add_batch,
+        patch.object(store, "add", wraps=store.add) as add,
+        patch.object(
+            calibrate_thresholds, "_merge_stored_entries",
+            wraps=_merge_stored_entries,
+        ) as merge,
+        patch.object(
+            calibrate_thresholds, "_compute_pairwise_distances", return_value=[],
+        ),
+        patch.object(calibrate_thresholds, "_print_matrix"),
+    ):
+        embedder.return_value.embed.return_value = [0.8] * 7
+        calls = MagicMock()
+        calls.attach_mock(store._collection.delete, "delete")
+        calls.attach_mock(add_batch, "add_batch")
+        if outcome == "interrupted":
+            with pytest.raises(KeyboardInterrupt):
+                calibrate_thresholds.main()
+            merge.assert_not_called()
+        elif stale and outcome != "success":
+            with pytest.raises(SystemExit) as exc:
+                calibrate_thresholds.main()
+            assert exc.value.code == 1
+        else:
+            calibrate_thresholds.main()
+
+        add.assert_not_called()
+        if outcome == "success":
+            assert [call[0] for call in calls.mock_calls] == [
+                "delete", "add_batch",
+            ]
+            add_batch.assert_called_once()
+            assert len(add_batch.call_args.args[0]) == target["captures"]
+        else:
+            store._collection.delete.assert_not_called()
+            add_batch.assert_not_called()
+        if outcome != "interrupted":
+            merged_entries, _, _, captured_bands = merge.call_args.args
+            assert captured_bands == (
+                {label} if outcome == "success" else set()
+            )
+            expected_ids = (
+                {f"{label}_{device}_{idx}" for idx in range(2)}
+                if outcome == "success" else
+                set() if stale else {record["id"] for record in prior}
+            )
+            assert {entry["id"] for entry in merged_entries} == expected_ids
+
+    after = store.get_all_embeddings()
+    records_after = {
+        rec_id: (vec, meta)
+        for rec_id, vec, meta in zip(
+            after["ids"], after["embeddings"], after["metadatas"],
+        )
+    }
+    before_records = {
+        rec_id: (vec, meta)
+        for rec_id, vec, meta in zip(
+            before["ids"], before["embeddings"], before["metadatas"],
+        )
+    }
+    assert records_after[other["id"]] == before_records[other["id"]]
+    if outcome == "success":
+        assert len(after["ids"]) == target["captures"] + 1
+        assert len(after["ids"]) == len(set(after["ids"]))
+        for idx in range(2):
+            np.testing.assert_allclose(
+                records_after[f"{label}_{device}_{idx}"][0], [0.8] * 7,
+            )
+    else:
+        assert records_after == before_records
+        if outcome != "interrupted":
+            output = capsys.readouterr().out
+            assert "Kept 3 prior" in output
+            assert "no new records were stored" in output
+            assert "stale prior set is still excluded" in output
 
 
 def test_merge_stored_entries_empty_when_all_captured_or_stale():

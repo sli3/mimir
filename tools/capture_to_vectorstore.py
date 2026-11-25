@@ -36,11 +36,13 @@ from core.pipeline.features import fingerprint_spectrum
 from dashboard.shared_state import BAND_PROFILES
 from embeddings.embedder import SpectrumEmbedder
 from embeddings.store import SignalStore
+from llm.classifier import SignalClassifier
 
 import argparse
 import logging
 import sys
 import time
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
@@ -446,10 +448,14 @@ def run_capture_loop(
     selected_targets: list[dict],
     antenna_name: str,
     device: str = "hackrf",
-    input_func=input,
-    sleep_func=time.sleep,
+    input_func: Callable[[str], str] = input,
+    sleep_func: Callable[[float], None] = time.sleep,
 ) -> int:
-    """Run the capture → fingerprint → embed → store loop.
+    """Capture and store fingerprints, skipping noise-shaped captures.
+
+    One offline classifier per call applies the deterministic noise gate before
+    embedding or metadata creation. Skipped noise keeps the normal capture wait
+    and does not contribute to the returned stored-record count.
 
     Args:
         store: Initialised SignalStore.
@@ -466,6 +472,7 @@ def run_capture_loop(
         Number of records successfully stored this run.
     """
     captured_count = 0
+    classifier = SignalClassifier()
     total_targets = len(selected_targets)
 
     for idx, target in enumerate(selected_targets):
@@ -544,6 +551,25 @@ def run_capture_loop(
                     signal_threshold_db=signal_threshold_db,
                     trace_key=target.get('trace_key', 'psd_db'),
                 )
+
+                if classifier.is_noise_shaped(fingerprint):
+                    logger.info(
+                        "Skipped noise-shaped capture for %s: "
+                        "bins=%s, flatness=%s",
+                        label,
+                        fingerprint["occupied_bins"],
+                        fingerprint["spectral_flatness"],
+                    )
+                    print(
+                        "  Skipped: noise-shaped "
+                        f"occupied_bins={fingerprint['occupied_bins']}, "
+                        "spectral_flatness="
+                        f"{fingerprint['spectral_flatness']:.6f}"
+                    )
+                    if idx != total_targets - 1 or cap_idx != captures - 1:
+                        logger.info("Waiting 5 seconds before next capture")
+                        sleep_func(5)
+                    continue
 
                 vector = embedder.embed(fingerprint)
                 metadata = build_metadata(

@@ -5,9 +5,10 @@ All tests use mocked hardware (capture_iq) and in-memory ChromaDB stores.
 """
 
 import argparse
+from pathlib import Path
 import numpy as np
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from embeddings.store import SignalStore
 from dashboard.shared_state import BAND_PROFILES
@@ -88,7 +89,11 @@ def test_build_metadata():
     assert metadata["capture_index"] == 2
 
 
-def test_one_band_captures_five_records(tmp_path):
+def test_one_band_captures_five_records(tmp_path: Path) -> None:
+    """Store five captures and metadata with the noise gate accepting samples.
+
+    The constant IQ fixture is noise-shaped, so mock the gate to isolate storage.
+    """
     store = SignalStore(str(tmp_path))
     embedder = capture_to_vectorstore.SpectrumEmbedder()
     target = next(t for t in CAPTURE_TARGETS if t["label"] == "FM_broadcast")
@@ -98,6 +103,10 @@ def test_one_band_captures_five_records(tmp_path):
     with (
         patch("tools.capture_to_vectorstore.capture_iq", return_value=samples),
         patch("tools.capture_to_vectorstore.time.sleep") as mock_sleep,
+        patch(
+            "tools.capture_to_vectorstore.SignalClassifier.is_noise_shaped",
+            return_value=False,
+        ),
     ):
         captured = run_capture_loop(
             store=store,
@@ -115,7 +124,11 @@ def test_one_band_captures_five_records(tmp_path):
         assert meta["source"] == "live_capture"
 
 
-def test_runtime_error_continues_to_next_capture(tmp_path):
+def test_runtime_error_continues_to_next_capture(tmp_path: Path) -> None:
+    """Continue after capture errors with the noise gate accepting samples.
+
+    Mock the gate so the constant IQ fixture exercises capture-error handling.
+    """
     store = SignalStore(str(tmp_path))
     embedder = capture_to_vectorstore.SpectrumEmbedder()
     target = next(t for t in CAPTURE_TARGETS if t["label"] == "Aviation_VHF")
@@ -129,7 +142,13 @@ def test_runtime_error_continues_to_next_capture(tmp_path):
             raise RuntimeError("HackRF not found")
         return samples
 
-    with patch("tools.capture_to_vectorstore.capture_iq", side_effect=flaky_capture):
+    with (
+        patch("tools.capture_to_vectorstore.capture_iq", side_effect=flaky_capture),
+        patch(
+            "tools.capture_to_vectorstore.SignalClassifier.is_noise_shaped",
+            return_value=False,
+        ),
+    ):
         captured = run_capture_loop(
             store=store,
             embedder=embedder,
@@ -197,7 +216,12 @@ def test_ctrl_c_during_warning_skips_band(tmp_path):
     assert store.count() == 0
 
 
-def test_signal_threshold_passed_and_stored(tmp_path):
+def test_signal_threshold_passed_and_stored(tmp_path: Path) -> None:
+    """Forward and store the band's threshold while the noise gate accepts.
+
+    Keep the real fingerprint call to verify threshold forwarding; mock only
+    the noise gate so the constant IQ fixture reaches metadata storage.
+    """
     store = SignalStore(str(tmp_path))
     embedder = capture_to_vectorstore.SpectrumEmbedder()
     target = next(t for t in CAPTURE_TARGETS if t["label"] == "APRS")
@@ -214,6 +238,10 @@ def test_signal_threshold_passed_and_stored(tmp_path):
     with (
         patch("tools.capture_to_vectorstore.capture_iq", return_value=samples),
         patch("tools.capture_to_vectorstore.fingerprint_spectrum", side_effect=threshold_checking_fingerprint),
+        patch(
+            "tools.capture_to_vectorstore.SignalClassifier.is_noise_shaped",
+            return_value=False,
+        ),
     ):
         run_capture_loop(
             store=store,
@@ -256,8 +284,12 @@ def test_capture_targets_adsb_only_uses_max_hold():
             assert "trace_key" not in target
 
 
-def test_trace_key_forwarded_to_fingerprint_spectrum(tmp_path):
-    """run_capture_loop passes trace_key=target.get('trace_key', 'psd_db') to fingerprint_spectrum."""
+def test_trace_key_forwarded_to_fingerprint_spectrum(tmp_path: Path) -> None:
+    """Forward ADS-B's max-hold trace key to the real fingerprint function.
+
+    Mock the noise gate so the constant IQ fixture reaches storage while the
+    fingerprint wrapper still records the trace_key argument passed by the loop.
+    """
     store = SignalStore(str(tmp_path))
     embedder = capture_to_vectorstore.SpectrumEmbedder()
     adsb_target = next(t for t in CAPTURE_TARGETS if t["label"] == "ADS_B")
@@ -273,6 +305,10 @@ def test_trace_key_forwarded_to_fingerprint_spectrum(tmp_path):
     with (
         patch("tools.capture_to_vectorstore.capture_iq", return_value=samples),
         patch("tools.capture_to_vectorstore.fingerprint_spectrum", side_effect=trace_key_checking_fingerprint),
+        patch(
+            "tools.capture_to_vectorstore.SignalClassifier.is_noise_shaped",
+            return_value=False,
+        ),
     ):
         run_capture_loop(
             store=store,
@@ -287,8 +323,12 @@ def test_trace_key_forwarded_to_fingerprint_spectrum(tmp_path):
     assert all(t == "psd_max_hold_db" for t in seen_trace_keys)
 
 
-def test_trace_key_defaults_to_psd_db_for_non_adsb(tmp_path):
-    """A non-ADS_B target does not forward psd_max_hold_db."""
+def test_trace_key_defaults_to_psd_db_for_non_adsb(tmp_path: Path) -> None:
+    """Forward the default psd_db trace key to the real fingerprint function.
+
+    Mock the noise gate so the constant IQ fixture reaches storage while the
+    fingerprint wrapper still records the trace_key argument passed by the loop.
+    """
     store = SignalStore(str(tmp_path))
     embedder = capture_to_vectorstore.SpectrumEmbedder()
     fm_target = next(t for t in CAPTURE_TARGETS if t["label"] == "FM_broadcast")
@@ -304,6 +344,10 @@ def test_trace_key_defaults_to_psd_db_for_non_adsb(tmp_path):
     with (
         patch("tools.capture_to_vectorstore.capture_iq", return_value=samples),
         patch("tools.capture_to_vectorstore.fingerprint_spectrum", side_effect=trace_key_checking_fingerprint),
+        patch(
+            "tools.capture_to_vectorstore.SignalClassifier.is_noise_shaped",
+            return_value=False,
+        ),
     ):
         run_capture_loop(
             store=store,
@@ -316,3 +360,90 @@ def test_trace_key_defaults_to_psd_db_for_non_adsb(tmp_path):
 
     assert store.count() == 5
     assert all(t == "psd_db" for t in seen_trace_keys)
+
+
+@pytest.mark.parametrize("occupied_bins", [0, 1])
+def test_noise_shaped_captures_are_skipped(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+    occupied_bins: int,
+) -> None:
+    """Skip noise before embedding or metadata and keep normal capture waits."""
+    store = SignalStore(str(tmp_path))
+    target = dict(next(
+        t for t in CAPTURE_TARGETS if t["label"] == "FM_broadcast"
+    ))
+    target.update(captures=3, num_samples=8)
+    embedder = MagicMock(spec=capture_to_vectorstore.SpectrumEmbedder)
+    with (
+        patch(
+            "tools.capture_to_vectorstore.capture_iq", return_value=np.ones(8),
+        ),
+        patch("tools.capture_to_vectorstore.compute_psd", return_value={}),
+        patch(
+            "tools.capture_to_vectorstore.fingerprint_spectrum", return_value={
+                "occupied_bins": occupied_bins, "spectral_flatness": 0.95,
+            },
+        ),
+        patch("tools.capture_to_vectorstore.build_metadata") as metadata,
+        patch(
+            "tools.capture_to_vectorstore.SignalClassifier",
+            wraps=capture_to_vectorstore.SignalClassifier,
+        ) as classifier,
+    ):
+        sleep = MagicMock()
+        captured = run_capture_loop(
+            store, embedder, [target], "Test antenna",
+            input_func=lambda _prompt: "", sleep_func=sleep,
+        )
+
+    assert captured == 0
+    assert store.count() == 0
+    embedder.embed.assert_not_called()
+    metadata.assert_not_called()
+    classifier.assert_called_once_with()
+    assert sleep.call_args_list == [call(5), call(5)]
+    output = capsys.readouterr().out
+    assert output.count("Skipped: noise-shaped") == 3
+    assert f"occupied_bins={occupied_bins}" in output
+    assert "spectral_flatness=0.950000" in output
+
+
+@pytest.mark.parametrize(
+    ("occupied_bins", "flatness"), [(2, 0.95), (1, 0.8999)],
+)
+def test_non_noise_fingerprint_is_stored(
+    tmp_path: Path, occupied_bins: int, flatness: float,
+) -> None:
+    """Store fingerprints that fail either of the two noise conditions."""
+    store = SignalStore(str(tmp_path))
+    target = dict(next(
+        t for t in CAPTURE_TARGETS if t["label"] == "FM_broadcast"
+    ))
+    target.update(captures=1, num_samples=8)
+    fingerprint = {
+        "peak_freq_hz": target["freq_hz"], "peak_power_db": -30.0,
+        "noise_floor_db": -50.0, "snr_db": 20.0, "bandwidth_hz": 2000.0,
+        "occupied_bins": occupied_bins, "spectral_flatness": flatness,
+        "snr_margin_db": 2.0,
+    }
+    with (
+        patch(
+            "tools.capture_to_vectorstore.capture_iq", return_value=np.ones(8),
+        ),
+        patch("tools.capture_to_vectorstore.compute_psd", return_value={}),
+        patch(
+            "tools.capture_to_vectorstore.fingerprint_spectrum",
+            return_value=fingerprint,
+        ),
+    ):
+        captured = run_capture_loop(
+            store, capture_to_vectorstore.SpectrumEmbedder(), [target],
+            "Test antenna", input_func=lambda _prompt: "",
+            sleep_func=lambda _seconds: None,
+        )
+
+    assert captured == 1
+    assert store.count() == 1
+    metadata = store.get_all_embeddings()["metadatas"][0]
+    assert metadata["label"] == target["label"]
