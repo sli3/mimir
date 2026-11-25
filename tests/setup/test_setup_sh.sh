@@ -3,8 +3,9 @@
 # tests/setup/test_setup_sh.sh — Mock test suite for setup.sh
 #
 # This test stubs every real side-effect command (dnf, apt-get, pacman, zypper,
-# brew, git, cmake, make, sudo, nproc, sysctl, uv and scanner Python) so the
-# suite runs without internet access, sudo, real package managers, or hardware.
+# brew, git, cmake, make, sudo, nproc, sysctl, SoapySDRUtil, uv and scanner
+# Python) so the suite runs without internet access, sudo, real package
+# managers, or hardware.
 #
 # Run: bash tests/setup/test_setup_sh.sh
 # =============================================================================
@@ -102,6 +103,20 @@ nproc() {
 sysctl() {
     record_call "sysctl $*"
     echo "8"
+    return 0
+}
+
+# Report plugin registration from recorded clones or the preinstalled Pluto flag.
+# This stateless stub never invokes the real SoapySDR utility or hardware.
+SoapySDRUtil() {
+    record_call "SoapySDRUtil $*"
+    if grep -q '^git clone .*SoapyHackRF' "$CALLS_FILE"; then
+        echo "hackrf"
+    fi
+    if [[ "${STUB_PLUTO_REGISTERED:-0}" == "1" ]] ||
+        grep -q '^git clone .*SoapyPlutoSDR' "$CALLS_FILE"; then
+        echo "PlutoSDR"
+    fi
     return 0
 }
 
@@ -346,6 +361,52 @@ if (
     assert_pass "scanner ChromaDB version mismatch fails verification"
 else
     assert_fail "scanner ChromaDB version mismatch fails verification"
+fi
+
+# ── Test 15: Fedora installs Pluto headers and builds the plugin ─────────────
+OS="fedora"
+clear_calls
+# The acarsdec stub installs no executable, so inspect Pluto calls despite its exit.
+output=$(install_system_packages 2>&1) || true
+if grep -q '^sudo dnf install .*libiio-devel' "$CALLS_FILE" &&
+    grep -q '^sudo dnf install .*libad9361-iio-devel' "$CALLS_FILE" &&
+    grep -q '^git clone --depth=1 https://github.com/pothosware/SoapyPlutoSDR.git ' "$CALLS_FILE"; then
+    assert_pass "fedora installs Pluto headers and builds SoapyPlutoSDR"
+else
+    assert_fail "fedora installs Pluto headers and builds SoapyPlutoSDR"
+fi
+
+# ── Test 16: registered Pluto skips the source build ─────────────────────────
+clear_calls
+STUB_PLUTO_REGISTERED=1
+if output=$(build_soapyplutosdr 2>&1) &&
+    ! grep -q '^git clone .*SoapyPlutoSDR' "$CALLS_FILE"; then
+    assert_pass "registered SoapyPlutoSDR skips cloning"
+else
+    assert_fail "registered SoapyPlutoSDR skips cloning"
+fi
+unset STUB_PLUTO_REGISTERED
+
+# ── Test 17: unregistered Pluto builds from source with all stubbed cores ────
+clear_calls
+if output=$(build_soapyplutosdr 2>&1) &&
+    grep -q '^git clone --depth=1 https://github.com/pothosware/SoapyPlutoSDR.git ' "$CALLS_FILE" &&
+    grep -q '^make -j4$' "$CALLS_FILE"; then
+    assert_pass "SoapyPlutoSDR clones upstream and builds with make -j4"
+else
+    assert_fail "SoapyPlutoSDR clones upstream and builds with make -j4"
+fi
+
+# ── Test 18: next steps use the shell-independent launcher ───────────────────
+output=$(print_next_steps 2>&1)
+if echo "$output" | grep -q './mimir test' &&
+    echo "$output" | grep -q './mimir scan' &&
+    echo "$output" | grep -q './mimir demo' &&
+    echo "$output" | grep -q './mimir tool' &&
+    ! echo "$output" | grep -q 'source .venv-scan/bin/activate'; then
+    assert_pass "next steps use launcher commands without venv activation"
+else
+    assert_fail "next steps use launcher commands without venv activation"
 fi
 
 # ── Cleanup ────────────────────────────────────────────────────────────────────

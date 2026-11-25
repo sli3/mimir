@@ -118,6 +118,53 @@ build_soapyhackrf() {
     fi
 }
 
+# ── Build SoapyPlutoSDR plugin from source (Fedora/RHEL only) ──────────────────
+# The SoapySDR Pluto plugin is not in Fedora/RHEL repos and needs a source build.
+# Source: https://github.com/pothosware/SoapyPlutoSDR
+# Requires: SoapySDR-devel and libiio-devel; libad9361-iio-devel is optional
+# and enables AD9361 support.
+#
+# AU legal note: This plugin has transmit capability but enables receive-only
+# SDR access to the ADALM-PLUTO here. No transmit functionality is configured
+# or enabled.
+build_soapyplutosdr() {
+    info "Building SoapyPlutoSDR plugin from source..."
+    info "(Not available in Fedora/RHEL dnf repos, must be built)"
+
+    # Check registration case-insensitively before building and after install.
+    if SoapySDRUtil --info 2>/dev/null | grep -qi "plutosdr"; then
+        success "SoapyPlutoSDR plugin already registered, skipping build."
+        return
+    fi
+
+    BUILD_DIR="/tmp/mimir-deps/SoapyPlutoSDR"
+    mkdir -p "${BUILD_DIR}"
+    git clone --depth=1 https://github.com/pothosware/SoapyPlutoSDR.git "${BUILD_DIR}/src"
+    mkdir -p "${BUILD_DIR}/build"
+    cd "${BUILD_DIR}/build"
+    cmake ../src
+
+    if command -v nproc &>/dev/null; then
+        make -j"$(nproc)"
+    else
+        make -j"$(sysctl -n hw.logicalcpu)"
+    fi
+
+    sudo make install
+    sudo ldconfig
+    cd - > /dev/null
+
+    rm -rf "${BUILD_DIR}"
+
+    if SoapySDRUtil --info 2>/dev/null | grep -qi "plutosdr"; then
+        success "SoapyPlutoSDR plugin installed and registered."
+    else
+        error "SoapyPlutoSDR build succeeded but plugin not detected by SoapySDRUtil."
+        error "Try: sudo ldconfig && SoapySDRUtil --info"
+        exit 1
+    fi
+}
+
 # ── Build acarsdec from source ────────────────────────────────────────────────
 # acarsdec is an ACARS decoder (Aircraft Communications Addressing and
 # Reporting System). It is not available in any Linux package manager and
@@ -172,7 +219,8 @@ build_acarsdec() {
     fi
 }
 
-# ── Install system packages ────────────────────────────────────────────────────
+# ── Install system packages, SDR plugins and acarsdec ─────────────────────────
+# Fedora/RHEL builds both SDR plugins; other platforms get manual Pluto guidance.
 install_system_packages() {
     case "${OS}" in
 
@@ -183,6 +231,8 @@ install_system_packages() {
                 hackrf-devel \
                 SoapySDR \
                 SoapySDR-devel \
+                libiio-devel \
+                libad9361-iio-devel \
                 python3-SoapySDR \
                 gr-osmosdr \
                 python3-pip \
@@ -195,6 +245,7 @@ install_system_packages() {
                 nodejs22
             success "System packages installed (Fedora/RHEL)"
             build_soapyhackrf
+            build_soapyplutosdr
             build_acarsdec
             ;;
 
@@ -218,6 +269,7 @@ install_system_packages() {
                 git \
                 nodejs
             success "System packages installed (Debian/Ubuntu)"
+            warn "ADALM-PLUTO support needs SoapyPlutoSDR built from https://github.com/pothosware/SoapyPlutoSDR (no automatic install)."
             build_acarsdec
             ;;
 
@@ -236,6 +288,7 @@ install_system_packages() {
                 nodejs \
                 npm
             success "System packages installed (Arch Linux)"
+            warn "ADALM-PLUTO support needs SoapyPlutoSDR built from https://github.com/pothosware/SoapyPlutoSDR (no automatic install)."
             warn "python3-SoapySDR bindings on Arch may need to be built from source."
             warn "If 'import SoapySDR' fails, see: https://github.com/pothosware/SoapySDR/wiki/PythonSupport"
             build_acarsdec
@@ -256,6 +309,7 @@ install_system_packages() {
                 git \
                 nodejs22
             success "System packages installed (openSUSE)"
+            warn "ADALM-PLUTO support needs SoapyPlutoSDR built from https://github.com/pothosware/SoapyPlutoSDR (no automatic install)."
             warn "If soapysdr-module-hackrf is not available in your repos, build from source:"
             warn "  https://github.com/pothosware/SoapyHackRF"
             build_acarsdec
@@ -270,6 +324,7 @@ install_system_packages() {
             fi
             brew install hackrf soapysdr soapyhackrf cmake git node
             success "System packages installed via Homebrew"
+            warn "ADALM-PLUTO support needs SoapyPlutoSDR built from https://github.com/pothosware/SoapyPlutoSDR (no automatic install)."
             warn "macOS: Python SoapySDR bindings are not installed by Homebrew."
             warn "You must build them from source:"
             warn "  https://github.com/pothosware/SoapySDR/wiki/PythonSupport"
@@ -283,6 +338,7 @@ install_system_packages() {
             warn "  - hackrf (libhackrf + tools + dev headers)"
             warn "  - SoapySDR + development headers + Python bindings"
             warn "  - SoapyHackRF plugin: https://github.com/pothosware/SoapyHackRF"
+            warn "  - SoapyPlutoSDR plugin (with libiio): https://github.com/pothosware/SoapyPlutoSDR"
             warn "  - acarsdec (build from source): https://github.com/f00b4r0/acarsdec"
             warn "    cmake + gcc + gcc-c++ + make + git required to build"
             warn "  - nodejs (for dashboard build)"
@@ -502,7 +558,25 @@ verify_hardware() {
     fi
 }
 
-# ── Main: install environments and show scanner usage with user site excluded ──
+# ── Show shell-independent launcher commands after setup ─────────────────────
+# The launcher shows commands before running and isolates scanner Python imports.
+print_next_steps() {
+    info "Next steps:"
+    echo "  1. Plug in the HackRF One or ADALM-PLUTO with an antenna attached"
+    echo "  2. Check a HackRF with: hackrf_info"
+    echo "  3. Run the tests: ./mimir test"
+    echo "  4. Live scan: ./mimir scan (choose a device with --device hackrf or --device plutosdr)"
+    echo "  5. Demo with no SDR: ./mimir demo"
+    echo "  6. Tools: ./mimir tool lists them, ./mimir tool <name> runs one"
+    echo ""
+    echo "  ./mimir works the same from bash, zsh and fish, shows each command before running it,"
+    echo "  and always adds -s so old ~/.local packages stay out."
+    echo ""
+    info "Dashboard: http://localhost:5000"
+    echo ""
+}
+
+# ── Main: install environments and show launcher usage ────────────────────────
 main() {
     install_system_packages
     configure_udev
@@ -515,20 +589,7 @@ main() {
     echo ""
     success "Mimir setup complete."
     echo ""
-    info "Next steps:"
-    echo "  1. Plug in the HackRF One with antenna attached"
-    echo "  2. Run: hackrf_info"
-    echo "  3. Run tests (uv-managed venv): uv run pytest tests/core/test_rx_only_lock.py -v"
-    echo "  4. Activate the scanner venv, then run from the project root:"
-    echo "       source .venv-scan/bin/activate"
-    echo "       PYTHONPATH=. python -s scan.py"
-    echo "     Without activation: PYTHONPATH=. .venv-scan/bin/python -s scan.py"
-    echo "  5. Diagnostic tools use the same activated venv and PYTHONPATH=., e.g.:"
-    echo "       PYTHONPATH=. python -s tools/diagnose_threshold.py"
-    echo "     -s keeps old ~/.local packages out."
-    echo ""
-    info "Dashboard: http://localhost:5000"
-    echo ""
+    print_next_steps
 }
 
 # Only run main when executed directly (not sourced)
