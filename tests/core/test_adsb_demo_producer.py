@@ -160,6 +160,38 @@ def _build_malformed_sigmf(
 class TestAdsbDemoProducerConstructor:
     """Tests for AdsbDemoProducer file loading and validation."""
 
+    def test_missing_sample_rate_raises_replay_file_error(
+        self, tmp_path: Path,
+    ) -> None:
+        """Missing required metadata is wrapped in the replay error contract."""
+        path = _build_malformed_sigmf(
+            tmp_path, sample_rate_hz=2_000_000, freq_hz=AU_ADSB_FREQUENCY_HZ,
+        )
+        metadata = json.loads(path.read_text())
+        del metadata["global"]["core:sample_rate"]
+        path.write_text(json.dumps(metadata))
+        with pytest.raises(
+            ReplayFileError, match="invalid SigMF metadata",
+        ) as error:
+            AdsbDemoProducer(path, MagicMock(spec=AdsbSubscriber))
+        assert error.value.__cause__ is not None
+
+    @pytest.mark.parametrize(
+        "frequency", [float("nan"), float("inf"), float("-inf")],
+    )
+    def test_non_finite_frequency_raises_replay_file_error(
+        self, tmp_path: Path, frequency: float,
+    ) -> None:
+        """Non-finite centre frequencies cannot bypass the ADS-B band check."""
+        path = _build_malformed_sigmf(
+            tmp_path, sample_rate_hz=2_000_000, freq_hz=AU_ADSB_FREQUENCY_HZ,
+        )
+        metadata = json.loads(path.read_text())
+        metadata["captures"][0]["core:frequency"] = frequency
+        path.write_text(json.dumps(metadata))
+        with pytest.raises(ReplayFileError, match="core:frequency must be finite"):
+            AdsbDemoProducer(path, MagicMock(spec=AdsbSubscriber))
+
     def test_wrong_sample_rate_raises_replay_file_error(
         self, tmp_path: Path
     ) -> None:

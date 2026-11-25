@@ -52,6 +52,8 @@ def api_replay():
     per_chunk_results (replayed fingerprint, saved fingerprint, per-field
     comparison), and a matched/mismatched summary. The response carries
     DERIVED MEASUREMENTS ONLY — never raw IQ samples.
+    Non-finite floats are null; spectral_flatness comparisons include
+    delta_format="exponential" for client delta formatting.
 
     Mismatches are NOT failures: a capture that no longer matches under
     current thresholds is a valid finding and returns 200 like any other
@@ -230,16 +232,19 @@ def api_captures():
     }
 
     Mode detection:
-        - "oneshot": file contains "mimir:fingerprint" global field
+        - "oneshot": file contains a dict "mimir:fingerprint" global field
                      (single scan cycle). chunk_count = 1.
         - "record": file contains "mimir:fingerprint_sequence" global
-                    field (per-cycle fingerprints). chunk_count =
+                    field containing a list within MAX_SEQUENCE_ENTRIES.
+                    chunk_count =
                     len(sequence).
         - "unknown": neither field present, or file is malformed.
                      chunk_count = 0.
 
     Malformed files are surfaced as "unknown" entries with an extra
-    "error" key; they do NOT abort the whole listing.
+    "error" key; they do NOT abort the whole listing. Oversized sequences,
+    non-list sequences and non-dict one-shot fingerprints stay "unknown"
+    with chunk_count = 0. Non-finite core:frequency values are null.
 
     Sort order: descending by parsed timestamp; entries without a
     parseable timestamp sort after all dated entries. Filename provides

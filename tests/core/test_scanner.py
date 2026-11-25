@@ -103,6 +103,25 @@ def scanner(config, mock_device, mock_embedder, mock_store, mock_classifier):
 
 
 class TestScanRunner:
+    @pytest.mark.parametrize("demo", [False, True])
+    def test_demo_reports_count_chunks_and_expose_mode(
+        self, config: MimirConfig, mock_device: MagicMock,
+        mock_embedder: MagicMock, mock_store: MagicMock,
+        mock_classifier: MagicMock, demo: bool,
+    ) -> None:
+        """Only demo reports count chunks; the mode property is read-only."""
+        runner = ScanRunner(
+            mock_device, mock_embedder, mock_store, mock_classifier, config,
+            is_demo_device=demo,
+        )
+        assert runner.is_demo_device is demo
+        assert runner.get_stats()["scan_count"] == 0
+        for index in range(1, 3):
+            runner.report_demo_frequency(1_090_000_000.0)
+            assert runner.get_stats()["scan_count"] == (index if demo else 0)
+        with pytest.raises(AttributeError):
+            runner.is_demo_device = not demo
+
     def test_single_cycle_emits_scan_result(
         self,
         scanner: ScanRunner,

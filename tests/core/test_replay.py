@@ -7,7 +7,8 @@ compares field-by-field against the fingerprint saved at capture time.
 
 All tests build REAL SigMF files in tmp_path via save_capture() /
 save_recording() with reproducible synthetic IQ (seeded
-np.random.default_rng) — no hardware, no mocks of the pipeline itself.
+np.random.default_rng). Non-finite result tests stub fingerprint output
+to exercise degenerate values without hardware.
 
 Run with:
     uv run pytest tests/core/test_replay.py -v
@@ -16,10 +17,12 @@ Run with:
 import json
 import math
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pytest
 
+import core.pipeline.replay as replay_module
 from core.pipeline.capture import save_capture, save_recording
 from core.pipeline.fft import compute_psd
 from core.pipeline.features import fingerprint_spectrum
@@ -628,3 +631,91 @@ def test_saved_measurement_keys_is_identity_import_of_fingerprint_metadata_keys(
     from core.pipeline.replay import SAVED_MEASUREMENT_KEYS
 
     assert SAVED_MEASUREMENT_KEYS is _FINGERPRINT_METADATA_KEYS
+
+
+@pytest.mark.parametrize("frequency", [float("inf"), float("-inf"), float("nan")])
+def test_non_finite_frequency_resolves_to_no_band(frequency: float) -> None:
+    """Non-finite metadata frequencies never reach integer conversion."""
+    assert replay_module._resolve_band(frequency) == (None, "none")
+
+
+def test_band_resolution_preserves_integer_truncation() -> None:
+    """Existing demo callers retain the exact-match integer comparison."""
+    assert replay_module._resolve_band(_FREQ_HZ + 0.5) == ("fm_broadcast", "exact")
+
+
+@pytest.mark.parametrize(
+    "sample_rate", [float("nan"), float("inf"), float("-inf"), 0, -1],
+)
+def test_invalid_sample_rate_rejected(tmp_path: Path, sample_rate: float) -> None:
+    """Invalid rates raise the rate-specific error with a valid fingerprint."""
+    samples = _make_samples(4096)
+    fingerprint = _expected_fingerprint(
+        samples, _FREQ_HZ, _SAMPLE_RATE_HZ, "fm_broadcast"
+    )
+    path = _write_sigmf_pair(
+        tmp_path, samples,
+        {"core:sample_rate": sample_rate, "mimir:fingerprint": fingerprint},
+        [{"core:sample_start": 0, "core:frequency": _FREQ_HZ}],
+    )
+    with pytest.raises(
+        ReplayFileError, match="^core:sample_rate must be finite and positive$",
+    ):
+        replay_capture(path)
+
+
+def test_replay_sanitises_non_finite_result_after_comparison(
+    tmp_path: Path,
+) -> None:
+    """Sanitise nested Python/NumPy floats after matching raw NaN values."""
+    saved = {key: 1.0 for key in replay_module.SAVED_MEASUREMENT_KEYS}
+    saved["snr_db"] = float("nan")
+    replayed = {
+        **saved,
+        "peak_power_db": np.float32(float("inf")),
+        "noise_floor_db": np.float64(float("-inf")),
+        "nested": [{"values": (
+            np.float32(float("nan")), np.float32(0.25),
+            float("inf"), float("-inf"),
+        )}],
+    }
+    path = _write_sigmf_pair(
+        tmp_path, _make_samples(4096),
+        {"core:sample_rate": _SAMPLE_RATE_HZ, "mimir:fingerprint": saved},
+        [{"core:sample_start": 0, "core:frequency": _FREQ_HZ}],
+    )
+    with patch.object(
+        replay_module, "fingerprint_samples", return_value=replayed,
+    ):
+        result = replay_capture(path)
+    chunk = result["per_chunk_results"][0]
+    assert chunk["comparison"]["field_results"]["snr_db"]["match"] is True
+    assert chunk["comparison"]["field_results"]["snr_db"]["delta_db"] is None
+    assert chunk["saved_fingerprint"]["snr_db"] is None
+    assert chunk["replayed_fingerprint"]["peak_power_db"] is None
+    assert chunk["replayed_fingerprint"]["noise_floor_db"] is None
+    assert chunk["replayed_fingerprint"]["nested"] == [
+        {"values": (None, 0.25, None, None)},
+    ]
+    assert math.isnan(saved["snr_db"])
+    assert np.isinf(replayed["peak_power_db"])
+    json.dumps(result, allow_nan=False)
+
+
+def test_flatness_comparison_requests_exponential_delta() -> None:
+    """Only the flatness result advertises exponential delta formatting."""
+    saved = {key: 1.0 for key in replay_module.SAVED_MEASUREMENT_KEYS}
+    fields = _compare_fingerprints(saved, saved, 0.1)["field_results"]
+    assert fields["spectral_flatness"]["delta_format"] == "exponential"
+    assert all(
+        "delta_format" not in field for key, field in fields.items()
+        if key != "spectral_flatness"
+    )
+
+
+@pytest.mark.parametrize(
+    "name", ["compute_psd", "fingerprint_spectrum", "resolve_band_profile"],
+)
+def test_unused_pipeline_imports_removed(name: str) -> None:
+    """Replay exposes the shared fingerprint helper without stale imports."""
+    assert not hasattr(replay_module, name)

@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
 import sys
 from pathlib import Path
 
@@ -45,8 +46,26 @@ def _colour(text: str, code: str) -> str:
     return f"{code}{text}{ANSI_RESET}"
 
 
+def _tolerance_db(value: str) -> float:
+    """Parse a finite, non-negative dB tolerance for argparse."""
+    try:
+        tolerance = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("tolerance must be a number") from exc
+    if not math.isfinite(tolerance) or tolerance < 0:
+        raise argparse.ArgumentTypeError(
+            "tolerance must be finite and non-negative"
+        )
+    return tolerance
+
+
+def _display_value(value: object, format_spec: str = "") -> str:
+    """Format a CLI value, displaying sanitised None values as three dashes."""
+    return "---" if value is None else format(value, format_spec)
+
+
 def _parse_args() -> argparse.Namespace:
-    """Parse command-line arguments."""
+    """Parse arguments, rejecting non-finite or negative dB tolerances."""
     parser = argparse.ArgumentParser(
         description=(
             "Replay a saved SigMF capture through the fingerprint pipeline "
@@ -67,7 +86,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--tolerance-db",
-        type=float,
+        type=_tolerance_db,
         default=0.1,
         help=(
             "Match tolerance in dB for snr_db/peak_power_db/noise_floor_db "
@@ -78,7 +97,7 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _print_chunk(index: int, chunk: dict) -> None:
-    """Print one chunk's comparison line, colour-coded on snr_db."""
+    """Print a colour-coded comparison, rendering None values as '---'."""
     snr = chunk["comparison"]["field_results"]["snr_db"]
     verdict = _colour("MATCH", ANSI_GREEN) if snr["match"] else _colour(
         "MISMATCH", ANSI_RED
@@ -86,12 +105,13 @@ def _print_chunk(index: int, chunk: dict) -> None:
     location = ""
     if "sample_start" in chunk:
         location = (
-            f" [sample_start={chunk['sample_start']} "
-            f"t={chunk['timestamp_sec']:.3f}s]"
+            f" [sample_start={_display_value(chunk['sample_start'])} "
+            f"t={_display_value(chunk['timestamp_sec'], '.3f')}s]"
         )
     print(
-        f"chunk {index}{location}: snr_db saved={snr['saved']} "
-        f"replayed={snr['replayed']} (delta={snr['delta_db']:+.3f} dB) "
+        f"chunk {index}{location}: snr_db saved={_display_value(snr['saved'])} "
+        f"replayed={_display_value(snr['replayed'])} "
+        f"(delta={_display_value(snr['delta_db'], '+.3f')} dB) "
         f"{verdict}"
     )
     if not chunk["comparison"]["all_match"]:
@@ -99,8 +119,8 @@ def _print_chunk(index: int, chunk: dict) -> None:
             if not result["match"]:
                 print(
                     _colour(
-                        f"    {field}: saved={result['saved']} "
-                        f"replayed={result['replayed']}",
+                        f"    {field}: saved={_display_value(result['saved'])} "
+                        f"replayed={_display_value(result['replayed'])}",
                         ANSI_YELLOW,
                     )
                 )
@@ -113,6 +133,8 @@ def main() -> None:
     "mimir:fingerprint_sequence"), recomputes its spectral fingerprint under
     TODAY's BAND_PROFILES thresholds via core.pipeline.replay.replay_capture(),
     and prints a field-by-field match/mismatch comparison.
+    Missing measurements display as '---'; --json writes strict JSON with
+    non-finite measurements represented as null.
 
     Device-profile resolution (HIGH-01): the capture's mimir:device_profile
     field determines which band profile is used for replay. The output shows
@@ -131,6 +153,8 @@ def main() -> None:
     Locking: REPLAY_LOCK is acquired inside replay_capture(). The CLI uses
     wait=True (blocking contention), which is correct for single-shot usage.
     The API route uses wait=False for fast-fail 503 responses.
+    The lock is per process, so separate CLI and dashboard processes can
+    still replay concurrently.
     """
     args = _parse_args()
 
@@ -154,8 +178,8 @@ def main() -> None:
     meta = result["file_metadata"]
     band = result["band_resolution"]
     print(f"File:      {meta['path']}")
-    print(f"Frequency: {meta['core_frequency_hz']:.0f} Hz  "
-          f"Sample rate: {meta['core_sample_rate_hz']:.0f} Hz")
+    print(f"Frequency: {_display_value(meta['core_frequency_hz'], '.0f')} Hz  "
+          f"Sample rate: {_display_value(meta['core_sample_rate_hz'], '.0f')} Hz")
     print(f"Field:     {meta['fingerprint_field']}")
     print(f"Band:      {band['band_key']} ({band['match']} match, "
           f"centre {band['band_center_freq_hz']} Hz)")
@@ -170,7 +194,7 @@ def main() -> None:
     )
 
     if args.json is not None:
-        args.json.write_text(json.dumps(result, indent=2))
+        args.json.write_text(json.dumps(result, indent=2, allow_nan=False))
         print(f"Structured result written to {args.json}")
 
 
@@ -183,16 +207,8 @@ if __name__ == "__main__":
 # Phase 70 finalise review. They are not blocking issues but should be addressed in
 # future phases.
 
-# LOW-03: tolerance_db unvalidated for NaN/negative/bool at both CLI and route entry
-#     points — add math.isfinite(tolerance_db) and tolerance_db >= 0 check, own phase.
-# LOW-04: NaN serialisation is non-strict JSON; +-inf not covered by the NaN policy
-#     — sanitize non-finite values to null at the result boundary, own phase.
-# LOW-05: int(core_freq_hz) truncation and OverflowError risk for infinite core:frequency
-#     — rides along with the MED-01 wrapper (already fixed) but the int() cast itself
-#     wasn't hardened.
-# ADVISORY: REPLAY_LOCK is process-wide only; the CLI and the API route run as
-#     separate processes, so they can run concurrently despite the lock — one-sentence
-#     docstring note recommended.
+# LOW-05: int(core_freq_hz) truncation remains; the shared replay helper now
+#     rejects non-finite frequencies before conversion.
 # ADVISORY: large replay runs execute inside the live scan.py process; NumPy releases
 #     the GIL during FFTs but scan-cycle latency may rise during a big replay — no
 #     action needed unless operators report sluggishness; os.nice is the eventual answer

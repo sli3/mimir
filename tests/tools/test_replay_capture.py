@@ -21,7 +21,7 @@ from core.pipeline.capture import save_capture, save_recording
 from core.pipeline.fft import compute_psd
 from core.pipeline.features import fingerprint_spectrum
 from dashboard.shared_state import BAND_PROFILES
-from tools.replay_capture import _parse_args, main
+from tools.replay_capture import _parse_args, _print_chunk, main
 
 
 _FREQ_HZ = 98_000_000
@@ -99,6 +99,30 @@ def _run_main(monkeypatch, argv):
 class TestParseArgs:
     """Argparse structure and defaults."""
 
+    @pytest.mark.parametrize("value", ["nan", "inf", "-inf", "-1"])
+    def test_rejects_invalid_tolerance(
+        self, monkeypatch: pytest.MonkeyPatch, value: str,
+    ) -> None:
+        """CLI tolerances must be finite and non-negative."""
+        monkeypatch.setattr(
+            sys, "argv", ["replay_capture.py", "capture.sigmf-meta",
+                          f"--tolerance-db={value}"],
+        )
+        with pytest.raises(SystemExit) as error:
+            _parse_args()
+        assert error.value.code == 2
+
+    @pytest.mark.parametrize("value", ["0", "0.25"])
+    def test_accepts_valid_tolerance(
+        self, monkeypatch: pytest.MonkeyPatch, value: str,
+    ) -> None:
+        """Zero and fractional non-negative tolerances remain valid."""
+        monkeypatch.setattr(
+            sys, "argv", ["replay_capture.py", "capture.sigmf-meta",
+                          "--tolerance-db", value],
+        )
+        assert _parse_args().tolerance_db == float(value)
+
     def test_defaults(self, monkeypatch):
         monkeypatch.setattr(sys, "argv", ["replay_capture.py", "some.sigmf-meta"])
         args = _parse_args()
@@ -122,6 +146,29 @@ class TestParseArgs:
         args = _parse_args()
         assert args.json == Path("out.json")
         assert args.tolerance_db == 0.25
+
+
+def test_print_chunk_handles_null_measurements(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Sanitised measurements and timestamps print as dashes without errors."""
+    _print_chunk(0, {
+        "sample_start": 0,
+        "timestamp_sec": None,
+        "comparison": {
+            "all_match": False,
+            "field_results": {
+                "snr_db": {
+                    "saved": None, "replayed": None,
+                    "delta_db": None, "match": False,
+                },
+            },
+        },
+    })
+    output = capsys.readouterr().out
+    assert "saved=--- replayed=--- (delta=--- dB)" in output
+    assert "t=---s" in output
+    assert "None" not in output
 
 
 class TestMainSuccess:

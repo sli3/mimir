@@ -5,6 +5,7 @@ import './ReplayPage.css'
 
 /**
  * Format a centre frequency in Hz as "<MHz> MHz" with one decimal place.
+ * Missing and non-finite values render as '--- MHz'.
  */
 function formatFreqMHz(freqHz) {
   if (!Number.isFinite(freqHz)) return '--- MHz'
@@ -30,9 +31,11 @@ function formatTimestamp(isoString) {
 
 /**
  * Format a signed numeric delta. Returns "+X" or "-X" without changing
- * the magnitude formatting. Non-finite values render as "---".
+ * the magnitude formatting. Null, undefined and non-finite values render
+ * as "---".
  */
 function formatSignedDelta(value, decimals = 2) {
+  if (value === null || value === undefined) return '---'
   const num = Number(value)
   if (!Number.isFinite(num)) return '---'
   const sign = num >= 0 ? '+' : '-'
@@ -57,7 +60,7 @@ const NEON_AMBER_RGB = [255, 204, 0]
  *
  * 0 means "at or below the backend burst threshold" (no visual change).
  * 1 means "at the empirical ceiling observed across ADS-B captures".
- * Non-finite or negative values clamp to 0 so the UI never renders NaN.
+ * Null, undefined, non-finite or negative values use the empty overlay.
  */
 // eslint-disable-next-line react-refresh/only-export-components
 export function burstIntensity(burstExcessDb) {
@@ -94,19 +97,18 @@ function burstRingStyle(t) {
 /**
  * Render one row of the seven-field comparison. Does NOT hardcode the
  * field names - it iterates the per-chunk field_results dict supplied by
- * /api/replay.
+ * /api/replay. deltaFormat chooses exponential deltas; missing numeric
+ * values render as '---' without coercing null to zero.
  */
-function FieldRow({ name, saved, replayed, match, deltaDb, delta }) {
+function FieldRow({ name, saved, replayed, match, deltaDb, delta, deltaFormat }) {
   // Only the three dB-scale fields carry a delta_db value.
   const isDbField = deltaDb !== undefined
-  const isFlatness = name === 'spectral_flatness'
   let deltaText = ''
   if (isDbField) {
     deltaText = `${formatSignedDelta(deltaDb, 2)} dB`
-  } else if (isFlatness) {
-    // spectral_flatness delta is at 1e-9 scale; exponential keeps the
-    // small value readable without losing precision.
-    const num = Number(delta)
+  } else if (deltaFormat === 'exponential') {
+    // Follow the API format hint and preserve missing deltas as empty values.
+    const num = delta === null || delta === undefined ? NaN : Number(delta)
     deltaText = Number.isFinite(num) ? num.toExponential(2) : '---'
   }
 
@@ -219,7 +221,7 @@ function PickerView({ capturesState, onSelect }) {
 }
 
 /**
- * One-shot replay result card.
+ * One-shot replay result card, forwarding API delta formatting hints.
  */
 function OneShotResult({ result }) {
   const chunk = result.per_chunk_results[0]
@@ -258,6 +260,7 @@ function OneShotResult({ result }) {
             match={field.match}
             deltaDb={field.delta_db}
             delta={field.delta}
+            deltaFormat={field.delta_format}
           />
         ))}
       </div>
@@ -266,7 +269,7 @@ function OneShotResult({ result }) {
 }
 
 /**
- * Record-mode replay grid with burst intensity tooltips and chunk details.
+ * Record-mode replay grid with burst tooltips and API-formatted chunk deltas.
  */
 function RecordResult({ result }) {
   const [selectedIndex, setSelectedIndex] = useState(0)
@@ -455,6 +458,7 @@ function RecordResult({ result }) {
                 match={field.match}
                 deltaDb={field.delta_db}
                 delta={field.delta}
+                deltaFormat={field.delta_format}
               />
             ))}
           </div>
@@ -567,12 +571,13 @@ function ResultsView({ replayState, onBack }) {
  * the fingerprint pipeline under today's band thresholds. Consists of a
  * picker (driven by useCaptures) and a results view (driven by useReplay),
  * switched locally by selectedFilename without a page reload.
+ * Returning to the picker cancels any pending replay request first.
  *
  * Passive receive display only - no TX capability.
  */
 export default function ReplayPage() {
   const { state: capturesState, refetch: refetchCaptures } = useCaptures()
-  const { state: replayState, replay } = useReplay()
+  const { state: replayState, replay, cancel } = useReplay()
   const [selectedFilename, setSelectedFilename] = useState(null)
 
   useEffect(() => {
@@ -591,6 +596,8 @@ export default function ReplayPage() {
   }
 
   const handleBack = () => {
+    // Abort before showing the picker so late results cannot repopulate state.
+    cancel()
     setSelectedFilename(null)
     refetchCaptures()
   }

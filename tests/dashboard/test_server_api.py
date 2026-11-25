@@ -402,6 +402,48 @@ class TestApiCaptures:
     _FREQ_HZ = 98_000_000
     _SAMPLE_RATE_HZ = 2_000_000
 
+    @pytest.mark.parametrize(
+        "field", ["mimir:fingerprint_sequence", "mimir:fingerprint"],
+    )
+    def test_invalid_fingerprint_shape_lists_as_unknown(
+        self, client: FlaskClient, captures_dir: Path, field: str,
+    ) -> None:
+        """Oversized sequences and non-dict fingerprints list as unknown."""
+        from core.pipeline.replay import MAX_SEQUENCE_ENTRIES
+
+        value = (
+            [{}] * (MAX_SEQUENCE_ENTRIES + 1)
+            if field.endswith("sequence") else []
+        )
+        path = captures_dir / "capture_98000000hz_20260819_000000.sigmf-meta"
+        path.write_text(json.dumps({"global": {field: value}}))
+        response = client.get("/api/captures")
+        assert response.status_code == 200
+        entry = response.get_json()["captures"][0]
+        assert entry["mode"] == "unknown"
+        assert entry["chunk_count"] == 0
+        assert entry["error"]
+
+    @pytest.mark.parametrize(
+        "frequency", [float("nan"), float("inf"), float("-inf")],
+    )
+    def test_non_finite_frequency_lists_as_null(
+        self, client: FlaskClient, captures_dir: Path, frequency: float,
+    ) -> None:
+        """The picker receives JSON null for a non-finite centre frequency."""
+        path = captures_dir / "capture_98000000hz_20260819_000000.sigmf-meta"
+        path.write_text(json.dumps({
+            "global": {"mimir:fingerprint": {}},
+            "captures": [{"core:frequency": frequency}],
+        }))
+        response = client.get("/api/captures")
+        assert response.status_code == 200
+        entry = response.get_json()["captures"][0]
+        assert entry["core_frequency_hz"] is None
+        assert entry["mode"] == "oneshot"
+        assert b'NaN' not in response.data
+        assert b'Infinity' not in response.data
+
     def _build_capture(self, tmp_path, snr_bump_db=0.0):
         """Write a real one-shot capture; optionally skew saved snr_db."""
         import numpy as np

@@ -55,6 +55,8 @@ Three guards bound that:
      reentrant lock was considered and rejected: with an RLock, a
      same-thread holder would silently pass the route's busy check,
      weakening exactly the guarantee this lock exists to enforce.
+     The lock is per process, so the CLI and dashboard /api/replay route
+     run in separate processes and can still replay concurrently.
   2. MAX_ONE_SHOT_SAMPLES — cap on whole-file reads for the one-shot
      path. One-shot files are single scan cycles (~1 MB); a 50 MB cap
      (50M complex64 samples = 400 MB cf32... see note below) stops a
@@ -80,19 +82,17 @@ import threading
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import sigmf
 from sigmf import SigMFFile
 from sigmf.error import SigMFFileError
 
-from core.pipeline.fft import compute_psd
-from core.pipeline.features import fingerprint_spectrum
 from core.pipeline.capture import _FINGERPRINT_METADATA_KEYS as SAVED_MEASUREMENT_KEYS
 from core.pipeline.fingerprint import fingerprint_samples
 from dashboard.shared_state import (
     BAND_PROFILES,
     PLUTO_BAND_PROFILES,
     band_key_for_freq,
-    resolve_band_profile,
 )
 
 logger = logging.getLogger(__name__)
@@ -115,6 +115,8 @@ class ReplayBusyError(Exception):
 
 # One replay at a time, process-wide. Plain threading.Lock — see the
 # module docstring for why reentrancy was deliberately rejected.
+# The lock is per process, so the CLI and dashboard /api/replay route
+# run in separate processes and can still replay concurrently.
 REPLAY_LOCK = threading.Lock()
 
 # Resource caps (HIGH-severity security conditions).
@@ -176,6 +178,8 @@ def _compare_fingerprints(
         tolerance_db: Match tolerance in dB for the _DB_FIELDS fields.
 
     Returns:
+        Only spectral_flatness includes delta_format="exponential" to
+        request exponential delta rendering from clients.
         {
             "tolerance_db": float,
             "field_results": {field: {"saved": ..., "replayed": ...,
@@ -239,6 +243,7 @@ def _compare_fingerprints(
         "replayed": replayed_v,
         "match": _values_match(saved_v, replayed_v, _FLATNESS_TOLERANCE),
         "delta": delta,
+        "delta_format": "exponential",
     }
 
     all_match = all(r["match"] for r in field_results.values())
@@ -256,8 +261,11 @@ def _resolve_band(core_freq_hz: float) -> tuple[str | None, str]:
     center_freq_hz equals the capture frequency), "nearest" (the
     band_key_for_freq nearest-match fallback fired — e.g. a 915.825 MHz
     Phase 68 recording resolving to the 915.000 MHz ism profile), or
-    "none" (unresolvable — caller raises ReplayFileError).
+    "none" (unresolvable — caller raises ReplayFileError). Non-finite
+    frequencies resolve to no band before any integer conversion.
     """
+    if not math.isfinite(core_freq_hz):
+        return None, "none"
     for key, profile in BAND_PROFILES.items():
         if profile["center_freq_hz"] == int(core_freq_hz):
             return key, "exact"
@@ -265,6 +273,23 @@ def _resolve_band(core_freq_hz: float) -> tuple[str | None, str]:
     if key is None:
         return None, "none"
     return key, "nearest"
+
+
+def _sanitise_result(value: Any) -> Any:
+    """Copy nested result containers, replacing non-finite floats with None.
+
+    Preserve dict, list and tuple shapes; normalise finite NumPy floats
+    to Python floats. Run only after comparisons to preserve the NaN policy.
+    """
+    if isinstance(value, dict):
+        return {key: _sanitise_result(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_sanitise_result(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_sanitise_result(item) for item in value)
+    if isinstance(value, (float, np.floating)):
+        return float(value) if math.isfinite(value) else None
+    return value
 
 
 def _validate_measurement_keys(fingerprint: Any, context: str) -> dict:
@@ -426,7 +451,8 @@ def replay_capture(
         wait: Contention behaviour on REPLAY_LOCK (see above).
 
     Returns:
-        A JSON-serialisable dict:
+        A JSON-serialisable dict with non-finite floats replaced by None
+        (null in JSON), after comparing the raw measurements:
         {
             "file_metadata": {path, core_frequency_hz, core_sample_rate_hz,
                               core_datatype, mimir_device_profile,
@@ -469,6 +495,9 @@ def _replay_capture_impl(meta_path: Path, tolerance_db: float) -> dict:
     core:datatype. File-level failures therefore always surface as
     ReplayFileError (HTTP 400 at the /api/replay route), never as a raw
     library traceback.
+
+    Reject non-finite or non-positive sample rates before processing.
+    Sanitise non-finite result floats to None (JSON null) after raw comparisons.
     """
     meta = _load_sigmf(Path(meta_path))
     try:
@@ -483,6 +512,8 @@ def _replay_capture_impl(meta_path: Path, tolerance_db: float) -> dict:
             )
         core_freq = float(core_freq)
         sample_rate = float(sample_rate)
+        if not math.isfinite(sample_rate) or sample_rate <= 0:
+            raise ReplayFileError("core:sample_rate must be finite and positive")
 
         band_key, band_match = _resolve_band(core_freq)
         if band_key is None:
@@ -582,7 +613,7 @@ def _replay_capture_impl(meta_path: Path, tolerance_db: float) -> dict:
         matched = sum(
             1 for r in per_chunk_results if r["comparison"]["all_match"]
         )
-        return {
+        return _sanitise_result({
             "file_metadata": {
                 "path": str(meta_path),
                 "core_frequency_hz": core_freq,
@@ -607,7 +638,7 @@ def _replay_capture_impl(meta_path: Path, tolerance_db: float) -> dict:
                 "matched_chunks": matched,
                 "mismatched_chunks": len(per_chunk_results) - matched,
             },
-        }
+        })
     except sigmf.error.SigMFError as exc:
         raise ReplayFileError(f"sigmf library error: {exc}") from exc
 
@@ -617,14 +648,8 @@ def _replay_capture_impl(meta_path: Path, tolerance_db: float) -> dict:
 # Phase 70 finalise review. They are not blocking issues but should be addressed in
 # future phases.
 
-# LOW-04: NaN serialisation is non-strict JSON; +-inf not covered by the NaN policy
-#     — sanitize non-finite values to null at the result boundary, own phase.
-# LOW-05: int(core_freq_hz) truncation and OverflowError risk for infinite core:frequency
-#     — rides along with the MED-01 wrapper (already fixed) but the int() cast itself
-#     wasn't hardened.
-# ADVISORY: REPLAY_LOCK is process-wide only; the CLI and the API route run as
-#     separate processes, so they can run concurrently despite the lock — one-sentence
-#     docstring note recommended.
+# LOW-05: int(core_freq_hz) truncation remains for compatibility; non-finite
+#     frequencies now resolve to no band before conversion.
 # ADVISORY: large replay runs execute inside the live scan.py process; NumPy releases
 #     the GIL during FFTs but scan-cycle latency may rise during a big replay — no
 #     action needed unless operators report sluggishness; os.nice is the eventual answer

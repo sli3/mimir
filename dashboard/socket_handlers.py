@@ -31,6 +31,9 @@ def handle_set_focus(data: dict) -> None:
     before changing focus, the band profile or the scanner. Unknown device
     keys retain the existing behaviour. While the scanner is stopping, all
     requests, including clearing focus, are ignored before changing state.
+    After those gates, demo scanners reject non-null focus before the first
+    chunk and outside the active capture's resolved band. Clearing remains
+    allowed; unresolved positive demo frequencies add no band restriction.
 
     Also updates shared_state.current_band to the matching band profile
     resolved for the active device (via shared_state.resolve_band_profile)
@@ -81,6 +84,24 @@ def handle_set_focus(data: dict) -> None:
                     freq_hz / 1e6, active_device,
                 )
                 return
+    if (
+        _server._scanner_ref is not None
+        and getattr(_server._scanner_ref, "is_demo_device", False) is True
+        and freq_hz is not None
+    ):
+        active = _server._scanner_ref.get_stats()["active_frequency_hz"]
+        if not active > 0:
+            logger.info("Ignoring focus request: no demo chunk reported yet")
+            return
+        demo_band = shared_state.band_key_for_freq(active)
+        if (
+            demo_band is not None
+            and shared_state.band_key_for_freq(freq_hz) != demo_band
+        ):
+            logger.warning("Ignoring focus request: not in the demo capture")
+            # The demo scan loop never runs, so leaving current_band alone
+            # for ignored requests is safe and keeps replay results flowing.
+            return
     with _server._focused_freq_lock:
         _server._focused_freq_hz = freq_hz
     band_key = shared_state.band_key_for_freq(freq_hz)

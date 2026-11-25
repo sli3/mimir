@@ -26,6 +26,7 @@ const BASE_REPLAY_RESULT = {
   },
 }
 
+/** Build comparison fields including the API's exponential delta hint. */
 function buildFieldResults(overrides = {}) {
   return {
     peak_freq_hz: { saved: 98_000_000, replayed: 98_000_000, match: true },
@@ -34,7 +35,7 @@ function buildFieldResults(overrides = {}) {
     snr_db: { saved: 25.0, replayed: 24.9, match: true, delta_db: -0.1 },
     bandwidth_hz: { saved: 100_000, replayed: 100_000, match: true },
     occupied_bins: { saved: 102, replayed: 102, match: true },
-    spectral_flatness: { saved: 0.123, replayed: 0.123, match: true, delta: 0.0 },
+    spectral_flatness: { saved: 0.123, replayed: 0.123, match: true, delta: 0.0, delta_format: 'exponential' },
     ...overrides,
   }
 }
@@ -127,6 +128,105 @@ async function selectFirstCapture() {
     fireEvent.click(firstRow)
   })
 }
+
+describe('ReplayPage replay hardening', () => {
+  const capture = {
+    filename: 'capture_98000000hz_20260819_120000.sigmf-meta',
+    mode: 'oneshot',
+    chunk_count: 1,
+    core_frequency_hz: 98_000_000,
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    document.body.className = ''
+  })
+
+  it.each(['fetch', 'body'])('BACK aborts a pending %s and ignores its late result', async (phase) => {
+    let finishReplay
+    let replaySignal
+    const pending = new Promise((resolve) => { finishReplay = resolve })
+    const result = buildOneShotResult()
+    vi.stubGlobal('fetch', vi.fn((url, options) => {
+      if (url === '/api/captures') {
+        return Promise.resolve({ ok: true, json: async () => ({ captures: [capture] }) })
+      }
+      replaySignal = options.signal
+      return phase === 'fetch'
+        ? pending
+        : Promise.resolve({ ok: true, json: () => pending })
+    }))
+    render(<ReplayPage />)
+    await screen.findByTestId('captures-list')
+    await selectFirstCapture()
+    expect(screen.getByTestId('replay-loading')).toBeInTheDocument()
+    expect(replaySignal.aborted).toBe(false)
+    await act(async () => { fireEvent.click(screen.getByTestId('replay-back-link')) })
+    expect(replaySignal.aborted).toBe(true)
+    await screen.findByTestId('captures-list')
+    // Resolve even though the signal was aborted, as a delayed server response might.
+    await act(async () => {
+      finishReplay(phase === 'fetch' ? { ok: true, json: async () => result } : result)
+    })
+    expect(screen.queryByTestId('replay-oneshot-result')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('replay-loading')).not.toBeInTheDocument()
+    expect(screen.getByTestId('captures-list')).toBeInTheDocument()
+  })
+
+  it.each(['oneshot', 'record'])('uses delta_format on %s rows independently of the name', async (mode) => {
+    const result = mode === 'oneshot' ? buildOneShotResult() : buildRecordResult(1)
+    result.per_chunk_results[0].comparison.field_results = {
+      custom_measurement: {
+        saved: 0.1, replayed: 0.1000000005, match: true,
+        delta: 5e-10, delta_format: 'exponential',
+      },
+      spectral_flatness: { saved: 0.1, replayed: 0.1, match: true, delta: 0 },
+    }
+    vi.stubGlobal('fetch', mockFetchForCaptureAndReplay(capture, result))
+    render(<ReplayPage />)
+    await screen.findByTestId('captures-list')
+    await selectFirstCapture()
+    const row = await screen.findByTestId('replay-field-row-custom_measurement')
+    expect(row).toHaveTextContent('(5.00e-10)')
+    expect(screen.getByTestId('replay-field-row-spectral_flatness')).not.toHaveTextContent('e+')
+  })
+
+  it.each([
+    ['oneshot', null], ['record', null],
+    ['oneshot', undefined], ['record', undefined],
+  ])('renders missing numeric values in %s results as dashes (%s)', async (mode, missing) => {
+    const result = mode === 'oneshot'
+      ? buildOneShotResult({}, { is_burst: true, burst_excess_db: missing })
+      : buildRecordResult(1, -1, { 0: { is_burst: true, burst_excess_db: missing } })
+    result.file_metadata = { ...result.file_metadata, core_frequency_hz: missing }
+    result.per_chunk_results[0].comparison.field_results = {
+      snr_db: { saved: missing, replayed: missing, match: true, delta_db: missing },
+      spectral_flatness: {
+        saved: missing, replayed: missing, match: true,
+        delta: missing, delta_format: 'exponential',
+      },
+    }
+    vi.stubGlobal('fetch', mockFetchForCaptureAndReplay(capture, result))
+    render(<ReplayPage />)
+    await screen.findByTestId('captures-list')
+    await selectFirstCapture()
+    const flatness = await screen.findByTestId('replay-field-row-spectral_flatness')
+    expect(flatness).toHaveTextContent('[SAVED] --- → [REPLAYED] --- (---)')
+    const snr = screen.getByTestId('replay-field-row-snr_db')
+    expect(snr).toHaveTextContent('[SAVED] --- → [REPLAYED] ---')
+    if (missing === null) expect(snr).toHaveTextContent('(--- dB)')
+    expect(snr).not.toHaveTextContent('+0.00')
+    expect(flatness).not.toHaveTextContent('0.00e+')
+    expect(screen.getByTestId('replay-info-line')).toHaveTextContent('--- MHz')
+    if (mode === 'oneshot') {
+      expect(screen.getByTestId('replay-burst-badge')).toHaveTextContent('BURST ---dB')
+    } else {
+      expect(screen.getByTestId('replay-burst-row-0')).toHaveTextContent('[REPLAYED] --- dB')
+      expect(screen.getByTestId('burst-stat-burst-range')).toHaveTextContent('no bursts detected')
+      expect(screen.getByTestId('burst-stat-full-range')).toHaveTextContent('—')
+    }
+  })
+})
 
 describe('ReplayPage picker', () => {
   beforeEach(() => {

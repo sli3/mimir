@@ -73,7 +73,8 @@ def start_server(
         scanner : Optional ScanRunner instance for live system_stats.
                   When provided, system_stats events report real values
                   (scan_count, queue_depth, llm_last_inference_ms) instead
-                  of zeros.
+                  of zeros. Demo scan_count counts replayed chunks; demo
+                  band limits supplement the device's unsupported bands.
 
     After calling start_server(), the broadcast functions are attached
     as attributes on the function itself:
@@ -92,7 +93,7 @@ def start_server(
     t.start()
 
     def emit_stats() -> None:
-        """Emit shared server stats, with fallback band maps and device names."""
+        """Emit stats and merge demo band limits, preserving device reasons."""
         while True:
             time.sleep(2.0)
             if scanner is not None:
@@ -116,6 +117,14 @@ def start_server(
             with shared_state.current_device_lock:
                 active_device = shared_state.current_device
             unsupported_map = _unsupported_bands_or_empty(active_device)
+            if (
+                scanner is not None
+                and getattr(scanner, "is_demo_device", False) is True
+            ):
+                unsupported_map = {
+                    **shared_state.bands_outside_demo(active_freq),
+                    **unsupported_map,
+                }
             try:
                 device_display = shared_state.display_name_for_device(active_device)
             except KeyError:

@@ -39,11 +39,13 @@ visual-snappiness tuned for the AI panel and unrelated to ADS-B timing.
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
 from pathlib import Path
 
 import numpy as np
+import sigmf
 
 from core.pipeline.replay import ReplayFileError, _load_sigmf
 from modules.adsb.constants import AU_ADSB_FREQUENCY_HZ, FREQ_TOLERANCE_HZ
@@ -86,7 +88,8 @@ class AdsbDemoProducer:
         Raises:
             FileNotFoundError: If ``sigmf_path`` does not exist.
             ReplayFileError: If the file is malformed, has the wrong
-                sample rate, or is tuned outside the ADS-B tolerance.
+                sample rate, is tuned outside the ADS-B tolerance, has missing or
+                invalid metadata, a non-finite frequency, or zero samples.
         """
         path = Path(sigmf_path)
         if not path.exists():
@@ -94,35 +97,40 @@ class AdsbDemoProducer:
 
         meta = _load_sigmf(path)
 
-        sample_rate_hz = float(meta.sample_rate)
-        if sample_rate_hz != 2_000_000.0:
-            raise ReplayFileError(
-                f"{path}: sample_rate={sample_rate_hz:.0f} Hz; ADS-B "
-                f"demodulator requires exactly 2_000_000 Hz (2 MSa/s). "
-                f"Re-capture at 2 MSa/s or use a different file."
-            )
+        try:
+            sample_rate_hz = float(meta.sample_rate)
+            if sample_rate_hz != 2_000_000.0:
+                raise ReplayFileError(
+                    f"{path}: sample_rate={sample_rate_hz:.0f} Hz; ADS-B "
+                    f"demodulator requires exactly 2_000_000 Hz (2 MSa/s). "
+                    f"Re-capture at 2 MSa/s or use a different file."
+                )
 
-        captures = meta.get_captures()
-        core_freq = captures[0].get("core:frequency") if captures else None
-        if core_freq is None:
-            raise ReplayFileError(
-                f"{path}: SigMF metadata has no core:frequency capture field"
-            )
-        core_freq_hz = float(core_freq)
-        if abs(core_freq_hz - AU_ADSB_FREQUENCY_HZ) > FREQ_TOLERANCE_HZ:
-            raise ReplayFileError(
-                f"{path}: core:frequency={core_freq_hz / 1e6:.2f} MHz is "
-                f"outside the ADS-B tolerance: expected within "
-                f"{FREQ_TOLERANCE_HZ / 1e3:.0f} kHz of "
-                f"{AU_ADSB_FREQUENCY_HZ / 1e6:.2f} MHz"
-            )
+            captures = meta.get_captures()
+            core_freq = captures[0].get("core:frequency") if captures else None
+            if core_freq is None:
+                raise ReplayFileError(
+                    f"{path}: SigMF metadata has no core:frequency capture field"
+                )
+            core_freq_hz = float(core_freq)
+            if not math.isfinite(core_freq_hz):
+                raise ReplayFileError(f"{path}: core:frequency must be finite")
+            if abs(core_freq_hz - AU_ADSB_FREQUENCY_HZ) > FREQ_TOLERANCE_HZ:
+                raise ReplayFileError(
+                    f"{path}: core:frequency={core_freq_hz / 1e6:.2f} MHz is "
+                    f"outside the ADS-B tolerance: expected within "
+                    f"{FREQ_TOLERANCE_HZ / 1e3:.0f} kHz of "
+                    f"{AU_ADSB_FREQUENCY_HZ / 1e6:.2f} MHz"
+                )
 
-        total_samples = int(meta.sample_count or 0)
-        if total_samples <= 0:
-            raise ReplayFileError(
-                f"{path}: SigMF metadata reports zero samples, .sigmf-data "
-                f"missing or empty"
-            )
+            total_samples = int(meta.sample_count or 0)
+            if total_samples <= 0:
+                raise ReplayFileError(
+                    f"{path}: SigMF metadata reports zero samples, .sigmf-data "
+                    f"missing or empty"
+                )
+        except (sigmf.error.SigMFError, TypeError, ValueError) as exc:
+            raise ReplayFileError(f"{path}: invalid SigMF metadata: {exc}") from exc
 
         self._meta = meta
         self._adsb_subscriber = adsb_subscriber

@@ -24,6 +24,141 @@ from modules.adsb.constants import AU_ADSB_FREQUENCY_HZ
 import dashboard.shared_state as ss
 
 
+@pytest.mark.parametrize(
+    "frequency", [0.0, -1.0, float("nan"), float("inf"), float("-inf")],
+)
+def test_demo_band_map_requires_positive_finite_frequency(
+    frequency: float,
+) -> None:
+    """No demo limits are advertised before a usable frequency is reported."""
+    assert ss.bands_outside_demo(frequency) == {}
+
+
+def test_demo_band_map_contains_every_other_profile() -> None:
+    """The demo map excludes its own band and retains all other profile keys."""
+    expected = set(ss.BAND_PROFILES) - {"adsb"}
+    reasons = ss.bands_outside_demo(1_090e6)
+    assert set(reasons) == expected
+    assert set(reasons.values()) == {"Not in the demo capture"}
+    with patch.object(ss, "band_key_for_freq", return_value=None):
+        assert ss.bands_outside_demo(1_090e6) == {}
+
+
+@pytest.mark.parametrize("device", ["hackrf", "plutosdr"])
+@pytest.mark.parametrize("mode", ["demo", "live", "bare_mock", "absent"])
+def test_stats_merge_demo_bands_only_for_literal_demo_flag(
+    monkeypatch: pytest.MonkeyPatch, device: str, mode: str,
+) -> None:
+    """Demo restrictions supplement device limits and keep device reasons."""
+    class StopStats(Exception):
+        """Stop after the first statistics emission."""
+
+    monkeypatch.setattr(server, "_device_ref", None)
+    monkeypatch.setattr(server, "_scanner_ref", None)
+    monkeypatch.setattr(ss, "current_device", device)
+    scanner = None if mode == "absent" else MagicMock()
+    if scanner is not None:
+        if mode != "bare_mock":
+            scanner.is_demo_device = mode == "demo"
+        scanner.get_stats.return_value = {
+            "active_frequency_hz": 1_090e6, "scan_count": 2,
+            "queue_depth": 0, "last_backlog": 0,
+            "llm_call_count": 0, "last_llm_ms": 0.0,
+        }
+    expected = ss.unsupported_bands_for_device(device)
+    if mode == "demo":
+        expected = {**ss.bands_outside_demo(1_090e6), **expected}
+    with (
+        patch("dashboard.server.threading.Thread") as thread,
+        patch("dashboard.server.socketio.emit") as emit,
+        patch("dashboard.server.time.sleep", side_effect=[None, StopStats()]),
+        patch.object(
+            ss, "bands_outside_demo", wraps=ss.bands_outside_demo,
+        ) as demo_map,
+    ):
+        start_server("127.0.0.1", 5000, scanner=scanner)
+        target = next(
+            call.kwargs["target"] for call in thread.call_args_list
+            if call.kwargs["target"].__name__ == "emit_stats"
+        )
+        with pytest.raises(StopStats):
+            target()
+        if mode == "demo":
+            demo_map.assert_called_once_with(1_090e6)
+        else:
+            demo_map.assert_not_called()
+        assert emit.call_args.args[1]["unsupported_bands"] == expected
+
+
+@pytest.mark.parametrize("device", ["hackrf", "plutosdr"])
+@pytest.mark.parametrize(
+    ("active", "requested", "resolved", "accepted"),
+    [
+        (1_090e6, 915e6, True, False),
+        (1_090e6, 1_090.03e6, True, True),
+        (1_090e6, None, True, True),
+        (0.0, 1_090e6, True, False),
+        (0.0, None, True, True),
+        (1_000e6, 915e6, False, True),
+    ],
+)
+def test_demo_focus_gate(
+    monkeypatch: pytest.MonkeyPatch, device: str, active: float,
+    requested: float | None, resolved: bool, accepted: bool,
+) -> None:
+    """Both device profiles retain focus unless a demo request is accepted."""
+    scanner = MagicMock()
+    scanner.stopping = False
+    scanner.is_demo_device = True
+    scanner.get_stats.return_value = {"active_frequency_hz": active}
+    initial_band = dict(ss.BAND_PROFILES["adsb"])
+    monkeypatch.setattr(server, "_scanner_ref", scanner)
+    monkeypatch.setattr(server, "_focused_freq_hz", 1_090e6)
+    monkeypatch.setattr(ss, "current_device", device)
+    monkeypatch.setattr(ss, "current_band", initial_band)
+    lookup = ss.band_key_for_freq
+    with patch.object(
+        ss, "band_key_for_freq",
+        side_effect=lambda frequency: (
+            None if not resolved and frequency == active else lookup(frequency)
+        ),
+    ):
+        handle_set_focus({"freq_hz": requested})
+    if accepted:
+        assert server._focused_freq_hz == requested
+        scanner.set_focus_frequency.assert_called_once_with(requested)
+        if requested is None:
+            assert ss.current_band is initial_band
+        else:
+            assert ss.current_band == ss.resolve_band_profile(
+                lookup(requested), device,
+            )
+    else:
+        assert server._focused_freq_hz == 1_090e6
+        assert ss.current_band is initial_band
+        scanner.set_focus_frequency.assert_not_called()
+
+
+def test_pluto_device_gate_precedes_demo_gate(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Unsupported Pluto focus returns before consulting the demo frequency."""
+    scanner = MagicMock()
+    scanner.stopping = False
+    scanner.is_demo_device = True
+    monkeypatch.setattr(server, "_scanner_ref", scanner)
+    monkeypatch.setattr(server, "_focused_freq_hz", 1_090e6)
+    monkeypatch.setattr(ss, "current_device", "plutosdr")
+    initial_band = dict(ss.BAND_PROFILES["adsb"])
+    monkeypatch.setattr(ss, "current_band", initial_band)
+    handle_set_focus({"freq_hz": 98e6})
+    scanner.get_stats.assert_not_called()
+    scanner.set_focus_frequency.assert_not_called()
+    assert server._focused_freq_hz == 1_090e6
+    assert ss.current_band is initial_band
+    assert "not receivable on plutosdr" in caplog.text
+
+
 class TestComputeHackrfStatus:
     def test_disconnected_when_device_is_none(self):
         with patch("dashboard.server._device_ref", None):

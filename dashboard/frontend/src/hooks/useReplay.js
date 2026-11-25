@@ -15,11 +15,13 @@ import { useCallback, useEffect, useRef, useState } from 'react'
  *
  * The caller must explicitly invoke replay(filename) to start the POST;
  * this hook does not auto-fetch on mount, unlike useCaptures.
+ * cancel() aborts the current request and resets state to idle.
  *
  * @returns {{
  *   state: object,
  *   loading: boolean,
- *   replay: (filename: string) => void
+ *   replay: (filename: string) => void,
+ *   cancel: () => void
  * }}
  */
 export default function useReplay() {
@@ -93,11 +95,18 @@ export default function useReplay() {
       })
   }, [])
 
+  const cancel = useCallback(() => {
+    abortRef.current?.abort()
+    abortRef.current = null
+    setState({ status: 'idle' })
+  }, [])
+
   const loading = state.status === 'loading'
 
   return {
     state,
     loading,
     replay,
+    cancel,
   }
 }

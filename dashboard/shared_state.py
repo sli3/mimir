@@ -12,7 +12,10 @@ and scan pipeline.
 """
 
 import logging
+import math
 import threading
+
+from core.device.profiles import DEVICE_PROFILES
 
 logger = logging.getLogger(__name__)
 
@@ -288,6 +291,22 @@ def band_key_for_freq(freq_hz: float | None) -> str | None:
         candidates,
         key=lambda k: abs(candidates[k]["center_freq_hz"] - freq_hz)
     )
+
+
+def bands_outside_demo(freq_hz: float) -> dict[str, str]:
+    """Return reasons for bands outside a valid, resolved demo frequency.
+
+    Until a positive finite frequency resolves to a band, return an empty map.
+    """
+    if not math.isfinite(freq_hz) or freq_hz <= 0:
+        return {}
+    demo_band = band_key_for_freq(freq_hz)
+    if demo_band is None:
+        return {}
+    return {
+        key: "Not in the demo capture"
+        for key in BAND_PROFILES if key != demo_band
+    }
 
 
 def resolve_band_profile(band_key: str, device: str) -> dict:
@@ -579,8 +598,6 @@ def check_and_update_trigger_state(
 # =============================================================================
 # PLUTO BAND SUPPORT — Phase 36 additive override layer
 # =============================================================================
-
-from core.device.profiles import DEVICE_PROFILES
 
 # PLUTO_BAND_PROFILES
 # -------------------

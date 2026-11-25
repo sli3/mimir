@@ -104,6 +104,7 @@ class ScanRunner:
     0–1 items.
 
     Stats counters:
+    _scan_count counts live scan cycles or replayed chunks in demo mode.
     _scan_count_since_llm — increments once per scan cycle; snapshot
     into _last_backlog when the AI loop picks up an item, then reset.
 
@@ -153,6 +154,7 @@ class ScanRunner:
         stops and saves it.
 
         Stats counters:
+        _scan_count counts live cycles or replayed demo chunks.
         _scan_count_since_llm — increments once per scan cycle; snapshot
         into _last_backlog when the AI loop picks up an item, then reset.
 
@@ -287,6 +289,11 @@ class ScanRunner:
         """Return whether shutdown has been requested since the last start."""
         return self._stopping
 
+    @property
+    def is_demo_device(self) -> bool:
+        """Return whether the scanner consumes demo captures."""
+        return self._is_demo_device
+
     def run(self) -> None:
         """Start both workers and join them, recording scan completion.
 
@@ -352,13 +359,16 @@ class ScanRunner:
         return self._scan_loop_finished.wait(timeout=timeout)
 
     def report_demo_frequency(self, freq_hz: float) -> None:
-        """Report the replayed capture's centre frequency in demo mode.
+        """Report a demo chunk's centre frequency and count one replay cycle.
 
         Ignore live-mode reports and warn once per instance because the
         scan loop owns the live SDR centre frequency.
         """
         if self._is_demo_device:
             self._active_freq_hz = float(freq_hz)
+            # Like live stats, this needs no lock: the demo producer is the
+            # only writer because the scan loop never runs in demo mode.
+            self._scan_count += 1
         elif not self._demo_frequency_warning_logged:
             self._demo_frequency_warning_logged = True
             logger.warning("Ignoring demo frequency report in live mode")
@@ -370,7 +380,7 @@ class ScanRunner:
             active_frequency_hz : float  — current SDR centre frequency, or
                 in demo mode the centre frequency of the capture being
                 replayed (0.0 until the first report)
-            scan_count          : int    — total scan cycles completed
+            scan_count          : int    — live cycles or replayed demo chunks
             queue_depth         : int    — current AI queue depth (0–1)
             last_backlog        : int    — scan cycles since last LLM pickup
             llm_call_count      : int    — total successful LLM classifications
