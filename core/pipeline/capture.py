@@ -21,6 +21,12 @@ logger = logging.getLogger(__name__)
 
 _SAVE_NAME_LOCK = threading.Lock()
 
+_LEGAL_DESCRIPTION = (
+    "Mimir RF Scanner — passive receive only. "
+    "Radiocommunications Act 1992 (Cth). ACMA jurisdiction. "
+    "No transmission."
+)
+
 # The seven measurement keys from fingerprint_spectrum() written into
 # SigMF metadata under the nested "mimir:fingerprint" global field.
 # fingerprint_spectrum() returns 14 keys; the remaining seven are
@@ -172,6 +178,49 @@ def _unique_base_path(output_dir: Path, freq_hz: float) -> Path:
     raise FileExistsError(f"All SigMF names through {base_name}_999 are taken")
 
 
+def _build_sigmf_metadata(
+    samples: np.ndarray, sample_rate_hz: float, device: str
+) -> sigmf.SigMFFile:
+    """Build shared SigMF globals in order, failing fast on unknown devices."""
+    meta = sigmf.fromarray(samples)
+    meta.sample_rate = sample_rate_hz
+    # DEVICE_PROFILES is the single source of truth for the human-readable
+    # hardware name; an unknown device key fails fast here with a KeyError.
+    meta.hw = DEVICE_PROFILES[device]["display_name"]
+    # Legal provenance travels with every capture as a free-text global field.
+    meta.description = _LEGAL_DESCRIPTION
+    # Declare the mimir: extension namespace (SigMF spec requires custom
+    # namespaces to be declared; an undeclared one is a DeprecationWarning
+    # today and a ValidationError in future versions). The plain
+    # name/version/optional keys match the sigmf 1.11.x schema.
+    meta.set_global_field(
+        sigmf.EXTENSIONS_KEY,
+        [{"name": "mimir", "version": "1.0.0", "optional": True}],
+    )
+    # mimir: vendor-namespace custom field for programmatic device identity.
+    meta.set_global_field("mimir:device_profile", device)
+    return meta
+
+
+def _write_sigmf_metadata(
+    meta: sigmf.SigMFFile,
+    capture_meta: dict,
+    output_dir: Path,
+    freq_hz: float,
+) -> Path:
+    """Merge the capture record and save under the shared naming/write lock."""
+    # fromarray() pre-creates a bare capture at start_index=0; this call
+    # merges our metadata into it rather than appending.
+    meta.add_capture(start_index=0, metadata=capture_meta)
+
+    # Keep name selection and writing together so request threads cannot
+    # choose the same base. SigMF retains its default overwrite=False.
+    with _SAVE_NAME_LOCK:
+        base_path = _unique_base_path(output_dir, freq_hz)
+        meta.tofile(base_path)
+    return Path(str(base_path) + ".sigmf-meta")
+
+
 def save_capture(
     samples: np.ndarray,
     freq_hz: float,
@@ -188,7 +237,8 @@ def save_capture(
     sample rate, centre frequency, hardware and datatype travel with the
     raw samples, so the recording is readable by any SigMF-compatible
     tool (GNU Radio, inspectrum, iqengine) without external knowledge of
-    how it was captured.
+    how it was captured. Shared helpers build the common metadata and
+    coordinate naming and writing with save_recording().
 
     The device identity is stored in the JSON metadata only, never in
     the filename. The filename stays controlled (numeric frequency plus
@@ -266,27 +316,7 @@ def save_capture(
     """
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    meta = sigmf.fromarray(samples)
-    meta.sample_rate = sample_rate_hz
-    # DEVICE_PROFILES is the single source of truth for the human-readable
-    # hardware name; an unknown device key fails fast here with a KeyError.
-    meta.hw = DEVICE_PROFILES[device]["display_name"]
-    # Legal provenance travels with every capture as a free-text global field.
-    meta.description = (
-        "Mimir RF Scanner — passive receive only. "
-        "Radiocommunications Act 1992 (Cth). ACMA jurisdiction. "
-        "No transmission."
-    )
-    # Declare the mimir: extension namespace (SigMF spec requires custom
-    # namespaces to be declared; an undeclared one is a DeprecationWarning
-    # today and a ValidationError in future versions). The plain
-    # name/version/optional keys match the sigmf 1.11.x schema.
-    meta.set_global_field(
-        sigmf.EXTENSIONS_KEY,
-        [{"name": "mimir", "version": "1.0.0", "optional": True}],
-    )
-    # mimir: vendor-namespace custom field for programmatic device identity.
-    meta.set_global_field("mimir:device_profile", device)
+    meta = _build_sigmf_metadata(samples, sample_rate_hz, device)
     # mimir:fingerprint carries the spectral measurement taken from these
     # samples at capture time. Kept as one nested field (never flattened
     # to the top level) so the seven measurement keys travel as a unit.
@@ -297,22 +327,13 @@ def save_capture(
             "mimir:fingerprint",
             {k: fingerprint[k] for k in _FINGERPRINT_METADATA_KEYS},
         )
-    # Note: fromarray() pre-creates a bare capture at start_index=0; this
-    # call merges our metadata into it rather than appending. bandwidth_hz
-    # is metadata only (core:bandwidth) - no software DSP is applied here;
+    # bandwidth_hz is metadata only (core:bandwidth), with no software DSP;
     # on Pluto the analogue RF filter does the actual narrowing, and
     # HackRF has no settable bandwidth at all.
     capture_meta = {sigmf.FREQUENCY_KEY: freq_hz}
     if bandwidth_hz is not None:
         capture_meta["core:bandwidth"] = bandwidth_hz
-    meta.add_capture(start_index=0, metadata=capture_meta)
-
-    # Keep name selection and writing together so request threads cannot
-    # choose the same base. SigMF retains its default overwrite=False.
-    with _SAVE_NAME_LOCK:
-        base_path = _unique_base_path(output_dir, freq_hz)
-        meta.tofile(base_path)
-    meta_path = Path(str(base_path) + ".sigmf-meta")
+    meta_path = _write_sigmf_metadata(meta, capture_meta, output_dir, freq_hz)
     logger.info("Saved SigMF capture to %s", meta_path)
     return meta_path
 
@@ -362,10 +383,8 @@ def save_recording(
     passes them, so this function has the same safety property as
     save_capture() regardless of what the caller hands over.
 
-    DRIFT RISK: both save functions share the naming helper and lock,
-    but the SigMF boilerplate below is still DUPLICATED. Any future metadata
-    change (namespace declaration, description text, capture-record
-    shape) must be applied to BOTH functions in lockstep.
+    Both save functions share helpers for the common SigMF metadata and
+    capture-record merge, with name selection and writing under one lock.
 
     This function is device-agnostic and RECEIVE-ONLY: it writes files
     and nothing else. No hardware access, no DSP.
@@ -426,27 +445,7 @@ def save_recording(
     """
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    meta = sigmf.fromarray(samples)
-    meta.sample_rate = sample_rate_hz
-    # DEVICE_PROFILES is the single source of truth for the human-readable
-    # hardware name; an unknown device key fails fast here with a KeyError.
-    meta.hw = DEVICE_PROFILES[device]["display_name"]
-    # Legal provenance travels with every capture as a free-text global field.
-    meta.description = (
-        "Mimir RF Scanner — passive receive only. "
-        "Radiocommunications Act 1992 (Cth). ACMA jurisdiction. "
-        "No transmission."
-    )
-    # Declare the mimir: extension namespace (SigMF spec requires custom
-    # namespaces to be declared; an undeclared one is a DeprecationWarning
-    # today and a ValidationError in future versions). The plain
-    # name/version/optional keys match the sigmf 1.11.x schema.
-    meta.set_global_field(
-        sigmf.EXTENSIONS_KEY,
-        [{"name": "mimir", "version": "1.0.0", "optional": True}],
-    )
-    # mimir: vendor-namespace custom field for programmatic device identity.
-    meta.set_global_field("mimir:device_profile", device)
+    meta = _build_sigmf_metadata(samples, sample_rate_hz, device)
     # Per-cycle fingerprint sequence. Each entry is re-filtered through
     # the same _FINGERPRINT_METADATA_KEYS allowlist save_capture() uses,
     # then extended with the three replay-slicing fields. Internal-only
@@ -465,16 +464,7 @@ def save_recording(
             for entry in fingerprint_sequence
         ],
     )
-    # Note: fromarray() pre-creates a bare capture at start_index=0; this
-    # call merges our metadata into it rather than appending.
     capture_meta = {sigmf.FREQUENCY_KEY: freq_hz}
-    meta.add_capture(start_index=0, metadata=capture_meta)
-
-    # Use the same lock as one-shot saves, including SigMF's non-overwriting
-    # write, so both save paths coordinate their filenames across threads.
-    with _SAVE_NAME_LOCK:
-        base_path = _unique_base_path(output_dir, freq_hz)
-        meta.tofile(base_path)
-    meta_path = Path(str(base_path) + ".sigmf-meta")
+    meta_path = _write_sigmf_metadata(meta, capture_meta, output_dir, freq_hz)
     logger.info("Saved SigMF recording to %s", meta_path)
     return meta_path

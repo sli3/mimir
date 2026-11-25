@@ -205,6 +205,119 @@ class TestHackRFReceiveDirection:
             del sys.modules["SoapySDR"]
 
 
+class TestHackRFLifecycle:
+    """Partial opens and cleanup failures release mocked RX resources."""
+
+    @pytest.fixture
+    def mock_soapy(self) -> MagicMock:
+        """Provide a mocked SoapySDR module with a valid receive constant."""
+        mock_soapy = MagicMock()
+        mock_soapy.SOAPY_SDR_RX = 1
+        mock_soapy.SOAPY_SDR_CF32 = "CF32"
+        mock_soapy.Device.enumerate.return_value = [
+            FakeSoapySDRKwargs({"driver": "hackrf", "serial": "0000"})
+        ]
+        return mock_soapy
+
+    def test_interrupted_settle_can_be_closed(
+        self, mock_soapy: MagicMock,
+    ) -> None:
+        """A settle interrupt propagates; caller cleanup frees the idle stream."""
+        receiver = HackRFReceiver()
+        mock_device = mock_soapy.Device.return_value
+        stream = mock_device.setupStream.return_value
+        with (
+            patch.dict(sys.modules, {"SoapySDR": mock_soapy}),
+            patch(
+                "core.device.hackrf_rx.time.sleep", side_effect=KeyboardInterrupt,
+            ),
+        ):
+            with pytest.raises(KeyboardInterrupt):
+                receiver.open()
+
+        assert receiver.is_open
+        assert receiver._device is mock_device
+        assert receiver._stream is stream
+        assert receiver._rx == 1
+        mock_device.activateStream.assert_not_called()
+
+        receiver.close()
+
+        mock_device.deactivateStream.assert_called_once_with(stream)
+        mock_device.closeStream.assert_called_once_with(stream)
+        assert receiver._stream is None
+        assert receiver._device is None
+        assert receiver._rx is None
+        assert not receiver.is_open
+
+    def test_configuration_failure_can_be_closed(
+        self, mock_soapy: MagicMock,
+    ) -> None:
+        """A configuration failure leaves a handle for stream-free cleanup."""
+        receiver = HackRFReceiver()
+        mock_device = mock_soapy.Device.return_value
+        mock_device.setFrequency.side_effect = RuntimeError(
+            "configuration failed"
+        )
+        with patch.dict(sys.modules, {"SoapySDR": mock_soapy}):
+            with pytest.raises(RuntimeError, match="configuration failed"):
+                receiver.open()
+
+        assert receiver.is_open
+        assert receiver._device is mock_device
+        assert receiver._stream is None
+
+        receiver.close()
+
+        mock_device.setupStream.assert_not_called()
+        mock_device.activateStream.assert_not_called()
+        mock_device.deactivateStream.assert_not_called()
+        mock_device.closeStream.assert_not_called()
+        assert receiver._stream is None
+        assert receiver._device is None
+        assert receiver._rx is None
+        assert not receiver.is_open
+
+    @pytest.mark.parametrize("method", ["deactivateStream", "closeStream"])
+    @pytest.mark.parametrize("error", [RuntimeError, OSError])
+    def test_cleanup_failure_still_closes_and_resets_state(
+        self, method: str, error: type[Exception],
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Log cleanup errors and attempt both steps before resetting state."""
+        receiver = HackRFReceiver()
+        mock_device = MagicMock()
+        stream = MagicMock()
+        receiver._device = mock_device
+        receiver._stream = stream
+        receiver._rx = 1
+        receiver._is_open = True
+        getattr(mock_device, method).side_effect = error("cleanup failed")
+
+        receiver.close()
+
+        assert mock_device.mock_calls == [
+            call.deactivateStream(stream), call.closeStream(stream),
+        ]
+        assert "cleanup failed" in caplog.text
+        assert receiver._stream is None
+        assert receiver._device is None
+        assert receiver._rx is None
+        assert not receiver.is_open
+
+    def test_close_without_resources_is_silent(self) -> None:
+        """Closing a never-opened receiver keeps empty state and logs nothing."""
+        receiver = HackRFReceiver()
+        with patch("core.device.hackrf_rx.logger") as mock_logger:
+            receiver.close()
+
+        assert mock_logger.mock_calls == []
+        assert receiver._stream is None
+        assert receiver._device is None
+        assert receiver._rx is None
+        assert not receiver.is_open
+
+
 class TestHackRFRetuneSettle:
     """Phase 44: the retune settle must run while the stream is STOPPED.
 

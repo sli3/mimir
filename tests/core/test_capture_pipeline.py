@@ -14,6 +14,7 @@ Tests cover:
 - no TX patterns exist in capture.py
 """
 
+import json
 import sys
 import os
 import re
@@ -605,6 +606,117 @@ def _make_sequence_entry(sample_start, sample_count, **overrides):
     }
     entry.update(overrides)
     return entry
+
+
+class TestSharedSigmfMetadata:
+    """Both paths retain shared metadata, ordering and fail-fast lookup."""
+
+    @pytest.fixture(params=["capture", "recording"])
+    def saver(self, request: pytest.FixtureRequest) -> Callable[..., Path]:
+        """Supply each save path with its own populated fingerprint field."""
+        entry = _make_sequence_entry(0, 256)
+        if request.param == "recording":
+            return partial(save_recording, fingerprint_sequence=[entry])
+        return partial(
+            save_capture,
+            fingerprint={
+                key: entry[key] for key in _FINGERPRINT_METADATA_KEYS
+            },
+        )
+
+    @pytest.mark.parametrize(
+        ("device", "hardware"),
+        [("hackrf", "HackRF One"), ("plutosdr", "ADALM-PLUTO")],
+    )
+    def test_shared_fields_match_between_save_paths(
+        self, tmp_path: Path, device: str, hardware: str,
+    ) -> None:
+        """Equal inputs produce equal shared globals and capture frequency."""
+        samples = np.zeros(256, dtype=np.complex64)
+        kwargs = {
+            "freq_hz": 98_000_000,
+            "sample_rate_hz": 2_000_000,
+            "device": device,
+            "output_dir": tmp_path,
+        }
+        capture_path = save_capture(samples, **kwargs)
+        recording_path = save_recording(
+            samples, fingerprint_sequence=[], **kwargs,
+        )
+        capture_json = json.loads(capture_path.read_text(encoding="utf-8"))
+        recording_json = json.loads(recording_path.read_text(encoding="utf-8"))
+        expected_globals = {
+            "core:hw": hardware,
+            "core:description": (
+                "Mimir RF Scanner — passive receive only. "
+                "Radiocommunications Act 1992 (Cth). ACMA jurisdiction. "
+                "No transmission."
+            ),
+            sigmf.EXTENSIONS_KEY: [
+                {"name": "mimir", "version": "1.0.0", "optional": True},
+            ],
+            "mimir:device_profile": device,
+            "core:sample_rate": 2_000_000,
+        }
+        for key, expected in expected_globals.items():
+            assert capture_json["global"][key] == expected
+            assert recording_json["global"][key] == expected
+        expected_capture = {
+            "core:sample_start": 0, sigmf.FREQUENCY_KEY: 98_000_000,
+        }
+        assert capture_json["captures"] == [expected_capture]
+        assert recording_json["captures"] == [expected_capture]
+
+    def test_global_construction_and_written_order(
+        self, tmp_path: Path, saver: Callable[..., Path],
+    ) -> None:
+        """Build shared globals before fingerprints; write sorted SigMF JSON."""
+        samples = np.zeros(256, dtype=np.complex64)
+        meta = sigmf.fromarray(samples)
+        with patch("core.pipeline.capture.sigmf.fromarray", return_value=meta):
+            result = saver(
+                samples, freq_hz=98_000_000, sample_rate_hz=2_000_000,
+                device="hackrf", output_dir=tmp_path,
+            )
+
+        fingerprint_key = (
+            "mimir:fingerprint"
+            if meta.get_global_field("mimir:fingerprint") is not None
+            else "mimir:fingerprint_sequence"
+        )
+        construction_order = [
+            "core:hw", "core:description", sigmf.EXTENSIONS_KEY,
+            "mimir:device_profile", fingerprint_key,
+        ]
+        assert [
+            key for key in meta.get_global_info() if key in construction_order
+        ] == construction_order
+        written_json = json.loads(result.read_text(encoding="utf-8"))
+        written_globals = written_json["global"]
+        # SigMF sorts global keys on serialisation, independently of insertion.
+        assert list(written_globals) == sorted(written_globals)
+        assert [
+            key for key in written_globals if key in construction_order
+        ] == [
+            "core:description", sigmf.EXTENSIONS_KEY, "core:hw",
+            "mimir:device_profile", fingerprint_key,
+        ]
+
+    def test_unknown_device_raises_before_writing(
+        self, tmp_path: Path, saver: Callable[..., Path],
+    ) -> None:
+        """Create the directory, then reject unknown devices before writing."""
+        output_dir = tmp_path / "new-captures"
+        with pytest.raises(KeyError) as exc_info:
+            saver(
+                np.zeros(256, dtype=np.complex64), freq_hz=98_000_000,
+                sample_rate_hz=2_000_000, device="unknown-device",
+                output_dir=output_dir,
+            )
+
+        assert exc_info.value.args == ("unknown-device",)
+        assert output_dir.is_dir()
+        assert list(output_dir.iterdir()) == []
 
 
 class TestSaveRecording:

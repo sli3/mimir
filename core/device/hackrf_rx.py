@@ -176,6 +176,10 @@ class HackRFReceiver(DeviceBase):
         device enumeration or construction, then capture it in self._rx
         for every direction-taking hardware call.
 
+        Set self._is_open as soon as the device handle exists. On any
+        failure or interrupt after that, the caller's close() releases
+        whatever device and stream resources were created.
+
         Settle-before-activate ordering:
         ────────────────────────────────
         After setFrequency configures the tuner, we wait for the PLL (the
@@ -227,6 +231,9 @@ class HackRFReceiver(DeviceBase):
 
         # Open the device
         self._device = SoapySDR.Device(args)
+        # Mark open as soon as the handle exists so the caller's close()
+        # tears it down if any configuration or stream setup below raises.
+        self._is_open = True
 
         # ── Configure receive channel 0 ────────────────────────────────
         # Channel 0 is the only receive channel on the HackRF One.
@@ -247,7 +254,6 @@ class HackRFReceiver(DeviceBase):
         # is never captured into the ring buffer (see open() docstring).
         time.sleep(self._retune_settle_sec)
         self._device.activateStream(self._stream)
-        self._is_open = True
 
         logger.info(
             f"HackRF One opened: "
@@ -257,16 +263,33 @@ class HackRFReceiver(DeviceBase):
         )
 
     def close(self) -> None:
-        """Release the HackRF hardware, free resources and reset _rx to None."""
-        if self._is_open and self._device is not None:
-            if self._stream is not None:
-                self._device.deactivateStream(self._stream)
-                self._device.closeStream(self._stream)
-                self._stream = None
+        """Release resources safely after a complete or partially failed open.
+
+        Reset _stream, _device, _rx and _is_open even if stream cleanup
+        fails. Log closure only when a stream or device handle existed.
+        """
+        had_resources = self._stream is not None or self._device is not None
+        try:
+            if self._stream is not None and self._device is not None:
+                try:
+                    self._device.deactivateStream(self._stream)
+                except (RuntimeError, OSError):
+                    logger.exception(
+                        "Error while deactivating HackRF One stream"
+                    )
+                # A stream that was set up but never activated can reject
+                # deactivation; still attempt to release the stream itself.
+                try:
+                    self._device.closeStream(self._stream)
+                except (RuntimeError, OSError):
+                    logger.exception("Error while closing HackRF One stream")
+        finally:
+            self._stream = None
             self._device = None
+            self._rx = None
             self._is_open = False
+        if had_resources:
             logger.info("HackRF One closed.")
-        self._rx = None
 
     def __enter__(self) -> "HackRFReceiver":
         self.open()
