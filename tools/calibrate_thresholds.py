@@ -27,8 +27,9 @@ if its newest stored capture is older than STALENESS_DAYS; stale bands are
 excluded from the merged ladder unless recaptured. Use the --wipe flag to
 fully reset the store and start from empty.
 
-Each band card combines antenna instructions and live-traffic warnings into
-one start prompt. Multi-band antenna groups also have one connection prompt.
+Each band card shows the antenna name and any length reminder on separate,
+aligned rows alongside live-traffic warnings, followed by one start prompt.
+Multi-band antenna groups also have one connection prompt.
 On a terminal, a block-bar spinner covers captures and waits, followed by a band
 summary; piped logs and --verbose retain one line per capture. A band's first
 failed capture stops that band and keeps its prior records. If failures leave
@@ -82,6 +83,7 @@ import numpy as np
 import time
 from datetime import datetime
 from pathlib import Path
+from textwrap import wrap
 
 logger = logging.getLogger(__name__)
 
@@ -880,10 +882,11 @@ def main() -> None:
        antennas Pluto's two bands use.
     3. Determine which bands are stale, missing or selected for recapture and
        group them by antenna. If none need capture, use the stored records.
-    4. Show each band's antenna, traffic warning and sample count in one card
-       with one start prompt. Multi-band groups first prompt for connection.
-       Animate captures and waits on a TTY, then summarise SNR; verbose/piped
-       output retains capture details. Replace prior records only after every
+    4. Show each band's antenna name, separate aligned length reminder, traffic
+       warning and sample count in one card with one start prompt. Multi-band
+       groups first prompt for connection. Animate captures and waits on a TTY,
+       then summarise SNR; indent status lines by two spaces, retaining capture
+       details in verbose/piped output. Replace prior records only after every
        capture succeeds. Stop a band on its first RuntimeError, report its
        error once by default and keep priors. Prompt skips remain separate.
     5. If failures leave no completed bands, report whether earlier records
@@ -1023,15 +1026,16 @@ def main() -> None:
                 vga_gain_db = target["vga_gain_db"]
 
             band_number += 1
-            # Combine antenna setup and traffic warnings into one start prompt.
+            # Keep the antenna name and length advice on separate aligned rows.
+            # A 72-column card leaves 56 value columns after the key and gap.
             reminder = profile.get("length_reminder", {}).get(label)
-            antenna = profile["name"]
+            card_rows = [["Antenna", profile["name"]]]
             if reminder:
-                antenna += (
-                    ", retracted to ~68 mm" if label == "ADS_B"
-                    else f", {reminder}"
+                advice = (
+                    "Retract it to ~68 mm before you start"
+                    if label == "ADS_B" else reminder
                 )
-            card_rows = [["Antenna", antenna]]
+                card_rows.extend(["", line] for line in wrap(advice, 56))
             for index, warning in enumerate(_band_signal_lines(label)):
                 card_rows.append(["Signal" if index == 0 else "", warning])
             card_rows.append(["Samples", f"{num_samples:,}"])
@@ -1046,7 +1050,7 @@ def main() -> None:
                     logger.info("User skipped %s band at antenna length check", label)
                 else:
                     logger.info("User skipped %s band", label)
-                print(f"\n  Skipping {label} — no captures stored for this band.")
+                print(warn(f"  {WARNING} {label} skipped"))
                 continue
 
             # Collect prior ids for this label and device without deleting.
@@ -1131,7 +1135,7 @@ def main() -> None:
                         # Pending captures appear in verbose/piped logs only.
                         if args.verbose or not progress.active:
                             progress.write_above(ok(
-                                f"{OK} capture {cap_idx + 1}/{target['captures']} · "
+                                f"  {OK} capture {cap_idx + 1}/{target['captures']} · "
                                 f"peak {fingerprint['peak_power_db']:.2f} dB · "
                                 f"SNR {fingerprint['snr_db']:.2f} dB"
                             ))
@@ -1145,7 +1149,7 @@ def main() -> None:
                             "Capture failed for %s (capture %d): %s", label, cap_idx, err
                         )
                         progress.write_above(fail(
-                            f"{FAILURE} capture {cap_idx + 1}/{target['captures']} "
+                            f"  {FAILURE} capture {cap_idx + 1}/{target['captures']} "
                             "failed"
                         ))
                         progress.write_above(dim(f"    {last_error}"))
@@ -1175,12 +1179,12 @@ def main() -> None:
             snrs = [record["metadata"]["snr_db"] for record in pending_records]
             if snrs:
                 print(ok(
-                    f"{OK} {len(snrs)}/{target['captures']} captured · "
+                    f"  {OK} {len(snrs)}/{target['captures']} captured · "
                     f"SNR {min(snrs):.1f} to {max(snrs):.1f} dB"
                 ))
             elif not band_failed:
                 print(warn(
-                    f"{WARNING} 0/{target['captures']} captured · no SNR available"
+                    f"  {WARNING} 0/{target['captures']} captured · no SNR available"
                 ))
 
             if len(pending_records) == target["captures"]:
@@ -1192,12 +1196,12 @@ def main() -> None:
                 captured_count += len(pending_records)
                 captured_bands.add(label)
                 print(ok(
-                    f"{OK} Replaced {len(ids_to_delete)} prior {args.device} "
+                    f"  {OK} Replaced {len(ids_to_delete)} prior {args.device} "
                     f"calibration record(s) for {label}"
                 ))
             else:
                 print(warn(
-                    f"{WARNING} Kept {len(ids_to_delete)} prior {args.device} "
+                    f"  {WARNING} Kept {len(ids_to_delete)} prior {args.device} "
                     f"calibration record(s) for {label}; no new records were "
                     "stored because not every capture succeeded. "
                     "A stale prior set is still excluded from the ladder."

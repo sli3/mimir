@@ -1019,7 +1019,7 @@ def test_console_verbose_and_default(
     console_calibration: dict[str, MagicMock], monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str], verbose: bool,
 ) -> None:
-    """Keep piped logs readable and gate diagnostics without changing maths."""
+    """Indent piped capture statuses and gate diagnostics without ANSI escapes."""
     argv = ["calibrate_thresholds.py", "--device", "pluto"]
     monkeypatch.setattr("sys.argv", argv + (["--verbose"] if verbose else []))
     calibrate_thresholds.main()
@@ -1042,9 +1042,17 @@ def test_console_verbose_and_default(
         line[3:-3].split() == ["ADS_B", "5", "0.0010", "✓", "consistent"]
         for line in output.splitlines() if line.startswith("│")
     )
-    assert "✓ capture 1/5 · peak -73.30 dB · SNR 14.99 dB" in output
+    lines = output.splitlines()
+    assert "  ✓ capture 1/5 · peak -73.30 dB · SNR 14.99 dB" in lines
+    assert "  ✓ 5/5 captured · SNR 15.0 to 15.0 dB" in lines
+    assert "  ✓ 2/2 captured · SNR 15.0 to 15.0 dB" in lines
+    for label in ("ADS_B", "ISM_LoRa"):
+        assert (
+            f"  ✓ Replaced 0 prior pluto calibration record(s) for {label}"
+        ) in lines
     assert "[1/2] ADS_B · 1090.000 MHz" in output
-    assert "Telescopic whip, retracted to ~68 mm" in output
+    assert "Retract it to ~68 mm before you start" in output
+    assert "Telescopic whip, retracted to ~68 mm" not in output
     for name, value in [
         ("STRONG_MATCH", "0.002"), ("POSSIBLE_MATCH", "0.101"),
         ("DIFFERENT_TYPE", "0.180"), ("NOVEL_SIGNAL", "0.180"),
@@ -1195,13 +1203,24 @@ def test_console_recapture_prompt(
 def test_single_band_groups_have_one_prompt(
     console_calibration: dict[str, MagicMock], capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Each Pluto band card covers connection, length and signal warnings."""
+    """Align ADS-B length advice separately and omit it from the ISM card."""
     calibrate_thresholds.main()
     prompts = [call.args[0] for call in console_calibration["input"].call_args_list]
     assert prompts == ["  Enter to start · Ctrl+C to skip this band\n"] * 2
     output = capsys.readouterr().out
     assert "Antenna capture plan" not in output
-    assert "Telescopic whip, retracted to ~68 mm" in output
+    adsb_card, ism_card = output.split("[2/2] ISM_LoRa", 1)
+    assert any(
+        line[3:-3].rstrip() == "Antenna   Telescopic whip"
+        for line in adsb_card.splitlines() if line.startswith("│")
+    )
+    assert any(
+        line[3:-3].rstrip() == "          Retract it to ~68 mm before you start"
+        for line in adsb_card.splitlines() if line.startswith("│")
+    )
+    assert "Retract" not in ism_card
+    assert "Telescopic whip, retracted to ~68 mm" not in output
+    assert "\x1b" not in output
     assert "Aircraft overhead, otherwise only noise" in output
     assert "Live traffic: flightradar24.com" in output
     assert "Samples" in output and "8" in output
@@ -1211,7 +1230,7 @@ def test_band_prompt_interrupt_skips_capture(
     console_calibration: dict[str, MagicMock], monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Keep prompt skips separate from failures and preserve the skip log call."""
+    """Print an indented plain-text skip warning and preserve the skip log call."""
     builder = calibrate_thresholds._build_pluto_calibration_targets
     builder.return_value = [
         target for target in builder.return_value if target["label"] == "ADS_B"
@@ -1227,7 +1246,11 @@ def test_band_prompt_interrupt_skips_capture(
     console_calibration["store"].add_batch.assert_not_called()
     console_calibration["input"].assert_called_once()
     info.assert_any_call("User skipped %s band at antenna length check", "ADS_B")
-    assert "No new captures" not in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert f"  {calibrate_thresholds.WARNING} ADS_B skipped" in output.splitlines()
+    assert "Skipping" not in output
+    assert "No new captures" not in output
+    assert "\x1b" not in output
 
 
 @pytest.mark.parametrize("skip_group", [False, True])
@@ -1269,7 +1292,7 @@ def test_tty_capture_summary_and_verbose(
     console_calibration: dict[str, MagicMock], monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str], verbose: bool,
 ) -> None:
-    """Show SNR range summaries and retain capture detail only with verbose."""
+    """Indent SNR summaries and retain capture detail only with verbose."""
     terminal = CalibrationTTY()
 
     def tty_spinner(label: str = "", total: int = 1) -> Spinner:
@@ -1287,8 +1310,8 @@ def test_tty_capture_summary_and_verbose(
     ]
     calibrate_thresholds.main()
     output = capsys.readouterr().out
-    assert "✓ 5/5 captured · SNR 14.6 to 18.1 dB" in output
-    assert "✓ 2/2 captured · SNR 12.0 to 13.0 dB" in output
+    assert "  ✓ 5/5 captured · SNR 14.6 to 18.1 dB" in output.splitlines()
+    assert "  ✓ 2/2 captured · SNR 12.0 to 13.0 dB" in output.splitlines()
     assert ("✓ capture 1/5" in terminal.getvalue()) is verbose
     assert "✓ capture 1/5" not in output
     assert terminal.getvalue().endswith("\r\033[2K")
@@ -1298,7 +1321,7 @@ def test_tty_failed_capture_is_reported(
     console_calibration: dict[str, MagicMock], monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Stop a failed band, report its error above progress and analyse successes."""
+    """Indent failure and retention statuses above progress and analyse successes."""
     terminal = CalibrationTTY()
 
     def tty_spinner(label: str = "", total: int = 1) -> Spinner:
@@ -1314,14 +1337,17 @@ def test_tty_failed_capture_is_reported(
         ("ISM_LoRa_pluto_0", "ISM_LoRa_pluto_1", 0.001),
     ]
     calibrate_thresholds.main()
-    assert "✗ capture 1/5 failed" in terminal.getvalue()
+    assert "  ✗ capture 1/5 failed" in terminal.getvalue()
     assert "    capture unavailable" in terminal.getvalue()
     assert console_calibration["capture"].call_count == 3
     output = capsys.readouterr().out
     assert "0/5 captured" not in output
     assert "Results" in output
     assert "No new captures" not in output
-    assert "Kept 0 prior" in output
+    assert any(
+        line.startswith(f"  {calibrate_thresholds.WARNING} Kept 0 prior")
+        for line in output.splitlines()
+    )
     assert "no new records were stored" in output
     assert "stale prior set is still excluded" in output
 
