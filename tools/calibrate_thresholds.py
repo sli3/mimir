@@ -878,7 +878,8 @@ def main() -> None:
        _build_pluto_calibration_targets(), and restricts ANTENNA_PROFILES
        iteration to whip ("1") and discone ("3") since those are the only
        antennas Pluto's two bands use.
-    3. Determine which bands are stale or missing and group them by antenna.
+    3. Determine which bands are stale, missing or selected for recapture and
+       group them by antenna. If none need capture, use the stored records.
     4. Show each band's antenna, traffic warning and sample count in one card
        with one start prompt. Multi-band groups first prompt for connection.
        Animate captures and waits on a TTY, then summarise SNR; verbose/piped
@@ -957,7 +958,7 @@ def main() -> None:
     embedder = SpectrumEmbedder()
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Step C — Load stored records and decide what needs calibration
+    # Step C — Select captures, or continue with fresh stored records only
     # ─────────────────────────────────────────────────────────────────────────
     stored = store.get_all_embeddings()
     freshness = _compute_band_freshness(stored, device=args.device)
@@ -974,14 +975,13 @@ def main() -> None:
     labels_to_capture |= recapture
 
     if not labels_to_capture:
-        print("\nAll bands are fresh — nothing to capture. Exiting.")
-        raise SystemExit(0)
+        print(dim("  Nothing to recapture · using the stored records"))
 
     antenna_groups = _build_antenna_groups(labels_to_capture)
     active_groups = {k: v for k, v in antenna_groups.items() if v}
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Step D — Capture loop, grouped by antenna
+    # Step D — Capture by antenna; empty active groups skip all device access
     # ─────────────────────────────────────────────────────────────────────────
     captured_count = 0
     captured_bands: set[str] = set()

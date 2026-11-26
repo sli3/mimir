@@ -938,6 +938,82 @@ def console_calibration(
     return mocks
 
 
+@pytest.fixture
+def fresh_console_calibration(
+    console_calibration: dict[str, MagicMock],
+) -> dict[str, MagicMock]:
+    """Populate fresh Pluto records for a CLI run without any recaptures."""
+    entries, _ = _prin_run()
+    timestamp = datetime.now().isoformat()
+    console_calibration["store"].get_all_embeddings.return_value = {
+        "ids": [entry["id"] for entry in entries],
+        "embeddings": [[0.1] * 7 for _ in entries],
+        "metadatas": [
+            {"label": entry["label"], "device": "pluto", "timestamp": timestamp}
+            for entry in entries
+        ],
+    }
+    return console_calibration
+
+
+@pytest.mark.parametrize("verbose", [False, True])
+def test_console_all_fresh_uses_stored_records(
+    fresh_console_calibration: dict[str, MagicMock],
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    verbose: bool,
+) -> None:
+    """Analyse fresh stored records after empty input without opening a device."""
+    monkeypatch.setattr("sys.argv", [
+        "calibrate_thresholds.py", "--device", "pluto",
+        *(["--verbose"] if verbose else []),
+    ])
+
+    assert calibrate_thresholds.main() is None
+
+    output = capsys.readouterr().out
+    assert "  Nothing to recapture · using the stored records" in output
+    assert "Results" in output
+    assert "Suggested thresholds" in output
+    assert output.rstrip().endswith(
+        "→ Next: copy the values into llm/classifier.py"
+    )
+    assert "All bands are fresh — nothing to capture" not in output
+    assert "\x1b" not in output
+    assert ("PAIRWISE DISTANCE MATRIX" in output) is verbose
+    assert ("Computed statistics:" in output) is verbose
+    fresh_console_calibration["input"].assert_called_once_with("> ")
+    fresh_console_calibration["capture"].assert_not_called()
+    fresh_console_calibration["derive"].assert_called()
+    fresh_console_calibration["distances"].assert_called_once()
+    merged_entries = fresh_console_calibration["distances"].call_args.args[0]
+    stored = fresh_console_calibration["store"].get_all_embeddings.return_value
+    assert {entry["id"] for entry in merged_entries} == set(stored["ids"])
+
+
+@pytest.mark.parametrize("entry_count", [0, 1])
+def test_console_all_fresh_insufficient_entries(
+    fresh_console_calibration: dict[str, MagicMock],
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    entry_count: int,
+) -> None:
+    """Keep the existing analysis error when fresh records merge to fewer than two."""
+    entries, _ = _prin_run()
+    monkeypatch.setattr(
+        calibrate_thresholds, "_merge_stored_entries",
+        MagicMock(return_value=entries[:entry_count]),
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        calibrate_thresholds.main()
+
+    assert exc.value.code == 1
+    output = capsys.readouterr().out
+    assert "Fewer than 2 entries available" in output
+    fresh_console_calibration["capture"].assert_not_called()
+    fresh_console_calibration["derive"].assert_not_called()
+    fresh_console_calibration["distances"].assert_not_called()
+
+
 @pytest.mark.parametrize("verbose", [False, True])
 def test_console_verbose_and_default(
     console_calibration: dict[str, MagicMock], monkeypatch: pytest.MonkeyPatch,
