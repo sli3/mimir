@@ -13,7 +13,10 @@ Supports TWO devices via --device:
 
 Run this after reseeding or whenever live vectors are needed to refresh the
 SignalStore used by the LLM classifier. After adding live vectors, re-run
-``tools/calibrate_thresholds.py`` to update distance thresholds.
+``./mimir tool calibrate_thresholds`` to update distance thresholds.
+
+Run with ``./mimir tool capture_to_vectorstore``. Band cards and summaries
+stay plain when piped; ``--verbose`` adds per-capture details and Mimir logs.
 
 Gain and threshold values are read live from ``dashboard.shared_state`` so
 they stay in sync with the live dashboard configuration:
@@ -37,6 +40,10 @@ from dashboard.shared_state import BAND_PROFILES
 from embeddings.embedder import SpectrumEmbedder
 from embeddings.store import SignalStore
 from llm.classifier import SignalClassifier
+from tools._console import (
+    FAILURE, OK, WARNING, Spinner, SpinnerLogHandler, box, dim, fail,
+    next_step, ok, table, warn,
+)
 
 import argparse
 import logging
@@ -45,6 +52,7 @@ import time
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
+from textwrap import wrap
 
 logger = logging.getLogger(__name__)
 
@@ -53,21 +61,14 @@ logger = logging.getLogger(__name__)
 # BAND_SWEEP scope exactly — same hardware limitation, same two bands.
 PLUTO_SUPPORTED_LABELS = ("ISM_LoRa", "ADS_B")
 
-# ANSI colour helpers for terminal output
-ANSI_GREEN = "\033[92m"
-ANSI_YELLOW = "\033[93m"
-ANSI_RED = "\033[91m"
-ANSI_RESET = "\033[0m"
-
 # Antenna-to-band mappings. Labels must match CAPTURE_TARGETS exactly.
 #
 # ADS_B on "Telescopic whip": confirmed 2026-08 — retracted to ~68mm (quarter-
 # wave monopole for 1090 MHz), the same physical whip used at longer
 # extensions for FM/Aviation/ACARS/APRS/AIS gives noticeably better ADS-B
 # reception than the spiral discone. This is ONE whip at DIFFERENT
-# extensions per band, not a separate antenna — the tool prompts to
-# re-adjust length before the ADS_B capture since its extension differs
-# sharply from the other bands on this profile.
+# extensions per band, not a separate antenna. The ADS_B card instructs
+# the operator to retract it before starting that band's captures.
 ANTENNA_PROFILES: dict[str, dict] = {
     "1": {
         "name": "Telescopic whip",
@@ -101,6 +102,19 @@ ANTENNA_PROFILES: dict[str, dict] = {
             "ISM_LoRa",
         ],
     },
+}
+
+# Recommendations follow the ADS_B whip notes above and the existing Pluto
+# prompt's description of the discone as best for ISM_LoRa. The unused
+# length_reminder text covers the same whip adjustment advice.
+ANTENNA_RECOMMENDATIONS: dict[str, tuple[str, str]] = {
+    "ADS_B": (
+        "Telescopic whip",
+        "Telescopic whip (retracted to ~68 mm) works better for this band",
+    ),
+    "ISM_LoRa": (
+        "Spiral discone", "Spiral discone works better for this band",
+    ),
 }
 
 # Per-band capture configuration. Values are read live from
@@ -194,9 +208,9 @@ def _build_pluto_targets() -> list[dict]:
     bool, not the gain values themselves.
 
     Raises:
-        SystemExit: if PLUTO_BAND_PROFILES is missing entirely, or a band it
-            marks as supported is missing gain_db/signal_threshold_db. This
-            tool never guesses a gain value on the operator's behalf.
+        SystemExit: if PLUTO_BAND_PROFILES is missing, a required band is
+            unsupported, or its gain_db/signal_threshold_db is missing. Show
+            a failure box rather than guessing a gain value.
     """
     try:
         from dashboard.shared_state import (
@@ -204,15 +218,14 @@ def _build_pluto_targets() -> list[dict]:
             band_supported_by_device,
         )
     except ImportError:
-        print(_colour(
+        box("Setup error", [
             "\nERROR: dashboard.shared_state.PLUTO_BAND_PROFILES does not exist yet.\n"
             "Pluto capture needs calibrated gain values before it can run.\n"
             "Run tools/diagnose_pluto_gain.py, pick gain_db for ISM and ADS-B\n"
             "from the sweep output, and add a PLUTO_BAND_PROFILES dict to\n"
             "dashboard/shared_state.py (e.g. {'ism': {'gain_db': ..., "
             "'signal_threshold_db': ...}, 'adsb': {...}}).\n",
-            ANSI_RED,
-        ))
+        ], style=fail)
         raise SystemExit(1)
 
     pluto_targets = []
@@ -223,23 +236,21 @@ def _build_pluto_targets() -> list[dict]:
         key = LABEL_TO_BAND_KEY[label]
 
         if not band_supported_by_device(key, "plutosdr"):
-            print(_colour(
+            box("Setup error", [
                 f"\nERROR: band_supported_by_device says Pluto does not "
                 f"support '{key}' ({label}).\n"
                 f"Reason: {PLUTO_BAND_PROFILES[key].get('reason', 'unknown')}\n",
-                ANSI_RED,
-            ))
+            ], style=fail)
             raise SystemExit(1)
 
         profile = PLUTO_BAND_PROFILES[key]
         if "gain_db" not in profile or "signal_threshold_db" not in profile:
-            print(_colour(
+            box("Setup error", [
                 f"\nERROR: PLUTO_BAND_PROFILES['{key}'] is marked supported "
                 f"but is missing 'gain_db' or 'signal_threshold_db'.\n"
                 f"Run tools/diagnose_pluto_gain.py --band {key} and add the "
                 f"result.\n",
-                ANSI_RED,
-            ))
+            ], style=fail)
             raise SystemExit(1)
 
         target = dict(base)  # copy freq_hz, sample_rate_hz, num_samples,
@@ -270,56 +281,81 @@ LABEL_TO_BAND_KEY = {
 }
 
 
-def _colour(text: str, code: str) -> str:
-    """Wrap text in an ANSI colour code."""
-    return f"{code}{text}{ANSI_RESET}"
+def _configure_console_logging(verbose: bool) -> None:
+    """Replace root handlers with silent or spinner-aware console logging.
 
-
-def _print_band_warning(label: str) -> None:
-    """Print a one-time warning for bands that need live signals.
-
-    ADS-B, ACARS, and AIS only produce real fingerprints when aircraft or
-    vessels are within range. Without them the tool captures noise-floor
-    vectors, which degrades the production vector store.
+    Default mode hides propagated records, including WARNING messages.
+    Uncaught exceptions still print their traceback. Verbose mode enables
+    INFO for Mimir only, leaving the root at WARNING and filtering explicitly
+    enabled third-party INFO. Repeated calls replace rather than add handlers.
     """
-    warnings = {
-        "ADS_B": (
-            "ADS-B CAPTURE WARNING",
-            [
-                "ADS-B (1090 MHz) transmits position data from aircraft in flight.",
-                "Signal will only be present if an aircraft is overhead.",
-                "Without an aircraft, only noise will be captured for this band.",
-                "Check live aircraft positions at: https://www.flightradar24.com",
-            ],
-        ),
-        "ACARS": (
-            "ACARS CAPTURE WARNING",
-            [
-                "ACARS (129.125 MHz) transmits data bursts from aircraft in flight.",
-                "Signal will only be present if an aircraft is actively transmitting overhead.",
-                "Without an active aircraft, only noise will be captured for this band.",
-                "Check live aircraft at: https://www.flightradar24.com",
-            ],
-        ),
-        "AIS": (
-            "AIS CAPTURE WARNING",
-            [
-                "AIS (162 MHz) transmits position data from vessels at sea or in port.",
-                "Signal will only be present if a vessel is within range (~20–50 km).",
-                "Without vessels in range, only noise will be captured for this band.",
-                "Check live vessel positions at: https://www.marinetraffic.com",
-            ],
-        ),
-    }
+    root = logging.getLogger()
+    for handler in root.handlers[:]:
+        root.removeHandler(handler)
+    root.setLevel(logging.WARNING)
+    mimir_names = (__name__, "core", "embeddings", "llm", "tools")
+    for name in mimir_names:
+        logging.getLogger(name).setLevel(
+            logging.INFO if verbose else logging.NOTSET
+        )
+    if not verbose:
+        root.addHandler(logging.NullHandler())
+        return
 
-    title, body_lines = warnings[label]
-    print("\n" + "=" * 70)
-    print(title)
-    print("=" * 70)
-    print()
-    for line in body_lines:
-        print(line)
-    print()
+    def include_record(record: logging.LogRecord) -> bool:
+        """Hide third-party INFO even when a library explicitly enables it."""
+        return record.levelno >= logging.WARNING or any(
+            record.name == name or record.name.startswith(name + ".")
+            for name in mimir_names
+        )
+
+    handler = SpinnerLogHandler(level=logging.INFO)
+    handler.setFormatter(logging.Formatter(
+        "%(levelname)s %(name)s: %(message)s"
+    ))
+    handler.addFilter(include_record)
+    root.addHandler(handler)
+
+
+def _quiet_soapy_info_logs() -> None:
+    """Quiet driver INFO without opening a device; tolerate missing bindings.
+
+    SoapySDR has RX/TX capability. Only its logging setter is used here;
+    capture paths remain receive-only. Support both binding setter names.
+    """
+    try:
+        import SoapySDR
+    except ImportError:
+        logger.debug("SoapySDR unavailable; leaving driver logging unchanged")
+        return
+    setter = (
+        getattr(SoapySDR, "SoapySDR_setLogLevel", None)
+        or getattr(SoapySDR, "setLogLevel", None)
+    )
+    level = getattr(SoapySDR, "SOAPY_SDR_WARNING", None)
+    if setter is None or level is None:
+        logger.debug("SoapySDR log controls unavailable; leaving logging unchanged")
+        return
+    setter(level)
+
+
+def _band_signal_lines(label: str) -> list[str]:
+    """Return traffic requirements and live-traffic links for a band card."""
+    warnings = {
+        "ADS_B": [
+            "Aircraft overhead, otherwise only noise",
+            "Live traffic: flightradar24.com",
+        ],
+        "ACARS": [
+            "Active aircraft traffic, otherwise only noise",
+            "Live traffic: flightradar24.com",
+        ],
+        "AIS": [
+            "Vessels within range, otherwise only noise",
+            "Live traffic: marinetraffic.com",
+        ],
+    }
+    return warnings.get(label, [])
 
 
 def build_metadata(
@@ -348,12 +384,17 @@ def build_metadata(
 
 
 def _parse_args() -> argparse.Namespace:
-    """Parse command-line arguments."""
+    """Parse capture overrides, device choice and optional verbose output."""
     parser = argparse.ArgumentParser(
         description=(
             "Capture live IQ samples across AU-legal RX bands and store "
             "spectrum embeddings in data/vectorstore."
         ),
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Show per-capture details and Mimir log messages.",
     )
     parser.add_argument(
         "--wipe",
@@ -411,35 +452,54 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _select_antenna() -> tuple[str, dict]:
-    """Prompt the user to select an antenna profile.
+    """Choose the HackRF antenna used for every covered band in this run.
+
+    Re-ask invalid choices; Ctrl+C cancels before capturing.
 
     Returns:
         Tuple of (choice_key, profile_dict).
     """
-    print("\n" + "=" * 70)
-    print("ANTENNA SELECTION")
-    print("=" * 70)
-    print()
-    print("Select the antenna connected to the HackRF.")
-    print("This determines which frequency bands will be captured.")
-    print()
-    print("  1. Telescopic whip    (75 MHz – 700 MHz)")
-    print("  2. V-dipole 533mm     (130 MHz – 145 MHz)")
-    print("  3. Spiral discone     (800 MHz – 8500 MHz)")
-    print()
+    print(
+        "  Which antenna is on the HackRF? "
+        "Every band it covers is captured with it."
+    )
+    for line in table([
+        ("1", "Telescopic whip", "75 MHz – 700 MHz; ADS_B at ~68 mm"),
+        ("2", "V-dipole 533mm", "130 MHz – 145 MHz"),
+        ("3", "Spiral discone", "800 MHz – 8500 MHz"),
+    ]):
+        print(f"    {line}")
 
     antenna_choice = None
     while antenna_choice not in ANTENNA_PROFILES:
         try:
-            antenna_choice = input("Enter choice (1/2/3) or Ctrl+C to abort: ").strip()
+            antenna_choice = input(
+                "  Choose 1, 2 or 3 (Ctrl+C to cancel): "
+            ).strip()
         except KeyboardInterrupt:
             logger.info("User aborted capture at antenna selection")
             print()
             raise SystemExit(0)
         if antenna_choice not in ANTENNA_PROFILES:
-            print("Invalid choice. Please enter 1, 2, or 3.")
+            print("Please choose 1, 2 or 3.")
 
     return antenna_choice, ANTENNA_PROFILES[antenna_choice]
+
+
+def _band_antenna_rows(label: str, antenna_name: str) -> list[tuple[str, str]]:
+    """Keep the connected antenna and optional advice on aligned card rows.
+
+    Wrap advice before colouring it. A 72-column box has 66 body columns;
+    the card's longest key (Captures) and table gap leave 55 for values.
+    These hints do not alter the selected antenna or prevent capture.
+    """
+    rows = [("Antenna", antenna_name)]
+    preferred, hint = ANTENNA_RECOMMENDATIONS.get(label, ("", ""))
+    if label == "ADS_B" and antenna_name == preferred:
+        rows.append(("", "Retract it to ~68 mm before you start"))
+    elif preferred and antenna_name != preferred:
+        rows.extend(("", warn(line)) for line in wrap(f"{WARNING} {hint}", 55))
+    return rows
 
 
 def run_capture_loop(
@@ -450,23 +510,29 @@ def run_capture_loop(
     device: str = "hackrf",
     input_func: Callable[[str], str] = input,
     sleep_func: Callable[[float], None] = time.sleep,
+    *,
+    verbose: bool = False,
+    results: list[dict] | None = None,
 ) -> int:
-    """Capture and store fingerprints, skipping noise-shaped captures.
+    """Prompt once per band, capture with progress and report stored records.
 
-    One offline classifier per call applies the deterministic noise gate before
-    embedding or metadata creation. Skipped noise keeps the normal capture wait
-    and does not contribute to the returned stored-record count.
+    One offline classifier applies the unchanged noise gate before embedding.
+    Noise skips retain the normal five-second wait; RuntimeError stops only
+    the current band without a wait. Progress clears on every exit path.
+    Cards name the run's connected antenna and give aligned adjustment or
+    preference hints without changing what Enter captures or Ctrl+C skips.
 
     Args:
-        store: Initialised SignalStore.
+        store: Initialised SignalStore, updated once per accepted capture.
         embedder: Initialised SpectrumEmbedder.
-        selected_targets: List of target dicts to capture.
-        antenna_name: Human-readable antenna name for metadata.
-        device: "hackrf" (split lna/vga gain) or "pluto" (combined gain_db).
-            Determines which capture function and gain keys are used —
-            never both, never a guess at the other device's shape.
-        input_func: Callable matching built-in input() signature.
-        sleep_func: Callable matching time.sleep() signature.
+        selected_targets: Target dicts in capture order.
+        antenna_name: Antenna name for cards and stored metadata.
+        device: "hackrf" (split lna/vga) or "pluto" (combined gain_db).
+        input_func: Input callable for the single prompt before each band.
+        sleep_func: Sleep callable for the existing five-second wait rule.
+        verbose: Show per-capture details and noise measurements on a TTY too.
+        results: Optional list to append per-band stored/noise/failure/skip
+            counts and flags for the caller's final summary.
 
     Returns:
         Number of records successfully stored this run.
@@ -482,195 +548,228 @@ def run_capture_loop(
         sample_rate_hz = target["sample_rate_hz"]
         signal_threshold_db = target["signal_threshold_db"]
         captures = target["captures"]
+        result = {
+            "label": label, "stored": 0, "noise": 0,
+            "failed": False, "skipped": False,
+        }
+        if results is not None:
+            results.append(result)
+        snrs: list[float] = []
+        rows = _band_antenna_rows(label, antenna_name)
+        for index, line in enumerate(_band_signal_lines(label)):
+            rows.append(("Signal" if index == 0 else "", line))
+        gain = (
+            f"gain {target['gain_db']} dB" if device == "pluto" else
+            f"LNA {target['lna_gain_db']} dB, VGA {target['vga_gain_db']} dB"
+        )
+        rows.append((
+            "Captures",
+            f"{captures} · {gain} · threshold {signal_threshold_db:.1f} dB",
+        ))
+        box(
+            f"[{idx + 1}/{total_targets}] {label} · {freq_hz / 1e6:.3f} MHz",
+            table(rows),
+        )
+        try:
+            input_func("  Enter to start · Ctrl+C to skip this band: ")
+        except KeyboardInterrupt:
+            logger.info("User skipped %s band", label)
+            result["skipped"] = True
+            print(warn(f"  {WARNING} {label} skipped"))
+            continue
 
-        for cap_idx in range(captures):
-            timestamp_ms = int(time.time() * 1000)
-            record_id = f"{label}_{cap_idx}_{timestamp_ms}"
-
-            print(f"\n[{idx + 1}/{total_targets}] Capturing: {label} ({device})")
-            print(f"  Frequency: {freq_hz / 1e6:.3f} MHz")
-            print(f"  Samples: {num_samples:,}")
-            print(f"  Capture #{cap_idx + 1}/{captures}")
-            if device == "pluto":
-                print(f"  Gain: {target['gain_db']} dB (combined)")
-            else:
-                print(f"  Gain: LNA={target['lna_gain_db']} dB, VGA={target['vga_gain_db']} dB")
-            print(f"  Threshold: {signal_threshold_db:.1f} dB")
-
-            if cap_idx == 0 and label == "ADS_B":
-                print("\n" + "=" * 70)
-                print("ANTENNA LENGTH CHECK — ADS_B")
-                print("=" * 70)
-                print(
-                    "\nRetract the telescopic whip to ~68mm (quarter-wave for "
-                    "1090 MHz) if it is not already set that short.\nThis is a "
-                    "much shorter extension than FM/Aviation/ACARS/APRS/AIS use "
-                    "on the same antenna.\n"
+        # Prompts finish before progress starts; the context clears all exits.
+        with Spinner(f"capturing 1/{captures}", total=captures) as progress:
+            for cap_idx in range(captures):
+                progress.update(
+                    f"capturing {cap_idx + 1}/{captures}", cap_idx, captures,
                 )
+                timestamp_ms = int(time.time() * 1000)
+                record_id = f"{label}_{cap_idx}_{timestamp_ms}"
                 try:
-                    input_func("Press ENTER once the whip is set to ~68mm, or Ctrl+C to skip this band: ")
-                except KeyboardInterrupt:
-                    logger.info("User skipped %s band at antenna length check", label)
-                    print(f"\n  Skipping {label} — no captures stored for this band.")
+                    if device == "pluto":
+                        samples = capture_iq_pluto(
+                            freq_hz=freq_hz,
+                            num_samples=num_samples,
+                            sample_rate_hz=sample_rate_hz,
+                            gain_db=target["gain_db"],
+                        )
+                    else:
+                        samples = capture_iq(
+                            freq_hz=freq_hz,
+                            num_samples=num_samples,
+                            sample_rate_hz=sample_rate_hz,
+                            lna_gain_db=target["lna_gain_db"],
+                            vga_gain_db=target["vga_gain_db"],
+                        )
+
+                    psd_result = compute_psd(
+                        samples=samples,
+                        sample_rate_hz=sample_rate_hz,
+                        center_freq_hz=freq_hz,
+                    )
+
+                    fingerprint = fingerprint_spectrum(
+                        psd_result,
+                        signal_threshold_db=signal_threshold_db,
+                        trace_key=target.get('trace_key', 'psd_db'),
+                    )
+
+                    if classifier.is_noise_shaped(fingerprint):
+                        logger.info(
+                            "Skipped noise-shaped capture for %s: "
+                            "bins=%s, flatness=%s",
+                            label,
+                            fingerprint["occupied_bins"],
+                            fingerprint["spectral_flatness"],
+                        )
+                        result["noise"] += 1
+                        progress.write_above(warn(
+                            f"  {WARNING} capture {cap_idx + 1}/{captures} "
+                            "skipped: looks like noise"
+                        ))
+                        if verbose:
+                            progress.write_above(dim(
+                                "    occupied_bins="
+                                f"{fingerprint['occupied_bins']}, "
+                                "spectral_flatness="
+                                f"{fingerprint['spectral_flatness']:.6f}"
+                            ))
+                        if idx != total_targets - 1 or cap_idx != captures - 1:
+                            logger.info(
+                                "Waiting 5 seconds before next capture"
+                            )
+                            progress.update(
+                                "waiting 5s", cap_idx + 1, captures,
+                            )
+                            sleep_func(5)
+                        continue
+
+                    vector = embedder.embed(fingerprint)
+                    metadata = build_metadata(
+                        label, antenna_name, target, fingerprint, cap_idx,
+                        device=device,
+                    )
+                    record = {
+                        "id": record_id,
+                        "embedding": vector,
+                        "metadata": metadata,
+                    }
+                    store.add(record)
+                    captured_count += 1
+
+                    result["stored"] += 1
+                    snrs.append(fingerprint["snr_db"])
+                    snr_margin_db = fingerprint["snr_margin_db"]
+                    margin_style = (
+                        ok if snr_margin_db > 0 else
+                        warn if snr_margin_db == 0 else fail
+                    )
+                    if verbose or not progress.active:
+                        progress.write_above(
+                            ok(
+                                f"  {OK} capture {cap_idx + 1}/{captures} "
+                                "stored"
+                            )
+                            + f" · peak {fingerprint['peak_power_db']:.2f} dB"
+                            + f" · SNR {fingerprint['snr_db']:.2f} dB"
+                            + " · margin "
+                            + margin_style(f"{snr_margin_db:.2f} dB")
+                        )
+
+                except RuntimeError as err:
+                    result["failed"] = True
+                    progress.pause()
+                    logger.error(
+                        "Capture failed for %s (capture %d): %s",
+                        label, cap_idx, err,
+                    )
+                    progress.write_above(fail(
+                        f"  {FAILURE} capture {cap_idx + 1}/{captures} failed"
+                    ))
+                    progress.write_above(dim(f"    {err}"))
+                    # Retain stored records; stop at the band's first error.
                     break
 
-            if cap_idx == 0 and label in ("ADS_B", "ACARS", "AIS"):
-                _print_band_warning(label)
-                try:
-                    input_func("Press ENTER to continue or Ctrl+C to skip this band: ")
-                except KeyboardInterrupt:
-                    logger.info("User skipped %s band", label)
-                    print(f"\n  Skipping {label} — no captures stored for this band.")
-                    break
-
-            try:
-                if device == "pluto":
-                    samples = capture_iq_pluto(
-                        freq_hz=freq_hz,
-                        num_samples=num_samples,
-                        sample_rate_hz=sample_rate_hz,
-                        gain_db=target["gain_db"],
-                    )
-                else:
-                    samples = capture_iq(
-                        freq_hz=freq_hz,
-                        num_samples=num_samples,
-                        sample_rate_hz=sample_rate_hz,
-                        lna_gain_db=target["lna_gain_db"],
-                        vga_gain_db=target["vga_gain_db"],
-                    )
-
-                psd_result = compute_psd(
-                    samples=samples,
-                    sample_rate_hz=sample_rate_hz,
-                    center_freq_hz=freq_hz,
+                is_last = (
+                    idx == total_targets - 1
+                    and cap_idx == captures - 1
                 )
+                if not is_last:
+                    logger.info("Waiting 5 seconds before next capture")
+                    progress.update("waiting 5s", cap_idx + 1, captures)
+                    sleep_func(5)
 
-                fingerprint = fingerprint_spectrum(
-                    psd_result,
-                    signal_threshold_db=signal_threshold_db,
-                    trace_key=target.get('trace_key', 'psd_db'),
-                )
-
-                if classifier.is_noise_shaped(fingerprint):
-                    logger.info(
-                        "Skipped noise-shaped capture for %s: "
-                        "bins=%s, flatness=%s",
-                        label,
-                        fingerprint["occupied_bins"],
-                        fingerprint["spectral_flatness"],
-                    )
-                    print(
-                        "  Skipped: noise-shaped "
-                        f"occupied_bins={fingerprint['occupied_bins']}, "
-                        "spectral_flatness="
-                        f"{fingerprint['spectral_flatness']:.6f}"
-                    )
-                    if idx != total_targets - 1 or cap_idx != captures - 1:
-                        logger.info("Waiting 5 seconds before next capture")
-                        sleep_func(5)
-                    continue
-
-                vector = embedder.embed(fingerprint)
-                metadata = build_metadata(
-                    label, antenna_name, target, fingerprint, cap_idx, device=device
-                )
-                record = {
-                    "id": record_id,
-                    "embedding": vector,
-                    "metadata": metadata,
-                }
-                store.add(record)
-                captured_count += 1
-
-                snr_margin_db = fingerprint["snr_margin_db"]
-                if snr_margin_db > 0:
-                    margin_colour = ANSI_GREEN
-                elif snr_margin_db == 0:
-                    margin_colour = ANSI_YELLOW
-                else:
-                    margin_colour = ANSI_RED
-
-                print(
-                    f"  ✓ Stored: peak={fingerprint['peak_power_db']:.2f} dB, "
-                    f"SNR={fingerprint['snr_db']:.2f} dB, "
-                    f"margin={_colour(f'{snr_margin_db:.2f} dB', margin_colour)}"
-                )
-
-            except RuntimeError as err:
-                logger.error("Capture failed for %s (capture %d): %s", label, cap_idx, err)
-                print(f"  ✗ FAILED: {err}")
-                continue
-
-            is_last = (
-                idx == total_targets - 1
-                and cap_idx == captures - 1
-            )
-            if not is_last:
-                logger.info("Waiting 5 seconds before next capture")
-                sleep_func(5)
+        parts = [f"{result['stored']}/{captures} stored"]
+        if result["noise"]:
+            parts.append(f"{result['noise']} skipped as noise")
+        if snrs:
+            parts.append(f"SNR {min(snrs):.1f} to {max(snrs):.1f} dB")
+        if result["failed"]:
+            parts.append("band failed")
+        summary_style = ok if result["stored"] else warn
+        symbol = OK if result["stored"] else WARNING
+        print(summary_style(f"  {symbol} " + " · ".join(parts)))
 
     return captured_count
 
 
 def main() -> None:
-    """
-    Main capture-to-vectorstore workflow.
+    """Validate options, show final bands and run receive-only captures.
 
-    1. Parse CLI arguments (so --help works without user interaction).
-    2a. --device hackrf (default): prompt for antenna, filter to that
-        antenna's bands (7 CAPTURE_TARGETS bands across 3 antenna profiles;
-        ADS_B is reachable on both the telescopic whip, retracted to ~68mm,
-        and the spiral discone — the whip gives noticeably better ADS-B
-        reception).
-    2b. --device pluto: Pluto only reaches ISM_LoRa and ADS_B. Prompts for
-        antenna choice between telescopic whip and spiral discone (not the
-        full 3-option HackRF menu, since V-dipole covers neither Pluto band)
-        because the two bands want different antennas — discone for
-        ISM_LoRa, whip for ADS_B.
-    3. Initialise production vectorstore, optionally wiping existing data.
-    4. Capture IQ samples for each target, run through pipeline, store vectors.
-       Per-band warnings for ADS-B, ACARS, and AIS fire before the first
-       capture of each such band.
-    5. Print summary and remind operator to recalibrate thresholds.
-
-    All capture and processing is RX-only — no transmit functionality.
+    Configure quiet or verbose console logs, select the antenna, apply target
+    overrides and initialise the store (optionally wiping it). The antenna
+    choice applies to every selected band; Pluto's two displayed choices map
+    to the real whip/discone profiles. Show a header with aligned skip reasons
+    and the post-wipe count, then cards naming the antenna with optional
+    hints and one readiness prompt per band. Report each
+    band's outcome and the store count change. Exit 1 only when capture
+    failures occurred and nothing was stored; noise-only and skipped runs
+    complete normally. Remind successful runs to recalibrate thresholds.
     """
     args = _parse_args()
+    _configure_console_logging(args.verbose)
+    _quiet_soapy_info_logs()
     logger.info("Starting Mimir capture-to-vectorstore workflow (device=%s)", args.device)
+    option_lines: list[str] = []
 
     if args.device == "pluto":
         selected_targets = _build_pluto_targets()
-        print()
-        print(_colour("Device: ADALM-PLUTO", ANSI_GREEN))
-        print(f"Bands to capture: {', '.join(t['label'] for t in selected_targets)}")
-        print(
-            "Skipping: FM_broadcast, Aviation_VHF, ACARS, APRS, AIS "
-            "(outside Pluto's 325 MHz-3.8 GHz stock tuning range)"
-        )
+        skipped_labels = [
+            t["label"] for t in CAPTURE_TARGETS
+            if t["label"] not in PLUTO_SUPPORTED_LABELS
+        ]
+        skip_reason = "outside Pluto's range"
         # Pluto's two reachable bands want different antennas: ISM_LoRa
         # (915 MHz) suits the broadband spiral discone, but ADS_B (1090 MHz)
         # gets noticeably better reception on the telescopic whip retracted
-        # to ~68mm (quarter-wave) than on the discone. Since ADS_B and
-        # ISM_LoRa may need a physical antenna swap mid-run, ask which
-        # antenna is connected right now rather than assuming — the metadata
-        # record needs the true antenna, not a hardcoded guess.
-        print()
-        print("Which antenna is connected right now?")
-        print("  1. Telescopic whip (best for ADS_B when retracted to ~68mm)")
-        print("  3. Spiral discone  (best for ISM_LoRa)")
+        # to ~68mm (quarter-wave) than on the discone. Ask which antenna
+        # is on the Pluto for both bands; cards advise but never change
+        # this choice or the real antenna name stored in metadata.
+        print(
+            "  Which antenna is on the Pluto? "
+            "Both bands are captured with it."
+        )
+        for line in table([
+            ("1", "Telescopic whip", "best for ADS_B"),
+            ("2", "Spiral discone", "best for ISM_LoRa"),
+        ]):
+            print(f"    {line}")
+        pluto_antenna_profiles = {"1": "1", "2": "3"}
         pluto_antenna_choice = None
-        while pluto_antenna_choice not in ("1", "3"):
+        while pluto_antenna_choice not in pluto_antenna_profiles:
             try:
-                pluto_antenna_choice = input("Enter choice (1/3) or Ctrl+C to abort: ").strip()
+                pluto_antenna_choice = input(
+                    "  Choose 1 or 2 (Ctrl+C to cancel): "
+                ).strip()
             except KeyboardInterrupt:
                 logger.info("User aborted Pluto capture at antenna selection")
                 print()
                 raise SystemExit(0)
-            if pluto_antenna_choice not in ("1", "3"):
-                print("Invalid choice. Please enter 1 or 3.")
-        antenna_name = ANTENNA_PROFILES[pluto_antenna_choice]["name"]
-        print(f"Antenna: {antenna_name}")
+            if pluto_antenna_choice not in pluto_antenna_profiles:
+                print("Please choose 1 or 2.")
+        profile_key = pluto_antenna_profiles[pluto_antenna_choice]
+        antenna_name = ANTENNA_PROFILES[profile_key]["name"]
     else:
         antenna_choice, profile = _select_antenna()
         selected_bands = set(profile["bands"])
@@ -681,12 +780,7 @@ def main() -> None:
             t["label"] for t in CAPTURE_TARGETS if t["label"] not in selected_bands
         )
 
-        print()
-        print(f"Device: HackRF One")
-        print(f"Antenna: {antenna_name}")
-        print(f"Bands to capture: {', '.join(t['label'] for t in selected_targets)}")
-        if skipped_labels:
-            print(f"Skipping: {', '.join(skipped_labels)} (outside this antenna's range)")
+        skip_reason = "outside this antenna's range"
 
     # --band restricts to a single band, on top of whatever the antenna/
     # device already narrowed selected_targets to. Checked after both
@@ -697,26 +791,27 @@ def main() -> None:
             t for t in selected_targets if LABEL_TO_BAND_KEY[t["label"]] == args.band
         ]
         if not selected_targets:
-            print(_colour(
+            box("Setup error", [
                 f"\nERROR: --band {args.band} is not reachable with the "
                 f"selected device/antenna combination (it narrowed "
                 f"{before_count} band(s) down to none). Check the band is "
                 f"actually covered by what you picked above.\n",
-                ANSI_RED,
-            ))
+            ], style=fail)
             raise SystemExit(1)
-        print(f"--band filter applied: only {selected_targets[0]['label']} will be captured.")
+        option_lines.append(
+            f"--band filter applied: only {selected_targets[0]['label']} "
+            "will be captured."
+        )
 
     # --freq-mhz and --captures both require --band, since overriding either
     # one across multiple bands at once would be ambiguous (which band's
     # frequency? applied to how many of the selected bands?).
     if (args.freq_mhz is not None or args.captures is not None) and args.band is None:
-        print(_colour(
+        box("Setup error", [
             "\nERROR: --freq-mhz and --captures require --band (they "
             "override a single target's values — pick which band with "
             "--band first).\n",
-            ANSI_RED,
-        ))
+        ], style=fail)
         raise SystemExit(1)
 
     if args.freq_mhz is not None:
@@ -729,12 +824,12 @@ def main() -> None:
         # process (e.g. future test code that imports this module).
         selected_targets[0] = dict(selected_targets[0])
         selected_targets[0]["freq_hz"] = override_freq_hz
-        print(
+        option_lines.append(
             f"--freq-mhz override: {selected_targets[0]['label']} will "
             f"capture at {args.freq_mhz:.3f} MHz instead of the default "
             f"{original_freq_hz / 1e6:.3f} MHz."
         )
-        print(
+        option_lines.append(
             "  NOTE: signal_threshold_db and gain are still the values "
             "calibrated for the default frequency — a different station "
             "may need different threshold/gain to detect cleanly. Re-run "
@@ -743,47 +838,53 @@ def main() -> None:
 
     if args.captures is not None:
         if args.captures < 1:
-            print(_colour(
+            box("Setup error", [
                 f"\nERROR: --captures must be a positive integer, got "
                 f"{args.captures}.\n",
-                ANSI_RED,
-            ))
+            ], style=fail)
             raise SystemExit(1)
         original_captures = selected_targets[0]["captures"]
         selected_targets[0] = dict(selected_targets[0])
         selected_targets[0]["captures"] = args.captures
-        print(
+        option_lines.append(
             f"--captures override: {selected_targets[0]['label']} will run "
             f"{args.captures} capture(s) instead of the default "
             f"{original_captures}."
         )
 
-    print()
-    print(
-        "NOTE: ADS-B, ACARS, and AIS require live aircraft or vessel signals. "
-        "You will be prompted before each of those bands."
-    )
-
     store_path = Path("data/vectorstore")
     store_path.mkdir(parents=True, exist_ok=True)
 
     store = SignalStore(path=str(store_path))
-    print(f"Current vector store record count: {store.count()}")
 
     # --wipe is destructive: it deletes the entire ChromaDB collection before
     # capture starts. No interactive confirmation is shown (accepted per security
     # review). If scan.py is running concurrently, SQLite lock errors may occur
     # because both processes write to the same data/vectorstore/ directory.
     if args.wipe:
-        print()
-        print(_colour("WARNING: --wipe flag set.", ANSI_YELLOW))
-        print("The existing vector store collection will be deleted before capture.")
-        print("All previous embeddings will be lost.")
+        box("Wipe vector store", [
+            "WARNING: --wipe will delete every stored record "
+            "in data/vectorstore.",
+            "All previous embeddings will be lost.",
+        ], style=warn)
         store.delete_collection()
         store = SignalStore(path=str(store_path))
         print("Vector store wiped and reinitialised.")
 
+    before_count = store.count()
+    rows = [("Bands", ", ".join(t["label"] for t in selected_targets))]
+    if skipped_labels:
+        rows.extend([
+            ("Skipped", ", ".join(skipped_labels)),
+            ("", f"({skip_reason})"),
+        ])
+    rows.append(("Store", f"{before_count} records in data/vectorstore"))
+    box(
+        f"Mimir · capture to vectorstore · {args.device}",
+        table(rows) + [dim(line) for line in option_lines],
+    )
     embedder = SpectrumEmbedder()
+    results: list[dict] = []
 
     captured_count = run_capture_loop(
         store=store,
@@ -791,15 +892,49 @@ def main() -> None:
         selected_targets=selected_targets,
         antenna_name=antenna_name,
         device=args.device,
+        input_func=input,
+        verbose=args.verbose,
+        results=results,
     )
 
-    print("\n" + "=" * 70)
-    print("CAPTURE COMPLETE")
-    print("=" * 70)
-    print(f"Records captured this run: {captured_count}")
-    print(f"New vector store total: {store.count()}")
-    print()
-    print("Run tools/calibrate_thresholds.py to recompute distance thresholds after adding live vectors.")
+    any_failed = any(result["failed"] for result in results)
+    if any_failed and not captured_count:
+        failure_lines = ["No band stored any capture."]
+        if args.wipe:
+            failure_lines.append(
+                "The store was wiped at the start of this run, so its earlier "
+                "records are gone."
+            )
+        else:
+            failure_lines.append("data/vectorstore was left unchanged.")
+        box("No new captures", failure_lines, style=fail)
+        next_step(
+            "check the Pluto is plugged in (iio_info should list it), "
+            "then run again"
+            if args.device == "pluto" else
+            "check the HackRF is plugged in (hackrf_info should list it), "
+            "then run again"
+        )
+        raise SystemExit(1)
+
+    summary_rows = []
+    for result in results:
+        parts = []
+        if result["stored"] or not (result["failed"] or result["skipped"]):
+            parts.append(f"{result['stored']} stored")
+        if result["noise"]:
+            parts.append(f"{result['noise']} noise")
+        if result["failed"]:
+            parts.append("failed")
+        if result["skipped"]:
+            parts.append("skipped")
+        summary_rows.append((result["label"], " · ".join(parts)))
+    summary_rows.append(("Store", f"{before_count} → {store.count()} records"))
+    box(
+        "Capture complete", table(summary_rows),
+        style=ok if captured_count else warn,
+    )
+    next_step(f"./mimir tool calibrate_thresholds --device {args.device}")
     logger.info("Capture-to-vectorstore complete. %d records stored.", captured_count)
 
 
