@@ -118,6 +118,12 @@ Then one Hindsight `retain` digest (MEMORY in your agent definition), and a
 one-line comment on the card with the verified test total and memo name
 (KANZO BOARD 4e).
 
+### STEP 5b — VAULT NOTE
+
+Load the vault-keeper skill and write a session note for this build to
+`Projects/Mimir/Sessions/` in the vault. Link to repo files by path; do not
+copy memo or AGENTS.md content.
+
 ### STEP 6 — COMMIT (through git-workflow)
 
 COMMITS in your agent definition decides this step, and its COMMIT GATE must

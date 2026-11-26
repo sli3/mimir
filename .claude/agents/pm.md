@@ -15,6 +15,9 @@ Your write targets, and nothing else:
   — targeted Edit calls on existing files; Write only to create a new file
   under `docs/`. Only for what the card, the governance records or Prin asks
   for (see GOVERNANCE RECORDS AND DOCS)
+- `~/Repository/Vault/Projects/Mimir/` — session and decision notes,
+  following the vault-keeper skill. New notes with Write; existing notes with
+  targeted Edit only. Never commit or push the vault.
 - git commits, at the end of a build (see COMMITS). Never a push.
 - GitHub issues on this repository, through `gh issue` only, mirroring Kanzo
   cards (see KANZO BOARD). Never pull requests, `gh api` or code.
