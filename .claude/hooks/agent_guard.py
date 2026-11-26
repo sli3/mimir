@@ -42,6 +42,15 @@ code it builds at run time (echo hackrf_info | bash, ${h}_info, python -c);
 code-writer writes tests that the suite then runs (review and
 tests/test_no_transmit.py are the defence there).
 
+pm's file writes (Edit, Write, MultiEdit, NotebookEdit), and nothing else:
+  * .session-memos/: new Markdown files only, never an overwrite;
+  * README.md and docs/**/*.md (not docs/au-legal-reference.md): targeted
+    Edit calls, with Write only to create a new file under docs/;
+  * its vault folder, VAULT_PM_DIR (~/Repository/Vault/Projects/Mimir, outside
+    the repo): Markdown notes only, new notes with Write and existing notes
+    with targeted Edit, checked on the resolved path so a symlink cannot lead
+    out. If the folder does not exist, every vault write is blocked.
+
 Commits: pm commits on its own at the end of a build, but only with -m
 messages, only what it staged by explicit path, and never a guard-rail file
 (see COMMIT_GUARD_RAIL_*). Other named agents may not commit. A plain session
@@ -87,10 +96,14 @@ ALLOWED_MODEL_OVERRIDES = {
 
 # pm's write targets. Docs (README.md and docs/**/*.md): targeted Edit on an
 # existing file; Write only to create a new file under docs/. Memos: new files only.
+# Vault notes: Markdown in VAULT_PM_DIR, new files with Write, existing ones with
+# targeted Edit.
 README = "README.md"
 DOCS_DIR = "docs/"
 LEGAL_REFERENCE = "docs/au-legal-reference.md"
 MEMO_DIR = ".session-memos/"
+# Built from the home directory, so no user name is hard-coded (the repo is public).
+VAULT_PM_DIR = Path.home() / "Repository/Vault/Projects/Mimir"
 
 # Git. Global options that take a separate value, so the subcommand after them
 # is still found (`git -C . push`, `git -c x=y push`).
@@ -777,6 +790,23 @@ def project_relative(raw_path: str, project_dir: Path) -> str | None:
         return None
 
 
+def vault_relative(raw_path: str) -> str | None:
+    """Return an absolute path relative to pm's vault folder, or None if outside it.
+
+    A relative path is never a vault path: it belongs to the project. If
+    VAULT_PM_DIR does not exist, every path is outside it (fail closed). The
+    path is resolved first, so a symlink in the vault that points out of it
+    counts as outside.
+    """
+    path = Path(raw_path)
+    if not path.is_absolute() or not VAULT_PM_DIR.exists():
+        return None
+    try:
+        return path.resolve().relative_to(VAULT_PM_DIR.resolve()).as_posix()
+    except ValueError:
+        return None
+
+
 def code_writer_may_edit(rel: str) -> bool:
     """Return True if code-writer may edit this project-relative path."""
     parts = rel.split("/")
@@ -793,22 +823,32 @@ def is_pm_doc(rel: str) -> bool:
     return rel == README or (rel.startswith(DOCS_DIR) and rel.endswith(".md"))
 
 
+def targeted_edit_problem(tool_input: dict, path: Path, label: str) -> str | None:
+    """Return a reason to block an Edit of path that is not targeted, or None.
+
+    A targeted Edit has a non-empty old_string, no replace_all, and an
+    old_string that matches exactly once in the file's current text. label
+    names the file in the reason. Shared by pm's doc and vault rules.
+    """
+    old = tool_input.get("old_string", "")
+    if not old:
+        return f"{label} edits need a non-empty old_string"
+    if tool_input.get("replace_all"):
+        return f"{label} edits may not use replace_all"
+    text = path.read_text(encoding="utf-8")
+    if text.count(old) != 1:
+        return f"old_string must match exactly one place in {label}; widen it"
+    return None
+
+
 def governance_edit_problem(tool_input: dict, project_dir: Path, rel: str) -> str | None:
     """Return a reason to block a pm doc Edit, or None if it may go ahead.
 
     pm may change README.md and docs/**/*.md only with targeted Edit calls: a
-    non-empty old_string that matches exactly once. Which parts it may touch,
-    and when, is governed by pm.md, not by this guard.
+    non-empty old_string that matches exactly once (targeted_edit_problem).
+    Which parts it may touch, and when, is governed by pm.md, not by this guard.
     """
-    old = tool_input.get("old_string", "")
-    if not old:
-        return f"{rel} edits need a non-empty old_string"
-    if tool_input.get("replace_all"):
-        return f"{rel} edits may not use replace_all"
-    text = (project_dir / rel).read_text(encoding="utf-8")
-    if text.count(old) != 1:
-        return f"old_string must match exactly one place in {rel}; widen it"
-    return None
+    return targeted_edit_problem(tool_input, project_dir / rel, rel)
 
 
 def check_file_tool(agent: str, tool: str, tool_input: dict, project_dir: Path) -> None:
@@ -827,6 +867,25 @@ def check_file_tool(agent: str, tool: str, tool_input: dict, project_dir: Path) 
         return
 
     if agent == PM:
+        vrel = vault_relative(raw)
+        if vrel is not None:
+            # pm's vault folder: Markdown notes only, new ones with Write, existing
+            # ones with targeted Edit, both checked on the resolved path.
+            if tool not in ("Edit", "Write"):
+                block(f"pm may use only Edit or Write in its vault folder, not {tool}")
+            if not vrel.endswith(".md"):
+                block("pm may write only Markdown (.md) notes in its vault folder")
+            target = Path(raw).resolve()
+            if tool == "Write":
+                if target.exists():
+                    block(f"vault note {vrel} already exists; change it with a targeted Edit, never overwrite")
+                return
+            if not target.is_file():
+                block(f"vault note {vrel} does not exist; create it with Write")
+            reason = targeted_edit_problem(tool_input, target, f"vault note {vrel}")
+            if reason:
+                block(reason)
+            return
         if rel is None:
             block("pm may only write inside .session-memos/, README.md and docs/")
         if rel.startswith(MEMO_DIR) and tool in ("Edit", "Write"):

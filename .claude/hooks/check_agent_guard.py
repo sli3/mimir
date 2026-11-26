@@ -6,10 +6,12 @@ import json, subprocess, sys, os, shutil, tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 G = os.path.join(HERE, "run_guard.py")  # the hook entry point, as settings.json runs it
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
-def run(agent, tool, inp, root=ROOT):
+def run(agent, tool, inp, root=ROOT, home=None):
+    """Run one call through the hook; home, if given, becomes the guard's HOME (vault cases)."""
     data = {"agent_type": agent, "tool_name": tool, "tool_input": inp, "cwd": root}
+    env = {**os.environ, "CLAUDE_PROJECT_DIR": root, **({"HOME": home} if home else {})}
     p = subprocess.run([sys.executable, "-I", G], input=json.dumps(data), text=True, capture_output=True,
-                       env={**os.environ, "CLAUDE_PROJECT_DIR": root})
+                       env=env)
     return p.returncode, p.stdout, p.stderr.strip()
 def make_repo(staged):
     """A throwaway git repo with exactly these paths staged, for pm's commit cases."""
@@ -29,6 +31,25 @@ MEMO = make_repo([".session-memos/2099-01-01_00-00.md"])
 ENV = make_repo([".env"])
 EMPTY = make_repo([])
 REPOS = (CLEAN, RAIL, TXTEST, MEMO, ENV, EMPTY)
+def make_home(with_mimir):
+    """A throwaway HOME holding a fake vault, so no case ever touches Prin's real one."""
+    h = tempfile.mkdtemp(prefix="guardvault-")
+    vault = os.path.join(h, "Repository", "Vault")
+    os.makedirs(os.path.join(vault, "_system"))
+    os.makedirs(os.path.join(vault, "Projects", "Other"))
+    if with_mimir:
+        sessions = os.path.join(vault, "Projects", "Mimir", "Sessions")
+        os.makedirs(sessions)
+        with open(os.path.join(sessions, "existing.md"), "w") as f:
+            f.write("# Session\n\nrepeat\nrepeat\n")
+        with open(os.path.join(h, "outside.md"), "w") as f:
+            f.write("x\n")
+        os.symlink(os.path.join(h, "outside.md"), os.path.join(sessions, "link.md"))
+    return h
+VHOME = make_home(True)        # vault with a Projects/Mimir folder
+NOVAULT = make_home(False)     # vault with no Projects/Mimir folder
+VAULT = os.path.join(VHOME, "Repository", "Vault", "Projects", "Mimir")
+NOTE = os.path.join(VAULT, "Sessions", "existing.md")
 B = lambda c: ("Bash", {"command": c})
 E = lambda f, **k: ("Edit", {"file_path": f, **k})
 W = lambda f: ("Write", {"file_path": f, "content": "x"})
@@ -38,7 +59,7 @@ DEMO = ("env PYTHONPATH=. .venv-scan/bin/python -s scan.py --demo "
         "--demo-files data/captures/capture_100000000hz_20990101_000000.sigmf-meta")
 ADSB = " --demo-files-adsb data/captures/capture_1090000000hz_20990101_000001.sigmf-meta"
 cases = [
- # (agent, (tool,input), expect, label[, repo root]); expect: True = block, False = allow, "ask" = prompt Prin
+ # (agent, (tool,input), expect, label[, repo root[, HOME]]); expect: True = block, False = allow, "ask" = prompt Prin
  ("", B("hackrf_transfer -t x.iq -f 915000000"), True, "main session: hackrf_transfer"),
  ("", B("sudo hackrf_spiflash -w fw.bin"), True, "main session: sudo hackrf_spiflash"),
  ("", B("python scan.py --demo"), True, "main session: scan.py"),
@@ -428,6 +449,26 @@ cases = [
  ("", B("cp -r da{t,}a /tmp/backup"), True, "R10 main: cp from data (copy over guarded)"),
  ("", B("find . -path './.cl*' -name 'agent_g*' -delete"), True, "R9 main: find -path guard -delete"),
  ("", B("echo hello > notes.txt"), False, "R10 main: redirect outside data (prompt, not guard)"),
+ # pm's vault folder; HOME is a temp folder (VHOME / NOVAULT), never Prin's real vault
+ ("pm", W(VAULT + "/Sessions/2099-01-01 build.md"), False, "V pm: Write new note in Sessions/", ROOT, VHOME),
+ ("pm", W(NOTE), True, "V pm: Write over an existing note", ROOT, VHOME),
+ ("pm", W(VAULT + "/Sessions/link.md"), True, "V pm: Write through a symlink to a file outside", ROOT, VHOME),
+ ("pm", E(NOTE, old_string="# Session", new_string="# Session 1"), False, "V pm: targeted Edit", ROOT, VHOME),
+ ("pm", E(NOTE, old_string="", new_string="x"), True, "V pm: Edit with empty old_string", ROOT, VHOME),
+ ("pm", E(NOTE, old_string="# Session", new_string="x", replace_all=True), True, "V pm: Edit replace_all", ROOT, VHOME),
+ ("pm", E(NOTE, old_string="repeat", new_string="x"), True, "V pm: Edit non-unique old_string", ROOT, VHOME),
+ ("pm", E(VAULT + "/Sessions/missing.md", old_string="a", new_string="b"), True, "V pm: Edit a note that does not exist", ROOT, VHOME),
+ ("pm", ("MultiEdit", {"file_path": NOTE, "edits": [{"old_string": "# Session", "new_string": "x"}]}), True, "V pm: MultiEdit", ROOT, VHOME),
+ ("pm", ("NotebookEdit", {"notebook_path": VAULT + "/Sessions/n.ipynb", "new_source": "x"}), True, "V pm: NotebookEdit", ROOT, VHOME),
+ ("pm", W(VAULT + "/Sessions/notes.txt"), True, "V pm: non-.md file", ROOT, VHOME),
+ ("pm", W(VHOME + "/Repository/Vault/_system/x.md"), True, "V pm: Vault/_system/", ROOT, VHOME),
+ ("pm", W(VHOME + "/Repository/Vault/Projects/Other/x.md"), True, "V pm: Vault/Projects/Other/", ROOT, VHOME),
+ ("pm", W(VAULT + "/Sessions/../../Other/x.md"), True, "V pm: ../ escape out of the vault folder", ROOT, VHOME),
+ ("pm", W(VHOME + "/notes.md"), True, "V pm: elsewhere outside the repo", ROOT, VHOME),
+ ("pm", W(NOVAULT + "/Repository/Vault/Projects/Mimir/Sessions/x.md"), True, "V pm: vault folder missing", ROOT, NOVAULT),
+ ("code-writer", W(VAULT + "/Sessions/x.md"), True, "V code-writer: vault", ROOT, VHOME),
+ ("plan-reviewer", W(VAULT + "/Sessions/x.md"), True, "V plan-reviewer: vault", ROOT, VHOME),
+ ("deep-bug-hunter", W(VAULT + "/Sessions/x.md"), True, "V dbh: vault", ROOT, VHOME),
 ]
 fails = 0
 for agent, (tool, inp), expect, label, *root in cases:
@@ -459,7 +500,7 @@ for *_, label, code in launcher_results:
     ok = code == 2
     fails += not ok
     print(("PASS" if ok else "FAIL"), f"{'BLOCK' if code == 2 else 'exit' + str(code):5}", label)
-for d in REPOS:
+for d in REPOS + (VHOME, NOVAULT):
     shutil.rmtree(d, ignore_errors=True)
 total = len(cases) + len(launcher_results)
 print(f"\n{total-fails}/{total} as expected")
