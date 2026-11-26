@@ -165,34 +165,33 @@ Australian frequency bands (legal to receive passively — no licence required):
 # ── ChromaDB distance scale reference ─────────────────────────────────────────
 # Explains to the LLM what the distance numbers mean.
 #
-# NOTE: These thresholds were calibrated against 6-dimensional L2-normalised
-# embeddings (peak_freq_hz, peak_power_db, noise_floor_db, snr_db, bandwidth_hz,
-# occupied_bins). Phase 13 expanded the vector to 7D (added spectral_flatness).
-# After a ChromaDB re-seed with 7D vectors, these thresholds WILL shift — L2
-# distances scale with sqrt(dimension), so 7D distances will be slightly larger
-# than 6D for the same signal pair. Recalibrate via tools/calibrate_thresholds.py
-# once live captures are available with the telescopic whip antenna. Tracked under
-# 9C-Threshold (open).
+# These bands come from tools/calibrate_thresholds.py (derive_thresholds) on
+# the 2026-11-26 Pluto run with current 7D embeddings, using ADS-B and ISM_LoRa
+# only. That run had no noise_floor pairs, so the novel cut-off equals the
+# different-type cut-off (0.012) and comes only from the ADS-B vs ISM_LoRa
+# cross-type distance. FM, Aviation VHF and APRS reference distances are older
+# HackRF values; ACARS, AIS and noise_floor have none. The bands are not
+# re-derived for those bands. For 9C-Threshold, see docs/TECH_DEBT.md.
 
 _DISTANCE_SCALE_REFERENCE = """
 ChromaDB distance scale (lower = more similar):
 Mixed-source calibration: HackRF One captures (Adelaide, AU, June 2026) for
-FM broadcast, Aviation VHF, and APRS; Pluto captures (2026-09-04) for ADS-B
+FM broadcast, Aviation VHF, and APRS; Pluto captures (2026-11-26) for ADS-B
 and ISM_LoRa. ACARS, AIS, and noise_floor have no current reference distance
 in this block.
 
-  0.000 – 0.005 : Strong match   — almost certainly the same signal type
-  0.005 – 0.007 : Possible match — likely same type, moderate confidence
-  0.007 – 0.008 : Different type — known signal but different category
-  0.008+        : Novel signal   — does not closely match anything stored
+  0.000 – 0.003 : Strong match   — almost certainly the same signal type
+  0.003 – 0.008 : Possible match — likely same type, moderate confidence
+  0.008 – 0.012 : Different type — known signal but different category
+  0.012+        : Novel signal   — does not closely match anything stored
 
 Reference distances from calibration:
   FM broadcast same-type:    0.0019  (very stable)
   Aviation VHF same-type:    0.0000  (near-identical captures)
   APRS same-type:            0.0009  (very stable)
-  ADS-B same-type:           0.0023  (Pluto, 2026-09-04)
-  ISM_LoRa same-type:        0.0001  (Pluto, 2026-09-04)
-  ADS-B vs ISM_LoRa:         0.0094  (closest cross-type pair, Pluto)
+  ADS-B same-type:           0.0015  (Pluto, 2026-11-26)
+  ISM_LoRa same-type:        0.0012  (Pluto, 2026-11-26)
+  ADS-B vs ISM_LoRa:         0.0136  (closest cross-type pair, Pluto)
 
 Note: ACARS, AIS, and Aviation VHF share identical gain settings (lna=16/vga=20).
 Without live signal, their noise captures are nearly indistinguishable in vector
@@ -623,7 +622,8 @@ class SignalClassifier:
         Build the system prompt — fixed instructions sent with every call.
 
         This tells the LLM its role, the AU frequency band reference,
-        the ChromaDB distance scale, and the exact JSON format to return.
+        the ChromaDB distance scale calibrated on 2026-11-26, the novel
+        cut-off above 0.012, and the exact JSON format to return.
         """
         return f"""You are a passive RF signal classifier for Mimir, an AI-powered \
 radio spectrum scanner operating in Adelaide, South Australia, Australia.
@@ -654,7 +654,7 @@ No code blocks. Raw JSON exactly matching this schema:
 {_JSON_SCHEMA}
 
 If you cannot confidently classify the signal, use signal_type "unknown" \
-and set confidence to "low". If all neighbours have distances above 0.008, \
+and set confidence to "low". If all neighbours have distances above 0.012, \
 set novel to true.
 
 EVIDENCE PRIORITY (important):
@@ -682,6 +682,8 @@ Never invent data — only classify based on what you are given. /no_think"""
 
         Annotates raw numbers with plain-English context so the LLM can
         reason about them without needing to know RF conventions itself.
+        Neighbour labels use the 2026-11-26 Pluto distance bands, with
+        inclusive upper bounds of 0.003, 0.008 and 0.012.
 
         Args:
             fingerprint     : Phase 2 fingerprint dict.
@@ -759,18 +761,18 @@ Never invent data — only classify based on what you are given. /no_think"""
         else:
             bandwidth_label = f"{occupied_bins} occupied bins — a real channel width"
 
-        # Build neighbours section
+        # Build neighbours section with the 2026-11-26 Pluto distance bands.
         if neighbours:
             neighbour_lines = []
             for i, n in enumerate(neighbours, start=1):
                 label = n.get("label", "unknown")
                 distance = n.get("distance", 0.0)
 
-                if distance <= 0.005:
+                if distance <= 0.003:
                     match_label = "strong match"
-                elif distance <= 0.007:
-                    match_label = "possible match"
                 elif distance <= 0.008:
+                    match_label = "possible match"
+                elif distance <= 0.012:
                     match_label = "different signal type"
                 else:
                     match_label = "novel signal — not closely matched to anything stored"
