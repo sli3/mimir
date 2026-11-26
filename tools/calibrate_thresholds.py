@@ -888,7 +888,9 @@ def main() -> None:
        then summarise SNR; indent status lines by two spaces, retaining capture
        details in verbose/piped output. Replace prior records only after every
        capture succeeds. Stop a band on its first RuntimeError, report its
-       error once by default and keep priors. Prompt skips remain separate.
+       error once by default and keep priors. Keep the retention warning under
+       80 columns, with the stale-ladder note on a dim detail line.
+       Prompt skips remain separate.
     5. If failures leave no completed bands, report whether earlier records
        were wiped, show device guidance and exit.
        Otherwise merge new vectors with non-stale stored bands not captured.
@@ -1200,12 +1202,13 @@ def main() -> None:
                     f"calibration record(s) for {label}"
                 ))
             else:
+                # Keep the warning under 80 columns (74 for a two-digit count,
+                # hackrf and Aviation_VHF); the detail carries the stale-ladder note.
                 print(warn(
                     f"  {WARNING} Kept {len(ids_to_delete)} prior {args.device} "
-                    f"calibration record(s) for {label}; no new records were "
-                    "stored because not every capture succeeded. "
-                    "A stale prior set is still excluded from the ladder."
+                    f"record(s) for {label}; no new records stored"
                 ))
+                print(dim("    A stale prior set is still excluded from the ladder."))
 
     if any_failed and not captured_bands:
         failure_lines = ["No band completed its captures."]

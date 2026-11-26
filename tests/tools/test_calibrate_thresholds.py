@@ -462,7 +462,8 @@ def test_band_replacement_requires_every_capture(
 
     The first failure stops the band, retains fresh or stale priors and exits
     before merging when no band completes. Interrupts still propagate before
-    replacement takes place.
+    replacement takes place. Retention warnings fit within 80 visible columns,
+    with the stale-ladder note on a separate line.
     """
     label = "FM_broadcast"
     target = dict(next(t for t in CALIBRATION_TARGETS if t["label"] == label))
@@ -604,8 +605,13 @@ def test_band_replacement_requires_every_capture(
         if outcome != "interrupted":
             output = capsys.readouterr().out
             assert "Kept 3 prior" in output
-            assert "no new records were stored" in output
+            assert "no new records stored" in output
             assert "stale prior set is still excluded" in output
+            assert all(
+                _console.visible_len(line) <= 80
+                for line in output.splitlines()
+                if "Kept " in line and "prior" in line
+            )
 
 
 def test_merge_stored_entries_empty_when_all_captured_or_stale():
@@ -1321,7 +1327,7 @@ def test_tty_failed_capture_is_reported(
     console_calibration: dict[str, MagicMock], monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Indent failure and retention statuses above progress and analyse successes."""
+    """Report failures, compact retention warnings and separate stale details."""
     terminal = CalibrationTTY()
 
     def tty_spinner(label: str = "", total: int = 1) -> Spinner:
@@ -1348,7 +1354,7 @@ def test_tty_failed_capture_is_reported(
         line.startswith(f"  {calibrate_thresholds.WARNING} Kept 0 prior")
         for line in output.splitlines()
     )
-    assert "no new records were stored" in output
+    assert "no new records stored" in output
     assert "stale prior set is still excluded" in output
 
 
@@ -1395,7 +1401,7 @@ def test_capture_failure_exits_before_stored_analysis(
     console_calibration: dict[str, MagicMock], monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str], device: str, band_count: int,
 ) -> None:
-    """Attempt each band once, report errors once and preserve stored priors."""
+    """Attempt bands once and report errors with compact prior-retention warnings."""
     targets = calibrate_thresholds._build_pluto_calibration_targets.return_value
     selected = sorted(targets, key=lambda target: target["label"])[:band_count]
     monkeypatch.setattr(calibrate_thresholds, "CALIBRATION_TARGETS", selected)
@@ -1442,7 +1448,7 @@ def test_capture_failure_exits_before_stored_analysis(
     assert "\r" not in captured.out and "\x1b" not in captured.out
     assert "✗ capture 1/5 failed\n" in captured.out
     assert "Kept 5 prior" in captured.out
-    assert "no new records were stored" in captured.out
+    assert "no new records stored" in captured.out
     assert "stale prior set is still excluded" in captured.out
     assert "No new captures" in captured.out
     assert "Stored records were left untouched." in captured.out
