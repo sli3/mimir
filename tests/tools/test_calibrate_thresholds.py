@@ -1,23 +1,29 @@
 """Tests for tools/calibrate_thresholds.py
 
 Guard tests that verify CALIBRATION_TARGETS stays in sync with
-BAND_PROFILES, and unit tests for the pure threshold-derivation helper and
-cross-session merge helpers.
+BAND_PROFILES, unit tests for threshold derivation and cross-session merging,
+and hardware-free console, failure and logging workflows.
 """
 
 from datetime import datetime, timedelta
+from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import io
 import itertools
 import logging
+import os
+import sys
+from types import ModuleType
 
 import numpy as np
 import pytest
 
 from dashboard.shared_state import BAND_PROFILES
 from embeddings.store import SignalStore
-from tools import calibrate_thresholds
+from tools import _console, calibrate_thresholds
+from tools._console import Spinner
 from tools.calibrate_thresholds import (
     CALIBRATION_TARGETS,
     CROSS_TYPE_MIN_FLOOR,
@@ -43,6 +49,28 @@ LABEL_TO_KEY = {
     "ADS_B": "adsb",
     "noise_floor": "noise_floor",
 }
+
+
+@pytest.fixture(autouse=True)
+def restore_console_logging() -> Iterator[None]:
+    """Restore pytest's handlers and logger levels after CLI logging setup."""
+    root = logging.getLogger()
+    handlers, root_level = root.handlers[:], root.level
+    names = (
+        calibrate_thresholds.__name__, "core", "embeddings", "llm", "tools",
+        "chromadb",
+    )
+    levels = {name: logging.getLogger(name).level for name in names}
+    try:
+        yield
+    finally:
+        for handler in root.handlers[:]:
+            root.removeHandler(handler)
+        for handler in handlers:
+            root.addHandler(handler)
+        root.setLevel(root_level)
+        for name, level in levels.items():
+            logging.getLogger(name).setLevel(level)
 
 
 def test_calibration_targets_match_band_profiles():
@@ -432,8 +460,9 @@ def test_band_replacement_requires_every_capture(
 ) -> None:
     """Replace only complete bands and preserve each device after failures.
 
-    The real merge helper must reuse fresh prior records after a failure and
-    exclude stale ones. Interrupts propagate before replacement takes place.
+    The first failure stops the band, retains fresh or stale priors and exits
+    before merging when no band completes. Interrupts still propagate before
+    replacement takes place.
     """
     label = "FM_broadcast"
     target = dict(next(t for t in CALIBRATION_TARGETS if t["label"] == label))
@@ -497,7 +526,7 @@ def test_band_replacement_requires_every_capture(
             calibrate_thresholds,
             "capture_iq_pluto" if device == "pluto" else "capture_iq",
             side_effect=outcomes[outcome],
-        ),
+        ) as capture,
         patch.object(calibrate_thresholds, "compute_psd", return_value={}),
         patch.object(
             calibrate_thresholds, "fingerprint_spectrum", return_value={
@@ -524,14 +553,16 @@ def test_band_replacement_requires_every_capture(
             with pytest.raises(KeyboardInterrupt):
                 calibrate_thresholds.main()
             merge.assert_not_called()
-        elif stale and outcome != "success":
+        elif outcome != "success":
             with pytest.raises(SystemExit) as exc:
                 calibrate_thresholds.main()
             assert exc.value.code == 1
+            merge.assert_not_called()
         else:
             calibrate_thresholds.main()
 
         add.assert_not_called()
+        assert capture.call_count == (1 if outcome == "all_fail" else 2)
         if outcome == "success":
             assert [call[0] for call in calls.mock_calls] == [
                 "delete", "add_batch",
@@ -541,16 +572,10 @@ def test_band_replacement_requires_every_capture(
         else:
             store._collection.delete.assert_not_called()
             add_batch.assert_not_called()
-        if outcome != "interrupted":
+        if outcome == "success":
             merged_entries, _, _, captured_bands = merge.call_args.args
-            assert captured_bands == (
-                {label} if outcome == "success" else set()
-            )
-            expected_ids = (
-                {f"{label}_{device}_{idx}" for idx in range(2)}
-                if outcome == "success" else
-                set() if stale else {record["id"] for record in prior}
-            )
+            assert captured_bands == {label}
+            expected_ids = {f"{label}_{device}_{idx}" for idx in range(2)}
             assert {entry["id"] for entry in merged_entries} == expected_ids
 
     after = store.get_all_embeddings()
@@ -754,3 +779,672 @@ def test_missing_pair_in_store_logs_error_with_diagnostic_info(tmp_path, caplog)
     assert "store has" in msg or "store size" in msg.lower()
 
     store.delete_collection()
+
+
+def _prin_run() -> tuple[list[dict], list[tuple[str, str, float]]]:
+    """Model five tight ADS-B captures and a LoRa capture close to ADS-B."""
+    entries = [
+        {"id": f"ADS_B_pluto_{index}", "label": "ADS_B"}
+        for index in range(5)
+    ] + [
+        {"id": f"ISM_LoRa_pluto_{index}", "label": "ISM_LoRa"}
+        for index in range(2)
+    ]
+    pairs = []
+    for a, b in itertools.combinations(entries, 2):
+        if a["label"] == b["label"] == "ADS_B":
+            distance = 0.001
+        elif a["label"] == b["label"]:
+            distance = 0.786
+        elif b["id"] == "ISM_LoRa_pluto_1":
+            distance = 0.013 + int(a["id"].rsplit("_", 1)[1]) * 0.00125
+        else:
+            distance = 0.8
+        pairs.append((a["id"], b["id"], distance))
+    return entries, pairs
+
+
+def test_find_misplaced_captures_prin_run() -> None:
+    """Catch the misplaced LoRa window despite a usable p90 ladder."""
+    entries, pairs = _prin_run()
+    before = [dict(entry) for entry in entries], list(pairs)
+    assert calibrate_thresholds._find_misplaced_captures(entries, pairs) == [{
+        "id": "ISM_LoRa_pluto_1", "label": "ISM_LoRa",
+        "nearest_other_id": "ADS_B_pluto_0", "nearest_other_label": "ADS_B",
+        "own_distance": 0.786, "other_distance": 0.013,
+    }]
+    assert (entries, pairs) == before
+
+
+@pytest.mark.parametrize("other_distance", [0.01, 0.05, 0.1])
+def test_find_misplaced_captures_noise_and_ties(other_distance: float) -> None:
+    """Include noise_floor neighbours and require a strictly smaller gap."""
+    entries = [
+        {"id": "a1", "label": "ADS_B"},
+        {"id": "a2", "label": "ADS_B"},
+        {"id": "n", "label": "noise_floor"},
+    ]
+    pairs = [("a1", "a2", 0.05), ("n", "a1", other_distance), ("a2", "n", 0.1)]
+    found = calibrate_thresholds._find_misplaced_captures(entries, pairs)
+    if other_distance < 0.05:
+        assert found == [{
+            "id": "a1", "label": "ADS_B", "nearest_other_id": "n",
+            "nearest_other_label": "noise_floor", "own_distance": 0.05,
+            "other_distance": other_distance,
+        }]
+    else:
+        assert found == []
+
+
+def test_find_misplaced_captures_single_entry() -> None:
+    """Skip singleton bands even beside a neighbour with another label."""
+    entries = [
+        {"id": "a", "label": "ADS_B"},
+        {"id": "b", "label": "ISM_LoRa"},
+        {"id": "c", "label": "ISM_LoRa"},
+    ]
+    assert calibrate_thresholds._find_misplaced_captures(
+        entries, [("a", "b", 0.01), ("a", "c", 0.02), ("b", "c", 0.001)]
+    ) == []
+
+
+def test_find_misplaced_captures_clean() -> None:
+    """Tight bands with distant cross-label neighbours produce no warnings."""
+    entries, pairs = _prin_run()
+    pairs = [
+        (a, b, 0.001 if a.split("_pluto")[0] == b.split("_pluto")[0] else 0.2)
+        for a, b, _ in pairs
+    ]
+    assert calibrate_thresholds._find_misplaced_captures(entries, pairs) == []
+
+
+@pytest.fixture
+def console_calibration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> dict[str, MagicMock]:
+    """Prepare a full CLI run with both capture paths and storage stubbed.
+
+    Capture paths, storage and log setup are stubbed, with an 80-column
+    terminal. The store path is temporary; real reporting and derivation run.
+    """
+    targets = [
+        dict(target, gain_db=20.0, num_samples=8)
+        for target in CALIBRATION_TARGETS
+        if target["label"] in {"ADS_B", "ISM_LoRa"}
+    ]
+    _, pairs = _prin_run()
+    clean_pairs = [
+        (a, b, 0.001 if a.split("_pluto")[0] == b.split("_pluto")[0] else 0.2)
+        for a, b, _ in pairs
+    ]
+    store = MagicMock()
+    store.get_all_embeddings.return_value = {
+        "ids": [], "metadatas": [], "embeddings": [],
+    }
+    embedder = MagicMock()
+    embedder.embed.return_value = [0.1] * 7
+    mocks = {
+        "capture": MagicMock(return_value=np.ones(8, dtype=np.complex64)),
+        "matrix": MagicMock(wraps=calibrate_thresholds._print_matrix),
+        "distances": MagicMock(return_value=clean_pairs),
+        "derive": MagicMock(wraps=derive_thresholds),
+        "store": store,
+        "input": MagicMock(return_value=""),
+        "fingerprint": MagicMock(return_value={
+            "peak_power_db": -73.30, "snr_db": 14.99,
+        }),
+    }
+    monkeypatch.setattr(
+        calibrate_thresholds, "_quiet_soapy_info_logs", MagicMock()
+    )
+    monkeypatch.setattr(
+        _console.shutil, "get_terminal_size",
+        lambda **_: os.terminal_size((80, 24)),
+    )
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setattr(
+        "sys.argv", ["calibrate_thresholds.py", "--device", "pluto"]
+    )
+    monkeypatch.setattr("builtins.input", mocks["input"])
+    monkeypatch.setattr(
+        calibrate_thresholds, "Path", MagicMock(return_value=tmp_path)
+    )
+    monkeypatch.setattr(
+        calibrate_thresholds, "SignalStore", MagicMock(return_value=store)
+    )
+    monkeypatch.setattr(
+        calibrate_thresholds, "SpectrumEmbedder", MagicMock(return_value=embedder)
+    )
+    monkeypatch.setattr(
+        calibrate_thresholds, "_build_pluto_calibration_targets",
+        MagicMock(return_value=targets),
+    )
+    monkeypatch.setattr(calibrate_thresholds, "capture_iq", mocks["capture"])
+    monkeypatch.setattr(calibrate_thresholds, "capture_iq_pluto", mocks["capture"])
+    monkeypatch.setattr(
+        calibrate_thresholds, "compute_psd", MagicMock(return_value={})
+    )
+    monkeypatch.setattr(
+        calibrate_thresholds, "fingerprint_spectrum", mocks["fingerprint"],
+    )
+    monkeypatch.setattr(calibrate_thresholds, "time", MagicMock())
+    monkeypatch.setattr(calibrate_thresholds, "_print_matrix", mocks["matrix"])
+    monkeypatch.setattr(
+        calibrate_thresholds, "_compute_pairwise_distances", mocks["distances"]
+    )
+    monkeypatch.setattr(
+        calibrate_thresholds, "derive_thresholds", mocks["derive"]
+    )
+    return mocks
+
+
+@pytest.mark.parametrize("verbose", [False, True])
+def test_console_verbose_and_default(
+    console_calibration: dict[str, MagicMock], monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str], verbose: bool,
+) -> None:
+    """Keep piped logs readable and gate diagnostics without changing maths."""
+    argv = ["calibrate_thresholds.py", "--device", "pluto"]
+    monkeypatch.setattr("sys.argv", argv + (["--verbose"] if verbose else []))
+    calibrate_thresholds.main()
+    output = capsys.readouterr().out
+    assert "\x1b" not in output
+    assert "\r" not in output
+    assert ("PAIRWISE DISTANCE MATRIX" in output) is verbose
+    assert ("Computed statistics:" in output) is verbose
+    assert ("same_type_pairs:" in output) is verbose
+    assert ("Cross-type min distance:" in output) is verbose
+    assert console_calibration["matrix"].call_count == int(verbose)
+    assert console_calibration["derive"].call_count == 2
+    assert all(
+        call.args == pytest.approx((0.001, 0.2))
+        for call in console_calibration["derive"].call_args_list
+    )
+    assert console_calibration["capture"].call_count == 7
+    assert "✓ usable" in output
+    assert any(
+        line[3:-3].split() == ["ADS_B", "5", "0.0010", "✓", "consistent"]
+        for line in output.splitlines() if line.startswith("│")
+    )
+    assert "✓ capture 1/5 · peak -73.30 dB · SNR 14.99 dB" in output
+    assert "[1/2] ADS_B · 1090.000 MHz" in output
+    assert "Telescopic whip, retracted to ~68 mm" in output
+    for name, value in [
+        ("STRONG_MATCH", "0.002"), ("POSSIBLE_MATCH", "0.101"),
+        ("DIFFERENT_TYPE", "0.180"), ("NOVEL_SIGNAL", "0.180"),
+    ]:
+        assert any(
+            line[3:-3].split()[:2] == [name, value]
+            for line in output.splitlines() if line.startswith("│")
+        )
+    assert "not safe to apply" not in output
+    assert "_DISTANCE_SCALE_REFERENCE" in output
+    assert "_build_user_prompt() threshold block" in output
+    assert "~line" not in output
+    assert output.rstrip().endswith(
+        "→ Next: copy the values into llm/classifier.py"
+    )
+
+
+@pytest.mark.parametrize("verbose", [False, True])
+def test_console_misplaced_verdict(
+    console_calibration: dict[str, MagicMock], monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str], verbose: bool,
+) -> None:
+    """Warn against applying a usable ladder affected by misplaced captures."""
+    _, pairs = _prin_run()
+    console_calibration["distances"].return_value = pairs
+    monkeypatch.setattr("sys.argv", [
+        "calibrate_thresholds.py", "--device", "pluto",
+        *(["--verbose"] if verbose else []),
+    ])
+    calibrate_thresholds.main()
+    output = capsys.readouterr().out
+    assert "\x1b" not in output
+    assert "\r" not in output
+    assert "✓ usable" not in output
+    assert "⚠ usable but affected by misplaced captures" in output
+    assert any(
+        line[3:-3].split() == [
+            "ISM_LoRa", "2", "0.7860", "⚠", "captures", "disagree",
+        ]
+        for line in output.splitlines() if line.startswith("│")
+    )
+    assert (
+        "ISM_LoRa_pluto_1 looks like ADS_B (0.013 away, own band 0.786)"
+    ) in output
+    assert "Suggested thresholds · not safe to apply" in output
+    assert (
+        "→ Next: recapture ISM_LoRa. Leave llm/classifier.py unchanged."
+    ) in output
+
+
+def test_console_failed_thresholds(
+    console_calibration: dict[str, MagicMock],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Print remediation and the next step before exiting 1 on failure."""
+    pairs = console_calibration["distances"].return_value
+    console_calibration["distances"].return_value = [
+        (a, b, 0.0001) for a, b, _ in pairs
+    ]
+    with pytest.raises(SystemExit) as exc:
+        calibrate_thresholds.main()
+    assert exc.value.code == 1
+    output = capsys.readouterr().out
+    assert "✗ failed" in output
+    assert "CROSS_TYPE_MIN_FLOOR" in output
+    assert "REMEDIATION:" in output
+    assert "Suggested thresholds" not in output
+    assert output.rstrip().endswith(
+        "→ Next: recapture with a live signal present"
+    )
+
+
+def test_console_singleton_and_noise_warning(
+    console_calibration: dict[str, MagicMock], monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Singletons are unchecked and noise neighbours are named explicitly."""
+    entries = [
+        {"id": "a1", "label": "ADS_B"},
+        {"id": "a2", "label": "ADS_B"},
+        {"id": "n", "label": "noise_floor"},
+    ]
+    monkeypatch.setattr(
+        calibrate_thresholds, "_merge_stored_entries",
+        MagicMock(return_value=entries),
+    )
+    console_calibration["distances"].return_value = [
+        ("a1", "a2", 0.05), ("a1", "n", 0.01), ("a2", "n", 0.1),
+    ]
+    calibrate_thresholds.main()
+    output = capsys.readouterr().out
+    assert any(
+        line[3:-3].split() == [
+            "noise_floor", "1", "—", "only", "one", "capture,", "not", "checked",
+        ]
+        for line in output.splitlines() if line.startswith("│")
+    )
+    assert "a1 looks like noise_floor (0.010 away, own band 0.050)" in output
+    assert "✓ usable" not in output
+
+
+def test_console_startup_summary(capsys: pytest.CaptureFixture[str]) -> None:
+    """Show the Mimir header, aligned fresh/stale status and exclusion text."""
+    calibrate_thresholds._print_startup_summary({
+        "ADS_B": (True, 0.5, "2026-11-25T12:00:00"),
+        "ISM_LoRa": (False, 20.0, "2026-11-05T12:00:00"),
+    }, "pluto")
+    output = capsys.readouterr().out
+    assert "Mimir · calibrate thresholds · pluto" in output
+    assert "✓ ADS_B" in output
+    assert "fresh · today" in output
+    assert "⚠ ISM_LoRa" in output
+    assert "stale · 20 days ago (2026-11-05)" in output
+    body = " ".join(
+        line[3:-3].strip() for line in output.splitlines()
+        if line.startswith("│")
+    )
+    assert "excluded unless recaptured" in body
+    assert "\x1b" not in output
+    assert "\r" not in output
+    calibrate_thresholds._print_startup_summary({}, "hackrf")
+    assert "No prior calibration data, starting fresh" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("answer", ["", "ADS_B, unknown", None])
+def test_console_recapture_prompt(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    answer: str | None,
+) -> None:
+    """Use short plain recapture text with unchanged validation and skips."""
+    response = MagicMock(
+        side_effect=KeyboardInterrupt if answer is None else None,
+        return_value=answer,
+    )
+    monkeypatch.setattr("builtins.input", response)
+    targets = [t for t in CALIBRATION_TARGETS if t["label"] == "ADS_B"]
+    selected = calibrate_thresholds._prompt_recapture_fresh_bands(
+        {"ADS_B"}, targets
+    )
+    assert selected == ({"ADS_B"} if answer else set())
+    response.assert_called_once_with("> ")
+    output = capsys.readouterr().out
+    assert "Fresh within the last 14 days: ADS_B." in output
+    assert "Recapture which? ADS_B (comma-separated, Enter to skip)" in output
+    assert "╭" not in output
+
+
+def test_single_band_groups_have_one_prompt(
+    console_calibration: dict[str, MagicMock], capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Each Pluto band card covers connection, length and signal warnings."""
+    calibrate_thresholds.main()
+    prompts = [call.args[0] for call in console_calibration["input"].call_args_list]
+    assert prompts == ["  Enter to start · Ctrl+C to skip this band\n"] * 2
+    output = capsys.readouterr().out
+    assert "Antenna capture plan" not in output
+    assert "Telescopic whip, retracted to ~68 mm" in output
+    assert "Aircraft overhead, otherwise only noise" in output
+    assert "Live traffic: flightradar24.com" in output
+    assert "Samples" in output and "8" in output
+
+
+def test_band_prompt_interrupt_skips_capture(
+    console_calibration: dict[str, MagicMock], monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Keep prompt skips separate from failures and preserve the skip log call."""
+    builder = calibrate_thresholds._build_pluto_calibration_targets
+    builder.return_value = [
+        target for target in builder.return_value if target["label"] == "ADS_B"
+    ]
+    console_calibration["input"].side_effect = KeyboardInterrupt
+    info = MagicMock(wraps=calibrate_thresholds.logger.info)
+    monkeypatch.setattr(calibrate_thresholds.logger, "info", info)
+    with pytest.raises(SystemExit) as exc:
+        calibrate_thresholds.main()
+    # The skipped run still exits for insufficient entries.
+    assert exc.value.code == 1
+    console_calibration["capture"].assert_not_called()
+    console_calibration["store"].add_batch.assert_not_called()
+    console_calibration["input"].assert_called_once()
+    info.assert_any_call("User skipped %s band at antenna length check", "ADS_B")
+    assert "No new captures" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("skip_group", [False, True])
+def test_multi_band_group_connection_prompt(
+    console_calibration: dict[str, MagicMock], monkeypatch: pytest.MonkeyPatch,
+    skip_group: bool,
+) -> None:
+    """Keep one group connection prompt and allow Ctrl+C to skip every band."""
+    monkeypatch.setattr(calibrate_thresholds, "ANTENNA_PROFILES", {
+        "1": {
+            "name": "Test antenna", "range": "test",
+            "bands": ["ADS_B", "ISM_LoRa"],
+        },
+        "3": {"name": "Unused", "range": "test", "bands": []},
+    })
+    if skip_group:
+        console_calibration["input"].side_effect = KeyboardInterrupt
+        with pytest.raises(SystemExit) as exc:
+            calibrate_thresholds.main()
+        assert exc.value.code == 1
+        console_calibration["capture"].assert_not_called()
+    else:
+        calibrate_thresholds.main()
+    prompts = [call.args[0] for call in console_calibration["input"].call_args_list]
+    assert prompts[0].startswith("Connect Test antenna now.")
+    assert len(prompts) == (1 if skip_group else 3)
+
+
+class CalibrationTTY(io.StringIO):
+    """Supply a terminal stream for progress without changing pytest stdout."""
+
+    def isatty(self) -> bool:
+        """Enable spinner behaviour without requiring a real terminal."""
+        return True
+
+
+@pytest.mark.parametrize("verbose", [False, True])
+def test_tty_capture_summary_and_verbose(
+    console_calibration: dict[str, MagicMock], monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str], verbose: bool,
+) -> None:
+    """Show SNR range summaries and retain capture detail only with verbose."""
+    terminal = CalibrationTTY()
+
+    def tty_spinner(label: str = "", total: int = 1) -> Spinner:
+        """Run labelled progress on an isolated fake terminal."""
+        return Spinner(label=label, total=total, stream=terminal)
+
+    monkeypatch.setattr(calibrate_thresholds, "Spinner", tty_spinner)
+    monkeypatch.setattr("sys.argv", [
+        "calibrate_thresholds.py", "--device", "pluto",
+        *(["--verbose"] if verbose else []),
+    ])
+    console_calibration["fingerprint"].side_effect = [
+        {"peak_power_db": -73.30, "snr_db": snr}
+        for snr in [14.6, 18.1, 16.0, 17.0, 15.0, 12.0, 13.0]
+    ]
+    calibrate_thresholds.main()
+    output = capsys.readouterr().out
+    assert "✓ 5/5 captured · SNR 14.6 to 18.1 dB" in output
+    assert "✓ 2/2 captured · SNR 12.0 to 13.0 dB" in output
+    assert ("✓ capture 1/5" in terminal.getvalue()) is verbose
+    assert "✓ capture 1/5" not in output
+    assert terminal.getvalue().endswith("\r\033[2K")
+
+
+def test_tty_failed_capture_is_reported(
+    console_calibration: dict[str, MagicMock], monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Stop a failed band, report its error above progress and analyse successes."""
+    terminal = CalibrationTTY()
+
+    def tty_spinner(label: str = "", total: int = 1) -> Spinner:
+        """Isolate labelled progress and explicit messages on a fake terminal."""
+        return Spinner(label=label, total=total, stream=terminal)
+
+    monkeypatch.setattr(calibrate_thresholds, "Spinner", tty_spinner)
+    samples = console_calibration["capture"].return_value
+    console_calibration["capture"].side_effect = [
+        RuntimeError("capture unavailable"), samples, samples,
+    ]
+    console_calibration["distances"].return_value = [
+        ("ISM_LoRa_pluto_0", "ISM_LoRa_pluto_1", 0.001),
+    ]
+    calibrate_thresholds.main()
+    assert "✗ capture 1/5 failed" in terminal.getvalue()
+    assert "    capture unavailable" in terminal.getvalue()
+    assert console_calibration["capture"].call_count == 3
+    output = capsys.readouterr().out
+    assert "0/5 captured" not in output
+    assert "Results" in output
+    assert "No new captures" not in output
+    assert "Kept 0 prior" in output
+    assert "no new records were stored" in output
+    assert "stale prior set is still excluded" in output
+
+
+@pytest.mark.parametrize("setter_name", ["SoapySDR_setLogLevel", "setLogLevel"])
+@pytest.mark.parametrize("level", [0, 3])
+def test_quiet_soapy_info_logs(
+    monkeypatch: pytest.MonkeyPatch, setter_name: str, level: int,
+) -> None:
+    """Use either log binding and its warning level without device APIs."""
+    module = ModuleType("SoapySDR")
+    setter = MagicMock()
+    setattr(module, setter_name, setter)
+    module.SOAPY_SDR_WARNING = level
+    monkeypatch.setitem(sys.modules, "SoapySDR", module)
+    calibrate_thresholds._quiet_soapy_info_logs()
+    setter.assert_called_once_with(level)
+
+
+@pytest.mark.parametrize("missing", ["module", "setter", "level"])
+def test_quiet_soapy_missing_controls(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+    missing: str,
+) -> None:
+    """Leave logging alone and emit debug when bindings or controls are missing."""
+    module = ModuleType("SoapySDR")
+    setter = MagicMock()
+    if missing != "setter":
+        module.SoapySDR_setLogLevel = setter
+    if missing != "level":
+        module.SOAPY_SDR_WARNING = 3
+    monkeypatch.setitem(
+        sys.modules, "SoapySDR", None if missing == "module" else module
+    )
+    with caplog.at_level(logging.DEBUG, logger="tools.calibrate_thresholds"):
+        calibrate_thresholds._quiet_soapy_info_logs()
+    setter.assert_not_called()
+    assert "leaving" in caplog.text
+
+
+@pytest.mark.parametrize("device, band_count", [
+    ("pluto", 1), ("pluto", 2), ("hackrf", 1),
+])
+def test_capture_failure_exits_before_stored_analysis(
+    console_calibration: dict[str, MagicMock], monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str], device: str, band_count: int,
+) -> None:
+    """Attempt each band once, report errors once and preserve stored priors."""
+    targets = calibrate_thresholds._build_pluto_calibration_targets.return_value
+    selected = sorted(targets, key=lambda target: target["label"])[:band_count]
+    monkeypatch.setattr(calibrate_thresholds, "CALIBRATION_TARGETS", selected)
+    calibrate_thresholds._build_pluto_calibration_targets.return_value = selected
+    monkeypatch.setattr(
+        "sys.argv", ["calibrate_thresholds.py", "--device", device]
+    )
+    monkeypatch.setattr(
+        calibrate_thresholds, "_prompt_recapture_fresh_bands",
+        MagicMock(return_value={"ADS_B"}),
+    )
+    timestamp = datetime.now().isoformat()
+    store = console_calibration["store"]
+    store.get_all_embeddings.return_value = {
+        "ids": [f"ADS_B_{device}_{index}" for index in range(5)],
+        "embeddings": [[0.1] * 7 for _ in range(5)],
+        "metadatas": [
+            {"label": "ADS_B", "device": device, "timestamp": timestamp}
+            for _ in range(5)
+        ],
+    }
+    error = (
+        "No ADALM-PLUTO device found. Check USB connection and run 'iio_info' "
+        "to verify hardware." if device == "pluto" else "No HackRF device found."
+    )
+
+    def fail_capture(**_kwargs: object) -> np.ndarray:
+        """Reproduce the pipeline's error log and raised capture failure."""
+        logging.getLogger("core.pipeline.capture").error(
+            "IQ capture failed: %s", error
+        )
+        raise RuntimeError(error)
+
+    console_calibration["capture"].side_effect = fail_capture
+    merge = MagicMock()
+    monkeypatch.setattr(calibrate_thresholds, "_merge_stored_entries", merge)
+    with pytest.raises(SystemExit) as exc:
+        calibrate_thresholds.main()
+    assert exc.value.code == 1
+    assert console_calibration["capture"].call_count == band_count
+    captured = capsys.readouterr()
+    assert captured.out.count(error) == band_count
+    assert captured.err == ""
+    assert "\r" not in captured.out and "\x1b" not in captured.out
+    assert "✗ capture 1/5 failed\n" in captured.out
+    assert "Kept 5 prior" in captured.out
+    assert "no new records were stored" in captured.out
+    assert "stale prior set is still excluded" in captured.out
+    assert "No new captures" in captured.out
+    assert "Stored records were left untouched." in captured.out
+    assert "0/5 captured" not in captured.out
+    assert "Results" not in captured.out
+    assert "Suggested thresholds" not in captured.out
+    device_name = "Pluto" if device == "pluto" else "HackRF"
+    diagnostic = "iio_info" if device == "pluto" else "hackrf_info"
+    assert captured.out.rstrip().endswith(
+        f"→ Next: check the {device_name} is plugged in "
+        f"({diagnostic} should list it), then run again"
+    )
+    console_calibration["derive"].assert_not_called()
+    merge.assert_not_called()
+    store.add_batch.assert_not_called()
+    store._collection.delete.assert_not_called()
+    calibrate_thresholds.time.sleep.assert_not_called()
+
+
+def test_wiped_capture_failure_reports_prior_records_gone(
+    console_calibration: dict[str, MagicMock], monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Report wiped prior calibration accurately when every capture fails."""
+    monkeypatch.setattr("sys.argv", [
+        "calibrate_thresholds.py", "--device", "pluto", "--wipe",
+    ])
+    console_calibration["capture"].side_effect = RuntimeError("device missing")
+    with pytest.raises(SystemExit) as exc:
+        calibrate_thresholds.main()
+    assert exc.value.code == 1
+    output = capsys.readouterr().out
+    assert "No new captures" in output
+    assert (
+        "The calibration store was wiped at the start of this run."
+    ) in output
+    assert (
+        "Earlier calibration records are gone; recapture is needed."
+    ) in output
+    assert "Stored records were left untouched." not in output
+    console_calibration["store"].delete_collection.assert_called_once_with()
+    console_calibration["store"].add_batch.assert_not_called()
+    console_calibration["derive"].assert_not_called()
+
+
+def test_verbose_failure_logs_without_third_party_info(
+    console_calibration: dict[str, MagicMock], monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Show Mimir INFO and capture errors while filtering third-party INFO."""
+    targets = calibrate_thresholds._build_pluto_calibration_targets.return_value
+    calibrate_thresholds._build_pluto_calibration_targets.return_value = [
+        target for target in targets if target["label"] == "ADS_B"
+    ]
+    monkeypatch.setattr("sys.argv", [
+        "calibrate_thresholds.py", "--device", "pluto", "--verbose",
+    ])
+    third_party = logging.getLogger("chromadb")
+    third_party.setLevel(logging.INFO)
+
+    def fail_capture(**_kwargs: object) -> np.ndarray:
+        """Emit representative library and Mimir messages before failing."""
+        core_logger = logging.getLogger("core.pipeline.capture")
+        core_logger.info("Mimir capture attempt")
+        core_logger.error("IQ capture failed: unplugged")
+        third_party.info("third-party INFO should stay hidden")
+        third_party.warning("library warning remains visible")
+        raise RuntimeError("unplugged")
+
+    console_calibration["capture"].side_effect = fail_capture
+    with pytest.raises(SystemExit) as exc:
+        calibrate_thresholds.main()
+    assert exc.value.code == 1
+    captured = capsys.readouterr()
+    assert "INFO core.pipeline.capture: Mimir capture attempt" in captured.err
+    assert (
+        "ERROR core.pipeline.capture: IQ capture failed: unplugged"
+    ) in captured.err
+    assert "Capture failed for ADS_B (capture 0): unplugged" in captured.err
+    assert "library warning remains visible" in captured.err
+    assert "third-party INFO should stay hidden" not in (
+        captured.err + captured.out
+    )
+    assert "\r" not in captured.err + captured.out
+    assert "\x1b" not in captured.err + captured.out
+    console_calibration["derive"].assert_not_called()
+    assert logging.getLogger().level == logging.WARNING
+    for name in (
+        calibrate_thresholds.__name__, "core", "embeddings", "llm", "tools",
+    ):
+        assert logging.getLogger(name).level == logging.INFO
+
+
+def test_default_logging_has_no_console_handler(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Replace console handlers and silence core/library warnings/errors."""
+    root = logging.getLogger()
+    root.addHandler(logging.StreamHandler(sys.stderr))
+    calibrate_thresholds._configure_console_logging(verbose=False)
+    logging.getLogger("core.pipeline.capture").error("hidden capture error")
+    logging.getLogger("core").warning("hidden core warning")
+    logging.getLogger("chromadb").warning("hidden library warning")
+    captured = capsys.readouterr()
+    assert captured.out == captured.err == ""
+    assert len(root.handlers) == 1
+    assert isinstance(root.handlers[0], logging.NullHandler)

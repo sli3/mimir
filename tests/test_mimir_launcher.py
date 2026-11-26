@@ -16,7 +16,7 @@ LAUNCHER = Path(__file__).resolve().parents[1] / "mimir"
 
 @pytest.fixture
 def fake_repo(tmp_path: Path) -> Path:
-    """Copy the launcher beside inert tools and recording command stubs."""
+    """Copy the launcher beside inert tools, helpers and command stubs."""
     repo = tmp_path / "fake repo"
     repo.mkdir()
     shutil.copy2(LAUNCHER, repo / "mimir")
@@ -36,7 +36,9 @@ def fake_repo(tmp_path: Path) -> Path:
         shutil.copy2(python, fake_bin / name)
     tools = repo / "tools"
     (tools / "archive").mkdir(parents=True)
-    for name in ("inspect_snr.py", "calibrate_thresholds.py", "__init__.py"):
+    for name in (
+        "inspect_snr.py", "calibrate_thresholds.py", "__init__.py", "_helper.py",
+    ):
         (tools / name).touch()
     (tools / "archive/x.py").touch()
     (repo / "data/captures").mkdir(parents=True)
@@ -102,7 +104,7 @@ def test_unknown_command(fake_repo: Path) -> None:
 
 
 def test_tool_list(fake_repo: Path) -> None:
-    """List sorted top-level tools, excluding package and archive entries."""
+    """List sorted public tools, excluding helpers, packages and archives."""
     result = run_launcher(fake_repo, "tool")
     assert result.returncode == 0
     assert result.stdout.splitlines() == [
@@ -112,14 +114,17 @@ def test_tool_list(fake_repo: Path) -> None:
     assert "Press Enter" not in result.stdout
 
 
-@pytest.mark.parametrize("name", ["unknown", "archive/x", "../scan.py"])
+@pytest.mark.parametrize(
+    "name", ["unknown", "archive/x", "../scan.py", "_helper", "_helper.py"],
+)
 def test_invalid_tool(fake_repo: Path, name: str) -> None:
-    """Reject unknown tools and path components before confirmation."""
+    """Reject unknown tools, private helpers and paths before confirmation."""
     result = run_launcher(fake_repo, "tool", name)
     assert result.returncode == 1
     assert f"No tool called {name}" in result.stdout
     assert "inspect_snr" in result.stdout
     assert "Press Enter" not in result.stdout
+    assert not (fake_repo / "arguments").exists()
 
 
 @pytest.mark.parametrize(
@@ -149,7 +154,7 @@ def test_unavailable_python(
     ],
 )
 def test_empty_stdin_cancels(fake_repo: Path, args: tuple[str, ...]) -> None:
-    """EOF shows an aligned, uncoloured box and explicit cancellation."""
+    """EOF shows a rounded, aligned, plain box and explicit cancellation."""
     add_capture(fake_repo, "saved", 100)
     result = run_launcher(fake_repo, *args)
     assert result.returncode == 1
@@ -157,9 +162,9 @@ def test_empty_stdin_cancels(fake_repo: Path, args: tuple[str, ...]) -> None:
     assert "Press Enter to run, or Ctrl+C to cancel." in result.stdout
     prompt = "Press Enter to run, or Ctrl+C to cancel."
     inner_width = len(prompt) + 4
-    top = "┌" + "─" * inner_width + "┐"
+    top = "╭" + "─" * inner_width + "╮"
     middle = "│  " + prompt + "  │"
-    bottom = "└" + "─" * inner_width + "┘"
+    bottom = "╰" + "─" * inner_width + "╯"
     lines = result.stdout.splitlines()
     assert lines.count(top) == 1
     assert lines.count(middle) == 1
