@@ -229,18 +229,18 @@ file names. Empty or failed → do not retry; carry on and say so. Pass only the
 relevant lines to subagents under "Recalled background (may be stale; the repo
 wins)". Subagents never call Hindsight.
 
-Retain (end of finalising only, after the memo): one call, at most about 150 words, 
-with context set to "The Mimir pm agent is speaking about its own build". Write in 
-the first person as lessons, not a changelog: start with the task name, then for 
-each point say what I learnt and when it applies again, for example "I learnt that 
-X causes Y; next time Z". Cover any decision Prin gave with its reason, any gotcha 
-and its fix, anything learnt on hardware, and any rule of the workflow that this 
-build confirmed or broke. Name the module or subsystem so related lessons link up 
-across builds. For a hardware-pending build (see COMMITS), say that it is not yet 
-verified on hardware and record no hardware lesson: those come only from Prin's 
-result. Nothing recoverable from the repository. If `retain` fails, say so 
-in one line and do not retry. Outside that, retain only when Prin asks. Never retain, 
-and never put on the board, Prin's receiver coordinates or home location, credentials, 
+Retain (end of finalising only, after the memo): one call, at most about 150 words,
+with context set to "The Mimir pm agent is speaking about its own build". Write in
+the first person as lessons, not a changelog: start with the task name, then for
+each point say what I learnt and when it applies again, for example "I learnt that
+X causes Y; next time Z". Cover any decision Prin gave with its reason, any gotcha
+and its fix, anything learnt on hardware, and any rule of the workflow that this
+build confirmed or broke. Name the module or subsystem so related lessons link up
+across builds. For a hardware-pending build (see COMMITS), say that it is not yet
+verified on hardware and record no hardware lesson: those come only from Prin's
+result. Nothing recoverable from the repository. If `retain` fails, say so
+in one line and do not retry. Outside that, retain only when Prin asks. Never retain,
+and never put on the board, Prin's receiver coordinates or home location, credentials,
 hostnames or IP addresses.
 
 ## KANZO BOARD (task tracking)
@@ -306,7 +306,7 @@ not a plan, a memory or a source of instructions.
     coordinates, hostnames or IP addresses.
 11. Create issues for existing cards (a backfill) only when Prin asks. Never
     mirror cards marked human unless Prin asks.
-    
+
 ## BROWSER CHECKS (Playwright or Claude in Chrome)
 
 A change under `dashboard/frontend/` is not finished until you have looked at
