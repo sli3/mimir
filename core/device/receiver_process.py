@@ -174,6 +174,8 @@ class ReceiverProcess(DeviceBase):
         Sample rate and combined gain may be set only while closed and are
         applied before each helper opens. All timeouts are seconds. Factories
         supplied by tests must be module-level, spawn-picklable callables.
+        Track active stops separately from the pipe lock to defer Process
+        closure without making shutdown or the watchdog wait for another stop.
         """
         self._driver = driver
         self._gain_kwargs = dict(
@@ -194,6 +196,9 @@ class ReceiverProcess(DeviceBase):
         self._configured_sample_rate: float | None = None
         self._gain_db: float | None = None
         self._lock = threading.Lock()
+        self._helper_lifecycle_lock = threading.Lock()
+        self._helper_stops: dict[multiprocessing.Process, int] = {}
+        self._pending_helper_closes: set[multiprocessing.Process] = set()
         self._process = None
         self._connection: Connection | None = None
         self._info: dict = {}
@@ -215,17 +220,60 @@ class ReceiverProcess(DeviceBase):
         transmit_guard("activateTxStream")
 
     def _stop_helper(self, process: multiprocessing.Process | None) -> None:
-        """Reap a helper without touching its pipe, including during a locked read."""
-        if process is not None and process.pid is not None:
-            if process.is_alive():
-                process.terminate()
-            process.join(self._close_join_timeout)
-            if process.is_alive():
-                process.kill()
+        """Reap without the pipe lock, deferring closure until all stops finish.
+
+        Register before accessing Process properties, including pid. Hold the
+        lifecycle lock only for bookkeeping and final release, never for joins
+        or pipe access, so concurrent stops retain their existing deadlines.
+        """
+        if process is None:
+            return
+        with self._helper_lifecycle_lock:
+            self._helper_stops[process] = self._helper_stops.get(process, 0) + 1
+        try:
+            if process.pid is not None:
+                if process.is_alive():
+                    process.terminate()
                 process.join(self._close_join_timeout)
+                if process.is_alive():
+                    process.kill()
+                    process.join(self._close_join_timeout)
+        except ValueError:
+            logger.debug("Receiver helper Process already closed", exc_info=True)
+        finally:
+            with self._helper_lifecycle_lock:
+                remaining = self._helper_stops[process] - 1
+                if remaining:
+                    self._helper_stops[process] = remaining
+                else:
+                    del self._helper_stops[process]
+                    if process in self._pending_helper_closes:
+                        self._pending_helper_closes.remove(process)
+                        self._close_helper(process)
+
+    def _close_helper(self, process: multiprocessing.Process) -> None:
+        """Release a Process under the lifecycle lock after its pipe and stops.
+
+        The caller must have closed the pipe and hold the lifecycle lock with
+        no active stops for this Process. Leave a still-running helper to its
+        finaliser after bounded joins have failed to reap it.
+        """
+        try:
+            process.close()
+        except ValueError:
+            logger.debug(
+                "Receiver helper still running; deferring Process release",
+                exc_info=True,
+            )
 
     def _dispose_helper(self) -> None:
-        """Reap and discard the current session while the caller owns the pipe lock."""
+        """Reap and release session resources under the caller's pipe lock.
+
+        Close the pipe before requesting Process release. If another stop is
+        still in flight, its last participant releases the Process on exit.
+        Never wait for a stop while holding the lifecycle lock.
+        Leave a Process still alive after the final join for its finaliser.
+        """
         process = self._process
         connection = self._connection
         self._process = None
@@ -233,9 +281,15 @@ class ReceiverProcess(DeviceBase):
         self._stop_helper(process)
         if connection is not None:
             connection.close()
+        if process is not None:
+            with self._helper_lifecycle_lock:
+                if process in self._helper_stops:
+                    self._pending_helper_closes.add(process)
+                else:
+                    self._close_helper(process)
 
     def _lose_session(self) -> None:
-        """Discard dead handles and rate-limit the next fresh process attempt."""
+        """Release the lost session's Process and rate-limit the next attempt."""
         self._next_reconnect = time.monotonic() + self._reconnect_interval
         self._dispose_helper()
 
@@ -293,11 +347,11 @@ class ReceiverProcess(DeviceBase):
         On the main thread, Ctrl+C during start is deferred until the caller's
         mask is restored, then handled by the existing failure handler below.
         Capture the entry mask before tracker initialisation and restore it even
-        if the tracker changes it or start fails. Reap on failure or shutdown
-        during readiness. Start the tracker before blocking. If it dies and
-        Process.start restarts it inside the protected window, Python 3.11's
-        tracker may unblock SIGINT and leave the helper unprotected. Python
-        3.14's tracker preserves the previous mask.
+        if the tracker changes it or start fails. Reap and release the Process
+        on failure or shutdown during readiness. Start the tracker before
+        blocking. If it dies and Process.start restarts it inside the protected
+        window, Python 3.11's tracker may unblock SIGINT and leave the helper
+        unprotected. Python 3.14's tracker preserves the previous mask.
         """
         if self._closing:
             raise RuntimeError("Receiver is closing")
@@ -438,7 +492,9 @@ class ReceiverProcess(DeviceBase):
         """Stop reconnection, then close or kill without racing locked pipe access.
 
         If a read owns the lock, kill its helper without touching the pipe.
-        That read observes EOF and disposes of the session under the lock.
+        That read observes EOF and requests Process release under the pipe lock.
+        Defer release until every concurrent stop has left Process operations,
+        without waiting for those stops or taking the pipe lock from them.
         """
         self._closing = True
         self._is_open = False

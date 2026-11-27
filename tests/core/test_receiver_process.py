@@ -13,6 +13,7 @@ import threading
 import time
 from functools import partial
 from multiprocessing import resource_tracker, spawn
+from multiprocessing.process import BaseProcess
 from pathlib import Path
 from typing import Callable, Iterable, Iterator
 from unittest.mock import Mock, patch
@@ -102,6 +103,23 @@ def receiver_builder() -> Iterator[Callable[..., ReceiverProcess]]:
     finally:
         for receiver in receivers:
             receiver.close()
+
+
+@pytest.fixture
+def closed_helpers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> dict[BaseProcess, tuple[int | None, int | None]]:
+    """Record PID and exit code before real close, preserving close failures."""
+    recorded: dict[BaseProcess, tuple[int | None, int | None]] = {}
+    original_close = BaseProcess.close
+
+    def record_close(process: BaseProcess) -> None:
+        """Snapshot live Process properties before delegating without suppression."""
+        recorded[process] = (process.pid, process.exitcode)
+        original_close(process)
+
+    monkeypatch.setattr(BaseProcess, "close", record_close)
+    return recorded
 
 
 def _wait_for_read(path: Path) -> None:
@@ -369,48 +387,221 @@ def test_frequency_forwarded(receiver_builder: Callable) -> None:
 
 
 def test_read_error_discards_helper(receiver_builder: Callable) -> None:
-    """Reported read errors remove the helper while logical open stays true."""
+    """Reported read errors close the Process while logical open stays true."""
     receiver = receiver_builder("read_error")
     receiver.open()
     process = receiver._process
     with pytest.raises(RuntimeError, match="fake read failed"):
         receiver.read_samples(16)
-    assert not process.is_alive()
+    assert process._closed
     assert receiver._process is None
     assert receiver.is_open
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="requires /proc/self/fd")
+def test_repeated_reconnect_releases_fds_with_retained_errors(
+    receiver_builder: Callable, tmp_path: Path,
+) -> None:
+    """Retained loss tracebacks must not keep helper descriptors open on Linux."""
+    flag = tmp_path / "state"
+    flag.write_text("healthy", encoding="utf-8")
+    receiver = receiver_builder(flag_path=flag)
+    # Warm up spawn and its persistent resource tracker before counting fds.
+    receiver.open()
+    assert np.all(receiver.read_samples(16) == 98)
+    receiver.close()
+    fd_directory = Path("/proc/self/fd")
+    baseline = len(list(fd_directory.iterdir()))
+    errors: list[RuntimeError] = []
+    receiver.open()
+    for attempt in range(5):
+        process = receiver._process
+        flag.write_text("unplugged", encoding="utf-8")
+        # Keep every exception and its traceback alive through all reconnects.
+        _read_in_thread(receiver, errors)
+        assert len(errors) == attempt + 1
+        assert "fake read failed" in str(errors[-1])
+        assert process._closed
+        assert receiver._process is None
+        assert receiver._connection is None
+        assert len(list(fd_directory.iterdir())) == baseline
+        flag.write_text("healthy", encoding="utf-8")
+        assert np.all(receiver.read_samples(16) == 98)
+    receiver.close()
+    assert len(list(fd_directory.iterdir())) == baseline
+
+
+def test_dispose_helper_leaves_still_running_process_unclosed(
+    receiver_builder: Callable,
+    closed_helpers: dict[BaseProcess, tuple[int | None, int | None]],
+    caplog: pytest.LogCaptureFixture,
+    tmp_path: Path,
+) -> None:
+    """A final join timeout leaves the Process unclosed without masking disposal."""
+    entered = tmp_path / "entered"
+    receiver = receiver_builder("hang", entered_path=entered)
+    receiver.open()
+    process = receiver._process
+    pid = process.pid
+    connection = receiver._connection
+    try:
+        # Block inside the fake read so closing the pipe cannot make it exit.
+        connection.send(("read", 16))
+        _wait_for_read(entered)
+        # Real Process.close must still reject it after both joins time out.
+        with patch.object(process, "terminate") as terminate, patch.object(
+            process, "kill",
+        ) as kill, patch.object(process, "join") as join:
+            with caplog.at_level("DEBUG", logger="core.device.receiver_process"):
+                with receiver._lock:
+                    receiver._dispose_helper()
+            terminate.assert_called_once_with()
+            kill.assert_called_once_with()
+            assert join.call_count == 2
+            join.assert_called_with(receiver._close_join_timeout)
+        assert process.is_alive()
+        assert not process._closed
+        assert closed_helpers[process] == (pid, None)
+        assert connection.closed
+        assert receiver._process is None
+        assert receiver._connection is None
+        assert "deferring Process release" in caplog.text
+    finally:
+        # Disposal relinquishes ownership, so this test must reap its live fake.
+        receiver._stop_helper(process)
+        process.close()
+
+
+def test_stop_helper_tolerates_already_closed_process(
+    receiver_builder: Callable, caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Stopping a closed Process tolerates ValueError from even its PID lookup."""
+    receiver = receiver_builder()
+    process = multiprocessing.get_context("spawn").Process()
+    process.close()
+    with pytest.raises(ValueError, match="closed"):
+        _ = process.pid
+    with caplog.at_level("DEBUG", logger="core.device.receiver_process"):
+        receiver._stop_helper(process)
+    assert process._closed
+    assert "Process already closed" in caplog.text
+
+
+@pytest.mark.parametrize("stop_count", [1, 2])
+def test_disposal_defers_close_until_in_flight_joins_finish(
+    receiver_builder: Callable, stop_count: int,
+) -> None:
+    """Disposal must not clear _popen after an in-flight join checks _closed."""
+    receiver = receiver_builder()
+    receiver.open()
+    process = receiver._process
+    connection = receiver._connection
+    original_join = process.join
+    original_check_closed = process._check_closed
+    joining = threading.local()
+    entered = [threading.Event() for _ in range(stop_count)]
+    resume = [threading.Event() for _ in range(stop_count)]
+    errors: list[BaseException] = []
+
+    def pause_after_closed_check() -> None:
+        """Pause real join after its check, before it asserts _popen exists."""
+        original_check_closed()
+        current = threading.current_thread()
+        if getattr(joining, "active", False) and current in stoppers:
+            index = stoppers.index(current)
+            entered[index].set()
+            assert resume[index].wait(5.0), "join was never resumed"
+
+    def join(timeout: float | None = None) -> None:
+        """Mark real join calls so other Process checks remain uninterrupted."""
+        joining.active = True
+        try:
+            original_join(timeout)
+        finally:
+            joining.active = False
+
+    def stop() -> None:
+        """Forward any shutdown failure, including AssertionError, to the test."""
+        try:
+            receiver._stop_helper(process)
+        except BaseException as exc:
+            errors.append(exc)
+
+    stoppers = [threading.Thread(target=stop) for _ in range(stop_count)]
+    try:
+        with patch.object(process, "join", join), patch.object(
+            process, "_check_closed", pause_after_closed_check,
+        ):
+            try:
+                for thread, event in zip(stoppers, entered):
+                    thread.start()
+                    assert event.wait(5.0), "stop never entered join"
+                # Disposal requests release while every real join is paused.
+                with receiver._lock:
+                    receiver._dispose_helper()
+                assert connection.closed
+                assert receiver._process is None
+                assert receiver._connection is None
+                assert not process._closed
+                assert process._popen is not None
+                for index, thread in enumerate(stoppers):
+                    resume[index].set()
+                    thread.join(5.0)
+                    assert not thread.is_alive(), "stop did not finish"
+                    assert not errors
+                    # Only the last stop may fulfil the deferred close request.
+                    assert process._closed == (index == stop_count - 1)
+            finally:
+                for event in resume:
+                    event.set()
+                for thread in stoppers:
+                    if thread.ident is not None:
+                        thread.join(5.0)
+    finally:
+        # A failed assertion must still release the real fake helper's resources.
+        if not process._closed:
+            receiver._stop_helper(process)
+            process.close()
 
 
 @pytest.mark.parametrize("mode,exitcode", [("exit", 17), ("segfault", -signal.SIGSEGV)])
 def test_hard_crash_isolated(
     receiver_builder: Callable, mode: str, exitcode: int,
+    closed_helpers: dict[BaseProcess, tuple[int | None, int | None]],
 ) -> None:
-    """Native-style helper death raises in the surviving parent and is reaped."""
+    """Native-style death preserves the exit code before closing the Process."""
     receiver = receiver_builder(mode)
     receiver.open()
     process = receiver._process
+    pid = process.pid
     with pytest.raises(RuntimeError):
         receiver.read_samples(16)
-    assert not process.is_alive()
-    assert process.exitcode == exitcode
+    assert process._closed
+    assert closed_helpers[process] == (pid, exitcode)
     assert receiver._process is None
 
 
-def test_hung_read_times_out_and_kills_helper(receiver_builder: Callable) -> None:
-    """A bounded read timeout reaps even a helper that ignores termination."""
+def test_hung_read_times_out_and_kills_helper(
+    receiver_builder: Callable,
+    closed_helpers: dict[BaseProcess, tuple[int | None, int | None]],
+) -> None:
+    """A bounded timeout kills a termination-resistant helper and closes it."""
     receiver = receiver_builder("hang_ignore_term")
     receiver.open()
     process = receiver._process
+    pid = process.pid
     with pytest.raises(RuntimeError, match="timed out"):
         receiver.read_samples(16)
-    assert not process.is_alive()
-    assert process.exitcode == -signal.SIGKILL
+    assert process._closed
+    assert closed_helpers[process] == (pid, -signal.SIGKILL)
 
 
 @pytest.mark.parametrize("mode", ["partial_header", "partial_payload"])
 def test_partial_reply_times_out_and_reconnects(
     receiver_builder: Callable, tmp_path: Path, mode: str,
+    closed_helpers: dict[BaseProcess, tuple[int | None, int | None]],
 ) -> None:
-    """A partial Pipe frame must time out, kill its helper and permit reconnection."""
+    """Partial frames time out, kill and close the helper, then allow reconnection."""
     entered = tmp_path / "partial-reply"
     receiver = receiver_builder(mode, entered_path=entered, read_timeout=0.5)
     errors = []
@@ -421,6 +612,7 @@ def test_partial_reply_times_out_and_reconnects(
         ):
             receiver.open()
             process = receiver._process
+            pid = process.pid
             reader.start()
             _wait_for_read(entered)
             # Without a full-message deadline this read stays blocked until close.
@@ -428,8 +620,8 @@ def test_partial_reply_times_out_and_reconnects(
             assert not reader.is_alive()
             assert len(errors) == 1
             assert "timed out" in str(errors[0])
-            assert not process.is_alive()
-            assert process.exitcode == -signal.SIGKILL
+            assert process._closed
+            assert closed_helpers[process] == (pid, -signal.SIGKILL)
             assert receiver._process is None
             assert receiver._connection is None
             assert receiver.is_open
@@ -437,7 +629,7 @@ def test_partial_reply_times_out_and_reconnects(
         # Restore the normal helper, still using an injected hardware-free factory.
         receiver._receiver_factory = make_receiver
         assert np.all(receiver.read_samples(16) == 98)
-        assert receiver._process.pid != process.pid
+        assert receiver._process.pid != pid
     finally:
         receiver.close()
         if reader.ident is not None:
@@ -447,15 +639,17 @@ def test_partial_reply_times_out_and_reconnects(
 def test_replug_restores_last_frequency(
     receiver_builder: Callable, tmp_path: Path, caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A new helper sees replug state and applies tuning before opening."""
+    """Close the lost Process, then restore tuning in a new helper after replug."""
     flag = tmp_path / "state"
     flag.write_text("healthy", encoding="utf-8")
     receiver = receiver_builder(flag_path=flag)
     receiver.open()
     old_process = receiver._process
+    old_pid = old_process.pid
     flag.write_text("unplugged", encoding="utf-8")
     with pytest.raises(RuntimeError):
         receiver.read_samples(16)
+    assert old_process._closed
     receiver.set_center_frequency(1_090_000_000.0)
     # A failed reconnect must also leave no helper behind.
     with pytest.raises(RuntimeError, match="unplugged"):
@@ -464,7 +658,7 @@ def test_replug_restores_last_frequency(
     flag.write_text("healthy", encoding="utf-8")
     with caplog.at_level("INFO", logger="core.device.receiver_process"):
         assert np.all(receiver.read_samples(16) == 1090)
-    assert receiver._process.pid != old_process.pid
+    assert receiver._process.pid != old_pid
     assert receiver.device_info()["frequency"] == 1_090_000_000.0
     assert "SDR reconnected (hackrf)" in caplog.text
 
@@ -474,16 +668,18 @@ def test_same_frequency_reconnect_retunes_and_discards(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Reconnect without changing frequency, then tune live and discard a read."""
+    """Close the lost Process, reconnect at the same frequency and discard a read."""
     flag = tmp_path / "state"
     calls = tmp_path / "calls"
     flag.write_text("healthy", encoding="utf-8")
     receiver = receiver_builder(flag_path=flag, calls_path=calls)
     receiver.open()
     old_process = receiver._process
+    old_pid = old_process.pid
     flag.write_text("unplugged", encoding="utf-8")
     with pytest.raises(RuntimeError, match="fake read failed"):
         receiver.read_samples(16)
+    assert old_process._closed
     assert receiver._process is None
     previous_calls = len(calls.read_text(encoding="utf-8").splitlines())
 
@@ -493,7 +689,7 @@ def test_same_frequency_reconnect_retunes_and_discards(
     assert samples.shape == (16,)
     assert samples.dtype == np.complex64
     assert np.all(samples == 98)
-    assert receiver._process.pid != old_process.pid
+    assert receiver._process.pid != old_pid
     # Store the frequency before opening, then tune live and read twice.
     assert calls.read_text(encoding="utf-8").splitlines()[previous_calls:] == [
         "tune open=False 98000000.0",
@@ -711,12 +907,12 @@ def test_resource_tracker_starts_before_sigint_block(
 
 
 def test_reported_tune_error_never_raises(receiver_builder: Callable) -> None:
-    """A tuning failure discards the helper and is surfaced by the next read."""
+    """A tuning failure closes its Process and is surfaced by the next read."""
     receiver = receiver_builder("tune_error", reconnect_interval=30.0)
     receiver.open()
     process = receiver._process
     receiver.set_center_frequency(915_000_000.0)
-    assert not process.is_alive()
+    assert process._closed
     assert receiver._process is None
     assert receiver.center_freq_hz == 915_000_000.0
     with pytest.raises(RuntimeError, match="waiting to reconnect"):
@@ -774,7 +970,7 @@ def test_status_does_not_wait_for_read_lock(
 def test_close_kills_stuck_helper_and_prevents_reconnect(
     receiver_builder: Callable, tmp_path: Path,
 ) -> None:
-    """Shutdown is bounded, idempotent and cannot reconnect after a blocked read."""
+    """Bounded, idempotent shutdown closes the Process and prevents reconnection."""
     entered = tmp_path / "entered"
     receiver = receiver_builder(
         "hang_ignore_term", entered_path=entered, read_timeout=3.0,
@@ -796,7 +992,7 @@ def test_close_kills_stuck_helper_and_prevents_reconnect(
     assert not reader.is_alive()
     assert elapsed < 1.5
     assert errors
-    assert not process.is_alive()
+    assert process._closed
     assert not receiver.is_open
     with patch.object(receiver, "_start_helper") as start:
         with pytest.raises(RuntimeError, match="not open"):
