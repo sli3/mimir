@@ -225,3 +225,14 @@ def test_data_wiper_blocked_for_every_session(agent: str) -> None:
     result = run_hook(agent, "python3 tools/archive/seed_chromadb.py")
     assert result.returncode == 2
     assert "seed_chromadb" in result.stderr
+
+
+def test_pm_may_run_pytest_fd_report() -> None:
+    """pm may pass the conftest --fd-report switch to pytest; it only prints."""
+    result = run_hook("pm", "uv run pytest tests -q --fd-report")
+    assert result.returncode == 0, result.stderr
+
+
+def test_pytest_fd_report_takes_no_value() -> None:
+    """--fd-report is a switch: a value after = is still refused."""
+    assert run_hook("pm", "uv run pytest tests --fd-report=out.txt").returncode == 2

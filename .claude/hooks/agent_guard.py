@@ -411,6 +411,7 @@ PYTEST_FLAGS = frozenset({
     "-q", "-qq", "--quiet", "-v", "-vv", "--verbose", "-x", "--exitfirst", "-s",
     "-l", "--showlocals", "-ra", "-rA", "-rf", "-rs", "--lf", "--last-failed",
     "--ff", "--failed-first", "--nf", "--co", "--collect-only", "--no-header",
+    "--fd-report",  # tests/conftest.py: prints a file descriptor report, writes nothing
 })
 PYTEST_FLAGS_WITH_VALUE = frozenset({"-k", "-m", "--tb", "--maxfail", "--durations", "-p", "-W"})
 TEST_PATH = re.compile(r"^tests(?:/[\w.-]+)*(?:::[\w\[\].:-]+)*$")
