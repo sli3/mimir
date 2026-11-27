@@ -123,8 +123,9 @@ COMMIT_GUARD_RAIL_FILES = frozenset({
 
 # Bash command prefixes each read-only or orchestrating agent may run. A
 # command matches a prefix when it equals it or continues with a space.
-# Graft (repo context graph) read commands. `graft build` is Prin's: it is on no
-# agent's allowlist, and code-writer is blocked from it explicitly.
+# Graft (repo context graph) read commands. pm may also run `graft build`, exactly
+# as written (BASH_EXACT); no other agent may, and code-writer is blocked from it
+# explicitly. `graft init` and `graft upgrade` stay Prin's.
 GRAFT_READ = (
     "graft map",
     "graft ask",
@@ -201,7 +202,7 @@ DEMO_SERVER_START = re.compile(
     rf"--demo-files {_CAPTURE}(?: --demo-files-adsb {_CAPTURE})?"
 )
 BASH_EXACT = {
-    PM: ("rm -rf .playwright-mcp", DEV_SERVER_PROBE, DEV_SERVER_START),
+    PM: ("rm -rf .playwright-mcp", DEV_SERVER_PROBE, DEV_SERVER_START, "graft build"),
 }
 
 # Files code-writer must never edit, matched by file name at any depth.
@@ -234,7 +235,11 @@ COMMAND_PREFIXES = frozenset({
     "stdbuf", "timeout", "xargs", "setsid", "chrt", "taskset", "unbuffer",
 })
 PYTHON = re.compile(r"^python(?:3(?:\.\d+)?)?$")
+# Other programs that run a Python file or import a module they are given.
+PYTHON_RUNNERS = re.compile(r"^(?:i?python|pypy)(?:3(?:\.\d+)?)?$|^(?:pytest|py\.test)$")
 # Scripts that open the SDR. Running them is live hardware work, which is Prin's.
+# Matched by file name at any depth, so a script that keeps its name when it
+# moves into its rf#87 package (tools/capture/calibrate_thresholds.py) stays blocked.
 SDR_SCRIPTS = frozenset({
     "scan.py",
     "calibrate_thresholds.py",
@@ -244,6 +249,19 @@ SDR_SCRIPTS = frozenset({
     "diagnose_fingerprints.py",
     "compare_decode_rate.py",
 })
+# Packages under tools/ that open the SDR (rf#87). Everything inside them counts,
+# whatever a module is called, run as a file, as the folder or with python -m.
+SDR_PACKAGES = frozenset({"capture", "diagnose"})
+# Python -c code that reaches the SDR or an SDR tool.
+SDR_CODE = re.compile(
+    r"SoapySDR|hackrf|\bimport scan\b|\bfrom scan\b|pluto|adi\."
+    r"|tools[./\\](?:capture|diagnose)\b|\bfrom tools import\b|"
+    + "|".join(sorted(name.removesuffix(".py") for name in SDR_SCRIPTS if name != "scan.py")),
+    re.I,
+)
+# The launcher. It starts scan.py and every SDR tool, and takes its Enter from
+# stdin, so `echo | ./mimir scan` would run the scanner. Prin runs it by hand.
+LAUNCHER = "mimir"
 SHELL_WRAPPER = re.compile(r"\b(?:ba|z|fi|da)?sh\s+-l?c\b")
 # Any agent touching data/ through Bash with a destructive verb.
 DATA_PATH = r"(?:\./)?data(?:/|\s|$)"
@@ -933,37 +951,107 @@ def is_python(word: str) -> bool:
     return bool(PYTHON.match(name)) or name == "uv"
 
 
-def python_runs_sdr(args: list[str]) -> bool:
-    """Return True if a python or uv command's arguments run an SDR script or module.
+def matches_name(word: str, name: str) -> bool:
+    """Return True if a word is name, or a glob (cap*, diagnos?) that matches it."""
+    if any(c in word for c in "*?["):
+        return fnmatch.fnmatchcase(name, word)
+    return word == name
 
-    Every argument is looked at, because flags such as -W, -X or --with take a
-    value and would otherwise hide the script that follows.
+
+def is_sdr_path(word: str) -> bool:
+    """Return True if a word is a path to an SDR script or into an SDR package.
+
+    Counts an SDR script name at any depth (scan.py,
+    tools/capture/calibrate_thresholds.py), anything under tools/capture/ or
+    tools/diagnose/ (a file, __main__.py or the folder itself), the same from
+    inside tools/ (capture/x.py), and globs that match any of these. The path is
+    normalised first, so tools/vectors/../capture counts. A bare word with no
+    slash (a pytest -k value, a subcommand) is not a path here.
     """
-    for k, word in enumerate(args):
-        if word.rsplit("/", 1)[-1] in SDR_SCRIPTS:
+    path = word.split("=", 1)[-1]
+    if not path:
+        return False
+    parts = [p for p in os.path.normpath(path).split("/") if p not in ("", ".")]
+    if not parts:
+        return False
+    if any(matches_name(parts[-1], name) for name in SDR_SCRIPTS):
+        return True
+    if "/" not in path:
+        return False
+    return any(
+        any(matches_name(part, pkg) for pkg in SDR_PACKAGES)
+        and (k == 0 or matches_name(parts[k - 1], "tools"))
+        for k, part in enumerate(parts)
+    )
+
+
+def is_sdr_module(module: str, bare: bool = True) -> bool:
+    """Return True if running or importing this module could open the SDR.
+
+    Counts scan, the old tools.<script> modules, tools itself (a dispatcher
+    there could reach the SDR tools) and tools.capture or tools.diagnose with
+    any submodule. When bare is True, capture and diagnose on their own count
+    too (python -m capture, run from inside tools/). After pytest, -m names a
+    marker, so python_runs_sdr passes bare=False there.
+    """
+    parts = module.split(".")
+    if module in SDR_MODULES:
+        return True
+    if parts[0] == "tools" and (len(parts) == 1 or parts[1] in SDR_PACKAGES):
+        return True
+    return bare and parts[0] in SDR_PACKAGES
+
+
+def is_launcher(word: str) -> bool:
+    """Return True if a command word runs the ./mimir launcher, not the repo folder."""
+    name = word.rsplit("/", 1)[-1]
+    if any(c in name for c in "*?["):
+        return fnmatch.fnmatchcase(LAUNCHER, name)
+    return name == LAUNCHER and not os.path.isdir(os.path.expanduser(word))
+
+
+def python_runs_sdr(words: list[str]) -> bool:
+    """Return True if a python-like command runs an SDR script, package or module.
+
+    words starts with the program itself (python, uv, pytest...). Every word is
+    looked at, because flags such as -W, -X or --with take a value and would
+    otherwise hide the script that follows. After pytest, a bare word or a -m
+    value is a test filter or marker, so only paths and tools.* modules count.
+    """
+    after_pytest = False
+    for k, word in enumerate(words):
+        if is_sdr_path(word):
+            return True
+        # A dotted name anywhere (pytest -p tools.diagnose, --pyargs) is an import.
+        if "." in word and "/" not in word and is_sdr_module(word.split("=", 1)[-1], bare=False):
             return True
         module = None
-        if word == "-m" and k + 1 < len(args):
-            module = args[k + 1]
+        if word == "-m" and k + 1 < len(words):
+            module = words[k + 1]
         elif word.startswith("-m") and len(word) > 2 and not word.startswith("--"):
             module = word[2:]
         if module == "py_compile":
             return False  # compiles the files named after it; runs none of them
-        if module in SDR_MODULES:
+        if word.rsplit("/", 1)[-1] in ("pytest", "py.test") or module == "pytest":
+            after_pytest = True
+        elif module is not None and is_sdr_module(module, bare=not after_pytest):
+            return True
+        # python capture: the package folder, run from inside tools/.
+        if not after_pytest and k > 0 and word in SDR_PACKAGES and not words[k - 1].startswith("-"):
             return True
         # -c code: loose_segments has removed its quotes, so read all that follows.
-        if word == "-c" and re.search(
-            r"SoapySDR|hackrf|\bimport scan\b|\bfrom scan\b|pluto|adi\.", " ".join(args[k + 1:]), re.I
-        ):
+        if word == "-c" and SDR_CODE.search(" ".join(words[k + 1:])):
             return True
     return False
 
 
 def runs_hardware(command: str) -> bool:
-    """Return True if any segment runs a radio tool, the scanner or an SDR script.
+    """Return True if any segment runs a radio tool, the scanner, an SDR tool or ./mimir.
 
-    Works on loose_segments, so quotes, brackets, substitution, redirection and
-    wrappers (env -u X, timeout -k 5 10, eval, bash -c...) do not hide the tool.
+    SDR tools are the old scripts and the tools/capture and tools/diagnose
+    packages, as a file, the folder or a module. Works on loose_segments, so
+    quotes, brackets, substitution, redirection and wrappers (env -u X,
+    timeout -k 5 10, eval, bash -c...) do not hide the tool.
     """
     for words in rule_segments(command)[0]:
         # Files named after `-m py_compile` are compiled, not run.
@@ -973,13 +1061,15 @@ def runs_hardware(command: str) -> bool:
         )
         for start in command_starts(words):
             program = words[start].rsplit("/", 1)[-1]
-            if HARDWARE_TOOL.match(program) or (program in SDR_SCRIPTS and start < compiled_from):
+            if HARDWARE_TOOL.match(program) or is_launcher(words[start]):
+                return True
+            if start < compiled_from and is_sdr_path(words[start]):
                 return True
             if any(c in program for c in "*?[") and any(
-                fnmatch.fnmatchcase(name, program) for name in (*HARDWARE_NAMES, *SDR_SCRIPTS)
+                fnmatch.fnmatchcase(name, program) for name in HARDWARE_NAMES
             ):
                 return True
-            if is_python(words[start]) and python_runs_sdr(words[start + 1:]):
+            if (is_python(words[start]) or PYTHON_RUNNERS.match(program)) and python_runs_sdr(words[start:]):
                 return True
     return False
 
@@ -998,7 +1088,8 @@ def check_every_session_bash(command: str) -> None:
         )
     if runs_hardware(command):
         block(
-            "no agent may run radio-hardware tools (hackrf_*, iio_*, SoapySDRUtil) or scan.py. "
+            "no agent may run radio-hardware tools (hackrf_*, iio_*, SoapySDRUtil), scan.py, "
+            "./mimir or an SDR tool (tools/capture, tools/diagnose or the old script names). "
             "Mimir is receive-only and live hardware checks are Prin's, by hand"
         )
     # The broad regex nets read quoted prose as commands, so they run only when

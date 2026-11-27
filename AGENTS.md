@@ -44,12 +44,16 @@ included, without exception.
 6. **Agents never touch the radio hardware.** No `hackrf_*`, `iio_*`,
    `SoapySDRUtil`, `rx_sdr` or `tx_sdr`, no `scan.py` run (one exception:
    `pm` may start demo mode in the command form `agent_guard.py` allows,
-   which replays files from `data/captures/` and opens no device), and none
-   of the tool scripts that open the SDR (`calibrate_thresholds.py`,
-   `diagnose_threshold.py`, `capture_to_vectorstore.py`,
-   `diagnose_pluto_gain.py`, `diagnose_fingerprints.py`,
-   `compare_decode_rate.py`). Live hardware verification is Prin's job, done
-   by hand.
+   which replays files from `data/captures/` and opens no device), no
+   `./mimir` run, and no tool that opens the SDR: the `capture` and
+   `diagnose` tools (anything under `tools/capture/` or `tools/diagnose/`,
+   however it is started: a file, the folder, or `python -m tools.capture`
+   or `tools.diagnose`), and the old script names wherever they live
+   (`calibrate_thresholds.py`, `diagnose_threshold.py`,
+   `capture_to_vectorstore.py`, `diagnose_pluto_gain.py`,
+   `diagnose_fingerprints.py`, `compare_decode_rate.py`). The `vectors` and
+   `offline` tools never open the SDR, and must never import from `capture`
+   or `diagnose`. Live hardware verification is Prin's job, done by hand.
 
 ### Australian frequencies legal to receive passively
 | Band | Frequency | Notes |
@@ -249,7 +253,8 @@ before it landed). Therefore:
   which breaks the jsdom setup and produces false failures (BUG-05)
 - Tool scripts: Prin runs them with `./mimir tool <script> [args]`, which runs
   `env PYTHONPATH=. .venv-scan/bin/python -s tools/<script>.py`. Agents never
-  run `./mimir`: it can start `scan.py` and the SDR tools
+  run `./mimir`: it can start `scan.py` and the SDR tools, and
+  `agent_guard.py` blocks it for every session
 - The scanner runs from `.venv-scan`, a venv on system Python built by
   `setup.sh` with `--system-site-packages` (for the system SoapySDR
   bindings) and filled from `uv.lock`. Always launch it with `-s`, or the
@@ -427,8 +432,10 @@ before grepping or opening whole files.
 - CLI, through Bash: `graft map`, `graft ask "<question>" --source`,
   `graft grep "<literal>"` (exhaustive), `graft skeleton <file>`,
   `graft callers <symbol>`, `graft check`
-- Agents may run only those read commands. `graft build`, `init` and
-  `upgrade` are Prin's; run `graft build` after big code changes
+- Agents may run only those read commands, with one exception: `pm` may run
+  `graft build` (exactly that, no options) whenever the index is stale, for
+  example after a build that moves or renames code. `graft init` and
+  `upgrade` stay Prin's, and no other agent runs `graft build`
 - Open source only at the file:line spans graft cites. If a span is
   truncated, open the file at that exact range
 - If a graft call fails, do not repeat it unchanged: switch to the CLI form,

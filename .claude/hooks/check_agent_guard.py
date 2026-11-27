@@ -136,7 +136,7 @@ cases = [
  ("pm", B('grep "unterminated f'), True, "pm: unterminated quote"),
  ("pm", B('graft ask "where is the ADS-B preamble threshold" --source'), False, "pm: graft ask"),
  ("pm", B("graft callers BearingTracker --depth 2"), False, "pm: graft callers"),
- ("pm", B("graft build"), True, "pm: graft build"),
+ ("pm", B("graft build"), False, "pm: graft build (allowed)"),
  ("plan-reviewer", B("graft skeleton core/pipeline/fft.py"), False, "plan-reviewer: graft skeleton"),
  ("deep-bug-hunter", B('graft grep "transmit_guard"'), False, "dbh: graft grep"),
  ("code-writer", B("graft build"), True, "code-writer: graft build"),

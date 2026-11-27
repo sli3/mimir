@@ -1,6 +1,9 @@
 # Mimir command rules for Codex. Mimir is receive-only under the
 # Radiocommunications Act 1992 (Cth): Codex never touches the radio hardware,
-# never runs the live scanner or the SDR tool scripts, and never commits or pushes.
+# never runs the live scanner, ./mimir or the SDR tools, and never commits or pushes.
+# The SDR tools are tools/capture and tools/diagnose (rf#87) and the old script
+# names. Rules match whole arguments, not folder prefixes, so a new file under
+# those folders must be added below by name; python -m and -c are refused outright.
 # These are prefix rules, so they cannot see every spelling (for example a flag
 # placed between python and the script). The Codex sandbox, pm's PROTECTED FILE
 # CHECK and tests/test_no_transmit.py are the backstops.
@@ -30,22 +33,64 @@ prefix_rule(
 )
 
 prefix_rule(
-    pattern = [["python", "python3"], [
-        "scan.py", "tools/calibrate_thresholds.py", "tools/diagnose_threshold.py",
+    pattern = [[
+        "python", "python3", ".venv/bin/python", ".venv/bin/python3",
+        ".venv-scan/bin/python", ".venv-scan/bin/python3", "ipython", "ipython3",
+    ], [
+        "scan.py", "./scan.py",
+        "tools/calibrate_thresholds.py", "tools/diagnose_threshold.py",
         "tools/capture_to_vectorstore.py", "tools/diagnose_pluto_gain.py",
         "tools/diagnose_fingerprints.py", "tools/compare_decode_rate.py",
+        "tools/capture", "tools/capture/", "./tools/capture", "./tools/capture/",
+        "tools/diagnose", "tools/diagnose/", "./tools/diagnose", "./tools/diagnose/",
+        "tools/capture/__main__.py", "tools/diagnose/__main__.py",
+        "tools/capture/calibrate_thresholds.py", "tools/capture/capture_to_vectorstore.py",
+        "tools/diagnose/diagnose_threshold.py", "tools/diagnose/diagnose_pluto_gain.py",
+        "tools/diagnose/diagnose_fingerprints.py", "tools/diagnose/compare_decode_rate.py",
+        "capture", "diagnose",
     ]],
     decision = "forbidden",
-    justification = "The scanner and these tool scripts open the SDR. Prin runs them himself.",
-    match = ["python scan.py --demo", "python3 tools/diagnose_threshold.py"],
+    justification = "The scanner and the capture and diagnose tools open the SDR. Prin runs them himself.",
+    match = [
+        "python scan.py --demo",
+        "python3 tools/diagnose_threshold.py",
+        "python tools/capture calibrate",
+        "python3 tools/diagnose/__main__.py gain",
+        ".venv-scan/bin/python tools/capture/calibrate_thresholds.py",
+    ],
+    not_match = ["python3 tools/seed_chromadb.py", "python -m tools.vectors snr"],
+)
+
+prefix_rule(
+    pattern = [[
+        "python", "python3", ".venv/bin/python", ".venv/bin/python3",
+        ".venv-scan/bin/python", ".venv-scan/bin/python3",
+    ], ["-u", "-B", "-O", "-X", "-W", "-m", "-c", "-I", "-s", "-S", "-E", "-P", "-"]],
+    decision = "forbidden",
+    justification = "Interpreter flags hide which script runs, and -m or -c can start tools.capture or tools.diagnose under any module name. Codex runs Python without them.",
+    match = [
+        "python -u scan.py",
+        "python -m tools.capture calibrate",
+        "python3 -m tools.diagnose.gain",
+        "python3 -c x",
+        ".venv-scan/bin/python -s scan.py",
+    ],
     not_match = ["python3 tools/seed_chromadb.py"],
 )
 
 prefix_rule(
-    pattern = [["python", "python3"], ["-u", "-B", "-O", "-X", "-W"]],
+    pattern = [["./mimir", "mimir", "env", "pytest", "py.test", "pypy", "pypy3"]],
     decision = "forbidden",
-    justification = "Interpreter flags hide which script runs; Codex runs Python without them.",
-    match = ["python -u scan.py"],
+    justification = "./mimir starts the scanner and the SDR tools; env and the other runners can start any of them. pm runs the test suites, and Prin runs ./mimir himself.",
+    match = ["./mimir scan", "./mimir tool calibrate_thresholds", "env PYTHONPATH=. python scan.py", "pytest tools/diagnose"],
+    not_match = ["git status --short"],
+)
+
+prefix_rule(
+    pattern = [["bash", "sh", "zsh", "fish"], ["./mimir", "mimir"]],
+    decision = "forbidden",
+    justification = "Running the launcher through a shell is still running ./mimir.",
+    match = ["bash ./mimir scan", "sh mimir tool diagnose_threshold"],
 )
 
 prefix_rule(
