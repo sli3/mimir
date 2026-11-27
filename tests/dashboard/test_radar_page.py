@@ -56,10 +56,10 @@ class TestRadarPage:
     def test_radar_route_returns_200_and_serves_html(
         self, client: FlaskClient, stub_index: dict[str, str]
     ) -> None:
-        """GET /radar requests dashboard/static/index.html and serves the stub."""
-        response = client.get("/radar")
-        assert response.status_code == 200
-        assert "html" in response.mimetype
-        assert b'<div id="root">' in response.data
-        assert stub_index["filename"] == "index.html"
-        assert Path(stub_index["directory"]).parts[-2:] == Path("dashboard/static").parts
+        """GET /radar serves the index stub and closes the response deterministically."""
+        with client.get("/radar") as response:
+            assert response.status_code == 200
+            assert "html" in response.mimetype
+            assert b'<div id="root">' in response.data
+            assert stub_index["filename"] == "index.html"
+            assert Path(stub_index["directory"]).parts[-2:] == Path("dashboard/static").parts
