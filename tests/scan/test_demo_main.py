@@ -396,6 +396,46 @@ class TestDemoBranch:
         mock_ais.assert_not_called()
         mock_adsb.assert_not_called()
 
+    @pytest.mark.skipif(sys.platform != "linux", reason="Requires /proc/self/fd")
+    def test_invalid_demo_json_exits_without_leaking_file_descriptor(
+        self, tmp_path: Path
+    ) -> None:
+        """Require exit 1 with no open malformed metadata file or startup."""
+        meta_path = tmp_path / "invalid.sigmf-meta"
+        meta_path.write_text("{invalid JSON", encoding="utf-8")
+        cache_path = tmp_path / "demo_cache.json"
+        _write_cache(cache_path)
+
+        patches = _patch_dependencies()
+        mocks, stack = _apply_patches(patches)
+        try:
+            with patch.object(sys, "argv", [
+                "scan.py",
+                "--demo",
+                "--demo-files", str(meta_path),
+                "--demo-cache", str(cache_path),
+            ]):
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
+                assert exc_info.value.code == 1
+
+            # Retain exc_info so exception tracebacks cannot release a leaked
+            # SigMF handle before the descriptor check observes it.
+            for descriptor in Path("/proc/self/fd").iterdir():
+                try:
+                    target = descriptor.readlink()
+                except FileNotFoundError:
+                    # Descriptors can close between listing and readlink.
+                    continue
+                assert target != meta_path.resolve()
+
+            # Config loading precedes metadata parsing; other dependencies
+            # must never be constructed or started for malformed metadata.
+            for mock in mocks[:9] + mocks[10:]:
+                mock.assert_not_called()
+        finally:
+            _stop_all(stack)
+
     def test_demo_files_missing_exits_with_error(
         self, tmp_path: Path
     ) -> None:

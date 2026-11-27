@@ -23,7 +23,7 @@ from core.device.detect import detect_device
 from core.device.profiles import DEVICE_PROFILES
 from core.pipeline.adsb_demo_producer import AdsbDemoProducer
 from core.pipeline.demo_producer import DemoProducer
-from core.pipeline.replay import ReplayFileError
+from core.pipeline.replay import ReplayFileError, _load_sigmf
 from core.pipeline.scanner import ScanRunner
 import dashboard.shared_state as shared_state
 from dashboard.server import emit_acars_message, emit_ais_message, emit_adsb_aircraft, emit_adsb_scan_result, start_server
@@ -34,7 +34,6 @@ from llm.demo_classifier import DemoSignalClassifier
 from modules.acars import AcarsSubscriber
 from modules.ais import AisSubscriber
 from modules.adsb import AdsbSubscriber
-import sigmf
 
 logging.basicConfig(
     level=logging.INFO,
@@ -177,6 +176,8 @@ def main() -> None:
 
     Demo mode validates replay files and any explicit --demo-files-adsb
     path before resolving the cache path or starting components.
+    It reads the first file's device profile through the replay loader,
+    which closes metadata files even when JSON parsing fails.
 
     Device selection:
     With Pluto (auto-selected or explicit --device plutosdr), the
@@ -273,12 +274,12 @@ def main() -> None:
                     f"DemoDevice.{name!r} — demo mode does not open hardware"
                 )
 
-        # Read the device profile recorded in the first demo file. This
-        # must be a real DEVICE_PROFILES key ("hackrf" or "plutosdr") so
+        # Read the first demo file through the replay loader. Its device
+        # profile must be a real DEVICE_PROFILES key ("hackrf" or "plutosdr") so
         # ScanRunner's constructor and the dashboard's unsupported-band
         # logic accept it.
         try:
-            first_meta = sigmf.fromfile(str(first_path))
+            first_meta = _load_sigmf(first_path)
             device_driver = first_meta.get_global_field("mimir:device_profile")
         except Exception as exc:
             logger.error("Could not read first demo file %s: %s", first_path, exc)
