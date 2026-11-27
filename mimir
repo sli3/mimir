@@ -18,7 +18,7 @@ MIMIR launcher (receive-only scanner)
   ./mimir demo [file.sigmf-meta]          replay a saved capture, no SDR needed
   ./mimir frontend                        start the dashboard dev server (port 5173)
   ./mimir tool                            list the tools
-  ./mimir tool <name> [args]              run a tool, e.g. ./mimir tool inspect_snr
+  ./mimir tool <name> [args]              run a tool, e.g. ./mimir tool vectors snr
   ./mimir test                            run all the tests (pytest + Vitest)
 
 Every command is shown first and runs only after you press Enter.
@@ -34,19 +34,29 @@ uses_sdr() {
     return 1
 }
 
-# List public top-level Python tools, excluding helpers, with SDR warnings.
+# List public Python scripts and runnable packages together, with SDR warnings.
 list_tools() {
     local path name
-    while IFS= read -r -d '' path; do
-        name=${path##*/}
-        name=${name%.py}
+    while IFS= read -r -d '' name; do
         [[ "$name" != _* ]] || continue
         printf '  %s' "$name"
         if uses_sdr "$name"; then
             printf ' (uses the SDR)'
         fi
         printf '\n'
-    done < <(find tools -maxdepth 1 -type f -name '*.py' -print0 | sort -z)
+    done < <(
+        for path in tools/*.py tools/*/__main__.py; do
+            [[ -f "$path" ]] || continue
+            if [[ "$path" == tools/*/__main__.py ]]; then
+                name=${path%/__main__.py}
+                name=${name##*/}
+            else
+                name=${path##*/}
+                name=${name%.py}
+            fi
+            printf '%s\0' "$name"
+        done | sort -zu
+    )
 }
 
 # Require the scanner environment before displaying a runnable Python command.
@@ -141,14 +151,20 @@ case "$subcommand" in
         requested=$1
         name=${requested%.py}
         shift
-        # Private helpers are unavailable through the tool command.
-        if [[ "$name" == _* || "$name" == */* || ! -f "tools/$name.py" ]]; then
+        # Refuse helpers, paths and directories without a package entry point.
+        if [[ "$name" == _* || "$name" == */* ]] ||
+           [[ ! -f "tools/$name.py" && ! -f "tools/$name/__main__.py" ]]; then
             printf 'No tool called %s\n' "$requested"
             list_tools
             exit 1
         fi
         require_python
-        command=(env PYTHONPATH=. "$PY" -s "tools/$name.py" "$@")
+        # Preserve file tools and launch runnable packages by module name.
+        if [[ -f "tools/$name.py" ]]; then
+            command=(env PYTHONPATH=. "$PY" -s "tools/$name.py" "$@")
+        else
+            command=(env PYTHONPATH=. "$PY" -s -m "tools.$name" "$@")
+        fi
         ;;
     test)
         python_tests=(uv run pytest)

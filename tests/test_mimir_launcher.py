@@ -16,7 +16,7 @@ LAUNCHER = Path(__file__).resolve().parents[1] / "mimir"
 
 @pytest.fixture
 def fake_repo(tmp_path: Path) -> Path:
-    """Copy the launcher beside inert tools, helpers and command stubs."""
+    """Copy the launcher beside inert scripts, packages and command stubs."""
     repo = tmp_path / "fake repo"
     repo.mkdir()
     shutil.copy2(LAUNCHER, repo / "mimir")
@@ -41,6 +41,9 @@ def fake_repo(tmp_path: Path) -> Path:
     ):
         (tools / name).touch()
     (tools / "archive/x.py").touch()
+    for name in ("vectors", "_private"):
+        (tools / name).mkdir()
+        (tools / name / "__main__.py").touch()
     (repo / "data/captures").mkdir(parents=True)
     (repo / "data/demo_cache").mkdir()
     return repo
@@ -104,21 +107,25 @@ def test_unknown_command(fake_repo: Path) -> None:
 
 
 def test_tool_list(fake_repo: Path) -> None:
-    """List sorted public tools, excluding helpers, packages and archives."""
+    """List scripts and runnable packages together, excluding private names."""
     result = run_launcher(fake_repo, "tool")
     assert result.returncode == 0
     assert result.stdout.splitlines() == [
         "  calibrate_thresholds (uses the SDR)",
         "  inspect_snr",
+        "  vectors",
     ]
     assert "Press Enter" not in result.stdout
 
 
 @pytest.mark.parametrize(
-    "name", ["unknown", "archive/x", "../scan.py", "_helper", "_helper.py"],
+    "name", [
+        "unknown", "archive", "archive/x", "../scan.py", "_helper",
+        "_helper.py", "_private",
+    ],
 )
 def test_invalid_tool(fake_repo: Path, name: str) -> None:
-    """Reject unknown tools, private helpers and paths before confirmation."""
+    """Reject unknown tools, archives, private packages and paths early."""
     result = run_launcher(fake_repo, "tool", name)
     assert result.returncode == 1
     assert f"No tool called {name}" in result.stdout
@@ -224,6 +231,21 @@ def test_tool_arguments(fake_repo: Path, name: str) -> None:
         "-s", "tools/inspect_snr.py", "--label", "AIS",
     ]
     assert "This tool opens the SDR" not in result.stdout
+
+
+def test_package_tool_arguments(fake_repo: Path) -> None:
+    """Launch vectors as a module with its arguments and no SDR warning."""
+    result = run_launcher(
+        fake_repo, "tool", "vectors", "snr", "--label", "AIS", stdin="\n"
+    )
+    assert result.returncode == 0
+    assert recorded_arguments(fake_repo) == [
+        "-s", "-m", "tools.vectors", "snr", "--label", "AIS",
+    ]
+    assert "This tool opens the SDR" not in result.stdout
+    assert (fake_repo / "environment").read_text().splitlines() == [
+        str(fake_repo), ".",
+    ]
 
 
 def test_demo_auto_pick(fake_repo: Path) -> None:

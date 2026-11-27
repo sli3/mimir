@@ -1,16 +1,22 @@
-"""Noise-vector maintenance tests with temporary stores and mocked input."""
+"""Check vectors purge-noise with temporary stores and mocked input."""
+
+from __future__ import annotations
 
 import builtins
 import sys
+from functools import partial
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 
+# Support isolated execution while tools remains a namespace package.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 from embeddings.embedder import EMBEDDING_FEATURES, SpectrumEmbedder
 from embeddings.store import SignalStore
-from tools import purge_noise_vectors
+from tools.vectors import _store_ops, cli, purge_noise
 
 
 @pytest.fixture
@@ -56,7 +62,7 @@ def test_selection_decodes_boundaries_from_embeddings(
     if as_array:
         dump["embeddings"] = np.asarray(dump["embeddings"], dtype=np.float32)
     with patch.object(store, "get_all_embeddings", return_value=dump):
-        rows, excluded = purge_noise_vectors._select_rows(store)
+        rows, excluded = purge_noise._select_rows(store)
 
     selected = {row["id"]: row for row in rows}
     assert set(selected) == {"zero_bins", "boundary", "other_label"}
@@ -71,7 +77,7 @@ def test_label_filter_selects_only_requested_label(
 ) -> None:
     """The optional label filter restricts the decoded noise selection."""
     _, store = noise_store
-    rows, excluded = purge_noise_vectors._select_rows(store, "ADS_B")
+    rows, excluded = purge_noise._select_rows(store, "ADS_B")
     assert {row["id"] for row in rows} == {"zero_bins", "boundary"}
     assert excluded == 0
 
@@ -82,7 +88,7 @@ def test_label_filter_cannot_override_reference_exclusion(
 ) -> None:
     """Reference labels are protected case-insensitively even with --label."""
     _, store = noise_store
-    rows, excluded = purge_noise_vectors._select_rows(store, label)
+    rows, excluded = purge_noise._select_rows(store, label)
     assert rows == []
     assert excluded == 1
 
@@ -101,7 +107,7 @@ def test_missing_or_short_embedding_is_skipped(
         "embeddings": [embedding],
     }
     with patch.object(store, "get_all_embeddings", return_value=dump):
-        assert purge_noise_vectors._select_rows(store) == ([], 0)
+        assert purge_noise._select_rows(store) == ([], 0)
 
 
 def test_absent_embedding_array_is_skipped(
@@ -111,7 +117,7 @@ def test_absent_embedding_array_is_skipped(
     _, store = noise_store
     dump = {"ids": ["missing"], "metadatas": [{"label": "ADS_B"}]}
     with patch.object(store, "get_all_embeddings", return_value=dump):
-        assert purge_noise_vectors._select_rows(store) == ([], 0)
+        assert purge_noise._select_rows(store) == ([], 0)
 
 
 def test_dry_run_preserves_store_and_prints_selection(
@@ -119,17 +125,17 @@ def test_dry_run_preserves_store_and_prints_selection(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture,
 ) -> None:
-    """The default invocation prints decoded fields and preserves records."""
+    """The package default prints decoded fields and preserves every record."""
     path, store = noise_store
     before = store.get_all_embeddings()
     monkeypatch.setattr(sys, "argv", [
-        "purge_noise_vectors.py", "--path", str(path),
+        "vectors", "purge-noise", "--path", str(path),
     ])
     with (
-        patch.object(purge_noise_vectors, "_make_backup") as backup,
+        patch.object(_store_ops, "make_backup") as backup,
         patch.object(builtins, "input") as confirmation,
     ):
-        purge_noise_vectors.main()
+        assert cli.main() == 0
     assert store.get_all_embeddings() == before
     backup.assert_not_called()
     confirmation.assert_not_called()
@@ -149,7 +155,7 @@ def test_execute_backs_up_before_confirming_and_deletes_selected_chunks(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture,
 ) -> None:
-    """Matching confirmation deletes only selected ids after backup."""
+    """Matching confirmation deletes selected ids through shared chunking."""
     path, store = noise_store
     before_ids = set(store.get_all_embeddings()["ids"])
 
@@ -163,13 +169,15 @@ def test_execute_backs_up_before_confirming_and_deletes_selected_chunks(
 
     monkeypatch.setattr(builtins, "input", confirm)
     monkeypatch.setattr(sys, "argv", [
-        "purge_noise_vectors.py", "--path", str(path), "--execute",
+        "vectors", "purge-noise", "--path", str(path), "--execute",
     ])
-    monkeypatch.setattr(purge_noise_vectors, "DELETE_CHUNK", 1)
+    monkeypatch.setattr(
+        _store_ops, "delete_ids", partial(_store_ops.delete_ids, chunk=1),
+    )
     collection = MagicMock(wraps=store._collection)
     store._collection = collection
-    with patch.object(purge_noise_vectors, "SignalStore", return_value=store):
-        purge_noise_vectors.main()
+    with patch.object(purge_noise, "SignalStore", return_value=store):
+        assert cli.main() == 0
 
     assert set(store.get_all_embeddings()["ids"]) == (
         before_ids - {"zero_bins", "boundary", "other_label"}
@@ -188,16 +196,14 @@ def test_wrong_confirmation_preserves_every_record(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture,
 ) -> None:
-    """A mismatched count aborts and preserves records and the new backup."""
+    """A mismatched count returns failure with records and backup preserved."""
     path, store = noise_store
     before = store.get_all_embeddings()
     monkeypatch.setattr(builtins, "input", lambda _prompt: "2")
     monkeypatch.setattr(sys, "argv", [
-        "purge_noise_vectors.py", "--path", str(path), "--execute",
+        "vectors", "purge-noise", "--path", str(path), "--execute",
     ])
-    with pytest.raises(SystemExit) as exc:
-        purge_noise_vectors.main()
-    assert exc.value.code == 1
+    assert cli.main() == 1
     assert store.get_all_embeddings() == before
     assert len(list(path.parent.glob(f"{path.name}.backup-*"))) == 1
     assert "Confirmation did not match" in capsys.readouterr().out
@@ -208,22 +214,20 @@ def test_backup_failure_aborts_before_confirmation_or_deletion(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture,
 ) -> None:
-    """Any backup failure stops execution before prompting or deleting."""
+    """A filesystem backup failure returns before prompting or deleting."""
     path, store = noise_store
     before = store.get_all_embeddings()
     monkeypatch.setattr(sys, "argv", [
-        "purge_noise_vectors.py", "--path", str(path), "--execute",
+        "vectors", "purge-noise", "--path", str(path), "--execute",
     ])
     with (
         patch.object(
-            purge_noise_vectors, "_make_backup",
+            _store_ops, "make_backup",
             side_effect=OSError("disk full"),
         ),
         patch.object(builtins, "input") as confirmation,
-        pytest.raises(SystemExit) as exc,
     ):
-        purge_noise_vectors.main()
-    assert exc.value.code == 1
+        assert cli.main() == 1
     confirmation.assert_not_called()
     assert store.get_all_embeddings() == before
     assert "BACKUP FAILED" in capsys.readouterr().out
@@ -232,15 +236,13 @@ def test_backup_failure_aborts_before_confirmation_or_deletion(
 def test_memory_store_is_refused_before_opening(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture,
 ) -> None:
-    """In-memory paths are rejected before constructing a store or backup."""
+    """Execution rejects in-memory paths before constructing a store."""
     monkeypatch.setattr(sys, "argv", [
-        "purge_noise_vectors.py", "--path", ":memory:", "--execute",
+        "vectors", "purge-noise", "--path", ":memory:", "--execute",
     ])
     with (
-        patch.object(purge_noise_vectors, "SignalStore") as store,
-        pytest.raises(SystemExit) as exc,
+        patch.object(purge_noise, "SignalStore") as store,
     ):
-        purge_noise_vectors.main()
-    assert exc.value.code == 1
+        assert cli.main() == 1
     store.assert_not_called()
     assert "in-memory store" in capsys.readouterr().out

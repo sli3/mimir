@@ -1,8 +1,7 @@
 """Shared helpers for destructive-vector-store tool tests.
 
 Provides the ``seeded_snr_store`` fixture used by
-``tests/tools/test_inspect_snr.py`` and
-``tests/tools/test_delete_low_snr.py``. The fixture creates a temporary
+``tests/tools/test_vectors_snr.py``. The fixture creates a temporary
 filesystem-backed ``SignalStore`` with five seeded records across two labels:
 
 - **ADS_B**: four records at SNR 3.0, 5.0, 7.0, and 12.0 dB.
