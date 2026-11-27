@@ -79,6 +79,9 @@ for every follow-up. Never use `resume --last`.
 Never add any other flag. `agent_guard.py` rejects them, because they would
 replace the sandbox in `.codex/config.toml`. Codex runs can be slow: use the
 Bash tool's longest timeout, and run a heavy task in the background and wait.
+A background run's output lands in a task file outside the repo: read it with
+the Read tool (offset and limit for long output), never with `cat`, `wc` or
+`python -c`, which the guard or an ask rule will stop.
 
 The brief is one line of plain text inside double quotes. Never paste the
 conversation. The guard rejects a brief containing a line break, a double
