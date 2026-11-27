@@ -45,6 +45,8 @@ def make_home(with_mimir):
         with open(os.path.join(h, "outside.md"), "w") as f:
             f.write("x\n")
         os.symlink(os.path.join(h, "outside.md"), os.path.join(sessions, "link.md"))
+        # A folder inside the vault folder that leads out of it (to Projects/Other).
+        os.symlink(os.path.join(vault, "Projects", "Other"), os.path.join(vault, "Projects", "Mimir", "linkdir"))
     return h
 VHOME = make_home(True)        # vault with a Projects/Mimir folder
 NOVAULT = make_home(False)     # vault with no Projects/Mimir folder
@@ -469,6 +471,26 @@ cases = [
  ("code-writer", W(VAULT + "/Sessions/x.md"), True, "V code-writer: vault", ROOT, VHOME),
  ("plan-reviewer", W(VAULT + "/Sessions/x.md"), True, "V plan-reviewer: vault", ROOT, VHOME),
  ("deep-bug-hunter", W(VAULT + "/Sessions/x.md"), True, "V dbh: vault", ROOT, VHOME),
+ # pm may list its vault folder with plain ls (-1, -l, -t only); Claude Code no longer has Glob
+ ("pm", B("ls " + VAULT), False, "VL pm: ls vault folder", ROOT, VHOME),
+ ("pm", B("ls " + VAULT + "/Sessions"), False, "VL pm: ls Sessions/", ROOT, VHOME),
+ ("pm", B("ls -1 " + VAULT + "/Sessions"), False, "VL pm: ls -1 Sessions/", ROOT, VHOME),
+ ("pm", B("ls -l -t " + VAULT + "/Sessions"), False, "VL pm: ls -l -t Sessions/", ROOT, VHOME),
+ ("pm", B("ls -R " + VAULT), True, "VL pm: ls -R refused", ROOT, VHOME),
+ ("pm", B("ls -a " + VAULT), True, "VL pm: ls -a refused", ROOT, VHOME),
+ ("pm", B("ls -la " + VAULT), True, "VL pm: ls -la refused", ROOT, VHOME),
+ ("pm", B("ls " + VHOME + "/Repository/Vault/_system"), True, "VL pm: ls Vault/_system/", ROOT, VHOME),
+ ("pm", B("ls " + VHOME + "/Repository/Vault/Projects/Other"), True, "VL pm: ls Vault/Projects/Other/", ROOT, VHOME),
+ ("pm", B("ls " + VAULT + "/../Other"), True, "VL pm: ls ../ escape out of the vault folder", ROOT, VHOME),
+ ("pm", B("ls " + VAULT + " " + VHOME), True, "VL pm: ls with one path outside", ROOT, VHOME),
+ ("pm", B("ls " + VAULT + "/linkdir"), True, "VL pm: ls through a symlinked folder that leads out", ROOT, VHOME),
+ ("pm", B("cat " + NOTE), True, "VL pm: cat a vault note still refused", ROOT, VHOME),
+ ("pm", B("grep x " + NOTE), True, "VL pm: grep a vault note still refused", ROOT, VHOME),
+ ("pm", B("ls " + NOVAULT + "/Repository/Vault/Projects/Mimir"), True, "VL pm: ls with vault folder missing", ROOT, NOVAULT),
+ ("plan-reviewer", B("ls " + VAULT), True, "VL plan-reviewer: ls vault refused", ROOT, VHOME),
+ ("deep-bug-hunter", B("ls " + VAULT), True, "VL dbh: ls vault refused", ROOT, VHOME),
+ ("pm", B("ls"), False, "VL pm: plain ls in the repo still allowed", ROOT, VHOME),
+ ("pm", B("ls docs"), False, "VL pm: ls docs still allowed", ROOT, VHOME),
 ]
 fails = 0
 for agent, (tool, inp), expect, label, *root in cases:

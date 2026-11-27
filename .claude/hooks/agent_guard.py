@@ -51,6 +51,8 @@ pm's file writes (Edit, Write, MultiEdit, NotebookEdit), and nothing else:
     the repo): Markdown notes only, new notes with Write and existing notes
     with targeted Edit, checked on the resolved path so a symlink cannot lead
     out. If the folder does not exist, every vault write is blocked.
+    pm may also list that folder with plain `ls` (flags -1, -l, -t only),
+    because Claude Code no longer has a Glob tool.
 
 Commits: pm commits on its own at the end of a build, but only with -m
 messages, only what it staged by explicit path, and never a guard-rail file
@@ -910,7 +912,7 @@ def check_file_tool(agent: str, tool: str, tool_input: dict, project_dir: Path) 
                 block(reason)
             return
         if rel is None:
-            block("pm may only write inside .session-memos/, README.md and docs/")
+            block("pm may only write inside .session-memos/, README.md, docs/ and its vault folder (VAULT_PM_DIR)")
         if rel.startswith(MEMO_DIR) and tool in ("Edit", "Write"):
             if not rel.endswith(".md"):
                 block("pm may write only Markdown (.md) files in .session-memos/")
@@ -928,7 +930,7 @@ def check_file_tool(agent: str, tool: str, tool_input: dict, project_dir: Path) 
             if reason:
                 block(reason)
             return
-        block(f"pm may not edit {rel}; only .session-memos/, README.md and docs/**/*.md")
+        block(f"pm may not edit {rel}; only .session-memos/, README.md, docs/**/*.md and its vault folder")
 
 
 def names_secret(command: str) -> bool:
@@ -1424,6 +1426,34 @@ def read_path_problem(words: list[str], project_dir: Path) -> str | None:
     return None
 
 
+# The only ls flags pm may use on its vault folder. Each flag word must be one
+# of these exactly: no -R, -a, combined flags (-la) or long options.
+PM_VAULT_LS_FLAGS = frozenset({"-1", "-l", "-t"})
+
+
+def pm_vault_ls_ok(words: list[str]) -> bool:
+    """True if words is `ls` with only PM_VAULT_LS_FLAGS and at least one path,
+    and every path is absolute and resolves inside VAULT_PM_DIR (vault_relative
+    is not None). Anything else -> False.
+
+    A bare `ls` (no path) lists the repo and stays on the normal rule. Paths are
+    resolved by vault_relative, so a symlink or ../ that leads out is refused,
+    and a missing vault folder refuses everything (fail closed).
+    """
+    if words[:1] != ["ls"]:
+        return False
+    paths = []
+    for word in words[1:]:
+        if word.startswith("-"):
+            if word not in PM_VAULT_LS_FLAGS:
+                return False
+        else:
+            paths.append(word)
+    if not paths:
+        return False
+    return all(vault_relative(path) is not None for path in paths)
+
+
 def check_pm_git(segments: list[list[str]], project_dir: Path) -> None:
     """pm stages by explicit path and commits on its own, never a guard-rail file."""
     for words in segments:
@@ -1477,6 +1507,9 @@ def check_bash(agent: str, command: str, project_dir: Path) -> None:
         if problem:
             block(f"{agent}: {problem}")
         if words[0] in READ_COMMANDS:
+            # pm may list its vault folder with plain ls; every other read stays inside the project.
+            if agent == PM and words[0] == "ls" and pm_vault_ls_ok(words):
+                continue
             problem = read_path_problem(words, project_dir)
             if problem:
                 block(f"{agent}: {problem}")
