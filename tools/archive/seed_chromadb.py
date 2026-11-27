@@ -1,15 +1,18 @@
 """
-seed_chromadb.py — Seed ChromaDB with RTL-ML reference signal dataset
+seed_chromadb.py: Seed ChromaDB with the RTL-ML reference signal dataset.
 
-Downloads RTL-ML dataset from HuggingFace, processes each sample through
-Mimir's pipeline (FFT -> fingerprint -> embed), and stores vectors in
-ChromaDB as labelled reference signals.
+Archived on 2026-11-27 (rf#87): a one-off bootstrap of the RTL-ML reference set.
+Downloads the dataset from HuggingFace, processes samples through Mimir's
+pipeline (FFT -> fingerprint -> embed), and stores labelled reference signals.
 
-WARNING: Re-running this script will destroy all existing ChromaDB data
-(including any manually added reference vectors) and re-seed from scratch.
-The collection is unconditionally wiped before each seed run.
+WARNING: Every run wipes the whole data/vectorstore collection first, with no
+backup and no confirmation, then re-seeds it, replacing any field captures.
 
-This is a one-off seeding script. Do not import or use in production code.
+This script is not listed or run by ./mimir tool. Agents may not run it.
+Prin runs it by hand as:
+    env PYTHONPATH=. .venv-scan/bin/python -s tools/archive/seed_chromadb.py
+
+It is not for import by production code.
 
 Legal: Receive-only. Radiocommunications Act 1992 (Cth).
        No transmission. Jurisdiction: AU/SA. Authority: ACMA.

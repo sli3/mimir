@@ -1,4 +1,4 @@
-"""Tests for tools/seed_chromadb.py.
+"""Tests for tools/archive/seed_chromadb.py.
 
 All tests use synthetic data. No HuggingFace download, no hardware required.
 """
@@ -12,7 +12,7 @@ from core.pipeline.fft import compute_psd
 from core.pipeline.features import fingerprint_spectrum
 from embeddings.embedder import SpectrumEmbedder
 from embeddings.store import SignalStore
-from tools.seed_chromadb import (
+from tools.archive.seed_chromadb import (
     CLASS_META,
     RTL_ML_SAMPLE_RATE,
     build_metadata,
