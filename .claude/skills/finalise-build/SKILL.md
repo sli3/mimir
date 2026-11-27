@@ -1,18 +1,20 @@
 ---
 name: finalise-build
 description: >
-  Post-build finalisation for Mimir. Run AFTER a /build has stopped at its
-  HARDWARE GATE AND Prin has verified it on real hardware and is done touching
-  the code. (A /build that does not hit the gate runs these steps itself.)
-  Re-runs both test suites live, records tech debt, the roadmap entry (only
+  Post-build finalisation for Mimir, in two modes. FINALISE: every /build runs
+  it itself once its code is frozen (hardware-pending builds included);
+  re-runs both test suites live, records tech debt, the roadmap entry (only
   with CHECKPOINT_MODE: ON) and the README summary lines against the real diff,
   verifies its own prose against disk, writes the session memo, then commits
-  the code and the governance records through git-workflow. Never writes
-  code, never pushes.
+  the code and the governance records through git-workflow. HARDWARE RESULT:
+  records Prin's hardware check of a hardware-pending build, passed or failed.
+  pm starts it when Prin reports a result in plain words, or Prin runs it.
+  Never writes code, never pushes.
   Usage: /finalise-build "<one-line summary>" (put CHECKPOINT_MODE: ON inside
-  the quoted summary to advance the phase tracker).
-argument-hint: '"<one-line summary>"'
-disable-model-invocation: true
+  the quoted summary to advance the phase tracker), or
+  /finalise-build "HARDWARE: PASSED rf#N" /
+  /finalise-build "HARDWARE: FAILED rf#N <what failed>".
+argument-hint: '"<one-line summary>" or "HARDWARE: PASSED|FAILED rf#N ..."'
 ---
 
 This skill runs in the main conversation as `pm` (started with
@@ -41,6 +43,19 @@ source of truth: `git diff` is. If it is empty or unintelligible, stop and ask.
 CHECKPOINT is ON only if the text above contains `CHECKPOINT_MODE: ON`
 (case-insensitive). Otherwise it is OFF. Never infer it from the work.
 
+MODE: if the text starts with `HARDWARE: PASSED` or `HARDWARE: FAILED`
+(case-insensitive) and names a card id, this run is HARDWARE RESULT mode: skip
+the WORKFLOW below and follow HARDWARE RESULT MODE at the end. Otherwise it is
+FINALISE mode.
+
+HARDWARE PENDING is on when `/build` Step 7A runs this workflow (its HARDWARE
+GATE was hit). Prin running this skill himself after checking a build on
+hardware first, as before, turns it off. With HARDWARE PENDING on, follow
+COMMITS in your agent definition for the labels: `[hw-pending]` before the
+card id in every commit subject, "(awaiting hardware check)" at the end of a
+ROADMAP entry, the memo and the Hindsight retain saying the build is
+unverified on hardware, and the card to `review`, not `done`.
+
 ---
 
 ## HARD STOP CONDITIONS
@@ -60,8 +75,8 @@ CHECKPOINT is ON only if the text above contains `CHECKPOINT_MODE: ON`
 ### STEP 0 — CONTEXT
 
 One Hindsight `recall` for this change (MEMORY in your agent definition), and
-find the build's card on the board (in `review` after a hardware stop, in
-`doing` when `/build` finalises itself).
+find the build's card on the board (in `doing` when `/build` finalises
+itself, in `review` when Prin runs this after his own hardware check).
 
 ### STEP 1 — RE-VERIFY THE HARD TRUTH
 
@@ -152,7 +167,7 @@ clean TX check on the staged diff.
 - Whether the phase tracker moved, and that CHECKPOINT was ON or OFF
 - The memo path
 - Memory: retained, declined or failed; Board: card id and column (`done`,
-  with the short hash)
+  with the short hash, or `review` when HARDWARE PENDING is on)
 - The Step 4 verification result
 - Commits: hash and subject of each, any changed file you left out and why,
   and the output of `git log --oneline origin/main..main`
@@ -160,6 +175,46 @@ clean TX check on the staged diff.
 - Tech debt or follow-ups
 
 End with: "Review the log above, then push by hand:
-`git push origin <branch>`."
+`git push origin <branch>`." (With HARDWARE PENDING on, `/build` Step 7A
+gives the ending instead.)
 
 Never push in this skill.
+
+---
+
+## HARDWARE RESULT MODE
+
+Prin has checked a hardware-pending build on real hardware. Record his result
+and nothing else: never change code, and never mark anything verified that he
+did not report as passed. His words are the only evidence of the hardware
+result; record them as he gave them.
+
+1. CONTEXT. One Hindsight `recall` for the card's change. Find the card: it
+   must be in `review`. Find the build's commits with
+   `git --no-pager log --oneline` and check their subjects carry
+   `[hw-pending]` and the card id. No card in `review` or no such commit →
+   hard stop and tell Prin what you found.
+2. TESTS. Run both suites live, as FINALISE STEP 1. Red → hard stop, record
+   nothing.
+3. RECORDS (targeted Edits, GOVERNANCE RECORDS in your agent definition):
+   - PASSED: if the build's ROADMAP entry ends with "(awaiting hardware
+     check)", remove that text. Nothing else.
+   - FAILED: if there is such a ROADMAP entry, replace the text with
+     "(hardware check failed, see <new card id>)". Add a row to
+     `docs/TECH_DEBT.md` naming the failure in Prin's words and the card id.
+   - Set the README `**Total: ...**` line to the Step 2 counts.
+4. VERIFY YOUR OWN PROSE, as FINALISE STEP 4.
+5. MEMO, MEMORY AND BOARD. Write a session memo (SESSION MEMO in your agent
+   definition) recording the result. One Hindsight `retain` digest: the
+   hardware result in Prin's words and any lesson he gave, as a hardware
+   finding. Then the card, as KANZO BOARD 4g in your agent definition.
+6. COMMIT. If step 3 changed any file, one governance commit with the `docs`
+   prefix through git-workflow, subject naming the result, for example
+   `docs: hardware check passed (rf#12)`. COMMIT GATE applies. Never push.
+7. REPORT (to chat only): the result recorded, each file changed with its
+   diff, the memo path, Memory, Board (and the new `todo` card on a failure),
+   the commit hash, and `git log --oneline origin/main..main`. On PASSED end
+   with: "The [hw-pending] commits for rf#N are now verified. Review the log
+   above, then push by hand: `git push origin <branch>`." On FAILED end with
+   the new card id and: "Say `build <new card id>` when you want the fix
+   built."

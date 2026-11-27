@@ -18,6 +18,7 @@
       "Bash(graft check *)",
       "Bash(graft check)",
       "Bash(graft map)",
+      "Bash(graft build)",
       "Bash(git status *)",
       "Bash(git diff *)",
       "Bash(git --no-pager diff *)",

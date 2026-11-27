@@ -92,11 +92,15 @@ it directly.
 | `code-writer` | subagent | Fallback writer when Codex fails or hits its limit |
 | `deep-bug-hunter` | subagent | Fallback reviewer and debugger when Codex fails or hits its limit |
 
-Skills: `/build "<task>"` runs the autonomous build cycle. A clean build that
-touches no capture, DSP, decoding or device code finalises and commits by
-itself. One that does stops after its report for Prin's hardware check.
-`/finalise-build "<summary>"` then runs after Prin has verified that build on
-real hardware, and finalises and commits it. `/multi @agent ...` runs several
+Skills: `/build "<task>"` runs the autonomous build cycle, and every clean
+build finalises and commits by itself. One that touches capture, DSP, decoding
+or device code is committed as hardware-pending: `[hw-pending]` in its commit
+subjects, its records marked "awaiting hardware check" and its card left in
+`review`, so nothing claims a hardware check that has not happened. When Prin
+has checked it on real hardware, `/finalise-build "HARDWARE: PASSED rf#N"` or
+`"HARDWARE: FAILED rf#N <what failed>"` records the result. `pm` starts
+either skill itself when Prin asks for a build or reports a result in plain
+words, never on its own initiative. `/multi @agent ...` runs several
 agents in parallel. `git-workflow` is how `pm` commits: it checks the staged
 diff for TX patterns first, and it never pushes.
 

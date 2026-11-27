@@ -2,14 +2,14 @@
 name: build
 description: >
   Autonomous build cycle for Mimir. Runs plan → code → fix loop → code review →
-  browser check (frontend builds) → PM audit, with no user intervention. Then
-  it either stops for Prin's hardware check (capture, DSP, decoding and device
-  changes), after which Prin runs /finalise-build, or it finalises and commits
-  by itself. Never pushes: Prin reviews the commits and pushes by hand.
-  Usage: /build "<task>" (add CHECKPOINT_MODE: ON in the task text if this
-  build should advance the phase tracker when it is finalised).
+  browser check (frontend builds) → PM audit, with no user intervention, then
+  finalises and commits by itself. Capture, DSP, decoding and device changes
+  are committed as hardware-pending ([hw-pending]) for Prin to check on real
+  hardware later. Never pushes: Prin reviews the commits and pushes by hand.
+  pm starts it when Prin asks for a task or card in plain words, or Prin runs
+  it. Usage: /build "<task>" (add CHECKPOINT_MODE: ON in the task text if
+  this build should advance the phase tracker when it is finalised).
 argument-hint: '"<task>"'
-disable-model-invocation: true
 ---
 
 This skill runs in the main conversation as `pm`, the project's orchestrator
@@ -31,10 +31,8 @@ $ARGUMENTS
 If this is empty or unintelligible, that is the one exception to "no
 clarifying questions": stop and ask Prin.
 
-Note whether the task text contains `CHECKPOINT_MODE: ON` (case-insensitive).
-If the build finalises itself (Step 7B), apply it there. If it stops at the
-HARDWARE GATE (Step 7A), carry it into the report so Prin passes it to
-`/finalise-build`.
+Note whether the task text contains `CHECKPOINT_MODE: ON` (case-insensitive),
+and apply it when the build finalises (Step 7A or 7B).
 
 ---
 
@@ -166,44 +164,29 @@ Apply HARDWARE GATE (in COMMITS in your agent definition) to the approved plan
 and the final diff. A docs-only build never triggers it. Gate hit → Step 7A.
 Gate not hit → Step 7B. Say in the report which one applied and why.
 
-### STEP 7A — REPORT AND STOP FOR PRIN (HARDWARE GATE hit; report to chat only)
+### STEP 7A — FINALISE AND COMMIT AS HARDWARE-PENDING (HARDWARE GATE hit)
 
-1. Run the suites one final time and use these live counts only.
-2. Unstage the files the build staged for its review checks, exactly
-   `git reset -q -- <files>` (this only unstages; the changes stay in the
-   working tree). Never stage or unstage Prin's own files noted in Step 1.
-3. Report:
-   - What was built: files changed, functions added or modified
-   - Test results: live pytest and Vitest counts from step 1
-   - Fix-loop summary: iterations, whether the debugger or a fallback ran
-   - Models: role, model and effort for each step, and the task size behind it
-   - Code-review findings and how each was resolved, or why review was skipped
-   - Browser check: browser, URL, console result, what you saw, clean-up done;
-     or "not run" with the reason
-   - PM audit result
-   - Tech debt or follow-ups surfaced (for `/finalise-build` to record)
-   - Board: the card id and its column (moved to `review`, KANZO BOARD 4d),
-     or "Board: unavailable" with the reason
-   - Memory: whether the Hindsight recall returned anything that shaped the
-     plan
-   - Graft: freshness result, what was located, callers traced, or "fell back
-     to Read" with the reason
-   - A checklist with ✅ / ❌ / ⚠️ under BACKEND CODE, TESTS, CONSTRAINTS
-     (TX scan, AU law, protected files) and GOVERNANCE (must read "not
-     touched, by design")
-4. End with NEXT STEP FOR PRIN: name the HARDWARE GATE trigger that fired,
-   say exactly what to check on real hardware, then give him:
-   `/finalise-build "<one-line summary of this build>"`
-   with `CHECKPOINT_MODE: ON` inside the quoted summary if this build should
-   advance the phase tracker. Give a ready-to-paste summary line. Say that
-   `/finalise-build` will finalise and commit, and that he pushes by hand.
-
-At this stop: no commit, no push, no governance record, no memo.
+Do everything Step 7B says, with HARDWARE PENDING on: carry out
+`/finalise-build` STEP 0 to STEP 7 with its HARDWARE PENDING rules, so the
+commits carry `[hw-pending]`, the records and the memo say the build awaits
+Prin's hardware check, the Hindsight retain says it is unverified on hardware,
+and the card goes to `review` (KANZO BOARD 4d), not `done`. Then:
+1. The report is the same as Step 7B's, with the GOVERNANCE checklist line
+   listing the files changed and "hardware-pending".
+2. End with HARDWARE CHECK FOR PRIN: name the HARDWARE GATE trigger that
+   fired, say exactly what to check on real hardware, then give him the two
+   ready-to-paste results:
+   `/finalise-build "HARDWARE: PASSED rf#N"` and
+   `/finalise-build "HARDWARE: FAILED rf#N <what failed>"`
+   (or he can say the same in plain words). Then the commit hashes and
+   `git log --oneline origin/main..main`, and: "These commits are marked
+   [hw-pending]. Push them by hand after your hardware check:
+   `git push origin <branch>`."
 
 ### STEP 7B — FINALISE AND COMMIT (HARDWARE GATE not hit)
 
-1. Read `.claude/skills/finalise-build/SKILL.md` and carry out its STEP 0 to
-   STEP 7 yourself, in this run. Write the one-line summary from the approved
+1. Read `.claude/skills/finalise-build/SKILL.md` and carry out its FINALISE
+   mode, STEP 0 to STEP 7, yourself, in this run. Write the one-line summary from the approved
    plan. CHECKPOINT is ON only if the task text carried it. The build's files
    are the `Scope confirmed:` list. Its Step 1 (both suites, live) is the
    final test run, so do not run a separate one first.

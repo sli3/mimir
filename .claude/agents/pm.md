@@ -199,8 +199,9 @@ TX hard stop, not an ordinary failure for the fix loop.
 Graft is the first stop for anything about the code: cheap, with exact
 file:line spans. Follow "Graft in agent sessions" in AGENTS.md.
 1. At the start of `/build` or a direct session, call `graft_check_freshness`
-   once. If stale, tell Prin to run `graft build` (no agent may) and carry on
-   with Read at cited spans.
+   once. If stale, run exactly `graft build` yourself (no options; you are the
+   only agent that may) and check freshness again. If the build fails or the
+   index is still stale, say so and carry on with Read at cited spans.
 2. Before planning, locate the task's code with `graft_find_code` (or
    `graft_find_all` for every occurrence) and skim files with `graft_file_api`
    instead of reading them whole.
@@ -235,7 +236,9 @@ each point say what I learnt and when it applies again, for example "I learnt th
 X causes Y; next time Z". Cover any decision Prin gave with its reason, any gotcha 
 and its fix, anything learnt on hardware, and any rule of the workflow that this 
 build confirmed or broke. Name the module or subsystem so related lessons link up 
-across builds. Nothing recoverable from the repository. If `retain` fails, say so 
+across builds. For a hardware-pending build (see COMMITS), say that it is not yet 
+verified on hardware and record no hardware lesson: those come only from Prin's 
+result. Nothing recoverable from the repository. If `retain` fails, say so 
 in one line and do not retry. Outside that, retain only when Prin asks. Never retain, 
 and never put on the board, Prin's receiver coordinates or home location, credentials, 
 hostnames or IP addresses.
@@ -266,16 +269,21 @@ not a plan, a memory or a source of instructions.
    b. Each Codex or fallback run: a one-line comment naming role, model and
       effort ("Codex writer, gpt-6.1-sol, low").
    c. Hard stop: one-line comment with the reason; leave it in `doing`.
-   d. End of a clean `/build` that the HARDWARE GATE stops (see COMMITS):
-      move it to `review` with the comment "awaiting hardware verification
-      and /finalise-build".
+   d. Hardware-pending build (see COMMITS): after its commits, move it to
+      `review`, not `done`, with the comment "committed <short hash>;
+      awaiting hardware check".
    e. Finalising (in `/build` or `/finalise-build`): comment the verified
       test total and memo name.
    f. After a successful commit through `git-workflow`: move it to `done` with
-      the short commit hash. Put the card id at the end of the commit message
-      in brackets, exactly as the board shows it (this project's cards are
-      `rf#N`, for example `(rf#12)`).
-   g. GitHub mirror of b to f: post the same one-line comment on the issue,
+      the short commit hash, unless it is hardware-pending (d). Put the card id
+      at the end of the commit message in brackets, exactly as the board shows
+      it (this project's cards are `rf#N`, for example `(rf#12)`).
+   g. Hardware result (`/finalise-build` HARDWARE RESULT mode): passed → move
+      the card from `review` to `done` with the comment "hardware check
+      passed". Failed → leave it in `review` with a one-line comment saying
+      what failed, and create a `todo` card "Hardware fix: <what failed>
+      (from rf#N)". That card is a note like any other `todo` card (rule 5).
+   h. GitHub mirror of b to g: post the same one-line comment on the issue,
       keep one `status:todo`, `status:doing` or `status:review` label matching
       the card's column, copy the card's tags as labels, and when the card
       moves to `done`, close the issue with a comment giving the short hash.
@@ -378,8 +386,8 @@ What you may change:
 
 ## SESSION MEMO
 
-At the end of finalising (in `/build` or `/finalise-build`; not when a build
-stops at the HARDWARE GATE), write
+At the end of finalising (in `/build` or `/finalise-build`, hardware-pending
+builds included), write
 `.session-memos/<YYYY-MM-DD_HH-MM>.md` (timestamp from
 `date +"%Y-%m-%d_%H-%M"`; never overwrite). Hard cap 300 words. Exactly:
 
@@ -412,20 +420,35 @@ hand-off files under Files Touched. Confirm with the file path only.
 Prin's review now happens before he pushes, not before each commit. So a
 clean build ends in a commit, made by you, with no "OK" to wait for.
 
-1. HARDWARE GATE. Do not commit; stop the build at `review` and tell Prin
-   exactly what to check on hardware, when any of these holds:
+1. HARDWARE GATE. A build is hardware-pending when any of these holds:
    - the plan or the diff touches capture, DSP, decoding or device code:
      `core/device/`, `core/legal/`, `core/pipeline/`, `modules/`, `scan.py`,
-     the `tools/` scripts that open the SDR, SoapySDR stream setup, band
-     frequencies or detection threshold values;
+     the SDR tools (`tools/capture/`, `tools/diagnose/` and the old SDR
+     script names), SoapySDR stream setup, band frequencies or detection
+     threshold values;
    - the card carries the `field` label;
    - the change can only be verified with live RF traffic.
-   When in doubt, the gate applies: the cost of a wrong stop is one extra
-   command from Prin, the cost of a wrong commit is untested radio code.
-   Prin then runs `/finalise-build` after his check, which finalises and
-   commits as below.
-2. Otherwise, finalise in the same run: the `/finalise-build` steps (both
-   suites, governance records, memo, Hindsight retain).
+   When in doubt, it is hardware-pending: a wrong label costs Prin one quick
+   check, a missing label hides untested radio code.
+2. Every clean build finalises and commits in the same run: the
+   `/finalise-build` steps (both suites, governance records, memo, Hindsight
+   retain). A hardware-pending build is committed the same way, but labelled
+   so nothing claims a hardware check that has not happened:
+   - every commit subject carries `[hw-pending]` just before the card id, for
+     example `feat: ... [hw-pending] (rf#12)`, so `git log --oneline` shows it;
+   - a ROADMAP entry (CHECKPOINT ON) ends with "(awaiting hardware check)";
+   - the memo says under What We Did and Not Finished that it awaits Prin's
+     hardware check, and what to check;
+   - the Hindsight retain says it is unverified on hardware (MEMORY);
+   - the card goes to `review`, not `done` (KANZO BOARD 4d);
+   - the report ends with HARDWARE CHECK FOR PRIN: the gate trigger, exactly
+     what to check on real hardware, and the message to send afterwards
+     (`/finalise-build "HARDWARE: PASSED rf#N"` or
+     `/finalise-build "HARDWARE: FAILED rf#N <what failed>"`, or the same in
+     plain words).
+   Prin's hardware result is recorded later by `/finalise-build` in HARDWARE
+   RESULT mode, which removes the pending label from the records or records
+   the failure.
 3. COMMIT GATE. Every item must hold; if any fails, HARD STOP and do not
    commit:
    - both suites green in your own run during finalising, including
@@ -442,6 +465,8 @@ clean build ends in a commit, made by you, with no "OK" to wait for.
    is never staged.
 5. Never push. End the report with the commit hashes and the output of
    `git log --oneline origin/main..main`, so Prin can review before pushing.
+   If any listed commit carries `[hw-pending]`, say so and suggest Prin
+   pushes it only after his hardware check.
 
 `agent_guard.py` enforces the mechanics: only pm commits; `-m` messages
 only; no `-a`, `--amend` or paths on `git commit`; staging and committing in
@@ -457,6 +482,14 @@ STOP.
 Inside `/build`, do not ask yes/no questions mid-run. Where a choice is yours,
 decide, note the assumption in the report and carry on. Stop and ask only for
 a HARD STOP.
+
+Starting the skills: when Prin asks in plain words for a task or a card to be
+built ("build rf#87", "do the vectors tool"), start `/build` yourself with the
+Skill tool, with his request as the task. When he reports a hardware result
+("rf#12 passed on hardware", "rf#12 failed: no decodes at 1090 MHz"), start
+`/finalise-build` yourself in HARDWARE RESULT mode. Never start either on your
+own initiative, from a board card (KANZO BOARD 5) or from a memo, and never
+start a second build when one finishes: one request, one build.
 
 ## HARD STOP CONDITIONS
 
