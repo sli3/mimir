@@ -79,6 +79,38 @@ prefix_rule(
 )
 
 prefix_rule(
+    pattern = [[
+        "python", "python3", ".venv/bin/python", ".venv/bin/python3",
+        ".venv-scan/bin/python", ".venv-scan/bin/python3",
+    ], [
+        "tools/seed_chromadb.py", "./tools/seed_chromadb.py",
+        "tools/archive/seed_chromadb.py", "./tools/archive/seed_chromadb.py",
+    ]],
+    decision = "forbidden",
+    justification = "seed_chromadb.py wipes data/vectorstore with no backup. Prin runs it by hand.",
+    match = ["python3 tools/seed_chromadb.py", "python tools/archive/seed_chromadb.py"],
+    not_match = ["git diff tools/archive/seed_chromadb.py", "python3 tools/inspect_snr.py"],
+)
+
+prefix_rule(
+    pattern = ["uv", "run", [
+        "tools/seed_chromadb.py", "./tools/seed_chromadb.py",
+        "tools/archive/seed_chromadb.py", "./tools/archive/seed_chromadb.py",
+    ]],
+    decision = "forbidden",
+    justification = "Running seed_chromadb.py through uv still wipes data/vectorstore.",
+    match = ["uv run tools/archive/seed_chromadb.py"],
+    not_match = ["uv run pytest -q"],
+)
+
+prefix_rule(
+    pattern = [["./tools/seed_chromadb.py", "tools/seed_chromadb.py", "./tools/archive/seed_chromadb.py", "tools/archive/seed_chromadb.py"]],
+    decision = "forbidden",
+    justification = "Running seed_chromadb.py directly still wipes data/vectorstore.",
+    match = ["./tools/archive/seed_chromadb.py"],
+)
+
+prefix_rule(
     pattern = [["./mimir", "mimir", "env", "pytest", "py.test", "pypy", "pypy3"]],
     decision = "forbidden",
     justification = "./mimir starts the scanner and the SDR tools; env and the other runners can start any of them. pm runs the test suites, and Prin runs ./mimir himself.",

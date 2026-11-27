@@ -166,7 +166,8 @@ and functions, what not to touch, the fix strategy (no code), and unknowns.
   file. No subagent, and not Codex, edits them. `docs/au-legal-reference.md`
   is Prin's: `pm` may not edit it
 - `data/` holds Prin's IQ captures and vector stores. No agent writes,
-  moves or deletes anything under it
+  moves or deletes anything under it, and no agent runs `seed_chromadb.py`
+  (it wipes `data/vectorstore`; `agent_guard.py` blocks it wherever it lives)
 - Never `git push`. Never use `--force`. Never `git reset --hard`
 - `pm` may create, edit, comment on and close GitHub issues on this
   repository with the `gh issue` CLI only, to mirror Kanzo cards. Never pull
@@ -391,6 +392,7 @@ dashboard/                      Cyberpunk React dashboard + Flask-SocketIO
 | `config/mimir.yaml` | Runtime configuration |
 | `setup.sh` (build_acarsdec) | Builds acarsdec from source on first run |
 | `tools/capture_to_vectorstore.py` | Live IQ capture across AU-legal bands, pipeline to production ChromaDB |
+| `tools/vectors/` | Vector store maintenance (`snr`, `purge-noise`); never opens the SDR |
 | `docs/au-legal-reference.md` | ACMA legal reference |
 | `docs/ROADMAP.md` | Phase tracker and build history |
 

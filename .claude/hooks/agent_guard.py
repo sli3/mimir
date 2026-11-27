@@ -11,6 +11,7 @@ calls each agent is not permitted to make.
 These rules apply to EVERY session, named agent or not. The first two hold
 because Mimir is receive-only under the Radiocommunications Act 1992 (Cth):
   * no Bash command may run a radio-hardware tool or the live scanner;
+  * no Bash command may run seed_chromadb.py, which wipes data/vectorstore;
   * Codex may run only in pm's three safe `codex exec` forms;
   * no session may run `git push` or define an inline git alias: Prin pushes
     by hand. These checks undo quoting and look through wrappers (env, sudo,
@@ -259,6 +260,10 @@ SDR_CODE = re.compile(
     + "|".join(sorted(name.removesuffix(".py") for name in SDR_SCRIPTS if name != "scan.py")),
     re.I,
 )
+# Scripts that wipe or replace data/ when they run. The guard checks a command,
+# not what a script does inside, so these are blocked by name for every session,
+# wherever they live (tools/ or tools/archive/). Prin runs them by hand.
+DATA_WIPING_SCRIPTS = frozenset({"seed_chromadb.py"})
 # The launcher. It starts scan.py and every SDR tool, and takes its Enter from
 # stdin, so `echo | ./mimir scan` would run the scanner. Prin runs it by hand.
 LAUNCHER = "mimir"
@@ -1074,6 +1079,46 @@ def runs_hardware(command: str) -> bool:
     return False
 
 
+def runs_data_wiper(command: str) -> bool:
+    """Return True if any segment runs a script that wipes data/ (seed_chromadb.py).
+
+    Counts the script run directly or through python, uv or pytest, at any
+    path, as a module (python -m tools.archive.seed_chromadb), or named in
+    python -c code. Reading it (cat, git diff) and py_compile are not runs.
+    """
+    stems = {name.removesuffix(".py") for name in DATA_WIPING_SCRIPTS}
+    for words in rule_segments(command)[0]:
+        # Files named after `-m py_compile` are compiled, not run.
+        compiled_from = next(
+            (k + 2 for k in range(len(words) - 1) if words[k] == "-m" and words[k + 1] == "py_compile"),
+            len(words),
+        )
+        for start in command_starts(words):
+            if start >= compiled_from:
+                continue
+            if any(matches_name(words[start].rsplit("/", 1)[-1], n) for n in DATA_WIPING_SCRIPTS):
+                return True
+            program = words[start].rsplit("/", 1)[-1]
+            if not (is_python(words[start]) or PYTHON_RUNNERS.match(program)):
+                continue
+            rest = words[start + 1:]
+            for k, word in enumerate(rest):
+                module = rest[k + 1] if word == "-m" and k + 1 < len(rest) else (
+                    word[2:] if word.startswith("-m") and len(word) > 2 and not word.startswith("--") else None
+                )
+                if module == "py_compile":
+                    break  # compiles the files named after it; runs none of them
+                if any(matches_name(word.rsplit("/", 1)[-1], n) for n in DATA_WIPING_SCRIPTS):
+                    return True
+                if "/" not in word and word.split("=", 1)[-1].rsplit(".", 1)[-1] in stems and "." in word:
+                    return True  # tools.archive.seed_chromadb, as -m, -p or --pyargs
+                if module is not None and module.rsplit(".", 1)[-1] in stems:
+                    return True
+                if word == "-c" and any(stem in " ".join(rest[k + 1:]) for stem in stems):
+                    return True
+    return False
+
+
 def check_every_session_bash(command: str) -> None:
     """Rules that apply to every session, named agent or not."""
     if len(command) > MAX_COMMAND_CHARS:
@@ -1091,6 +1136,11 @@ def check_every_session_bash(command: str) -> None:
             "no agent may run radio-hardware tools (hackrf_*, iio_*, SoapySDRUtil), scan.py, "
             "./mimir or an SDR tool (tools/capture, tools/diagnose or the old script names). "
             "Mimir is receive-only and live hardware checks are Prin's, by hand"
+        )
+    if runs_data_wiper(command):
+        block(
+            "no session may run seed_chromadb.py: it wipes data/vectorstore with no backup. "
+            "Prin runs it by hand"
         )
     # The broad regex nets read quoted prose as commands, so they run only when
     # the command could not be lexed strictly (a strict command has no redirection).

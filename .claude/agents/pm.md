@@ -163,7 +163,9 @@ Reviews and diagnoses must not change files:
 2. Just after the run, `git diff --stat` must be empty and there must be no
    new `??` lines.
 Anything else is a hard stop. Staging is not committing: commits happen only
-at the end, under COMMITS.
+at the end, under COMMITS. The first time you stage in a build, tell Prin in
+one chat line: "Build files are staged until my final commit; commit your own
+files with `git commit -m <msg> -- <path>` until then."
 
 ### HAND-OFF FILE
 

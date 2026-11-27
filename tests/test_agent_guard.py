@@ -176,3 +176,52 @@ def test_pm_may_run_graft_build() -> None:
 def test_other_graft_writes_blocked(agent: str, command: str) -> None:
     """Only pm, and only the plain `graft build`, may write the index."""
     assert run_hook(agent, command).returncode == 2
+
+
+# --- Scripts that wipe data/ (seed_chromadb.py) -------------------------------
+WIPER_BLOCKED = [
+    "python3 tools/seed_chromadb.py",
+    "python tools/archive/seed_chromadb.py",
+    "uv run python tools/archive/seed_chromadb.py",
+    "env PYTHONPATH=. .venv-scan/bin/python -s tools/archive/seed_chromadb.py",
+    "./tools/archive/seed_chromadb.py",
+    "python -m tools.seed_chromadb",
+    "python -m tools.archive.seed_chromadb",
+    "cd tools && python -m seed_chromadb",
+    "python tools/archive/seed_chroma*.py",
+    "uv run pytest -p tools.archive.seed_chromadb",
+    "python -c 'import tools.archive.seed_chromadb'",
+    'bash -c "python3 tools/archive/seed_chromadb.py"',
+    "timeout 60 python3 tools/seed_chromadb.py",
+]
+
+WIPER_ALLOWED = [
+    "cat tools/archive/seed_chromadb.py",
+    "git diff tools/seed_chromadb.py",
+    "git add tools/archive/seed_chromadb.py",
+    "graft skeleton tools/archive/seed_chromadb.py",
+    "uv run python -m py_compile tools/archive/seed_chromadb.py",
+    "uv run pytest tests/tools/test_vectors_snr.py -k seed_chromadb",
+    "git commit -m 'Move seed_chromadb.py to tools/archive'",
+    "python -m tools.vectors snr --label AIS",
+]
+
+
+@pytest.mark.parametrize("command", WIPER_BLOCKED)
+def test_data_wiper_forms_blocked(command: str) -> None:
+    """Every way of running seed_chromadb.py counts as wiping data/."""
+    assert guard.runs_data_wiper(command), command
+
+
+@pytest.mark.parametrize("command", WIPER_ALLOWED)
+def test_data_wiper_reads_allowed(command: str) -> None:
+    """Reading, staging, compiling or naming the script is not running it."""
+    assert not guard.runs_data_wiper(command), command
+
+
+@pytest.mark.parametrize("agent", ["", "pm", "code-writer"])
+def test_data_wiper_blocked_for_every_session(agent: str) -> None:
+    """The seed block applies to plain sessions and every named agent alike."""
+    result = run_hook(agent, "python3 tools/archive/seed_chromadb.py")
+    assert result.returncode == 2
+    assert "seed_chromadb" in result.stderr
