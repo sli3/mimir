@@ -76,6 +76,7 @@ ever fires on genuinely mislabelled or adversarial files.
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import threading
@@ -385,13 +386,20 @@ def _validate_sequence(sequence: Any, total_samples: int) -> list:
 
 
 def _load_sigmf(meta_path: Path) -> SigMFFile:
-    """Load a .sigmf-meta file, converting parse failures to ReplayFileError."""
+    """Load metadata safely, converting parse failures to ReplayFileError.
+
+    Pre-parse JSON because sigmf.fromfile leaves the metadata file open
+    when its json.load call fails.
+    """
     # Accept a .sigmf-data path too — the SigMF pair shares a base name.
     if meta_path.suffix == ".sigmf-data":
         meta_path = meta_path.with_suffix(".sigmf-meta")
     try:
-        # sigmf.fromfile (module-level) is the loader in sigmf 1.11.x —
-        # SigMFFile.fromfile does not exist as a classmethod there.
+        if meta_path.is_file():
+            json.loads(meta_path.read_text(encoding="utf-8"))
+        # Pre-parsing avoids sigmf.fromfile's open handle on json.load
+        # failure. Use the module loader, not SigMFFile.fromfile, which
+        # does not exist as a classmethod in sigmf 1.11.x.
         return sigmf.fromfile(str(meta_path))
     except (SigMFFileError, OSError, ValueError) as exc:
         raise ReplayFileError(

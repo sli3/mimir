@@ -19,7 +19,7 @@ COLLECTION_NAME = "spectrum_signals"
 
 
 class SignalStore:
-    """Persistent or in-memory ChromaDB vector store for spectrum signals."""
+    """ChromaDB spectrum signal store; call close() to release its resources."""
 
     def __init__(self, path: str = "data/vectorstore") -> None:
         """
@@ -40,6 +40,16 @@ class SignalStore:
             metadata={"description": "Mimir RF spectrum signal embeddings"},
         )
         logger.info("SignalStore initialised at %s (%d records)", path, self.count())
+
+    def close(self) -> None:
+        """Release the ChromaDB system and its file handles on last client close.
+
+        Repeated calls and instances with no initialised client are safe.
+        The system stops once the last client for that path closes.
+        """
+        client = getattr(self, "_client", None)
+        if client is not None:
+            client.close()
 
     def add(self, record: dict) -> None:
         """

@@ -15,6 +15,7 @@ IMPORTANT: These tests use synthetic fingerprints only — no hardware required.
 import os
 import shutil
 import sys
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -172,6 +173,34 @@ class TestSignalStore:
     def test_initial_count_is_zero(self, store):
         """A fresh store must have 0 records."""
         assert store.count() == 0
+
+    def test_close_is_idempotent(self, tmp_path: Path) -> None:
+        """Closing a persistent store twice must release resources safely."""
+        store = SignalStore(path=str(tmp_path / "idempotent"))
+        store.close()
+        store.close()
+
+    def test_close_without_client(self) -> None:
+        """Closing a store whose client was never initialised must be safe."""
+        store = SignalStore.__new__(SignalStore)
+        store.close()
+
+    def test_close_releases_file_descriptors(self, tmp_path: Path) -> None:
+        """Closing stores on distinct paths must keep raw fd growth bounded."""
+        fd_directory = Path("/proc/self/fd")
+        if not fd_directory.is_dir():
+            pytest.skip("File descriptor counts require /proc/self/fd")
+
+        # Exclude one-off ChromaDB initialisation from the measured growth.
+        warmup = SignalStore(path=str(tmp_path / "warmup"))
+        warmup.close()
+        before = sum(1 for _ in fd_directory.iterdir())
+        for index in range(20):
+            store = SignalStore(path=str(tmp_path / f"store_{index}"))
+            store.close()
+        after = sum(1 for _ in fd_directory.iterdir())
+
+        assert after - before <= 3
 
     def test_add_increments_count(self, store, embedder, fingerprint):
         """Adding one record must increase count by 1."""

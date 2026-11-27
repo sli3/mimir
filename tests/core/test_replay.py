@@ -14,8 +14,10 @@ Run with:
     uv run pytest tests/core/test_replay.py -v
 """
 
+import gc
 import json
 import math
+import warnings
 from pathlib import Path
 from unittest.mock import patch
 
@@ -506,13 +508,22 @@ class TestFileFailures:
         with pytest.raises(ReplayFileError, match="neither"):
             replay_capture(meta_path)
 
-    def test_malformed_file(self, tmp_path):
-        """A non-SigMF file (corrupt JSON) raises ReplayFileError."""
+    def test_malformed_file(self, tmp_path: Path) -> None:
+        """Public replay reports malformed JSON without leaking a file handle."""
         bad_path = tmp_path / "capture_98000000hz_20260819_000000.sigmf-meta"
-        bad_path.write_text("this is not sigmf metadata {{")
+        bad_path.write_text("this is not sigmf metadata {{", encoding="utf-8")
 
-        with pytest.raises(ReplayFileError, match="could not load"):
-            replay_capture(bad_path)
+        with warnings.catch_warnings(record=True) as recorded:
+            warnings.simplefilter("always", ResourceWarning)
+            with pytest.raises(ReplayFileError, match="could not load"):
+                replay_capture(bad_path)
+            # Collect replay's traceback cycles while warnings are recorded.
+            gc.collect()
+
+        assert not any(
+            issubclass(warning.category, ResourceWarning)
+            for warning in recorded
+        )
 
     def test_missing_file(self, tmp_path):
         """A path that does not exist raises ReplayFileError."""
