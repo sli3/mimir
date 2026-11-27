@@ -162,7 +162,7 @@ cases = [
  ("", B("uv run -q python scan.py"), True, "main: uv run -q python scan.py"),
  ("", B("PYTHONPATH=. uv run python tools/diagnose_threshold.py --band adsb"), True, "main: SDR tool script"),
  ("", B("python3 tools/capture_to_vectorstore.py"), True, "main: system python SDR tool"),
- ("", B("PYTHONPATH=. uv run python tools/seed_chromadb.py --help"), False, "main: non-SDR tool allowed"),
+ ("", B("PYTHONPATH=. uv run python tools/inspect_snr.py --help"), False, "main: non-SDR tool allowed"),
  ("", B("uv run pytest tests/scan"), False, "main: pytest tests/scan allowed"),
  # Fable audit: mentioning codex is not running it
  ("pm", B("grep -rn codex AGENTS.md"), False, "pm: grep for the word codex"),
@@ -439,7 +439,7 @@ cases = [
  ("plan-reviewer", B('grep -rlE "SoapySDR|hackrf_rx|pluto_rx" tools'), False, "FP plan-reviewer: SDR grep in tools"),
  ("pm", B('grep -n "a\\|b" docs/TECH_DEBT.md'), False, "FP pm: \\| inside double quotes"),
  ("pm", B('grep -n "a\\"b" docs/TECH_DEBT.md'), True, "FP pm: \\\" escape still refused"),
- ("code-writer", B("PYTHONPATH=. uv run python tools/seed_chromadb.py --help"), False, "FP code-writer: PYTHONPATH=. tool"),
+ ("code-writer", B("PYTHONPATH=. uv run python tools/inspect_snr.py --help"), False, "FP code-writer: PYTHONPATH=. tool"),
  ("code-writer", B("PYTHONPATH=. uv run python tools/calibrate_thresholds.py"), True, "FP code-writer: PYTHONPATH=. SDR tool still blocked"),
  ("code-writer", B("FOO=1 uv run pytest tests"), True, "FP code-writer: other variables still refused"),
  # 2026-11-17: lines that were cut off in the first copy of the second review
