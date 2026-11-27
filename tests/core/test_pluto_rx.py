@@ -187,12 +187,15 @@ class TestPlutoReceiver:
         assert receiver._uri is None
         assert "No USB ADALM-PLUTO found" in caplog.text
 
-    def test_empty_enumerate_raises(self):
-        """RuntimeError raised when no devices are enumerated."""
+    def test_empty_enumerate_raises(self) -> None:
+        """No devices raises an error fitting 80 columns with a four-space indent."""
         self.mock_soapy.Device.enumerate.return_value = []
         receiver = PlutoReceiver()
-        with pytest.raises(RuntimeError, match="No ADALM-PLUTO device found"):
+        with pytest.raises(
+            RuntimeError, match="No ADALM-PLUTO device found"
+        ) as exc_info:
             receiver.open()
+        assert len(str(exc_info.value)) <= 76
 
     # ── Bandwidth ────────────────────────────────────────────────────────
 

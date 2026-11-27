@@ -272,8 +272,7 @@ class PlutoReceiver(DeviceBase):
         results = [dict(r) for r in SoapySDR.Device.enumerate("driver=plutosdr")]
         if not results:
             raise RuntimeError(
-                "No ADALM-PLUTO device found. "
-                "Check USB connection and run 'iio_info' to verify hardware."
+                "No ADALM-PLUTO device found. Check USB, then run iio_info."
             )
 
         # Prefer the USB URI. Pluto also advertises ip:pluto.local paths

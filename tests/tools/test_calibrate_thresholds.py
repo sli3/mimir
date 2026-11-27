@@ -1401,7 +1401,7 @@ def test_capture_failure_exits_before_stored_analysis(
     console_calibration: dict[str, MagicMock], monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str], device: str, band_count: int,
 ) -> None:
-    """Attempt bands once and report errors with compact prior-retention warnings."""
+    """Attempt bands once, retain priors and keep error lines within 80 columns."""
     targets = calibrate_thresholds._build_pluto_calibration_targets.return_value
     selected = sorted(targets, key=lambda target: target["label"])[:band_count]
     monkeypatch.setattr(calibrate_thresholds, "CALIBRATION_TARGETS", selected)
@@ -1424,8 +1424,8 @@ def test_capture_failure_exits_before_stored_analysis(
         ],
     }
     error = (
-        "No ADALM-PLUTO device found. Check USB connection and run 'iio_info' "
-        "to verify hardware." if device == "pluto" else "No HackRF device found."
+        "No ADALM-PLUTO device found. Check USB, then run iio_info."
+        if device == "pluto" else "No HackRF device found."
     )
 
     def fail_capture(**_kwargs: object) -> np.ndarray:
@@ -1444,6 +1444,11 @@ def test_capture_failure_exits_before_stored_analysis(
     assert console_calibration["capture"].call_count == band_count
     captured = capsys.readouterr()
     assert captured.out.count(error) == band_count
+    error_lines = [
+        line for line in captured.out.splitlines() if error in line
+    ]
+    assert error_lines
+    assert all(_console.visible_len(line) <= 80 for line in error_lines)
     assert captured.err == ""
     assert "\r" not in captured.out and "\x1b" not in captured.out
     assert "✗ capture 1/5 failed\n" in captured.out
