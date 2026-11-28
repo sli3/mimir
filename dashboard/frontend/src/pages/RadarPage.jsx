@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSocket } from '../hooks/useSocket.js'
+import HeaderBar from '../components/HeaderBar.jsx'
 import RadarScopePanel from '../components/RadarScopePanel.jsx'
 import AircraftDetailPanel from '../components/AircraftDetailPanel.jsx'
 import PathPredictionPanel from '../components/PathPredictionPanel.jsx'
@@ -20,8 +21,8 @@ const MAX_RANGE_NM = 40
  * to AppRouter.jsx, which mounts this page for /radar instead of the main
  * dashboard App.
  *
- * Header: this page owns the page-level header (title, contact count,
- * range readout) exclusively — RadarScopePanel no longer renders its own
+ * Shared navigation sits above this page's title, contact count and
+ * range readout. RadarScopePanel no longer renders its own
  * internal header (Phase 50 dedup fix, was TD-49-6: two independent
  * computations of the same contact count could silently disagree).
  * Both this page's contactCount and RadarScopePanel's contacts filter
@@ -75,6 +76,7 @@ export default function RadarPage() {
 
   return (
     <div className="radar-shell">
+      <HeaderBar current="radar" />
       <header className="radar-header">
         <div className="radar-header-title">
           <h1>RADAR SCOPE</h1>

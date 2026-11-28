@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import * as THREE from 'three'
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls, Grid, Html } from '@react-three/drei'
+import HeaderBar from '../components/HeaderBar.jsx'
 import { VECTOR_COLOUR_MAP, FALLBACK_COLOUR, getPointColour } from '../utils/vectorColours.js'
 import './VectorSpacePage.css'
 
@@ -178,6 +179,7 @@ function EmptyState({ count }) {
   )
 }
 
+/** Render shared navigation, a page title and the vector store projection. */
 export default function VectorSpacePage() {
   const [state, setState] = useState({
     status: 'loading',
@@ -242,6 +244,7 @@ export default function VectorSpacePage() {
 
   return (
     <div className="vector-page">
+      <HeaderBar current="vectordb" />
       <Header count={state.count} method={state.method} status={state.status} />
       <Legend />
       <div className="vector-canvas-container">

@@ -1,4 +1,4 @@
-/* ReplayPage.css: isolated cyberpunk styling for the /replay page. */
+/* Replay page: fixed shared navigation and title above scrollable content. */
 
 /* Suppress the global scanline overlay while this page is mounted. */
 body.replay-page::before {

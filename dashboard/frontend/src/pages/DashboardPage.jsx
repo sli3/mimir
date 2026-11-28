@@ -10,7 +10,6 @@ import CaptureResultPanel from '../components/CaptureResultPanel.jsx'
 import { INITIAL_AI_REASONING } from '../constants/aiReasoning.js'
 import { isAcarsTuned, isAisTuned, isAdsbTuned } from '../utils/tuning.js'
 import { OPERATOR_STATE_CONFIG, getOperatorState } from '../utils/operatorState.js'
-import useClock from '../hooks/useClock.js'
 import useFrozenDisplay from '../hooks/useFrozenDisplay.js'
 import HeaderBar from '../components/HeaderBar.jsx'
 import BandNavBar from '../components/BandNavBar.jsx'
@@ -18,7 +17,7 @@ import DecodedSignalsRow from '../components/DecodedSignalsRow.jsx'
 import SignalDetailsPanel from '../components/SignalDetailsPanel.jsx'
 import SystemStatusPanel from '../components/SystemStatusPanel.jsx'
 
-/** Render the dashboard, owning its display state and interaction callbacks. */
+/** Render shared navigation and the dashboard's display state and controls. */
 export default function DashboardPage() {
   const socket = useSocket()
   const {
@@ -38,7 +37,6 @@ export default function DashboardPage() {
     aisRawLog,
   } = socket
 
-  const clock = useClock()
   const displayed = useFrozenDisplay(aiReasoning)
   const [customInput, setCustomInput] = useState('')
   const [pinnedReasoning, setPinnedReasoning] = useState(null)
@@ -112,8 +110,8 @@ export default function DashboardPage() {
       gap: '2px',
       overflow: 'hidden',
     }}>
-      {/* Row 1 — Header bar */}
-      <HeaderBar clock={clock} />
+      {/* Row 1: shared page navigation and clock. */}
+      <HeaderBar current="dashboard" />
 
       {/* Main content row — left stack + consolidated right column
           (UI-OVERHAUL Change 4: the old Row 2 / Row 3 split is gone) */}

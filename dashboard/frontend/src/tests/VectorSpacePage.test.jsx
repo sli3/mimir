@@ -24,9 +24,10 @@ describe('VectorSpacePage', () => {
     document.body.className = ''
   })
 
-  it('renders loading state initially', () => {
+  it('renders vector space navigation and loading state initially', () => {
     global.fetch = vi.fn(() => new Promise(() => {}))
     render(<VectorSpacePage />)
+    expect(screen.getByRole('link', { name: 'VECTOR SPACE' })).toHaveAttribute('aria-current', 'page')
     expect(screen.getByText(/INITIALISING VECTOR STORE PROJECTION/)).toBeInTheDocument()
   })
 

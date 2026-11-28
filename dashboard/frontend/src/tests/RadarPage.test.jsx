@@ -19,10 +19,11 @@ describe('RadarPage', () => {
     document.body.className = ''
   })
 
-  it('renders empty state with zero contacts and no aircraft', () => {
+  it('renders radar navigation and an empty state with zero contacts and no aircraft', () => {
     useSocket.mockReturnValue(makeMock())
     render(<RadarPage />)
-    // Phase 50: RadarPage owns the header exclusively — RadarScopePanel
+    expect(screen.getByRole('link', { name: 'RADAR' })).toHaveAttribute('aria-current', 'page')
+    // Phase 50: RadarPage owns the title and count; RadarScopePanel
     // no longer renders its own duplicate header (dedup fix, was
     // TD-49-6). Exactly one match expected for each, not "at least one".
     expect(screen.getAllByText('RADAR SCOPE').length).toBe(1)

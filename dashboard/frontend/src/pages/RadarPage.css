@@ -1,4 +1,4 @@
-/* RadarPage.css — isolated cyberpunk styling for the /radar PPI scope page. */
+/* Radar page: shared navigation, title, scope and prediction rows. */
 
 /* Suppress the global scanline overlay while this page is mounted. */
 body.radar-page::before {
@@ -9,7 +9,7 @@ body.radar-page::before {
   width: 100vw;
   height: 100vh;
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto auto 1fr auto;
   grid-template-columns: 1fr;
   background: var(--bg-root, #080F14);
   color: var(--text-primary, #C8D8E0);
@@ -18,7 +18,7 @@ body.radar-page::before {
 }
 
 .radar-header {
-  grid-row: 1;
+  grid-row: 2;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -60,7 +60,7 @@ body.radar-page::before {
 }
 
 .radar-scope-container {
-  grid-row: 2;
+  grid-row: 3;
   position: relative;
   width: 100%;
   height: 100%;
@@ -197,7 +197,7 @@ body.radar-page::before {
 /* --- PathPredictionPanel (Phase 52) --- */
 
 .radar-prediction-panel {
-  grid-row: 3;
+  grid-row: 4;
   /* Fixed height per Phase 52 spec: the strip must never resize
      between its states. Phase 55 raised the height 70px -> 400px so the
      LLM reasoning output reads as a primary readout rather than a

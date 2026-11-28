@@ -1,4 +1,4 @@
-/* VectorSpacePage.css — isolated cyberpunk styling for the 3D embedding page. */
+/* Vector space page: shared navigation, title and 3D projection rows. */
 
 /* Suppress the global scanline overlay while this page is mounted. */
 body.vector-space-page::before {
@@ -9,7 +9,7 @@ body.vector-space-page::before {
   width: 100vw;
   height: 100vh;
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto auto 1fr;
   grid-template-columns: 1fr;
   background: var(--bg-root, #080F14);
   color: var(--text-primary, #C8D8E0);
@@ -18,7 +18,7 @@ body.vector-space-page::before {
 }
 
 .vector-header {
-  grid-row: 1;
+  grid-row: 2;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -73,7 +73,8 @@ body.vector-space-page::before {
 
 .vector-legend {
   position: absolute;
-  top: 72px;
+  /* Keep the legend below the shared navigation and page title. */
+  top: 108px;
   left: 16px;
   z-index: 10;
   width: 150px;
@@ -120,7 +121,8 @@ body.vector-space-page::before {
 }
 
 .vector-canvas-container {
-  grid-row: 2;
+  grid-row: 3;
+  min-height: 0;
   position: relative;
   width: 100%;
   height: 100%;

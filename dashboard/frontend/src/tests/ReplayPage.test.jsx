@@ -233,7 +233,7 @@ describe('ReplayPage picker', () => {
     document.body.className = ''
   })
 
-  it('renders the loading state while captures are loading', async () => {
+  it('renders replay navigation and the loading state while captures are loading', async () => {
     const deferred = {}
     const jsonPromise = new Promise((resolve) => { deferred.resolveJson = resolve })
     const fetchMock = vi.fn(() =>
@@ -244,6 +244,7 @@ describe('ReplayPage picker', () => {
     )
     vi.stubGlobal('fetch', fetchMock)
     render(<ReplayPage />)
+    expect(screen.getByRole('link', { name: 'REPLAY' })).toHaveAttribute('aria-current', 'page')
     expect(screen.getByTestId('captures-loading')).toHaveTextContent('LOADING CAPTURES…')
     await act(async () => {
       deferred.resolveJson({ captures: [] })

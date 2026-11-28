@@ -1,10 +1,35 @@
-/**
- * Render the header with links to the radar, vector space and replay pages.
- * Props: clock.
- */
-export default function HeaderBar({ clock }) {
+import useClock from '../hooks/useClock.js'
+
+const PAGE_LINKS = [
+  { current: 'dashboard', label: 'DASHBOARD', href: '/' },
+  { current: 'radar', label: 'RADAR', href: '/radar' },
+  { current: 'vectordb', label: 'VECTOR SPACE', href: '/vectordb' },
+  { current: 'replay', label: 'REPLAY', href: '/replay' },
+]
+
+const LINK_STYLE = {
+  fontSize: '11px',
+  color: 'var(--neon-cyan)',
+  letterSpacing: '2px',
+  fontFamily: 'var(--font-data)',
+  textDecoration: 'none',
+  border: '1px solid var(--border)',
+  padding: '2px 8px',
+}
+
+const CURRENT_LINK_STYLE = {
+  ...LINK_STYLE,
+  border: '1px solid var(--neon-cyan)',
+  background: 'rgba(0, 255, 255, 0.08)',
+  color: 'var(--text-bright)',
+}
+
+/** Render shared page navigation, highlighting current, with a live clock. */
+export default function HeaderBar({ current }) {
+  const clock = useClock()
+
   return (
-    <div style={{
+    <nav aria-label="Main navigation" style={{
       display: 'flex',
       flexDirection: 'row',
       alignItems: 'center',
@@ -38,49 +63,16 @@ export default function HeaderBar({ clock }) {
         alignItems: 'center',
         gap: '16px',
       }}>
-        {/* Links to the standalone radar, vector space and replay pages. */}
-        <a
-          href="/radar"
-          style={{
-            fontSize: '11px',
-            color: 'var(--neon-cyan)',
-            letterSpacing: '2px',
-            fontFamily: 'var(--font-data)',
-            textDecoration: 'none',
-            border: '1px solid var(--border)',
-            padding: '2px 8px',
-          }}
-        >
-          RADAR
-        </a>
-        <a
-          href="/vectordb"
-          style={{
-            fontSize: '11px',
-            color: 'var(--neon-cyan)',
-            letterSpacing: '2px',
-            fontFamily: 'var(--font-data)',
-            textDecoration: 'none',
-            border: '1px solid var(--border)',
-            padding: '2px 8px',
-          }}
-        >
-          VECTOR SPACE
-        </a>
-        <a
-          href="/replay"
-          style={{
-            fontSize: '11px',
-            color: 'var(--neon-cyan)',
-            letterSpacing: '2px',
-            fontFamily: 'var(--font-data)',
-            textDecoration: 'none',
-            border: '1px solid var(--border)',
-            padding: '2px 8px',
-          }}
-        >
-          REPLAY
-        </a>
+        {PAGE_LINKS.map((link) => (
+          <a
+            key={link.current}
+            href={link.href}
+            aria-current={current === link.current ? 'page' : undefined}
+            style={current === link.current ? CURRENT_LINK_STYLE : LINK_STYLE}
+          >
+            {link.label}
+          </a>
+        ))}
         <span style={{
           fontSize: '11px',
           color: 'var(--text-dim)',
@@ -89,6 +81,6 @@ export default function HeaderBar({ clock }) {
           {clock}
         </span>
       </div>
-    </div>
+    </nav>
   )
 }

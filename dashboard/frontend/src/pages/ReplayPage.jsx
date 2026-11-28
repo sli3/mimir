@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import useCaptures from '../hooks/useCaptures.js'
 import useReplay from '../hooks/useReplay.js'
+import HeaderBar from '../components/HeaderBar.jsx'
 import './ReplayPage.css'
 
 /**
@@ -132,7 +133,7 @@ function FieldRow({ name, saved, replayed, match, deltaDb, delta, deltaFormat })
 }
 
 /**
- * Header bar shared by both picker and results views.
+ * Page title below the shared navigation in both picker and results views.
  */
 function Header() {
   return (
@@ -572,6 +573,7 @@ function ResultsView({ replayState, onBack }) {
  * picker (driven by useCaptures) and a results view (driven by useReplay),
  * switched locally by selectedFilename without a page reload.
  * Returning to the picker cancels any pending replay request first.
+ * Shared navigation and the page title remain above both views.
  *
  * Passive receive display only - no TX capability.
  */
@@ -604,6 +606,7 @@ export default function ReplayPage() {
 
   return (
     <div className="replay-shell">
+      <HeaderBar current="replay" />
       <Header />
       <main className="replay-body">
         {selectedFilename === null ? (
