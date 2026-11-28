@@ -12,8 +12,13 @@ function getFirstSeen(signalType, scanResults) {
   return '---'
 }
 
+/** Return whether the status starts with legal, regardless of case. */
+function isLegalStatus(status) {
+  return /^legal/i.test(status || '')
+}
+
 /**
- * Render the SignalDetailsPanel section.
+ * Render the SignalDetailsPanel section with legal statuses coloured green.
  * Props: displayed, systemStats, scanResults, operatorState, operatorConfig,
  * aiReasoning, operatorTooltipVisible, setOperatorTooltipVisible, operatorFocused,
  * setOperatorFocused.
@@ -118,7 +123,7 @@ export default function SignalDetailsPanel({
           { label: 'BANDWIDTH', value: displayed.bandwidth_hz != null && displayed.bandwidth_hz > 0 ? (displayed.bandwidth_hz / 1e6).toFixed(3) + ' MHz' : '---', color: 'var(--text-primary)' },
           { label: 'SPECTRAL FLATNESS', value: displayed.spectral_flatness != null ? displayed.spectral_flatness.toFixed(3) : '---', color: 'var(--text-primary)' },
           { label: 'CHROMA DISTANCE', value: displayed.chroma_distance != null ? displayed.chroma_distance.toFixed(3) : '---', color: 'var(--neon-magenta)' },
-          { label: 'AU LEGAL', value: displayed.au_legal_status || '---', color: (displayed.au_legal_status || '').includes('LEGAL') ? 'var(--neon-green)' : 'var(--neon-red)' },
+          { label: 'AU LEGAL', value: displayed.au_legal_status || '---', color: isLegalStatus(displayed.au_legal_status) ? 'var(--neon-green)' : 'var(--neon-red)' },
           { label: 'FIRST SEEN', value: getFirstSeen(displayed.signal_type, scanResults), color: 'var(--text-dim)' },
           { label: 'LAST SEEN', value: displayed.timestamp ? new Date(displayed.timestamp).toLocaleTimeString('en-AU', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '---', color: 'var(--neon-green)' },
         ].map((row, i) => (
