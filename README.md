@@ -134,7 +134,7 @@ Ctrl+C to cancel.
 ./mimir demo data/captures/<stem>.sigmf-meta   # replay a chosen capture
 ./mimir frontend                       # dashboard dev server on port 5173
 ./mimir tool                           # list the tools; SDR tools are marked
-./mimir tool inspect_snr --label AIS   # run a tool with its own options
+./mimir tool vectors snr --label AIS   # run a tool with its own options
 ./mimir test                           # pytest, then Vitest
 ```
 
@@ -182,7 +182,10 @@ only a quick-glance summary — update `docs/ROADMAP.md` first, then sync this b
 
 > **Note:** Phase 13 expanded embeddings from 6D to 7D. The production vector
 > store (`data/vectorstore/`) must be re-seeded after deploying this build.
-> Run `./mimir tool seed_chromadb` to wipe and re-seed.
+> The re-seed script is archived at `tools/archive/seed_chromadb.py` and is not
+> run by `./mimir tool`. It wipes `data/vectorstore` with no backup and no
+> confirmation, so run it by hand only when you mean to:
+> `env PYTHONPATH=. .venv-scan/bin/python -s tools/archive/seed_chromadb.py`.
 
 ---
 
@@ -514,16 +517,17 @@ mimir/
 │   ├── calibrate_thresholds.py        ← ChromaDB threshold calibration
 │   ├── capture_to_vectorstore.py      ← Live capture → production vector store
 │   ├── compare_decode_rate.py         ← HackRF vs Pluto ADS-B decode-rate comparison
-│   ├── delete_low_snr.py              ← Delete low-SNR vectors for one label
+│   ├── delete_low_snr.py              ← Compatibility wrapper for vectors snr
 │   ├── diagnose_fingerprints.py       ← Fingerprint diagnostics
 │   ├── diagnose_live.py               ← Live pipeline diagnostic (CLI)
 │   ├── diagnose_pluto_gain.py         ← Pluto gain calibration diagnostic
 │   ├── diagnose_threshold.py          ← Threshold diagnostics
 │   ├── generate_demo_cache.py         ← Demo-mode LLM response cache
-│   ├── inspect_snr.py                 ← Read-only SNR inspection of stored vectors
+│   ├── inspect_snr.py                 ← Compatibility wrapper for vectors snr
+│   ├── purge_noise_vectors.py         ← Compatibility wrapper for vectors purge-noise
 │   ├── replay_capture.py              ← Replay a saved SigMF capture (no hardware)
-│   ├── seed_chromadb.py               ← Seed ChromaDB with the RTL-ML dataset
-│   └── archive/                       ← Archived tools
+│   ├── vectors/                       ← Vector store maintenance: snr, purge-noise; never opens the SDR
+│   └── archive/                       ← Archived tools, including seed_chromadb.py
 ├── config/
 │   └── mimir.yaml                     ← Runtime configuration
 ├── tests/
