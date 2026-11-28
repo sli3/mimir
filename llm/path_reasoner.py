@@ -166,8 +166,8 @@ class PathReasoner:
         Args:
             base_url    : Base URL of the local LLM server (OpenAI-compatible).
                           Callers pass llm_url from config/mimir.yaml, or
-                          MIMIR_LLM_URL in scan.py. An empty value means no
-                          endpoint is configured.
+                          MIMIR_LLM_URL as in scan.py and the dashboard.
+                          An empty value means no endpoint is configured.
             model       : Model name to pass to the API.
             temperature : LLM temperature. Kept low (0.1) like the classifier —
                           narration should be consistent, not creative.

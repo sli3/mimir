@@ -44,6 +44,7 @@ CONSTRAINTS
 """
 
 import logging
+import os
 import threading
 import time
 from pathlib import Path
@@ -151,10 +152,13 @@ def _get_signal_store():
 def _get_path_reasoner() -> PathReasoner:
     """Return the shared PathReasoner instance, creating it lazily.
 
-    Configured from load_config() on first use (LLM URL plus the Phase 53
-    llm_reason_timeout_sec / llm_reason_cooldown_sec keys). If the config
-    file cannot be loaded, falls back to an unconfigured PathReasoner that
-    always serves a well-formed "unavailable" answer.
+    Read MIMIR_LLM_URL once, at first use, to override the configured LLM
+    URL, even when the variable is empty. The cached singleton does not
+    read it per request. load_config() supplies the Phase 53
+    llm_reason_timeout_sec / llm_reason_cooldown_sec keys. If config loading
+    fails, use the override with default reasoner settings; an unset or
+    empty override leaves the reasoner unconfigured and serving a
+    well-formed "unavailable" answer.
 
     Returns:
         PathReasoner: The singleton reasoner instance.
@@ -167,17 +171,19 @@ def _get_path_reasoner() -> PathReasoner:
                     from core.config.loader import load_config
                     cfg = load_config()
                     _path_reasoner = PathReasoner(
-                        base_url=cfg.llm_url,
+                        base_url=os.environ.get("MIMIR_LLM_URL", cfg.llm_url),
                         cooldown_sec=cfg.llm_reason_cooldown_sec,
                         timeout_sec=cfg.llm_reason_timeout_sec,
                     )
                 except Exception as exc:
                     logger.warning(
-                        "Config load failed for PathReasoner (%s) — "
-                        "using an unconfigured reasoner that always returns "
-                        "unavailable", exc,
+                        "Config load failed for PathReasoner (%s); "
+                        "using default reasoner settings with MIMIR_LLM_URL "
+                        "if set", exc,
                     )
-                    _path_reasoner = PathReasoner()
+                    _path_reasoner = PathReasoner(
+                        base_url=os.environ.get("MIMIR_LLM_URL", ""),
+                    )
     return _path_reasoner
 
 

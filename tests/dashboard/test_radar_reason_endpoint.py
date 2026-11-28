@@ -10,6 +10,7 @@ Run with:
 """
 
 import json
+from collections.abc import Iterator
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -74,6 +75,56 @@ def real_reasoner():
         yield server._path_reasoner
     finally:
         server._path_reasoner = original
+
+
+@pytest.fixture
+def cleared_reasoner() -> Iterator[None]:
+    """Clear the cached reasoner for initialisation and restore it afterwards."""
+    original = server._path_reasoner
+    server._path_reasoner = None
+    try:
+        yield
+    finally:
+        server._path_reasoner = original
+
+
+def test_reasoner_environment_url_overrides_config(
+    monkeypatch: pytest.MonkeyPatch, cleared_reasoner: None,
+) -> None:
+    """Use the environment endpoint when both config and override are set."""
+    monkeypatch.setenv("MIMIR_LLM_URL", "http://localhost:9090/v1")
+    cfg = MagicMock(
+        llm_url="http://localhost:8080/v1",
+        llm_reason_cooldown_sec=60.0,
+        llm_reason_timeout_sec=45.0,
+    )
+    with patch("core.config.loader.load_config", return_value=cfg):
+        assert server._get_path_reasoner()._base_url == "http://localhost:9090/v1"
+
+
+def test_reasoner_config_url_without_environment_override(
+    monkeypatch: pytest.MonkeyPatch, cleared_reasoner: None,
+) -> None:
+    """Use the configured endpoint when the environment override is unset."""
+    monkeypatch.delenv("MIMIR_LLM_URL", raising=False)
+    cfg = MagicMock(
+        llm_url="http://localhost:8080/v1",
+        llm_reason_cooldown_sec=60.0,
+        llm_reason_timeout_sec=45.0,
+    )
+    with patch("core.config.loader.load_config", return_value=cfg):
+        assert server._get_path_reasoner()._base_url == "http://localhost:8080/v1"
+
+
+def test_reasoner_environment_url_when_config_fails(
+    monkeypatch: pytest.MonkeyPatch, cleared_reasoner: None,
+) -> None:
+    """Keep the environment endpoint available when config loading fails."""
+    monkeypatch.setenv("MIMIR_LLM_URL", "http://localhost:9090/v1")
+    with patch(
+        "core.config.loader.load_config", side_effect=ValueError("bad config"),
+    ):
+        assert server._get_path_reasoner()._base_url == "http://localhost:9090/v1"
 
 
 class TestValidPayloads:
