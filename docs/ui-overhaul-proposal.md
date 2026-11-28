@@ -122,7 +122,8 @@ renames or merges a SocketIO event or field. Any card that touches the radar
 rates must keep the naming trap in mind: `delta_r_deg_per_sec` is the bearing
 rate in deg/s, and `deltaRNmPerSec` is the range rate in nm/s.
 
-1. **Shared nav bar.**
+1. **Shared nav bar.** Built 2026-11-28 as rf#97, by turning `HeaderBar.jsx`
+   into the shared bar rather than adding a new component.
    - Scope: a new nav component, used by `DashboardPage`, `RadarPage`,
      `VectorSpacePage` and `ReplayPage`; `HeaderBar.jsx` slimmed.
    - Browser check: each page shows the bar with its own link highlighted;
