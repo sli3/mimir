@@ -28,7 +28,7 @@ const OFFLINE_REASONING = {
   confidence: 'low',
   confidence_score: 0.0,
   au_legal_status: 'UNKNOWN',
-  reasoning: 'LLM server offline at http://192.168.0.66:8080/v1. Cooldown active — next retry in 42 s.',
+  reasoning: 'LLM server offline at http://localhost:8080/v1. Cooldown active — next retry in 42 s. Check that the LLM server set by llm_url in config/mimir.yaml (or MIMIR_LLM_URL) is running and reachable.',
   timestamp: '2026-06-03T12:30:00.000Z',
 }
 
