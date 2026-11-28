@@ -18,12 +18,13 @@ import React, { useEffect, useRef, useState } from 'react'
  *      structured cause the fetch wrapper attaches (see ERROR_MESSAGES).
  *
  * Lifecycle guards (the sharp edges of this state machine):
- *   a. Reset to idle whenever the selected ICAO changes — a stale
- *      verdict for aircraft A must never display against aircraft B.
+ *   a. Reset to idle during render whenever the selected ICAO changes,
+ *      before a stale verdict for aircraft A can display against aircraft B.
  *   b. Every fetch carries an AbortController; the in-flight request is
  *      aborted when the ICAO changes or the component unmounts.
  *   c. A late response (resolving after the ICAO changed) is dropped:
- *      the request's captured ICAO is compared against a live ref.
+ *      the request's captured ICAO is compared against a ref updated in
+ *      an effect before the selection-change abort effect.
  *   d. No setState after unmount: a mounted ref is checked before every
  *      state transition in the async continuation.
  *
@@ -73,8 +74,7 @@ const ERROR_MESSAGES = {
 }
 const ERROR_MESSAGE_GENERIC = 'LLM unavailable'
 
-// Module-level constant so the reset effect can setState with an
-// identical reference on mount and React bails out of the no-op update.
+// Shared initial and selection-reset state for the request lifecycle.
 const IDLE_STATE = { status: 'idle' }
 
 /**
@@ -166,6 +166,13 @@ export default function LlmReasoningPanel({
 }) {
   const [state, setState] = useState(IDLE_STATE)
   const [loadingMessage, setLoadingMessage] = useState(LOADING_MESSAGE)
+  const [prevIcao, setPrevIcao] = useState(icao)
+
+  // Guard (a): reset before committing a changed selection, never on mount.
+  if (prevIcao !== icao) {
+    setPrevIcao(icao)
+    setState(IDLE_STATE)
+  }
 
   // Guard (d): no setState after unmount. Flipped false by the unmount
   // cleanup below and checked before every async state transition.
@@ -173,13 +180,12 @@ export default function LlmReasoningPanel({
   // Guard (b): the in-flight request's controller, so a new selection or
   // an unmount can abort it.
   const abortRef = useRef(null)
-  // Guard (c): live mirror of the icao prop, so an async continuation can
-  // compare the CURRENT selection against the selection the request was
-  // fired for. Assigned during render — writing a ref in render is safe
-  // here because the value is only read from async callbacks, never
-  // during render itself.
+  // Guard (c): mirror the committed selection before the abort effect so
+  // async continuations can compare it with their request's captured ICAO.
   const icaoRef = useRef(icao)
-  icaoRef.current = icao
+  useEffect(() => {
+    icaoRef.current = icao
+  }, [icao])
 
   // Unmount: mark unmounted and abort any in-flight request.
   useEffect(() => {
@@ -189,14 +195,12 @@ export default function LlmReasoningPanel({
     }
   }, [])
 
-  // Guard (a) + (b) on selection change: reset to idle and abort the
-  // in-flight request whenever the selected ICAO changes. Runs on mount
-  // too; the reset is a no-op there because IDLE_STATE is reference-equal
-  // to the current state and React bails out.
+  // Guard (b): abort and release the previous selection's controller.
+  // The render-time adjustment above handles the idle reset; this effect
+  // also runs on mount, when there is no in-flight request to abort.
   useEffect(() => {
     abortRef.current?.abort()
     abortRef.current = null
-    setState(IDLE_STATE)
   }, [icao])
 
   // Two-stage loading message: escalate the copy after

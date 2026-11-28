@@ -1,39 +1,20 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import React, { useEffect, useState } from 'react'
+import { render, screen, fireEvent, waitFor, renderHook } from '@testing-library/react'
+import React from 'react'
 import RawDecodePanel from '../components/RawDecodePanel.jsx'
 import FrameInspectorPanel from '../components/FrameInspectorPanel.jsx'
+import useFrameInspector from '../hooks/useFrameInspector.js'
 
 // UI-OVERHAUL (Change 6): the FRAME INSPECTOR block was extracted from
 // AdsbAircraftPanel into FrameInspectorPanel, and the pinnedFrame /
 // frameData state plus the /api/adsb/parse effect live in
 // hooks/useFrameInspector.js, used by pages/DashboardPage.jsx.
-// The harness below replicates that dashboard-level wiring (including the fetch
-// effect) so the pin/unpin and auto-fetch behaviours are tested through
-// the same state flow the real dashboard uses.
+// The harness uses the production hook so pin/unpin, auto-fetch and clearing
+// behaviour follow the same state flow as the dashboard.
 
+/** Wire both decode panels to the production frame-inspector hook. */
 function Harness({ adsbRawLog }) {
-  const [rawView, setRawView] = useState('hex')
-  const [pinnedFrame, setPinnedFrame] = useState(null)
-  const [frameData, setFrameData] = useState(null)
-
-  const targetHex = pinnedFrame ? pinnedFrame.raw_hex : adsbRawLog[0]?.raw_hex ?? null
-
-  useEffect(() => {
-    if (targetHex === null) {
-      // Fetch effect clearing stale data when there's nothing to fetch,
-      // not derived state — no update-loop risk, this only runs on the
-      // "nothing to look up" branch.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setFrameData(null)
-      return
-    }
-
-    fetch(`/api/adsb/parse?hex=${targetHex}`)
-      .then((r) => r.json())
-      .then(setFrameData)
-      .catch(() => setFrameData(null))
-  }, [targetHex])
+  const { rawView, setRawView, pinnedFrame, setPinnedFrame, frameData } = useFrameInspector(adsbRawLog)
 
   return (
     <>
@@ -78,6 +59,46 @@ describe('AdsbFrameInspector', () => {
   })
 
   describe('frame fetching', () => {
+    it('clears parsed data immediately when the target hex becomes null', async () => {
+      const data = { df: 17, icao: '7C1CA5', fields: { Altitude: '35000 ft' } }
+      const fetchMock = vi.fn(() => Promise.resolve({ json: async () => data }))
+      vi.stubGlobal('fetch', fetchMock)
+      try {
+        const { result, rerender } = renderHook(
+          ({ log }) => useFrameInspector(log),
+          { initialProps: { log: [{ raw_hex: '8D7C1CA5902136CF' }] } }
+        )
+        await waitFor(() => expect(result.current.frameData).toEqual(data))
+
+        rerender({ log: [] })
+        expect(result.current.frameData).toBeNull()
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    })
+
+    it('hides the previous parsed frame while a different target is loading', async () => {
+      const data = { df: 17, icao: '7C1CA5', fields: {} }
+      const fetchMock = vi.fn()
+        .mockResolvedValueOnce({ json: async () => data })
+        .mockImplementationOnce(() => new Promise(() => {}))
+      vi.stubGlobal('fetch', fetchMock)
+      try {
+        const { result, rerender } = renderHook(
+          ({ log }) => useFrameInspector(log),
+          { initialProps: { log: [{ raw_hex: '8D7C1CA5902136CF' }] } }
+        )
+        await waitFor(() => expect(result.current.frameData).toEqual(data))
+
+        rerender({ log: [{ raw_hex: '8D406B902015A678D4D220AA4BDA' }] })
+        expect(result.current.frameData).toBeNull()
+        expect(fetchMock).toHaveBeenCalledTimes(2)
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    })
+
     it('test_frame_inspector_fetches_newest_frame_automatically', async () => {
       const mockFrameData = {
         df: 17,
@@ -110,7 +131,7 @@ describe('AdsbFrameInspector', () => {
 
       // Wait for the resolved frame data to actually render. This is the
       // real synchronisation point: it only becomes true after
-      // setFrameData has run inside the promise chain, so it correctly
+      // the parsed result has been stored inside the promise chain, so it correctly
       // captures that state update inside act() via RTL's waitFor
       // (NOT vi.waitFor, which is React/act-unaware and does not help
       // here — see https://github.com/vitest-dev/vitest/discussions/7062).

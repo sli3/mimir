@@ -22,18 +22,21 @@ function elapsedSeconds(receivedAt) {
  * ADS-B aircraft tracking panel.
  * Shows active aircraft in a table with previously-seen aircraft below.
  * When both lists are empty, shows a listening or not-tuned message based
- * on the currently tuned frequency. Refreshes elapsed seconds every second.
+ * on the currently tuned frequency. A lazy clock initialiser and a one-second
+ * interval keep elapsed-seconds readouts advancing without new aircraft data.
  *
  * @param {Object} adsbAircraft - Map of ICAO address -> aircraft state
  * @param {Array}  adsbAircraftHistory - Recently departed aircraft (ring buffer)
  * @param {number|null} focusedFreq - Currently tuned frequency in Hz
  */
 export default function AdsbAircraftPanel({ adsbAircraft = {}, adsbAircraftHistory = [], focusedFreq }) {
-  const [now, setNow] = useState(Date.now())
+  const [now, setNow] = useState(() => Date.now())
   const isAdsbFreq = focusedFreq && (
     Math.abs(focusedFreq - 1_090_000_000) <= 2_000_000
   )
 
+  // elapsedSeconds() reads Date.now() directly; this interval's re-render
+  // is what advances both tables' seconds-ago text, even though now is unused.
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(timer)

@@ -186,4 +186,42 @@ describe('SpectrometerBar', () => {
     fireEvent.click(canvas, { clientX: 290, clientY: 32, bubbles: true })
     expect(mockFocusFrequency).not.toHaveBeenCalled()
   })
+
+  it('clears a placed crosshair on a band change and keeps it cleared on return', () => {
+    const mockCtx = {
+      fillRect: vi.fn(),
+      beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      stroke: vi.fn(),
+      setLineDash: vi.fn(),
+      fillText: vi.fn(),
+      measureText: vi.fn(() => ({ width: 50 })),
+    }
+    const contextSpy = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(mockCtx)
+    try {
+      const { container, rerender } = render(
+        <SpectrometerBar spectrumUpdates={[]} focusedFreq={98000000} />
+      )
+      const canvas = container.querySelector('canvas')
+      canvas.width = 300
+      canvas.height = 64
+      canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 300, height: 64 })
+
+      fireEvent.click(canvas, { clientX: 225, clientY: 32 })
+      expect(mockCtx.setLineDash).toHaveBeenCalledWith([3, 3])
+      expect(mockCtx.fillText).toHaveBeenCalledWith('98.500 MHz', expect.any(Number), 24)
+
+      // Inspect only the redraw after each change, including returning to FM.
+      for (const focusedFreq of [1090000000, 98000000]) {
+        mockCtx.setLineDash.mockClear()
+        mockCtx.fillText.mockClear()
+        rerender(<SpectrometerBar spectrumUpdates={[]} focusedFreq={focusedFreq} />)
+        expect(mockCtx.setLineDash).not.toHaveBeenCalledWith([3, 3])
+        expect(mockCtx.fillText).not.toHaveBeenCalledWith('98.500 MHz', expect.any(Number), 24)
+      }
+    } finally {
+      contextSpy.mockRestore()
+    }
+  })
 })

@@ -51,6 +51,8 @@ const r2 = (n) => Number(n.toFixed(2))
  * position data (e.g. callsign/altitude/velocity-only ADS-B messages),
  * the passthrough branch re-renders the aircraft from its last known
  * position, preventing flicker while keeping the stored trail untouched.
+ * The deliberate shared trail Map is updated in the contacts memo and read
+ * when rendering predictions, with local react-hooks/refs exemptions.
  *
  * @param {Object} adsbAircraft - Map of ICAO address -> aircraft state
  * @param {number|null} focusedFreq - Currently tuned frequency in Hz
@@ -149,6 +151,7 @@ export default function RadarScopePanel({
   // This is a deliberate departure from normal React purity conventions —
   // flagged explicitly so a code reviewer doesn't read it as an
   // accidental anti-pattern.
+  /* eslint-disable react-hooks/refs -- Deliberate shared trail Map design: update history in the memo before both panels render. */
   const contacts = useMemo(() => {
     const trails = trailsRef.current
     const liveIcaos = new Set(Object.keys(adsbAircraft))
@@ -246,6 +249,7 @@ export default function RadarScopePanel({
     }
     return result
   }, [adsbAircraft, maxRangeNm])
+  /* eslint-enable react-hooks/refs */
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -276,6 +280,7 @@ export default function RadarScopePanel({
               </filter>
             </defs>
             {chrome}
+            {/* eslint-disable react-hooks/refs -- Deliberate shared trail Map design: render predictions from the same history as PathPredictionPanel. */}
             {contacts.map((ac) => {
               const showTrail = ac.trailPoints.length > 0
               const n = ac.trailPoints.length
@@ -627,6 +632,7 @@ export default function RadarScopePanel({
                 </g>
               )
             })}
+            {/* eslint-enable react-hooks/refs */}
           </svg>
         </div>
       )}

@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { render, screen, act } from '@testing-library/react'
 import React from 'react'
 import AdsbAircraftPanel from '../components/AdsbAircraftPanel.jsx'
 
@@ -12,7 +12,31 @@ const makeAircraft = (icao, callsign = null) => ({
   receivedAt: Date.now(),
 })
 
+afterEach(() => {
+  vi.useRealTimers()
+})
+
 describe('AdsbAircraftPanel — previously seen section', () => {
+  it('advances seconds-ago text in both tables without new aircraft data', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-11-28T06:00:00Z'))
+    const active = makeAircraft('ABC123', 'QFA1')
+    const old = makeAircraft('XYZ789', 'JST4')
+    render(
+      <AdsbAircraftPanel
+        adsbAircraft={{ ABC123: active }}
+        adsbAircraftHistory={[old]}
+        focusedFreq={1090000000}
+      />
+    )
+
+    expect(screen.getAllByText('0s')).toHaveLength(2)
+    // The component's interval must re-render even when its props stay fixed.
+    act(() => { vi.advanceTimersByTime(3000) })
+    expect(screen.getAllByText('3s')).toHaveLength(2)
+    expect(screen.queryByText('0s')).not.toBeInTheDocument()
+  })
+
   it('does not render PREVIOUSLY SEEN when history is empty', () => {
     render(
       <AdsbAircraftPanel

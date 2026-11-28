@@ -54,7 +54,8 @@ const HIGH_TURN_RATE_DEG_PER_SEC = 3.0
  * @param {Object} adsbAircraft - Map of ICAO address -> aircraft state
  * @param {string|null} selectedIcao - Currently selected ICAO address
  * @param {Object} trailsRef - Read-only access to the shared
- *   Map<icao, trail[]> owned (and solely written) by RadarScopePanel
+ *   Map<icao, trail[]> owned by RadarPage and solely written by RadarScopePanel.
+ *   Its deliberate render-time read has a local react-hooks/refs exemption.
  * @param {number} maxRangeNm - Maximum displayed range, in nautical
  *   miles. Only used for the "has a current position" guard, mirroring
  *   the valid-contact rule the scope and detail panel apply.
@@ -88,6 +89,7 @@ export default function PathPredictionPanel({
     // the sole writer. This component only ever reads the Map, so no
     // cross-component write race can exist. Optional chaining covers an
     // explicit null trailsRef, which the prop default does not.
+    // eslint-disable-next-line react-hooks/refs -- Deliberate shared trail Map design: read the history maintained by RadarScopePanel.
     const history = trailsRef?.current?.get(selectedIcao)
     const vector = derivePredictionVector(history)
     if (!vector) return { history, vector: null, projected: null }

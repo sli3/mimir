@@ -17,19 +17,24 @@ function findLatestSpectrum(spectrumUpdates, focusedFreq) {
   return null
 }
 
+/** Draw the spectrum and a display-only crosshair, cleared on a band change. */
 export default function SpectrometerBar({ spectrumUpdates, focusedFreq, focusFrequency }) {
   const containerRef = useRef(null)
   const canvasRef = useRef(null)
-  const crosshairXRef = useRef(null)
-  const crosshairFreqRef = useRef(null)
-  const [crosshairVersion, setCrosshairVersion] = useState(0)
+  const [crosshair, setCrosshair] = useState(null)
   const canvasSize = useCanvasSize(canvasRef)
+
+  // Discard the previous band's cursor before drawing, including a later return
+  // to that band. This guarded state adjustment never reads a ref in render.
+  if (crosshair !== null && crosshair.focusedFreq !== focusedFreq) {
+    setCrosshair(null)
+  }
 
   /**
    * Handle a click on the spectrometer canvas.
    *
    * The click computes the raw frequency at the clicked pixel position and
-   * draws a crosshair + frequency label as a display-only cursor.  Clicking
+   * stores a band-keyed crosshair for an immediate redraw. Clicking
    * NEVER changes the focus frequency — the crosshair is a read tool only.
    */
   const handleClick = useCallback((e) => {
@@ -43,16 +48,7 @@ export default function SpectrometerBar({ spectrumUpdates, focusedFreq, focusFre
     // This is a display-only frequency cursor — no focusFrequency() call.
     const relativeX = x / width
     const rawFreq = focusedFreq + (relativeX - 0.5) * SAMPLE_RATE_HZ
-    crosshairXRef.current = x
-    crosshairFreqRef.current = rawFreq
-    setCrosshairVersion((v) => v + 1)   // force immediate canvas redraw
-  }, [focusedFreq])
-
-  // Clear the crosshair cursor when the band changes.
-  useEffect(() => {
-    crosshairXRef.current = null
-    crosshairFreqRef.current = null
-    setCrosshairVersion((v) => v + 1)
+    setCrosshair({ x, frequency: rawFreq, focusedFreq })
   }, [focusedFreq])
 
   useEffect(() => {
@@ -107,8 +103,8 @@ export default function SpectrometerBar({ spectrumUpdates, focusedFreq, focusFre
       ctx.stroke()
     }
 
-    if (crosshairXRef.current !== null) {
-      const cx = crosshairXRef.current
+    if (crosshair !== null && crosshair.focusedFreq === focusedFreq) {
+      const cx = crosshair.x
       ctx.beginPath()
       ctx.setLineDash([3, 3])
       ctx.moveTo(cx, 0)
@@ -118,8 +114,8 @@ export default function SpectrometerBar({ spectrumUpdates, focusedFreq, focusFre
       ctx.stroke()
       ctx.setLineDash([])
       // Frequency label
-      if (crosshairFreqRef.current !== null) {
-        const freqLabel = (crosshairFreqRef.current / 1e6).toFixed(3) + ' MHz'
+      if (crosshair.frequency !== null) {
+        const freqLabel = (crosshair.frequency / 1e6).toFixed(3) + ' MHz'
         ctx.font = '11px monospace'
         const labelWidth = ctx.measureText(freqLabel).width
         // Keep label inside canvas: right of line unless too close to right edge,
@@ -150,7 +146,7 @@ export default function SpectrometerBar({ spectrumUpdates, focusedFreq, focusFre
       const centerWidth = ctx.measureText(center).width
       ctx.fillText(center, (width - centerWidth) / 2, 14)
     }
-  }, [spectrumUpdates, focusedFreq, canvasSize, crosshairVersion])
+  }, [spectrumUpdates, focusedFreq, canvasSize, crosshair])
 
   return (
     <div

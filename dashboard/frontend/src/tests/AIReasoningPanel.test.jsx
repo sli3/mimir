@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { render, screen, act } from '@testing-library/react'
 import React from 'react'
 import AIReasoningPanel from '../components/AIReasoningPanel.jsx'
 
@@ -43,7 +43,69 @@ const UNAVAILABLE_REASONING = {
   timestamp: '2026-06-03T12:30:00.000Z',
 }
 
+afterEach(() => {
+  vi.useRealTimers()
+})
+
 describe('AIReasoningPanel', () => {
+  it('displays the first entry immediately and replaces a new timestamp after 200 ms', () => {
+    vi.useFakeTimers()
+    const { container, rerender } = render(<AIReasoningPanel aiReasoning={EMPTY_REASONING} />)
+    rerender(<AIReasoningPanel aiReasoning={SAMPLE_REASONING} />)
+    expect(screen.getByText(SAMPLE_REASONING.reasoning)).toBeInTheDocument()
+    expect(container.firstChild.firstChild.style.opacity).toBe('1')
+
+    const next = {
+      ...SAMPLE_REASONING,
+      timestamp: '2026-06-03T12:30:01.000Z',
+      reasoning: 'A new classification entry.',
+    }
+    rerender(<AIReasoningPanel aiReasoning={next} />)
+    expect(container.firstChild.firstChild.style.opacity).toBe('0')
+    act(() => { vi.advanceTimersByTime(199) })
+    expect(screen.getByText(SAMPLE_REASONING.reasoning)).toBeInTheDocument()
+    expect(screen.queryByText(next.reasoning)).not.toBeInTheDocument()
+    act(() => { vi.advanceTimersByTime(1) })
+    expect(screen.getByText(next.reasoning)).toBeInTheDocument()
+    expect(container.firstChild.firstChild.style.opacity).toBe('1')
+  })
+
+  it('keeps equal-timestamp updates from changing the display or restarting a pending fade', () => {
+    vi.useFakeTimers()
+    const { container, rerender } = render(<AIReasoningPanel aiReasoning={SAMPLE_REASONING} />)
+    rerender(<AIReasoningPanel aiReasoning={{ ...SAMPLE_REASONING, reasoning: 'Same timestamp.' }} />)
+    expect(screen.getByText(SAMPLE_REASONING.reasoning)).toBeInTheDocument()
+    expect(container.firstChild.firstChild.style.opacity).toBe('1')
+
+    const next = {
+      ...SAMPLE_REASONING,
+      timestamp: '2026-06-03T12:30:01.000Z',
+      reasoning: 'The next entry.',
+    }
+    rerender(<AIReasoningPanel aiReasoning={next} />)
+    act(() => { vi.advanceTimersByTime(100) })
+    // A fresh object with the same timestamp must leave the timer running.
+    rerender(<AIReasoningPanel aiReasoning={{ ...next, reasoning: 'Equal-timestamp replacement.' }} />)
+    act(() => { vi.advanceTimersByTime(100) })
+    expect(screen.getByText(next.reasoning)).toBeInTheDocument()
+    expect(screen.queryByText('Equal-timestamp replacement.')).not.toBeInTheDocument()
+    expect(container.firstChild.firstChild.style.opacity).toBe('1')
+  })
+
+  it('cancels a pending fade when reasoning clears and displays the next first entry immediately', () => {
+    vi.useFakeTimers()
+    const { container, rerender } = render(<AIReasoningPanel aiReasoning={SAMPLE_REASONING} />)
+    rerender(<AIReasoningPanel aiReasoning={{ ...OFFLINE_REASONING, timestamp: '2026-06-03T12:30:01.000Z' }} />)
+    rerender(<AIReasoningPanel aiReasoning={null} />)
+    expect(screen.getByText('AWAITING SIGNAL...')).toBeInTheDocument()
+    act(() => { vi.advanceTimersByTime(200) })
+    expect(screen.getByText('AWAITING SIGNAL...')).toBeInTheDocument()
+
+    rerender(<AIReasoningPanel aiReasoning={SAMPLE_REASONING} />)
+    expect(screen.getByText(SAMPLE_REASONING.reasoning)).toBeInTheDocument()
+    expect(container.firstChild.firstChild.style.opacity).toBe('1')
+  })
+
   it('renders placeholder when aiReasoning signal_type is null', () => {
     render(
       <AIReasoningPanel

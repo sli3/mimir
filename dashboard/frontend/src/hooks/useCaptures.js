@@ -8,13 +8,13 @@ import { useCallback, useEffect, useRef, useState } from 'react'
  * .sigmf-data files are never requested by this endpoint.
  *
  * State shape:
- *   { status: 'idle' }
- *   { status: 'loading' }
+ *   { status: 'loading' } (initial state and explicit refetch)
  *   { status: 'ok', captures: [...] }
  *   { status: 'failure', message: str }
  *
  * The hook owns the fetch lifecycle and aborts any in-flight request
- * on unmount, matching the useCapture.js AbortController pattern.
+ * on unmount, matching the useCapture.js AbortController pattern. The mount
+ * fetch starts from the initial loading state; only refetch sets it again.
  *
  * @returns {{
  *   state: object,
@@ -23,7 +23,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
  * }}
  */
 export default function useCaptures() {
-  const [state, setState] = useState({ status: 'idle' })
+  const [state, setState] = useState({ status: 'loading' })
   const mountedRef = useRef(true)
   const abortRef = useRef(null)
 
@@ -37,13 +37,13 @@ export default function useCaptures() {
     }
   }, [])
 
+  // Shared request lifecycle; callers decide whether loading needs setting.
   const fetchCaptures = useCallback(() => {
     if (abortRef.current) {
       abortRef.current.abort()
     }
     const controller = new AbortController()
     abortRef.current = controller
-    setState({ status: 'loading' })
 
     fetch('/api/captures', { signal: controller.signal })
       .then(async (res) => {
@@ -85,11 +85,17 @@ export default function useCaptures() {
     fetchCaptures()
   }, [fetchCaptures])
 
+  // User-triggered retries keep the loading transition outside the mount effect.
+  const refetch = useCallback(() => {
+    setState({ status: 'loading' })
+    fetchCaptures()
+  }, [fetchCaptures])
+
   const loading = state.status === 'loading'
 
   return {
     state,
     loading,
-    refetch: fetchCaptures,
+    refetch,
   }
 }

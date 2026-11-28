@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 
 function formatTimestamp(ts) {
   if (!ts) return ''
@@ -20,8 +20,9 @@ function confidenceColour(confidence) {
  *
  *  Shows "AWAITING SIGNAL..." when no reasoning data is available (placeholder).
  *
- *  The component fades out (opacity 0→1 transition) when the reasoning
- *  entry changes, unless a pin override supresses the transition.
+ *  The first entry displays immediately. A new timestamp fades the old entry
+ *  out, waits 200 ms, then replaces it and fades back in (opacity 0 to 1).
+ *  Equal timestamps leave the display and any pending fade unchanged.
  *
  *  @param {{ aiReasoning: object, isPinned?: boolean }} props
  *  @param {object} props.aiReasoning — the reasoning data object (keys:
@@ -35,34 +36,38 @@ function confidenceColour(confidence) {
 export default function AIReasoningPanel({ aiReasoning, isPinned = false, onUnpin }) {
   const [opacity, setOpacity] = useState(1)
   const [displayData, setDisplayData] = useState(null)
-  const prevReasoningRef = useRef(null)
+  const [prevReasoning, setPrevReasoning] = useState(null)
+  const reasoning = !aiReasoning || aiReasoning.signal_type === null ? null : aiReasoning
 
+  // Adjust this component's state before committing a changed entry. Keeping
+  // the previous reasoning in state avoids reading or writing refs in render.
+  if (reasoning === null && prevReasoning !== null) {
+    setPrevReasoning(null)
+    setDisplayData(null)
+    setOpacity(1)
+  } else if (reasoning !== null && (
+    prevReasoning === null || reasoning.timestamp !== prevReasoning.timestamp
+  )) {
+    setPrevReasoning(reasoning)
+    if (prevReasoning === null) {
+      setDisplayData(reasoning)
+      setOpacity(1)
+    } else {
+      setOpacity(0)
+    }
+  }
+
+  // Only the timeout callback updates state here. Stable previous reasoning
+  // keeps equal-timestamp prop objects from cancelling or restarting a fade.
   useEffect(() => {
-    if (!aiReasoning || aiReasoning.signal_type === null) {
-      setDisplayData(null)
-      setOpacity(1)
-      prevReasoningRef.current = null
-      return
-    }
-
-    if (prevReasoningRef.current === null) {
-      setDisplayData(aiReasoning)
-      setOpacity(1)
-      prevReasoningRef.current = aiReasoning
-      return
-    }
-
-    if (aiReasoning.timestamp === prevReasoningRef.current.timestamp) return
-
-    setOpacity(0)
+    if (opacity !== 0 || prevReasoning === null) return
     const timer = setTimeout(() => {
-      setDisplayData(aiReasoning)
+      setDisplayData(prevReasoning)
       setOpacity(1)
     }, 200)
-    prevReasoningRef.current = aiReasoning
 
     return () => clearTimeout(timer)
-  }, [aiReasoning])
+  }, [prevReasoning, opacity])
 
   const placeholder = !displayData || !displayData.signal_type
   const isConfirmedDecode = displayData?.source === 'decode'
