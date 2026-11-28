@@ -128,7 +128,7 @@ rate in deg/s, and `deltaRNmPerSec` is the range rate in nm/s.
    - Browser check: each page shows the bar with its own link highlighted;
      every link opens the right page; the dashboard header still shows the
      logo and clock.
-2. **AU LEGAL colour fix.**
+2. **AU LEGAL colour fix.** Built 2026-11-28 as rf#96.
    - Scope: `SignalDetailsPanel.jsx`, plus a Vitest case for a lower-case
      `legal_rx` value.
    - Browser check: on the demo, AU LEGAL `legal_rx` shows green.
