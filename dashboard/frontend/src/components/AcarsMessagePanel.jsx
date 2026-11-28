@@ -1,8 +1,6 @@
-import React from 'react'
 
 const neonGreen = '#00ff41'
 const neonPink = '#ff0055'
-const textDim = '#8899aa'
 
 /**
  * AcarsMessagePanel — renders decoded ACARS messages and raw decode log.

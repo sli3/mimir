@@ -1,4 +1,3 @@
-import React from 'react'
 
 /**
  * Record button for the main spectrum view (Phase 68).

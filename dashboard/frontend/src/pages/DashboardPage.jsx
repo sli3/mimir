@@ -18,14 +18,13 @@ import DecodedSignalsRow from '../components/DecodedSignalsRow.jsx'
 import SignalDetailsPanel from '../components/SignalDetailsPanel.jsx'
 import SystemStatusPanel from '../components/SystemStatusPanel.jsx'
 
-/** Render the dashboard, owning its hooks, state and interaction callbacks. */
+/** Render the dashboard, owning its display state and interaction callbacks. */
 export default function DashboardPage() {
   const socket = useSocket()
   const {
     scanResults,
     spectrumUpdates,
     systemStats,
-    device,
     unsupportedBands,           // Phase 38 — device-aware band UI
     focusedFreq,
     focusFrequency,

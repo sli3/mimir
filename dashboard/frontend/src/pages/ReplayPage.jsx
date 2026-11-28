@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import useCaptures from '../hooks/useCaptures.js'
 import useReplay from '../hooks/useReplay.js'
 import './ReplayPage.css'

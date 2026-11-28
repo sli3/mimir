@@ -1,4 +1,3 @@
-import React from 'react'
 
 /**
  * Convert a hex string to space-separated 8-bit binary groups.

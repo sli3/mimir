@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react'
+import { useRef, useState, useCallback, useEffect, useMemo } from 'react'
 import { useSocket } from '../hooks/useSocket.js'
 import { useCanvasSize } from '../hooks/useCanvasSize.js'
 import { useWaterfall } from '../hooks/useWaterfall.js'
@@ -70,7 +70,7 @@ function drawMarker(ctx, marker, canvasWidth, canvasHeight) {
  *  NOTE: STRIP_CONFIGS, BAND_GROUPS in constants/bands.js, and
  *  FREQ_COLOUR_MAP in SignalHistoryLog.jsx are all
  *  in sync at 162.000 MHz for AIS (Phase 15b — dual-channel centre). */
-export const STRIP_CONFIGS = [
+const STRIP_CONFIGS = [
   { freq_hz: 98000000,   label: '98.0 MHz',    name: 'FM BROADCAST', colourVar: '--neon-cyan'    },
   { freq_hz: 145175000,  label: '145.175 MHz',  name: 'APRS',         colourVar: '--neon-green'  },
   { freq_hz: 127000000,  label: '127.0 MHz',   name: 'AVIATION VHF', colourVar: '--neon-cyan'   },
@@ -80,7 +80,7 @@ export const STRIP_CONFIGS = [
   { freq_hz: 1090000000, label: '1090.0 MHz',   name: 'ADS-B',        colourVar: '--neon-magenta'},
 ]
 
-/** Render one strip with memoised markers that advance with PSD/device scrolls. */
+/** Render one strip with PSD/device-driven markers and a frequency-aware overlay. */
 function WaterfallStrip({ config, latestPsd, focusedFreq, focusFrequency, singleBand, hideSidebar, device, markers, onStripScroll }) {
   const canvasRef = useRef(null)
   const crosshairRef = useRef(null)
@@ -106,6 +106,7 @@ function WaterfallStrip({ config, latestPsd, focusedFreq, focusFrequency, single
   useEffect(() => {
     if (!latestPsd || device == null) return
     onStripScroll(config.freq_hz, canvasSize.height)
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- Match useWaterfall scroll ticks on PSD or device changes only.
   }, [latestPsd, device])
 
   /**
@@ -180,7 +181,7 @@ function WaterfallStrip({ config, latestPsd, focusedFreq, focusFrequency, single
       ctx.fillStyle = 'rgba(0,255,255,0.9)'
       ctx.fillText(label, labelX, 24)
     }
-  }, [crosshairX, canvasSize, stripMarkers])
+  }, [crosshairX, canvasSize, stripMarkers, config.freq_hz])
 
   const isActive = config.freq_hz === focusedFreq
 

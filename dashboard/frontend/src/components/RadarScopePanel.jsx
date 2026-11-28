@@ -1,4 +1,4 @@
-import React, { useMemo, useRef } from 'react'
+import { useMemo, useRef } from 'react'
 import { projectToScope, isWithinRange, isValidContact, isAdsbFrequency } from './radar/projection.js'
 import { PREDICTION_HORIZON_SEC, derivePredictionVector, projectPosition } from '../utils/pathPrediction.js'
 import { formatDeltaR } from '../utils/aircraftFormat.js'
@@ -53,6 +53,7 @@ const r2 = (n) => Number(n.toFixed(2))
  * position, preventing flicker while keeping the stored trail untouched.
  * The deliberate shared trail Map is updated in the contacts memo and read
  * when rendering predictions, with local react-hooks/refs exemptions.
+ * The memo also depends on the stable shared or local trail ref.
  *
  * @param {Object} adsbAircraft - Map of ICAO address -> aircraft state
  * @param {number|null} focusedFreq - Currently tuned frequency in Hz
@@ -248,7 +249,7 @@ export default function RadarScopePanel({
       result.push({ ...ac, x: r2(pos.x), y: r2(pos.y), trailPoints })
     }
     return result
-  }, [adsbAircraft, maxRangeNm])
+  }, [adsbAircraft, maxRangeNm, trailsRef])
   /* eslint-enable react-hooks/refs */
 
   return (

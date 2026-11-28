@@ -1,4 +1,3 @@
-import React from 'react'
 
 /**
  * Capture button for the main spectrum view.

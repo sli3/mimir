@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSocket } from '../hooks/useSocket.js'
 import RadarScopePanel from '../components/RadarScopePanel.jsx'
 import AircraftDetailPanel from '../components/AircraftDetailPanel.jsx'

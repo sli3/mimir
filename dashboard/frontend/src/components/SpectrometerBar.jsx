@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useCallback, useState } from 'react'
+import { useRef, useEffect, useCallback, useState } from 'react'
 import { useCanvasSize } from '../hooks/useCanvasSize.js'
 import { WATERFALL_LABEL_WIDTH } from './WaterfallPanel.jsx'
 import { freqMatches } from '../utils/frequency.js'
@@ -17,8 +17,9 @@ function findLatestSpectrum(spectrumUpdates, focusedFreq) {
   return null
 }
 
-/** Draw the spectrum and a display-only crosshair, cleared on a band change. */
-export default function SpectrometerBar({ spectrumUpdates, focusedFreq, focusFrequency }) {
+/** Draw the spectrum and a display-only crosshair without a tuning callback.
+ *  Clear the crosshair on a band change. */
+export default function SpectrometerBar({ spectrumUpdates, focusedFreq }) {
   const containerRef = useRef(null)
   const canvasRef = useRef(null)
   const [crosshair, setCrosshair] = useState(null)

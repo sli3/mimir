@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
-import React from 'react'
 
 vi.mock('@react-three/fiber', () => ({
   Canvas: () => <div data-testid="canvas" />,
@@ -12,11 +11,12 @@ vi.mock('@react-three/drei', () => ({
   Html: ({ children }) => <div>{children}</div>,
 }))
 
-import VectorSpacePage, {
+import VectorSpacePage from '../pages/VectorSpacePage.jsx'
+import {
   VECTOR_COLOUR_MAP,
   normaliseLabel,
   getPointColour,
-} from '../pages/VectorSpacePage.jsx'
+} from '../utils/vectorColours.js'
 
 describe('VectorSpacePage', () => {
   beforeEach(() => {

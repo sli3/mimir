@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import React from 'react'
 
 import { projectToScope, isWithinRange, isValidContact, isAdsbFrequency } from '../components/radar/projection.js'
 import RadarScopePanel from '../components/RadarScopePanel.jsx'

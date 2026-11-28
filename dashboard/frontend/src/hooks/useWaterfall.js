@@ -144,7 +144,7 @@ export function computeScaleWindow(psdDb, profile) {
  * the waterfall intentionally draws nothing.
  *
  * @param {{ canvasRef: React.RefObject<HTMLCanvasElement>, psdDb: number[], device: string|null|undefined }} props
- *        ``canvasRef`` — the canvas element to draw onto.
+ *        ``canvasRef`` — stable ref to the canvas element to draw onto.
  *        ``psdDb`` — array of 2048 PSD power values in dBFS.
  *        ``device`` — raw SoapySDR driver string from system_stats
  *        ("hackrf" / "plutosdr"), or null/undefined while system_stats is
@@ -200,5 +200,5 @@ export function useWaterfall({ canvasRef, psdDb, device }) {
 
     // Write only the new top row
     ctx.putImageData(rowData, 0, 0)
-  }, [psdDb, device])
+  }, [psdDb, device, canvasRef])
 }

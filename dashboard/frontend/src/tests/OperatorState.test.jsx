@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { getOperatorState } from '../App.jsx'
+import { getOperatorState } from '../utils/operatorState.js'
 
 describe('getOperatorState', () => {
   it('returns MONITORING when freq_hz is null', () => {

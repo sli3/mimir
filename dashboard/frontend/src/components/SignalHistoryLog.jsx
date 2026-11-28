@@ -1,5 +1,5 @@
 import React from 'react'
-import { freqMatches, findCanonicalValue } from '../utils/frequency.js'
+import { findCanonicalValue } from '../utils/frequency.js'
 
 /** Colour mapping for AU band frequencies. */
 const FREQ_COLOUR_MAP = {

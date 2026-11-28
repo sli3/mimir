@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import React, { useState } from 'react'
+import { useState } from 'react'
 import RawDecodePanel from '../components/RawDecodePanel.jsx'
 
 // UI-OVERHAUL (Change 6): the RAW DECODE block was extracted from

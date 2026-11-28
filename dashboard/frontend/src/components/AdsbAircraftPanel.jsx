@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   formatAltitude,
   formatSpeed,
@@ -22,21 +22,22 @@ function elapsedSeconds(receivedAt) {
  * ADS-B aircraft tracking panel.
  * Shows active aircraft in a table with previously-seen aircraft below.
  * When both lists are empty, shows a listening or not-tuned message based
- * on the currently tuned frequency. A lazy clock initialiser and a one-second
- * interval keep elapsed-seconds readouts advancing without new aircraft data.
+ * on the currently tuned frequency. Lazily initialised clock state drives a
+ * one-second re-render without reading the state value itself, keeping
+ * elapsed-seconds readouts advancing without new aircraft data.
  *
  * @param {Object} adsbAircraft - Map of ICAO address -> aircraft state
  * @param {Array}  adsbAircraftHistory - Recently departed aircraft (ring buffer)
  * @param {number|null} focusedFreq - Currently tuned frequency in Hz
  */
 export default function AdsbAircraftPanel({ adsbAircraft = {}, adsbAircraftHistory = [], focusedFreq }) {
-  const [now, setNow] = useState(() => Date.now())
+  const [, setNow] = useState(() => Date.now())
   const isAdsbFreq = focusedFreq && (
     Math.abs(focusedFreq - 1_090_000_000) <= 2_000_000
   )
 
   // elapsedSeconds() reads Date.now() directly; this interval's re-render
-  // is what advances both tables' seconds-ago text, even though now is unused.
+  // advances both tables' seconds-ago text; the state value itself is not read.
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(timer)

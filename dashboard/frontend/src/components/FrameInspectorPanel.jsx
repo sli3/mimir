@@ -1,4 +1,3 @@
-import React from 'react'
 
 /**
  * FRAME INSPECTOR column panel (UI-OVERHAUL Change 6b).

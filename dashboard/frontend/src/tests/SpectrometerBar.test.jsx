@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
-import React from 'react'
+import { render, fireEvent } from '@testing-library/react'
 import SpectrometerBar from '../components/SpectrometerBar.jsx'
 import { WATERFALL_LABEL_WIDTH } from '../components/WaterfallPanel.jsx'
 

@@ -37,7 +37,7 @@ const INITIAL_AI_REASONING = {
 }
 
 /**
- * Subscribe to the Mimir SocketIO event stream.
+ * Subscribe to the Mimir SocketIO event stream once per mount.
  * Adopt the scanner's active frequency locally when stats report that the
  * focused band is unsupported, without emitting another retune request.
  *
@@ -46,6 +46,7 @@ const INITIAL_AI_REASONING = {
  *   `set_focus_frequency` on socket connect or adopt focus from stats.
  *   Used by read-only display pages
  *   (e.g. /radar) that should observe the stream without controlling the SDR.
+ *   Fixed per caller for the lifetime of the mounted subscription.
  * @returns {Object} The full socket state object.
  */
 export function useSocket({ skipInitialRetune = false } = {}) {
@@ -223,6 +224,7 @@ export function useSocket({ skipInitialRetune = false } = {}) {
       socket.off('adsb_aircraft')
       socket.disconnect()
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- Open once per mount; skipInitialRetune is a fixed per-caller option read by handlers.
   }, [])
 
   const focusFrequency = useCallback((freqHz) => {

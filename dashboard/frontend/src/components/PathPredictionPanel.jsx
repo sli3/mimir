@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import { useMemo } from 'react'
 import { isValidContact } from './radar/projection.js'
 import {
   PREDICTION_HORIZON_SEC,

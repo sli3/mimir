@@ -53,7 +53,7 @@ describe('useWaterfall logic', () => {
   it('downsamples 2048 values to pixel width using averaging', () => {
     const width = 10
     const height = 100
-    const { canvas, ctx } = createMockCanvas(width, height)
+    const { ctx } = createMockCanvas(width, height)
 
     const psdDb = new Array(NUM_PSD_BINS).fill(0)
     for (let i = 0; i < NUM_PSD_BINS; i++) {

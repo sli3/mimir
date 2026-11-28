@@ -2,46 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react'
 import * as THREE from 'three'
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls, Grid, Html } from '@react-three/drei'
+import { VECTOR_COLOUR_MAP, FALLBACK_COLOUR, getPointColour } from '../utils/vectorColours.js'
 import './VectorSpacePage.css'
-
-export const VECTOR_COLOUR_MAP = {
-  fm_broadcast: '#00f0ff',
-  adsb: '#ff2a6d',
-  ism_915: '#05ffa1',
-  aviation_vhf: '#fcee0a',
-  aprs: '#ff8a00',
-  acars: '#b400ff',
-  ais: '#2d7bff',
-  unknown: '#f5f5f5',
-}
-
-const FALLBACK_COLOUR = '#888888'
-
-const LABEL_NORMALISATION = {
-  fm_broadcast: 'fm_broadcast',
-  'fm broadcast': 'fm_broadcast',
-  aviation_vhf: 'aviation_vhf',
-  'aviation vhf': 'aviation_vhf',
-  acars: 'acars',
-  aprs: 'aprs',
-  ais: 'ais',
-  ism_lora: 'ism_915',
-  'ism lora': 'ism_915',
-  ism_915: 'ism_915',
-  ism: 'ism_915',
-  ads_b: 'adsb',
-  'ads b': 'adsb',
-  adsb: 'adsb',
-}
-
-export function normaliseLabel(label) {
-  const key = String(label ?? 'unknown').toLowerCase().replace(/[^a-z0-9]/g, '_')
-  return LABEL_NORMALISATION[key] || key
-}
-
-export function getPointColour(label) {
-  return VECTOR_COLOUR_MAP[normaliseLabel(label)] || FALLBACK_COLOUR
-}
 
 function formatNumber(value) {
   if (value === null || value === undefined) return '---'

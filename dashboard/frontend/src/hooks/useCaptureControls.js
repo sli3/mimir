@@ -5,6 +5,7 @@ import useWaterfallMarkers from './useWaterfallMarkers.js'
 
 /**
  * Coordinate capture and recording controls with waterfall event markers.
+ * Add markers only on capture or recording state transitions, not band changes.
  * @param {number} focusedFreq Currently focused frequency in Hz.
  * @returns {Object} Capture/recording state, click handlers and marker controls.
  */
@@ -58,6 +59,7 @@ export default function useCaptureControls(focusedFreq) {
       addCaptureMarker(pendingCaptureFreqRef.current ?? focusedFreq)
       pendingCaptureFreqRef.current = null
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- Capture transitions alone add markers; band or callback changes must not add duplicates.
   }, [captureState.status])
 
   useEffect(() => {
@@ -65,6 +67,7 @@ export default function useCaptureControls(focusedFreq) {
       addRecordStartMarker(pendingRecordFreqRef.current ?? focusedFreq)
       // Do NOT clear the ref — the upcoming stop uses the same freq.
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- Recording transitions alone add start markers; band or callback changes must not add duplicates.
   }, [recording])
 
   useEffect(() => {
@@ -72,6 +75,7 @@ export default function useCaptureControls(focusedFreq) {
       addRecordStopMarker(pendingRecordFreqRef.current ?? focusedFreq)
       pendingRecordFreqRef.current = null
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- Record result transitions alone add stop markers; band or callback changes must not add duplicates.
   }, [recordResult])
 
   return {

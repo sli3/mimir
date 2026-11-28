@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor, renderHook } from '@testing-library/react'
-import React from 'react'
 import RawDecodePanel from '../components/RawDecodePanel.jsx'
 import FrameInspectorPanel from '../components/FrameInspectorPanel.jsx'
 import useFrameInspector from '../hooks/useFrameInspector.js'

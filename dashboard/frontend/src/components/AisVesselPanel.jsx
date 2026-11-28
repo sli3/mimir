@@ -1,7 +1,3 @@
-import React from 'react'
-
-const neonGreen = '#00ff41'
-const neonPink = '#ff0055'
 
 /**
  * AisVesselPanel — renders decoded AIS vessel messages and raw NMEA log.
